@@ -1,0 +1,9 @@
+# pnpm build-script policy (pnpm 11 reads this here, not from package.json).
+# These three ship native binaries / prebuild steps we rely on:
+#   esbuild        — Vitest's bundler
+#   sharp          — Next.js image optimization
+#   unrs-resolver  — eslint-config-next's import resolver
+allowBuilds:
+  esbuild: true
+  sharp: true
+  unrs-resolver: true

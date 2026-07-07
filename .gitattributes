@@ -1,0 +1,13 @@
+# Normalize line endings: LF in the repo, regardless of contributor OS.
+# Keeps Windows dev and Linux CI byte-consistent (matters for the TST-05 golden file later).
+* text=auto eol=lf
+
+# Explicit binaries
+*.ico binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.woff binary
+*.woff2 binary
+*.xlsx binary

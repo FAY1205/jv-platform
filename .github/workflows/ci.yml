@@ -1,0 +1,56 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Fast gate on every PR and push: typecheck, lint, unit + integration tests.
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run typecheck
+      - run: pnpm run lint
+      - run: pnpm run test
+
+  # Heavier checks run on main only: end-to-end and performance.
+  e2e:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm exec playwright install --with-deps chromium
+      - run: pnpm run e2e
+
+  # Lighthouse performance gate (FEP-08, soft gate) — enabled once the dashboard
+  # and portal routes exist (WP-003/004+). Kept as a documented placeholder so the
+  # main-only performance step is wired but does not fail an empty app.
+  # lighthouse:
+  #   if: github.ref == 'refs/heads/main'
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #     - uses: treosh/lighthouse-ci-action@v12
+  #       with:
+  #         urls: |
+  #           http://localhost:3000/admin
+  #           http://localhost:3000/portal
+  #         configPath: ./lighthouserc.json
