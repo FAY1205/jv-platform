@@ -3,14 +3,19 @@ import { detectProfile, applyProfile, GENERIC_PROFILE } from "@/modules/sources"
 import { evaluate } from "@/modules/pipeline/mls";
 import { DEFAULT_MLS_PATTERNS } from "@/modules/pipeline/mls-patterns";
 import { normalizeZip, normalizeState } from "@/modules/pipeline/normalize";
+import { assign, buildCoverage } from "@/modules/pipeline/assign";
 import {
   BEES_PROFILE,
   ZOLO_ROWS,
   BEES_ROWS,
+  SYNTH_STATE_FALLBACKS,
   type SyntheticLead,
 } from "../fixtures/synthetic-week";
 
 const PROFILES = [GENERIC_PROFILE, BEES_PROFILE];
+
+// Phase-1 runtime coverage: no ZIP territories loaded — only the ASN-01 state fallbacks.
+const COVERAGE = buildCoverage([], SYNTH_STATE_FALLBACKS);
 
 // TST-05 (provisional): the full pure pipeline over a synthetic multi-source week.
 // Assignment + dedupe are added in Phase 1; the golden then pins to a rules snapshot.
@@ -33,9 +38,15 @@ describe("TST-05 (provisional): synthetic multi-source week", () => {
       expect(detected.profile?.id).toBe(profileId);
 
       const { canonical } = applyProfile(row, detected.profile!);
-      expect(normalizeZip(canonical.zip)).toBe(want.zip5); // NRM-01 leading zeros
-      expect(normalizeState(canonical.state)).toBe(want.state); // NRM-02 names→codes
+      const zip5 = normalizeZip(canonical.zip);
+      const state = normalizeState(canonical.state);
+      expect(zip5).toBe(want.zip5); // NRM-01 leading zeros
+      expect(state).toBe(want.state); // NRM-02 names→codes
       expect(evaluate(canonical.notes, DEFAULT_MLS_PATTERNS).verdict).toBe(want.mls); // MLS
+
+      const a = assign(zip5, state, COVERAGE); // ASN-01 (Phase-1: state fallback / unmatched)
+      expect(a.matchMethod).toBe(want.assign.matchMethod);
+      expect(a.partnerId).toBe(want.assign.partner);
     }
   };
 
@@ -53,5 +64,15 @@ describe("TST-05 (provisional): synthetic multi-source week", () => {
     expect(all.filter((l) => l.expect.mls === "kept").length).toBeGreaterThanOrEqual(6);
     // Leading-zero ZIPs are present (the CT/NJ Excel-drop hazard).
     expect(all.some((l) => l.expect.zip5.startsWith("0"))).toBe(true);
+  });
+
+  it("ASN-01: a national week yields a state-fallback + unmatched mix (no ZIP coverage in Phase 1)", () => {
+    const all = [...ZOLO_ROWS, ...BEES_ROWS];
+    const fallback = all.filter((l) => l.expect.assign.matchMethod === "state_fallback");
+    const unmatched = all.filter((l) => l.expect.assign.matchMethod === "none");
+    expect(fallback.length).toBeGreaterThanOrEqual(4);
+    expect(unmatched.length).toBeGreaterThanOrEqual(4);
+    // No ZIP matches are possible in Phase 1 — byZip is empty.
+    expect(all.some((l) => l.expect.assign.matchMethod === "zip")).toBe(false);
   });
 });
