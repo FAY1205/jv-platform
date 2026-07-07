@@ -1,0 +1,37 @@
+import * as React from "react";
+import { cn } from "@/lib/cn";
+
+export interface PartnerTagProps {
+  name: string;
+  /** Locked partner color hex (PRN-06). */
+  color: string;
+  /** Human-readable reference ID, e.g. "JV-003" (DM-07). */
+  refId?: string;
+  size?: "sm" | "md";
+  className?: string;
+}
+
+/**
+ * PartnerTag — the signature identity element. A partner is ALWAYS shown as
+ * color + name (+ reference ID), never color alone (PRN-14). This is the one
+ * component that turns the color-independence rule into the product's visual
+ * fingerprint; reuse it everywhere a partner appears (rows, legend, portal).
+ */
+export function PartnerTag({ name, color, refId, size = "md", className }: PartnerTagProps) {
+  const swatch = size === "sm" ? 14 : 18;
+  return (
+    <span className={cn("inline-flex items-center gap-2 font-semibold whitespace-nowrap", className)}>
+      <span
+        className="rounded-[6px] border border-black/15 shrink-0"
+        style={{ width: swatch, height: swatch, background: color }}
+        aria-hidden="true"
+      />
+      <span className={size === "sm" ? "text-xs" : "text-sm"}>{name}</span>
+      {refId && (
+        <span className="num text-[.66rem] font-medium text-text-3" aria-label={`Reference ${refId}`}>
+          {refId}
+        </span>
+      )}
+    </span>
+  );
+}
