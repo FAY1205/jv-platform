@@ -1,0 +1,162 @@
+import { and, eq, ne, isNull, inArray, sql } from "drizzle-orm";
+import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
+import * as schema from "@/db/schema";
+import { allocateRef } from "@/db/ref-ids";
+import { tenantWhere, type ScopeContext } from "@/lib/scope";
+import type { RunStore, PersistRunInput, PersistRunResult } from "./process";
+import type { HistoryEntry } from "../pipeline/dedupe";
+import type { PartnerInfo } from "../export/render";
+import type { MatchMethod } from "../pipeline/assign";
+
+// ─────────────────────────────────────────────────────────────────────────────
+// DrizzleRunStore (WP-017b) — the DB adapter behind the RunStore port. Reads go
+// through the scoping guard (PRN-08); the persist runs in ONE transaction that
+// first takes a per-tenant advisory lock (ING-06 serialization) so concurrent
+// uploads never interleave. New leads are inserted; a lead whose dedupe_key already
+// exists (previously matched, or a within-run duplicate) is NOT re-inserted —
+// ON CONFLICT (tenant_id, dedupe_key) DO NOTHING preserves the one canonical row and
+// its first_matched_at (PRN-05), and the export references the existing ref-id.
+// ─────────────────────────────────────────────────────────────────────────────
+
+type DB = PostgresJsDatabase<typeof schema>;
+
+/** Admin scope for the system-triggered run (tenant-scoped reads via the guard). */
+function systemScope(tenantId: string): ScopeContext {
+  return { tenantId, role: "admin", userId: "00000000-0000-0000-0000-000000000000" };
+}
+
+export class DrizzleRunStore implements RunStore {
+  constructor(private db: DB) {}
+
+  async loadHistory(tenantId: string): Promise<Map<string, HistoryEntry>> {
+    const scope = systemScope(tenantId);
+    const rows = await this.db
+      .select({
+        dedupeKey: schema.leads.dedupeKey,
+        partnerId: schema.leads.partnerId,
+        matchMethod: schema.leads.matchMethod,
+        firstMatchedAt: schema.leads.firstMatchedAt,
+        phoneNorm: schema.leads.phoneNorm,
+      })
+      .from(schema.leads)
+      .innerJoin(schema.uploads, eq(schema.leads.uploadId, schema.uploads.id))
+      .where(
+        and(
+          tenantWhere(schema.leads, scope),
+          isNull(schema.leads.deletedAt),
+          ne(schema.uploads.status, "voided"), // voided runs never poison dedupe (ING-09)
+        ),
+      );
+
+    const map = new Map<string, HistoryEntry>();
+    for (const r of rows) {
+      // The unique (tenant, dedupe_key) index means one row per key; keep the first seen.
+      if (map.has(r.dedupeKey)) continue;
+      map.set(r.dedupeKey, {
+        partnerId: r.partnerId,
+        matchMethod: r.matchMethod as MatchMethod,
+        firstMatchedAt: r.firstMatchedAt ? r.firstMatchedAt.toISOString() : "",
+        phoneNorm: r.phoneNorm ?? "",
+      });
+    }
+    return map;
+  }
+
+  async loadPartners(tenantId: string): Promise<Map<string, PartnerInfo>> {
+    const scope = systemScope(tenantId);
+    const rows = await this.db
+      .select({
+        id: schema.partners.id,
+        name: schema.partners.name,
+        refId: schema.partners.refId,
+        color: schema.partners.color,
+      })
+      .from(schema.partners)
+      .where(and(tenantWhere(schema.partners, scope), isNull(schema.partners.deletedAt)));
+    return new Map(rows.map((p) => [p.id, { id: p.id, name: p.name, refId: p.refId, color: p.color }]));
+  }
+
+  async persistRun(input: PersistRunInput): Promise<PersistRunResult> {
+    return this.db.transaction(async (tx) => {
+      const txDb = tx as unknown as PostgresJsDatabase<Record<string, unknown>>;
+
+      // ING-06: one run at a time per tenant. The lock releases at commit/rollback.
+      await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${input.tenantId})::bigint)`);
+
+      const uploadRefId = await allocateRef(txDb, input.tenantId, "upload", input.year);
+      const [upload] = await tx
+        .insert(schema.uploads)
+        .values({
+          tenantId: input.tenantId,
+          refId: uploadRefId,
+          filename: input.filename,
+          status: "processed",
+          rowCount: input.leads.length,
+          rulesHash: input.rulesHash,
+          rulesSnapshot: input.rulesSnapshot as object,
+        })
+        .returning({ id: schema.uploads.id });
+
+      // Insert only NEW leads; repeats (previously matched / within-run dup) already exist.
+      const refByKey = new Map<string, string>();
+      for (const lead of input.leads) {
+        if (lead.previouslyMatched || refByKey.has(lead.dedupeKey)) continue;
+        const leadRefId = await allocateRef(txDb, input.tenantId, "lead", input.year);
+        const sep = lead.dedupeKey.lastIndexOf("|");
+        const inserted = await tx
+          .insert(schema.leads)
+          .values({
+            tenantId: input.tenantId,
+            refId: leadRefId,
+            uploadId: upload.id,
+            dedupeKey: lead.dedupeKey,
+            rawJson: lead.rawJson,
+            campaign: lead.campaign,
+            dateCreated: lead.dateCreated,
+            notes: lead.notes,
+            address: lead.address,
+            addressNormalized: sep >= 0 ? lead.dedupeKey.slice(0, sep) : lead.dedupeKey,
+            city: lead.city,
+            state: lead.state,
+            zip: lead.zip,
+            sellerFirst: lead.sellerFirst,
+            sellerLast: lead.sellerLast,
+            phone: lead.phone,
+            phoneNorm: lead.phoneNorm,
+            email: lead.email,
+            reasonForSelling: lead.reasonForSelling,
+            motivation: lead.motivation,
+            timeToSell: lead.timeToSell,
+            partnerId: lead.partnerId,
+            matchMethod: lead.matchMethod,
+            mlsStatus: lead.mlsStatus,
+            mlsReason: lead.mlsReason,
+            mlsPatternKey: lead.mlsPatternKey,
+            mlsMatchSpan: lead.mlsMatchSpan,
+            previouslyMatched: false,
+            firstMatchedAt: new Date(lead.firstMatchedAt),
+            possibleMlsListing: lead.possibleMlsListing,
+          })
+          .onConflictDoNothing({ target: [schema.leads.tenantId, schema.leads.dedupeKey] })
+          .returning({ refId: schema.leads.refId });
+        if (inserted[0]) refByKey.set(lead.dedupeKey, inserted[0].refId);
+      }
+
+      // Resolve ref-ids for previously-matched (and any conflicted) keys from existing rows.
+      const unresolved = [...new Set(input.leads.map((l) => l.dedupeKey).filter((k) => !refByKey.has(k)))];
+      if (unresolved.length > 0) {
+        const existing = await tx
+          .select({ dedupeKey: schema.leads.dedupeKey, refId: schema.leads.refId })
+          .from(schema.leads)
+          .where(and(eq(schema.leads.tenantId, input.tenantId), inArray(schema.leads.dedupeKey, unresolved)));
+        for (const e of existing) refByKey.set(e.dedupeKey, e.refId);
+      }
+
+      return {
+        uploadId: upload.id,
+        uploadRefId,
+        leadRefIds: input.leads.map((l) => refByKey.get(l.dedupeKey) ?? ""),
+      };
+    });
+  }
+}
