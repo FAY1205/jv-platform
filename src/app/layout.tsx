@@ -1,18 +1,30 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { Inter, Space_Grotesk, IBM_Plex_Mono } from "next/font/google";
 import "./globals.css";
 import { APP_NAME } from "@/lib/app";
 
-// NOTE: fonts are the create-next-app default (Geist). The token-driven typography
-// (Space Grotesk / Inter / IBM Plex Mono per DSN-02) is introduced in WP-003.
-const geistSans = Geist({
-  variable: "--font-geist-sans",
+// Typography roles per DSN-02:
+//   body/UI  → Inter
+//   display  → Space Grotesk (headings, KPIs)
+//   mono     → IBM Plex Mono (IDs, ZIPs, counts — the "ledger" numerics)
+const inter = Inter({
+  variable: "--font-inter",
   subsets: ["latin"],
+  display: "swap",
 });
 
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
+const spaceGrotesk = Space_Grotesk({
+  variable: "--font-space-grotesk",
   subsets: ["latin"],
+  weight: ["500", "600", "700"],
+  display: "swap",
+});
+
+const ibmPlexMono = IBM_Plex_Mono({
+  variable: "--font-ibm-plex-mono",
+  subsets: ["latin"],
+  weight: ["400", "500", "600"],
+  display: "swap",
 });
 
 export const metadata: Metadata = {
@@ -29,7 +41,7 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
+      className={`${inter.variable} ${spaceGrotesk.variable} ${ibmPlexMono.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col">{children}</body>
     </html>
