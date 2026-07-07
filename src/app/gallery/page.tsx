@@ -11,12 +11,26 @@ import {
   Stat,
   PartnerTag,
   Input,
+  Select,
+  Table,
+  THead,
+  TBody,
+  Th,
+  Tr,
+  Td,
+  type SortDir,
+  Tabs,
+  Modal,
+  Tooltip,
+  ToastProvider,
+  useToast,
+  EmptyState,
   Skeleton,
 } from "@/components";
 import { PARTNER_PALETTE } from "@/lib/tokens/tokens";
 import { APP_NAME } from "@/lib/app";
 
-const SEMANTIC_SWATCHES: { label: string; varName: string; text?: boolean }[] = [
+const SEMANTIC_SWATCHES: { label: string; varName: string }[] = [
   { label: "bg", varName: "--bg" },
   { label: "surface", varName: "--surface" },
   { label: "surface-2", varName: "--surface-2" },
@@ -73,16 +87,33 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 }
 
 export default function GalleryPage() {
+  return (
+    <ToastProvider>
+      <Gallery />
+    </ToastProvider>
+  );
+}
+
+function Gallery() {
+  const { toast } = useToast();
   const [theme, setTheme] = React.useState<"light" | "dark">("light");
   const [loading, setLoading] = React.useState(false);
+  const [tab, setTab] = React.useState("zip");
+  const [modalOpen, setModalOpen] = React.useState(false);
+  const [addrSort, setAddrSort] = React.useState<SortDir>(null);
 
   React.useEffect(() => {
     document.documentElement.dataset.theme = theme;
   }, [theme]);
 
+  const rows = React.useMemo(() => {
+    const base = [...LEADS];
+    if (!addrSort) return base;
+    return base.sort((a, b) => (a.addr < b.addr ? -1 : 1) * (addrSort === "asc" ? 1 : -1));
+  }, [addrSort]);
+
   return (
     <div className="min-h-full bg-bg text-text">
-      {/* Top bar */}
       <header className="sticky top-0 z-10 flex items-center gap-3 h-14 px-5 border-b border-border bg-surface">
         <span className="grid grid-cols-3 gap-[2px]" aria-hidden="true">
           {PARTNER_PALETTE.slice(0, 9).map((p) => (
@@ -90,9 +121,7 @@ export default function GalleryPage() {
           ))}
         </span>
         <h1 className="font-display text-base font-bold tracking-tight">{APP_NAME}</h1>
-        <Badge variant="outline" className="ml-1">
-          design system
-        </Badge>
+        <Badge variant="outline" className="ml-1">design system</Badge>
         <div className="ml-auto">
           <Button size="sm" variant="secondary" onClick={() => setTheme((t) => (t === "light" ? "dark" : "light"))}>
             {theme === "light" ? "◑ Dark" : "◐ Light"}
@@ -102,12 +131,11 @@ export default function GalleryPage() {
 
       <main className="max-w-5xl mx-auto px-6 pb-20">
         <div className="mt-8">
-          <h1 className="font-display text-2xl font-semibold tracking-tight">Component library preview</h1>
+          <h1 className="font-display text-2xl font-semibold tracking-tight">Component library</h1>
           <p className="mt-2 text-text-2 max-w-2xl text-sm">
-            The baseline is the demo&apos;s language — teal, Space&nbsp;Grotesk, Inter, IBM&nbsp;Plex&nbsp;Mono.
-            The distinctive moves: the <b>partner token</b> (color + name + mono reference&nbsp;ID, so identity
-            never rides on color alone), <b>ledger-grade tabular numerics</b>, and the partner-colored routing
-            table. Toggle the theme, top-right.
+            Baseline is the demo&apos;s language — teal, Space&nbsp;Grotesk, Inter, IBM&nbsp;Plex&nbsp;Mono.
+            The distinctive moves: the <b>partner token</b> (color + name + mono reference&nbsp;ID),
+            <b> ledger-grade tabular numerics</b>, and the partner-colored routing table.
           </p>
         </div>
 
@@ -115,10 +143,7 @@ export default function GalleryPage() {
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
             {SEMANTIC_SWATCHES.map((s) => (
               <div key={s.varName} className="flex items-center gap-3">
-                <span
-                  className="w-9 h-9 rounded-md border border-border shrink-0"
-                  style={{ background: `var(${s.varName})` }}
-                />
+                <span className="w-9 h-9 rounded-md border border-border shrink-0" style={{ background: `var(${s.varName})` }} />
                 <div className="leading-tight">
                   <div className="text-xs font-semibold">{s.label}</div>
                   <div className="num text-[.66rem] text-text-3">{s.varName}</div>
@@ -140,12 +165,8 @@ export default function GalleryPage() {
           <Card>
             <CardBody className="flex flex-col gap-3">
               <div className="font-display text-3xl font-bold tracking-tight">Display · Space Grotesk</div>
-              <div className="text-base text-text-2">
-                Body · Inter — deterministic lead-routing you can audit lead by lead.
-              </div>
-              <div className="num text-sm text-text-2">
-                Mono · IBM Plex — LD-2026-00404 · ZIP 06404 · 06511 · 1,284 leads · 77.8%
-              </div>
+              <div className="text-base text-text-2">Body · Inter — deterministic lead-routing you can audit lead by lead.</div>
+              <div className="num text-sm text-text-2">Mono · IBM Plex — LD-2026-00404 · ZIP 06404 · 06511 · 1,284 leads · 77.8%</div>
             </CardBody>
           </Card>
         </Section>
@@ -157,7 +178,7 @@ export default function GalleryPage() {
                 <Button variant="primary">Process file</Button>
                 <Button variant="secondary">Export</Button>
                 <Button variant="ghost">Cancel</Button>
-                <Button variant="danger">Void run</Button>
+                <Button variant="danger" onClick={() => setModalOpen(true)}>Void run</Button>
               </div>
               <div className="flex flex-wrap items-center gap-3">
                 <Button variant="primary" size="sm">Small primary</Button>
@@ -187,19 +208,44 @@ export default function GalleryPage() {
 
         <Section title="KPI readouts">
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-3.5">
-            <Card><CardBody><Stat label="Matched this week" value="21" delta={{ dir: "up", text: "16%" }} foot="of 27 uploaded · 77.8% match rate" /></CardBody></Card>
+            <Card><CardBody><Stat label="Matched this week" value="21" delta={{ dir: "up", text: "16%" }} foot={<Tooltip content="Matched ÷ uploaded, this run"><span className="underline decoration-dotted cursor-help">77.8% match rate</span></Tooltip>} /></CardBody></Card>
             <Card><CardBody><Stat label="Removed · on-market" value="3" delta={{ dir: "flat", text: "0%" }} foot="explicit MLS positive in Notes" /></CardBody></Card>
             <Card><CardBody><Stat label="Unmatched · gaps" value="2" delta={{ dir: "down", text: "2" }} foot="TX, MS — no partner rule" /></CardBody></Card>
             <Card><CardBody><Stat label="Processing time" value={<>41<span className="text-text-3 text-xl">s</span></>} foot="upload → distributed · 8 steps" /></CardBody></Card>
           </div>
         </Section>
 
-        <Section title="Inputs">
+        <Section title="Form controls">
           <Card>
-            <CardBody className="grid sm:grid-cols-3 gap-4">
+            <CardBody className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
               <Input label="Partner name" placeholder="e.g. Josh Ax" defaultValue="Josh Ax" />
-              <Input label="Seller ZIP" placeholder="5 digits" hint="Leading zeros are preserved" defaultValue="06511" />
+              <Input label="Seller ZIP" placeholder="5 digits" hint="Leading zeros preserved" defaultValue="06511" />
               <Input label="Seller ZIP" placeholder="5 digits" defaultValue="6404" error="ZIP must be 5 digits" />
+              <Select label="Match type" defaultValue="zip" options={[{ value: "zip", label: "ZIP match" }, { value: "state", label: "State fallback" }, { value: "none", label: "Unmatched" }]} />
+            </CardBody>
+          </Card>
+        </Section>
+
+        <Section title="Tabs & overlays">
+          <Card>
+            <CardBody className="flex flex-col gap-4">
+              <Tabs
+                items={[
+                  { id: "zip", label: "ZIP coverage" },
+                  { id: "state", label: "State fallbacks" },
+                  { id: "mls", label: "MLS patterns" },
+                ]}
+                value={tab}
+                onValueChange={setTab}
+              />
+              <p className="text-sm text-text-2">
+                Active tab: <span className="num">{tab}</span> — tabs are keyboard-navigable (←/→).
+              </p>
+              <div className="flex flex-wrap gap-3">
+                <Button variant="secondary" onClick={() => setModalOpen(true)}>Open confirm dialog</Button>
+                <Button variant="secondary" onClick={() => toast("Export started — you’ll be notified")}>Show toast</Button>
+                <Button variant="secondary" onClick={() => toast("Status saved — visible to your admin", "success")}>Success toast</Button>
+              </div>
             </CardBody>
           </Card>
         </Section>
@@ -210,65 +256,81 @@ export default function GalleryPage() {
               <CardTitle>Leads — this upload</CardTitle>
               <span className="text-xs text-text-3">row color = partner · ZIP beats state fallback</span>
             </CardHeader>
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm border-collapse">
-                <thead>
-                  <tr className="text-left">
-                    {["Lead ID", "Partner", "Address", "City", "St", "ZIP", "Seller", "Match", "Prev.", "MLS?"].map((h) => (
-                      <th key={h} className="text-[.65rem] uppercase tracking-wider text-text-3 font-semibold px-3.5 py-2.5 border-b border-border bg-surface-2 whitespace-nowrap">
-                        {h}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {LEADS.map((l) => {
-                    const c = colorOf(l.partner);
-                    return (
-                      <tr
-                        key={l.id}
-                        className="border-b border-border-soft"
-                        style={{ background: `color-mix(in srgb, ${c} 7%, var(--surface))` }}
-                      >
-                        <td className="num text-text-3 px-3.5 py-2.5 whitespace-nowrap" style={{ borderLeft: `3px solid ${c}` }}>{l.id}</td>
-                        <td className="px-3.5 py-2.5"><PartnerTag name={l.partner} color={c} refId={refOf(l.partner)} size="sm" /></td>
-                        <td className="px-3.5 py-2.5 whitespace-nowrap">{l.addr}</td>
-                        <td className="px-3.5 py-2.5">{l.city}</td>
-                        <td className="px-3.5 py-2.5">{l.st}</td>
-                        <td className="num px-3.5 py-2.5">{l.zip}</td>
-                        <td className="px-3.5 py-2.5 whitespace-nowrap">{l.seller}</td>
-                        <td className="px-3.5 py-2.5">{l.match === "zip" ? <Badge variant="zip" dot>ZIP</Badge> : <Badge variant="state" dot>State</Badge>}</td>
-                        <td className="px-3.5 py-2.5">{l.prev ? <Badge variant="prev">Yes</Badge> : <span className="text-text-3">—</span>}</td>
-                        <td className="px-3.5 py-2.5"><MlsBadge v={l.mls} /></td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
+            <Table>
+              <THead>
+                <tr>
+                  <Th>Lead ID</Th>
+                  <Th>Partner</Th>
+                  <Th sortable sortDir={addrSort} onSort={() => setAddrSort((d) => (d === "asc" ? "desc" : "asc"))}>Address</Th>
+                  <Th>City</Th>
+                  <Th>St</Th>
+                  <Th>ZIP</Th>
+                  <Th>Seller</Th>
+                  <Th>Match</Th>
+                  <Th>Prev.</Th>
+                  <Th>MLS?</Th>
+                </tr>
+              </THead>
+              <TBody>
+                {rows.map((l) => {
+                  const c = colorOf(l.partner);
+                  return (
+                    <Tr key={l.id} accent={c}>
+                      <Td rail={c} className="num text-text-3 whitespace-nowrap">{l.id}</Td>
+                      <Td><PartnerTag name={l.partner} color={c} refId={refOf(l.partner)} size="sm" /></Td>
+                      <Td className="whitespace-nowrap">{l.addr}</Td>
+                      <Td>{l.city}</Td>
+                      <Td>{l.st}</Td>
+                      <Td className="num">{l.zip}</Td>
+                      <Td className="whitespace-nowrap">{l.seller}</Td>
+                      <Td>{l.match === "zip" ? <Badge variant="zip" dot>ZIP</Badge> : <Badge variant="state" dot>State</Badge>}</Td>
+                      <Td>{l.prev ? <Badge variant="prev">Yes</Badge> : <span className="text-text-3">—</span>}</Td>
+                      <Td><MlsBadge v={l.mls} /></Td>
+                    </Tr>
+                  );
+                })}
+              </TBody>
+            </Table>
           </Card>
+        </Section>
 
-          <div className="mt-4 flex flex-wrap gap-2">
-            {PARTNER_PALETTE.slice(0, 4).map((p) => (
-              <span key={p.name} className="inline-flex items-center gap-2 border border-border rounded-md px-3 py-1.5 text-xs font-semibold bg-surface">
-                <span className="w-[18px] h-[18px] rounded-[6px] border border-black/15" style={{ background: p.hex }} />
-                {p.name}
-                <span className="num text-[.62rem] text-text-3">{p.hex.toUpperCase()}</span>
-              </span>
-            ))}
+        <Section title="Empty & loading states">
+          <div className="grid md:grid-cols-2 gap-3.5">
+            <Card>
+              <EmptyState
+                icon={<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><path d="m17 8-5-5-5 5" /><path d="M12 3v12" /></svg>}
+                title="No uploads yet"
+                description="Process your first weekly file to see matched leads, removals, and coverage gaps here."
+                action={<Button variant="primary">New upload</Button>}
+              />
+            </Card>
+            <Card>
+              <CardBody className="flex flex-col gap-3">
+                <Skeleton className="h-3 w-2/5" />
+                <Skeleton className="h-8 w-1/4" />
+                <Skeleton className="h-24 w-full" />
+              </CardBody>
+            </Card>
           </div>
         </Section>
-
-        <Section title="Loading state">
-          <Card>
-            <CardBody className="flex flex-col gap-3">
-              <Skeleton className="h-3 w-2/5" />
-              <Skeleton className="h-8 w-1/4" />
-              <Skeleton className="h-24 w-full" />
-            </CardBody>
-          </Card>
-        </Section>
       </main>
+
+      <Modal
+        open={modalOpen}
+        onClose={() => setModalOpen(false)}
+        title="Delete partner JV-003 — Michael Pinter?"
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setModalOpen(false)}>Cancel</Button>
+            <Button variant="danger" onClick={() => { setModalOpen(false); toast("Partner deleted", "danger"); }}>Delete partner</Button>
+          </>
+        }
+      >
+        <p className="text-sm text-text-2">
+          This partner owns coverage ZIPs. Historical assignments are kept (PRN-05); future runs route their
+          territory to Unmatched until reassigned. High-impact deletes require typing the reference ID (FRM-03).
+        </p>
+      </Modal>
     </div>
   );
 }
