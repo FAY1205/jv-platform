@@ -1,0 +1,57 @@
+import { describe, it, expect } from "vitest";
+import { detectProfile, applyProfile, GENERIC_PROFILE } from "@/modules/sources";
+import { evaluate } from "@/modules/pipeline/mls";
+import { DEFAULT_MLS_PATTERNS } from "@/modules/pipeline/mls-patterns";
+import { normalizeZip, normalizeState } from "@/modules/pipeline/normalize";
+import {
+  BEES_PROFILE,
+  ZOLO_ROWS,
+  BEES_ROWS,
+  type SyntheticLead,
+} from "../fixtures/synthetic-week";
+
+const PROFILES = [GENERIC_PROFILE, BEES_PROFILE];
+
+// TST-05 (provisional): the full pure pipeline over a synthetic multi-source week.
+// Assignment + dedupe are added in Phase 1; the golden then pins to a rules snapshot.
+describe("TST-05 (provisional): synthetic multi-source week", () => {
+  it("auto-detects each source format exactly", () => {
+    expect(detectProfile(Object.keys(ZOLO_ROWS[0].row), PROFILES)).toMatchObject({
+      status: "exact",
+      profile: { id: "generic" },
+    });
+    expect(detectProfile(Object.keys(BEES_ROWS[0].row), PROFILES)).toMatchObject({
+      status: "exact",
+      profile: { id: "bees" },
+    });
+  });
+
+  const run = (rows: SyntheticLead[], profileId: string) => {
+    for (const { row, expect: want } of rows) {
+      const detected = detectProfile(Object.keys(row), PROFILES);
+      expect(detected.status).toBe("exact");
+      expect(detected.profile?.id).toBe(profileId);
+
+      const { canonical } = applyProfile(row, detected.profile!);
+      expect(normalizeZip(canonical.zip)).toBe(want.zip5); // NRM-01 leading zeros
+      expect(normalizeState(canonical.state)).toBe(want.state); // NRM-02 names→codes
+      expect(evaluate(canonical.notes, DEFAULT_MLS_PATTERNS).verdict).toBe(want.mls); // MLS
+    }
+  };
+
+  it("maps, normalizes, and MLS-filters every Zolo-format lead as expected", () => {
+    run(ZOLO_ROWS, "generic");
+  });
+
+  it("maps, normalizes, and MLS-filters every Bees-format lead as expected", () => {
+    run(BEES_ROWS, "bees");
+  });
+
+  it("covers the outcome mix a real week has (kept, removed, both formats)", () => {
+    const all = [...ZOLO_ROWS, ...BEES_ROWS];
+    expect(all.filter((l) => l.expect.mls === "removed").length).toBeGreaterThanOrEqual(3);
+    expect(all.filter((l) => l.expect.mls === "kept").length).toBeGreaterThanOrEqual(6);
+    // Leading-zero ZIPs are present (the CT/NJ Excel-drop hazard).
+    expect(all.some((l) => l.expect.zip5.startsWith("0"))).toBe(true);
+  });
+});
