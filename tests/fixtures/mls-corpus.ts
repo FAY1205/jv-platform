@@ -75,4 +75,33 @@ export const MLS_CORPUS: readonly MlsCase[] = [
   { id: "PRN-04: bare 'none'", notes: "photos: none yet", expected: "kept", why: "'none' is not 'no mls'" },
   { id: "PRN-04: bare 'n'", notes: "seller is nervous about timing", expected: "kept", why: "bare 'n' must not trigger" },
   { id: "PRN-04: 'off market' negative only", notes: "off market — never listed", expected: "kept", why: "two negatives, still kept" },
+
+  // ── WP-013: real InvestorFuse note forms (verified against the two live weeks) ──
+  // The dominant real survey form; note the "If Yes, MLS Date Active :" trailer must NOT
+  // read as an 'mls ... active' positive, and capital "Yes" is matched case-insensitively.
+  {
+    id: "WP-013 real: is it listed? : Yes (with trailer)",
+    notes: "Is it Listed? : Yes  If Yes, MLS Date Active :",
+    expected: "removed",
+    why: "real InvestorFuse positive; 'MLS Date Active' trailer is not a positive pattern",
+  },
+  {
+    id: "WP-013 real: is it listed? : false (with trailer)",
+    notes: "Is it Listed? : false If Yes, MLS Date Active :",
+    expected: "kept",
+    why: "real InvestorFuse 'false' answer → keep-override",
+  },
+  {
+    id: "WP-013 real: two survey blocks, both Yes",
+    notes: "Is it Listed? : Yes  If Yes, MLS Date Active :  \nIs it Listed? : Yes  If Yes, MLS Date Active :",
+    expected: "removed",
+    why: "multi-block real notes; any positive with no negative ⇒ removed",
+  },
+  {
+    id: "WP-013 real: AI negotiation prose, no listing question (defensive)",
+    notes:
+      "### Top 3-5 Negotiation Pressure Points:\n1. Comparable homes sat on the market for 90+ days before selling. No MLS Date Active recorded; seller is motivated.",
+    expected: "kept",
+    why: "free-text analysis: 'on the market' (with 'the') and 'MLS Date Active' must not trip any disqualify pattern",
+  },
 ];

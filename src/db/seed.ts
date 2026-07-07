@@ -3,7 +3,7 @@ import { eq, sql } from "drizzle-orm";
 import postgres from "postgres";
 import * as schema from "./schema";
 import { DEFAULT_MLS_PATTERNS } from "../modules/pipeline/mls-patterns";
-import { GENERIC_PROFILE } from "../modules/sources/seed-profiles";
+import { SEED_SOURCE_PROFILES } from "../modules/sources/seed-profiles";
 import { PARTNER_PALETTE } from "../lib/tokens/tokens";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -95,16 +95,18 @@ async function main() {
       { tenantId, matchPattern: "Real Estate Bees", code: "B" },
     ]);
 
-    // Source profile (WP-010 seed).
-    await db.insert(schema.sourceProfiles).values({
-      tenantId,
-      name: GENERIC_PROFILE.name,
-      version: GENERIC_PROFILE.version,
-      headerSignature: GENERIC_PROFILE.headerSignature,
-      mapping: GENERIC_PROFILE.mapping,
-      requiredColumns: GENERIC_PROFILE.requiredColumns,
-      strictness: GENERIC_PROFILE.strictness,
-    });
+    // Source profiles: InvestorFuse v1 (WP-013, the real source) + Generic fallback (WP-010).
+    await db.insert(schema.sourceProfiles).values(
+      SEED_SOURCE_PROFILES.map((p) => ({
+        tenantId,
+        name: p.name,
+        version: p.version,
+        headerSignature: p.headerSignature,
+        mapping: p.mapping,
+        requiredColumns: p.requiredColumns,
+        strictness: p.strictness,
+      })),
+    );
 
     // Settings defaults (SET catalog; PRN-11 — every setting has a default).
     await db.insert(schema.settings).values([
@@ -127,7 +129,8 @@ async function main() {
     ]);
 
     console.log(`Seeded dev tenant ${tenantId}: ${PARTNER_PALETTE.length} partners, ` +
-      `${DEFAULT_MLS_PATTERNS.length} MLS patterns, ${STATE_RULES.length} state rules.`);
+      `${DEFAULT_MLS_PATTERNS.length} MLS patterns, ${STATE_RULES.length} state rules, ` +
+      `${SEED_SOURCE_PROFILES.length} source profiles.`);
   } finally {
     await client.end();
   }

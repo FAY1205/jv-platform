@@ -10,4 +10,4 @@ export {
   type DetectResult,
 } from "./signature";
 export { applyProfile, findRowErrors, type AppliedRow } from "./apply";
-export { GENERIC_PROFILE, SEED_SOURCE_PROFILES } from "./seed-profiles";
+export { GENERIC_PROFILE, INVESTORFUSE_PROFILE, SEED_SOURCE_PROFILES } from "./seed-profiles";
