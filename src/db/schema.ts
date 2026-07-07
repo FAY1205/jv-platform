@@ -40,6 +40,7 @@ export const authorRoleEnum = pgEnum("author_role", ["admin", "partner"]);
 export const listingStatusEnum = pgEnum("listing_status", ["pending", "yes", "no", "unknown"]);
 export const refEntityEnum = pgEnum("ref_entity", ["partner", "lead", "upload"]);
 export const feedbackRatingEnum = pgEnum("feedback_rating", ["up", "down"]);
+export const idempotencyStatusEnum = pgEnum("idempotency_status", ["in_progress", "completed"]);
 
 const createdAt = () => timestamp("created_at", { withTimezone: true }).notNull().defaultNow();
 const updatedAt = () => timestamp("updated_at", { withTimezone: true }).notNull().defaultNow();
@@ -453,4 +454,20 @@ export const refCounters = pgTable(
     counter: integer("counter").notNull().default(0),
   },
   (t) => [primaryKey({ columns: [t.tenantId, t.entity, t.year] })],
+);
+
+// ── Idempotency keys (API-03): retried upload/job requests never double-process. ──
+export const idempotencyKeys = pgTable(
+  "idempotency_keys",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenants.id),
+    key: text("key").notNull(),
+    status: idempotencyStatusEnum("status").notNull().default("in_progress"),
+    response: jsonb("response"),
+    createdAt: createdAt(),
+  },
+  (t) => [uniqueIndex("idempotency_tenant_key_idx").on(t.tenantId, t.key)],
 );

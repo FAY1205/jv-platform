@@ -15,6 +15,20 @@
       "when": 1783436079665,
       "tag": "0001_rls_and_constraints",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1783438725536,
+      "tag": "0002_overrated_butterfly",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1783438727479,
+      "tag": "0003_idempotency_rls",
+      "breakpoints": true
     }
   ]
 }
