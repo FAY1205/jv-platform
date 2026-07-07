@@ -42,6 +42,9 @@ yarn-error.log*
 /playwright-report
 /playwright/.cache
 
+# real sample lead files — contain seller PII, NEVER commit (SEC-05/LGL)
+/.samples/
+
 # typescript
 *.tsbuildinfo
 next-env.d.ts
