@@ -13,6 +13,26 @@ import {
   EmptyState,
 } from "@/components";
 
+describe("Input: password show/hide toggle", () => {
+  it("reveals and hides the password value on toggle", async () => {
+    const user = userEvent.setup();
+    render(<Input label="Password" type="password" defaultValue="secret" />);
+    const input = screen.getByLabelText("Password") as HTMLInputElement;
+    expect(input.type).toBe("password");
+    const toggle = screen.getByRole("button", { name: "Show password" });
+    await user.click(toggle);
+    expect(input.type).toBe("text");
+    expect(screen.getByRole("button", { name: "Hide password" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Hide password" }));
+    expect(input.type).toBe("password");
+  });
+
+  it("shows no toggle for non-password inputs", () => {
+    render(<Input label="Email" type="email" />);
+    expect(screen.queryByRole("button", { name: /password/i })).toBeNull();
+  });
+});
+
 describe("DSN-03: Button states", () => {
   it("disables and marks aria-busy when loading", () => {
     render(<Button loading>Process</Button>);
