@@ -12,6 +12,10 @@ export default defineConfig({
     // Default node env for pure-module tests; component tests opt into jsdom
     // via a `@vitest-environment jsdom` docblock.
     environment: "node",
+    // DB integration tests round-trip to a remote pooler; give them headroom.
+    // (Unit tests finish in ms, so this only matters when a test genuinely hangs.)
+    testTimeout: 30000,
+    hookTimeout: 30000,
     setupFiles: ["tests/setup.ts"],
     include: ["tests/**/*.test.ts", "tests/**/*.test.tsx"],
     exclude: ["tests/e2e/**", "node_modules/**", ".next/**"],
