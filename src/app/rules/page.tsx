@@ -18,7 +18,8 @@ import {
 interface Recode { id: string; matchPattern: string; code: string }
 interface MlsPattern { id: string; patternKey: string; type: "disqualify" | "keep_override"; regex: string; flags: string; label: string; enabled: boolean }
 interface Coverage { zipCount: number; stateRules: { state: string; partnerName: string; partnerRef: string; color: string }[] }
-interface RulesData { recodes: Recode[]; mlsPatterns: MlsPattern[]; coverage: Coverage }
+interface Format { id: string; name: string; version: number; columns: number; strictness: "flexible" | "strict" }
+interface RulesData { recodes: Recode[]; mlsPatterns: MlsPattern[]; coverage: Coverage; formats: Format[] }
 
 async function send(url: string, method: string, body?: unknown) {
   const res = await fetch(url, { method, headers: { "Content-Type": "application/json", ...csrfHeaders() }, body: body === undefined ? "{}" : JSON.stringify(body) });
@@ -183,6 +184,29 @@ function RulesInner() {
                     ))}
                   </div>
                 )}
+              </CardBody>
+            </Card>
+
+            {/* File formats (Source Profiles) + templates */}
+            <Card>
+              <CardHeader><CardTitle>File formats</CardTitle></CardHeader>
+              <CardBody>
+                <p className="mb-3 text-xs text-text-3">The upload formats the app recognizes. Download a template to prepare a file with the right columns (ING-05).</p>
+                <Table>
+                  <THead><Tr><Th>Format</Th><Th align="right">Columns</Th><Th>Match</Th><Th align="right">Template</Th></Tr></THead>
+                  <TBody>
+                    {data.formats.map((fmt) => (
+                      <Tr key={fmt.id}>
+                        <Td><span className="text-sm text-text">{fmt.name}</span> <span className="num text-xs text-text-3">v{fmt.version}</span></Td>
+                        <Td align="right"><span className="num text-sm text-text-2">{fmt.columns}</span></Td>
+                        <Td><Badge variant={fmt.strictness === "strict" ? "warn" : "neutral"}>{fmt.strictness}</Badge></Td>
+                        <Td align="right">
+                          <a href={`/api/templates/${fmt.id}`} className="text-xs text-brand hover:underline">↓ Download</a>
+                        </Td>
+                      </Tr>
+                    ))}
+                  </TBody>
+                </Table>
               </CardBody>
             </Card>
           </>

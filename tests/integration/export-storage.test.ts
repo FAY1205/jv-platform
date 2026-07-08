@@ -1,5 +1,5 @@
-import { describe, it, expect } from "vitest";
-import { createClient } from "@supabase/supabase-js";
+import { describe, it, expect, beforeAll } from "vitest";
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { randomUUID } from "node:crypto";
 import { storeExport, signedExportUrl, EXPORTS_BUCKET, exportStoragePath } from "@/modules/export/storage";
 
@@ -8,7 +8,12 @@ const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const suite = supabaseUrl && serviceKey ? describe : describe.skip;
 
 suite("WP-028b: export storage + signed URL (EXP-05, SEC-02)", () => {
-  const admin = createClient(supabaseUrl!, serviceKey!, { auth: { autoRefreshToken: false, persistSession: false } });
+  // Created in beforeAll (not the describe body) so a skipped suite never calls
+  // createClient with an absent URL (which throws at collection time).
+  let admin: SupabaseClient;
+  beforeAll(() => {
+    admin = createClient(supabaseUrl!, serviceKey!, { auth: { autoRefreshToken: false, persistSession: false } });
+  });
   const tenantId = `test-${randomUUID()}`;
   const uploadRef = "UP-2026-999";
   const bytes = new TextEncoder().encode("PK fake-xlsx-content for the round-trip test");

@@ -103,9 +103,16 @@ export default function UploadPage() {
     <div className="min-h-full">
       <TopBar />
       <main className="mx-auto max-w-[720px] px-6 py-8">
-        <div className="mb-6">
-          <h1 className="font-display text-2xl font-semibold tracking-tight text-text">New run</h1>
-          <p className="mt-1 text-sm text-text-2">Drop this week&apos;s InvestorFuse export to process and distribute it.</p>
+        <div className="mb-6 flex items-end justify-between gap-3">
+          <div>
+            <h1 className="font-display text-2xl font-semibold tracking-tight text-text">New run</h1>
+            <p className="mt-1 text-sm text-text-2">Drop this week&apos;s InvestorFuse export to process and distribute it.</p>
+          </div>
+          {/* File-download endpoint (not a page) — a plain anchor is correct here. */}
+          {/* eslint-disable-next-line @next/next/no-html-link-for-pages */}
+          <a href="/api/templates/investorfuse" download className="shrink-0 text-xs text-brand hover:underline" title="Download a template with the expected columns">
+            ↓ Download template
+          </a>
         </div>
 
         <Card>
