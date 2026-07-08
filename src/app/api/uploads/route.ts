@@ -8,6 +8,11 @@ import { processRun } from "@/modules/run/process";
 import { DrizzleRunStore } from "@/modules/run/store";
 import { withDbIdempotency, RequestInProgressError } from "@/lib/idempotency-db";
 import { assertCsrf, authErrorResponse, requireAdminResponse } from "@/lib/auth/guard";
+import { enqueueRunDigests, drainOutbox } from "@/modules/notify/outbox";
+import { adminAllowlist } from "@/lib/env";
+import { logError } from "@/lib/observability";
+import { eq } from "drizzle-orm";
+import * as schema from "@/db/schema";
 import { jsonOk, jsonError, newTraceId } from "@/lib/http";
 
 // POST /api/uploads — process a parsed weekly file end-to-end (WP-020). The client parses
@@ -19,6 +24,15 @@ const BodySchema = z.object({
   rows: z.array(z.record(z.string(), z.unknown())).min(1),
   idempotencyKey: z.string().min(8).max(200).optional(),
 });
+
+/** Admin recipients for the run-summary email: the acting admin + the env allowlist. */
+async function resolveAdminEmails(db: ReturnType<typeof getDb>, tenantId: string, userId: string): Promise<string[]> {
+  const [me] = await db
+    .select({ email: schema.users.email })
+    .from(schema.users)
+    .where(eq(schema.users.id, userId));
+  return [...(me?.email ? [me.email] : []), ...adminAllowlist];
+}
 
 export async function POST(req: Request) {
   if (!assertCsrf(req, { requireToken: true })) {
@@ -51,6 +65,7 @@ export async function POST(req: Request) {
     const key = body.idempotencyKey ?? newTraceId();
     const year = new Date().getUTCFullYear();
 
+    const origin = new URL(req.url).origin;
     const { response } = await withDbIdempotency(db, scope.tenantId, key, async () => {
       const store = new DrizzleRunStore(db);
       const result = await processRun(
@@ -66,8 +81,31 @@ export async function POST(req: Request) {
         },
         { store, clock: () => new Date().toISOString() },
       );
+
+      // NTF-01/02: enqueue per-partner + admin digests for this run. Best-effort —
+      // a notification problem must never fail (or roll back) a processed upload.
+      try {
+        const adminEmails = await resolveAdminEmails(db, scope.tenantId, scope.userId);
+        await enqueueRunDigests(db, scope, {
+          uploadRef: result.uploadRefId,
+          summary: result.summary,
+          portalBaseUrl: origin,
+          adminEmails,
+        });
+      } catch (e) {
+        logError("digest_enqueue_failed", { message: e instanceof Error ? e.message : String(e) });
+      }
+
       return { uploadRef: result.uploadRefId, summary: result.summary };
     });
+
+    // Drain the outbox (best-effort). In dev this captures to the Sent-emails viewer;
+    // in production it sends via Resend. Failures retry on the next drain (backoff).
+    try {
+      await drainOutbox(db, { tenantId: scope.tenantId });
+    } catch (e) {
+      logError("outbox_drain_failed", { message: e instanceof Error ? e.message : String(e) });
+    }
 
     return jsonOk(response);
   } catch (e) {

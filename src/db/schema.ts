@@ -41,6 +41,7 @@ export const listingStatusEnum = pgEnum("listing_status", ["pending", "yes", "no
 export const refEntityEnum = pgEnum("ref_entity", ["partner", "lead", "upload"]);
 export const feedbackRatingEnum = pgEnum("feedback_rating", ["up", "down"]);
 export const idempotencyStatusEnum = pgEnum("idempotency_status", ["in_progress", "completed"]);
+export const outboxStatusEnum = pgEnum("outbox_status", ["pending", "sent", "failed"]);
 
 const createdAt = () => timestamp("created_at", { withTimezone: true }).notNull().defaultNow();
 const updatedAt = () => timestamp("updated_at", { withTimezone: true }).notNull().defaultNow();
@@ -380,6 +381,35 @@ export const auditLog = pgTable(
     createdAt: createdAt(),
   },
   (t) => [index("audit_tenant_created_idx").on(t.tenantId, t.createdAt)],
+);
+
+// Outbound email outbox (NTF-03). Every digest/notification is enqueued here, then
+// drained through the sendEmail seam (Resend in prod, the SEC-07 sink in non-prod)
+// with delivery status + retry/backoff. Server-managed (service role); deny-by-default RLS.
+export const emailOutbox = pgTable(
+  "email_outbox",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenants.id),
+    toAddress: text("to_address").notNull(), // intended recipient (real email, even in dev)
+    subject: text("subject").notNull(),
+    body: text("body").notNull(),
+    kind: text("kind").notNull(), // partner_digest | admin_run_summary | ...
+    status: outboxStatusEnum("status").notNull().default("pending"),
+    attempts: integer("attempts").notNull().default(0),
+    lastError: text("last_error"),
+    nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true }),
+    providerId: text("provider_id"), // Resend message id / dev id
+    sentAt: timestamp("sent_at", { withTimezone: true }),
+    meta: jsonb("meta"), // {uploadRef, partnerRef, ...} (SEAM-04 linkage)
+    createdAt: createdAt(),
+  },
+  (t) => [
+    index("outbox_tenant_created_idx").on(t.tenantId, t.createdAt),
+    index("outbox_status_next_idx").on(t.status, t.nextAttemptAt),
+  ],
 );
 
 // ── Settings, flags, AI ──

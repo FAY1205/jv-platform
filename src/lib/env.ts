@@ -26,6 +26,9 @@ const EnvSchema = z.object({
   SUPABASE_ANON_KEY: optionalString,
   SUPABASE_SERVICE_ROLE_KEY: optionalString,
   RESEND_API_KEY: optionalString,
+  // The verified sending identity used in production (NTF-03). Never used in
+  // non-production — all dev/preview mail is intercepted to the sink (SEC-07).
+  EMAIL_FROM: z.string().default("JV Platform <noreply@example.test>"),
   EMAIL_SINK_ADDRESS: z.email().default("dev-sink@example.test"),
   SENTRY_DSN: optionalString,
   ADMIN_ALLOWLIST: optionalString,
@@ -48,6 +51,7 @@ export function readEnv(source: Record<string, string | undefined> = process.env
     SUPABASE_ANON_KEY: source.NEXT_PUBLIC_SUPABASE_ANON_KEY,
     SUPABASE_SERVICE_ROLE_KEY: source.SUPABASE_SERVICE_ROLE_KEY,
     RESEND_API_KEY: source.RESEND_API_KEY,
+    EMAIL_FROM: source.EMAIL_FROM,
     EMAIL_SINK_ADDRESS: source.EMAIL_SINK_ADDRESS,
     SENTRY_DSN: source.SENTRY_DSN,
     ADMIN_ALLOWLIST: source.ADMIN_ALLOWLIST,
