@@ -1,11 +1,12 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiGet } from "@/lib/api";
 import type { RunDetail, RunLeadView, PartnerView } from "@/modules/run/view-types";
-import { Badge, Card, CardHeader, CardTitle, CardBody, Stat, PartnerTag, Table, THead, TBody, Th, Tr, Td, EmptyState, Skeleton } from "@/components";
+import { Badge, Button, Modal, Card, CardHeader, CardTitle, CardBody, Stat, PartnerTag, Table, THead, TBody, Th, Tr, Td, EmptyState, Skeleton } from "@/components";
 import { TopBar, fmtDate } from "../_shell";
 
 export default function RunDetailPage() {
@@ -46,6 +47,29 @@ function ErrorState({ message }: { message: string }) {
 
 function RunView({ detail }: { detail: RunDetail }) {
   const { upload, summary, distribution, partners, leads } = detail;
+  const qc = useQueryClient();
+  const [modalOpen, setModalOpen] = useState(false);
+  const [reason, setReason] = useState("");
+  const isVoided = upload.status === "voided";
+
+  const voidMut = useMutation({
+    mutationFn: async () => {
+      const res = await fetch(`/api/runs/${upload.refId}/void`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reason }),
+      });
+      const b = await res.json();
+      if (!res.ok) throw new Error(b?.message ?? "Void failed.");
+      return b;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["run", upload.refId] });
+      qc.invalidateQueries({ queryKey: ["runs"] });
+      setModalOpen(false);
+      setReason("");
+    },
+  });
 
   const delivered = leads.filter((l) => l.mlsStatus === "kept" && l.partnerId);
   const removed = leads.filter((l) => l.mlsStatus === "removed");
@@ -77,13 +101,27 @@ function RunView({ detail }: { detail: RunDetail }) {
             {upload.filename} · <span className="num">{upload.rowCount ?? leads.length}</span> rows · processed {fmtDate(upload.createdAt)}
           </p>
         </div>
-        <a
-          href={`/api/runs/${upload.refId}/export`}
-          className="inline-flex items-center gap-2 rounded-md border border-border bg-surface px-3.5 py-2 text-sm font-semibold text-text-2 shadow-xs transition-colors hover:border-text-3 hover:bg-surface-2"
-        >
-          <span aria-hidden="true">↓</span> Download Excel
-        </a>
+        <div className="flex items-center gap-2">
+          <a
+            href={`/api/runs/${upload.refId}/export`}
+            className="inline-flex items-center gap-2 rounded-md border border-border bg-surface px-3.5 py-2 text-sm font-semibold text-text-2 shadow-xs transition-colors hover:border-text-3 hover:bg-surface-2"
+          >
+            <span aria-hidden="true">↓</span> Download Excel
+          </a>
+          {!isVoided && (
+            <Button variant="ghost" onClick={() => setModalOpen(true)}>
+              Void run
+            </Button>
+          )}
+        </div>
       </div>
+
+      {isVoided && (
+        <div className="mb-6 rounded-lg border border-danger/40 bg-danger-soft px-4 py-3 text-sm text-danger">
+          This run was voided{upload.voidReason ? ` — ${upload.voidReason}` : ""}. Its leads are excluded from
+          future dedupe, analytics and exports.
+        </div>
+      )}
 
       <Card className="mb-6">
         <CardBody>
@@ -193,6 +231,43 @@ function RunView({ detail }: { detail: RunDetail }) {
           )}
         </Card>
       </div>
+
+      <Modal
+        open={modalOpen}
+        onClose={() => setModalOpen(false)}
+        title="Void this run?"
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setModalOpen(false)} disabled={voidMut.isPending}>
+              Cancel
+            </Button>
+            <Button
+              variant="danger"
+              onClick={() => voidMut.mutate()}
+              loading={voidMut.isPending}
+              disabled={reason.trim().length < 3}
+            >
+              Void run
+            </Button>
+          </>
+        }
+      >
+        <p className="mb-3 text-sm text-text-2">
+          Voiding excludes this run&apos;s leads from future dedupe, analytics and exports. It stays in history as voided.
+        </p>
+        <label htmlFor="void-reason" className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-text-3">
+          Reason
+        </label>
+        <textarea
+          id="void-reason"
+          value={reason}
+          onChange={(e) => setReason(e.target.value)}
+          rows={3}
+          placeholder="e.g. wrong file uploaded"
+          className="w-full rounded-md border border-border bg-surface px-3 py-2 text-sm text-text outline-none transition-colors focus-visible:border-brand"
+        />
+        {voidMut.isError && <p className="mt-2 text-sm text-danger">{(voidMut.error as Error).message}</p>}
+      </Modal>
     </>
   );
 }

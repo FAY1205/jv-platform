@@ -39,7 +39,7 @@ export interface RunLeadView {
 }
 
 export interface RunDetail {
-  upload: { refId: string; filename: string; status: string; rowCount: number | null; createdAt: string };
+  upload: { refId: string; filename: string; status: string; rowCount: number | null; createdAt: string; voidReason: string | null };
   summary: RunSummary;
   distribution: { partnerId: string; count: number; name: string; refId: string; color: string }[];
   partners: Record<string, PartnerView>;

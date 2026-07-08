@@ -105,7 +105,7 @@ export async function getRunDetail(scope: ScopeContext, ref: string): Promise<Ru
   }));
 
   return {
-    upload: { refId: upload.refId, filename: upload.filename, status: upload.status, rowCount: upload.rowCount, createdAt: upload.createdAt.toISOString() },
+    upload: { refId: upload.refId, filename: upload.filename, status: upload.status, rowCount: upload.rowCount, createdAt: upload.createdAt.toISOString(), voidReason: upload.voidReason },
     summary,
     distribution,
     partners,
