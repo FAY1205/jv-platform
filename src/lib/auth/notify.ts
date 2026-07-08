@@ -1,9 +1,5 @@
-import {
-  sendEmail,
-  MemoryTransport,
-  type EmailMessage,
-  type EmailTransport,
-} from "@/modules/notify/email";
+import { sendEmail, type EmailMessage, type EmailTransport } from "@/modules/notify/email";
+import { DevMailboxTransport } from "@/modules/notify/dev-mailbox";
 import { adminAllowlist } from "@/lib/env";
 import { APP_NAME } from "@/lib/app";
 import { logError } from "@/lib/observability";
@@ -11,12 +7,14 @@ import { logError } from "@/lib/observability";
 const errMessage = (e: unknown): string => (e instanceof Error ? e.message : String(e));
 
 // AUT-03/04 transactional security email. Routed through the SEC-07 sink guard in
-// non-production. Uses an in-memory transport as the dev stand-in; WP-028 swaps in
-// the Resend transport + outbox (NTF-03) behind the same sendEmail seam.
+// non-production. The dev stand-in records every captured message into the dev
+// mailbox so the non-prod /dev/emails viewer can surface OTP codes / invite +
+// reset links (the owner has no real inbox in dev). WP-028 swaps in the Resend
+// transport + outbox (NTF-03) behind the same sendEmail seam.
 
 let devTransport: EmailTransport | null = null;
 function transport(): EmailTransport {
-  return (devTransport ??= new MemoryTransport());
+  return (devTransport ??= new DevMailboxTransport());
 }
 
 export function buildLockoutEmail(identifier: string): EmailMessage {
