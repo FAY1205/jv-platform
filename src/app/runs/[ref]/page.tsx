@@ -77,6 +77,12 @@ function RunView({ detail }: { detail: RunDetail }) {
             {upload.filename} · <span className="num">{upload.rowCount ?? leads.length}</span> rows · processed {fmtDate(upload.createdAt)}
           </p>
         </div>
+        <a
+          href={`/api/runs/${upload.refId}/export`}
+          className="inline-flex items-center gap-2 rounded-md border border-border bg-surface px-3.5 py-2 text-sm font-semibold text-text-2 shadow-xs transition-colors hover:border-text-3 hover:bg-surface-2"
+        >
+          <span aria-hidden="true">↓</span> Download Excel
+        </a>
       </div>
 
       <Card className="mb-6">
