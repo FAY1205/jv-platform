@@ -49,6 +49,13 @@ export default async function PortalHome() {
               <span className="block text-sm font-semibold text-text">Your devices</span>
               <span className="block text-xs text-text-3">Remembered browsers you can sign out</span>
             </Link>
+            <Link
+              href="/portal/activity"
+              className="rounded-md border border-border bg-surface p-4 transition-colors hover:border-text-3 hover:bg-surface-2"
+            >
+              <span className="block text-sm font-semibold text-text">Your activity</span>
+              <span className="block text-xs text-text-3">Your status updates and notes</span>
+            </Link>
           </div>
         </CardBody>
       </Card>

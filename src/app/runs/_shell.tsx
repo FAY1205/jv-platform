@@ -7,10 +7,11 @@ const NAV = [
   { href: "/runs", label: "Runs" },
   { href: "/partners", label: "Partners" },
   { href: "/rules", label: "Rules" },
+  { href: "/activity", label: "Activity" },
   { href: "/settings/notifications", label: "Settings" },
 ];
 
-export function TopBar({ active }: { active?: "runs" | "partners" | "rules" | "settings" }) {
+export function TopBar({ active }: { active?: "runs" | "partners" | "rules" | "activity" | "settings" }) {
   return (
     <header className="sticky top-0 z-10 border-b border-border bg-surface/85 backdrop-blur">
       <div className="mx-auto flex max-w-[1160px] items-center justify-between px-6 py-3.5">
