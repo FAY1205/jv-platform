@@ -33,6 +33,42 @@ export function buildAnomalyEmail(recipients: string[], detail: string): EmailMe
   };
 }
 
+export function buildResetEmail(email: string, link: string): EmailMessage {
+  return {
+    to: email,
+    subject: "Reset your password",
+    text: `We received a request to reset your password. Use this link within 30 minutes:\n\n${link}\n\nIf you didn't request this, you can ignore this email.`,
+    meta: { kind: "password_reset" },
+  };
+}
+
+export function buildPasswordChangedEmail(email: string): EmailMessage {
+  return {
+    to: email,
+    subject: "Your password was changed",
+    text: "Your password was just changed and all sessions were signed out. If this wasn't you, reset your password immediately and contact your administrator.",
+    meta: { kind: "password_changed" },
+  };
+}
+
+/** Email a reset link (AUT-06). Best-effort. */
+export async function notifyReset(email: string, link: string): Promise<void> {
+  try {
+    await sendEmail(buildResetEmail(email, link), transport());
+  } catch {
+    /* best-effort */
+  }
+}
+
+/** Notify that the password changed (AUT-06). Best-effort. */
+export async function notifyPasswordChanged(email: string): Promise<void> {
+  try {
+    await sendEmail(buildPasswordChangedEmail(email), transport());
+  } catch {
+    /* best-effort */
+  }
+}
+
 /** Notify the account owner that their account locked (AUT-04). Best-effort. */
 export async function notifyLockout(identifier: string): Promise<void> {
   try {

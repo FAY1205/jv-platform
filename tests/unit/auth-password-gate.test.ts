@@ -38,4 +38,14 @@ describe("AUT-02: new-password gate", () => {
     const result = await evaluateNewPassword(STRONG, [], neverBreached);
     expect(result.ok).toBe(true);
   });
+
+  it("fails open on a breach-check outage (strength still enforced)", async () => {
+    const throwing = async () => {
+      throw new Error("HIBP unreachable");
+    };
+    // A strong password is accepted when the breach service is down...
+    expect((await evaluateNewPassword(STRONG, [], throwing)).ok).toBe(true);
+    // ...but a weak one is still rejected by the local strength gate.
+    expect((await evaluateNewPassword("short1!", [], throwing)).ok).toBe(false);
+  });
 });

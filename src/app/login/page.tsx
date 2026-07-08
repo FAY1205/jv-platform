@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import { Suspense } from "react";
+import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Card, CardBody, Input, Button } from "@/components";
 import { APP_NAME } from "@/lib/app";
@@ -71,6 +72,9 @@ function LoginForm() {
             <Button type="submit" variant="primary" loading={loading} className="mt-1 w-full">
               Sign in
             </Button>
+            <Link href="/forgot" className="text-center text-sm text-text-3 hover:text-text-2">
+              Forgot password?
+            </Link>
           </form>
         </CardBody>
       </Card>

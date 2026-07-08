@@ -65,7 +65,14 @@ export async function evaluateNewPassword(
 ): Promise<PasswordStrength> {
   const strength = checkPasswordStrength(password, userInputs);
   if (!strength.ok) return strength;
-  const breached = await isPasswordBreached(password, fetchRange);
+  let breached = false;
+  try {
+    breached = await isPasswordBreached(password, fetchRange);
+  } catch {
+    // Fail open: if the breach service is unreachable, don't block a legitimate
+    // password change/reset — the local strength gate above already passed.
+    breached = false;
+  }
   if (breached) {
     return {
       ok: false,

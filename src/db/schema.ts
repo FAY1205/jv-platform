@@ -491,3 +491,22 @@ export const authAttempts = pgTable(
     index("auth_attempts_ip_idx").on(t.ip, t.kind, t.createdAt),
   ],
 );
+
+// ── Password reset tokens (AUT-06): single-use, hashed at rest, 30-min expiry. ──
+// Keyed to the auth user id; server-managed (service role), RLS deny-by-default.
+// Only the SHA-256 hash is stored — the secret goes out once in the reset email.
+export const resetTokens = pgTable(
+  "reset_tokens",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id").notNull(),
+    tokenHash: text("token_hash").notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    usedAt: timestamp("used_at", { withTimezone: true }),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    uniqueIndex("reset_tokens_hash_idx").on(t.tokenHash),
+    index("reset_tokens_user_idx").on(t.userId),
+  ],
+);

@@ -54,3 +54,9 @@ export const LOGIN_THROTTLE: ThrottleConfig = {
   perIdentifier: { limit: 8, windowMs: 300_000 }, // 8 / 5min per email
   perIp: { limit: 30, windowMs: 300_000 }, // 30 / 5min per IP
 };
+
+// Reset requests are rarer and costlier (email) — tighter per identifier.
+export const RESET_THROTTLE: ThrottleConfig = {
+  perIdentifier: { limit: 5, windowMs: 900_000 }, // 5 / 15min per email
+  perIp: { limit: 20, windowMs: 900_000 }, // 20 / 15min per IP
+};

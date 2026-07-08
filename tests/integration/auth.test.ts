@@ -80,4 +80,14 @@ suite("TST-12: Supabase Auth sign-in resolves to the correct scope", () => {
     expect(error).not.toBeNull();
     expect(data.session).toBeNull();
   });
+
+  it("AUT-07: each sign-in mints a fresh session token (no fixation)", async () => {
+    const r1 = await createClient(supabaseUrl!, anonKey!).auth.signInWithPassword({ email, password });
+    const r2 = await createClient(supabaseUrl!, anonKey!).auth.signInWithPassword({ email, password });
+    expect(r1.data.session?.access_token).toBeTruthy();
+    expect(r2.data.session?.access_token).toBeTruthy();
+    // A new token per authentication event — session identifiers are never reused
+    // or accepted from the client.
+    expect(r1.data.session?.access_token).not.toBe(r2.data.session?.access_token);
+  });
 });
