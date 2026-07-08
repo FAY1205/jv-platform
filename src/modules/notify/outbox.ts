@@ -9,6 +9,8 @@ import { sendEmail, type EmailTransport } from "./email";
 import { DevMailboxTransport } from "./dev-mailbox";
 import { ResendTransport } from "./resend";
 import { buildPartnerDigest, buildAdminRunSummary, type PartnerDigestLead } from "./digests";
+import { createNotification } from "./notifications";
+import { resolvePref, loadNotificationPrefs, type NotificationPrefs } from "./prefs";
 import type { RunSummary } from "../analytics/run-summary";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -67,12 +69,18 @@ export interface EnqueueRunDigestsInput {
   portalBaseUrl: string;
   /** Admin recipients for the run-summary email (NTF-02). */
   adminEmails: string[];
+  /** The acting admin's user id — target for their in-app run notification (NTF-04). */
+  adminUserId?: string;
+  /** When provided, gates email vs in-app per role/event (NTF-05); absent = email all (028a). */
+  prefs?: NotificationPrefs;
 }
 
 /**
- * Enqueue a run's digests (NTF-01/02). Per-partner digests go ONLY to partners who
- * received new leads in this run (the newly-inserted leads carry this run's
- * upload_id) and have an email; the admin summary always goes out.
+ * Fan out a run's notifications (NTF-01/02/04/05). Per-partner digests go ONLY to
+ * partners who received new leads in this run (newly-inserted leads carry this
+ * upload_id). Email is gated by prefs (email on by default); in-app notifications
+ * are created for the partner's / admin's user when the in-app channel is on.
+ * Returns the number of emails enqueued.
  */
 export async function enqueueRunDigests(
   db: DB,
@@ -102,6 +110,7 @@ export async function enqueueRunDigests(
     .orderBy(asc(schema.leads.refId));
 
   interface Group {
+    partnerId: string;
     name: string;
     email: string | null;
     ref: string;
@@ -110,16 +119,30 @@ export async function enqueueRunDigests(
   const byPartner = new Map<string, Group>();
   for (const r of rows) {
     if (!r.partnerId) continue;
-    const g = byPartner.get(r.partnerId) ?? { name: r.pName, email: r.pEmail, ref: r.pRef, leads: [] };
+    const g = byPartner.get(r.partnerId) ?? { partnerId: r.partnerId, name: r.pName, email: r.pEmail, ref: r.pRef, leads: [] };
     g.leads.push({ refId: r.refId, city: r.city, state: r.state });
     byPartner.set(r.partnerId, g);
   }
 
+  // Map partner → user id for in-app notifications (a partner may not have onboarded).
+  const partnerIds = [...byPartner.keys()];
+  const userByPartner = new Map<string, string>();
+  if (input.prefs && partnerIds.length > 0) {
+    const userRows = await db
+      .select({ id: schema.users.id, partnerId: schema.users.partnerId })
+      .from(schema.users)
+      .where(and(tenantWhere(schema.users, scope), inArray(schema.users.partnerId, partnerIds)));
+    for (const u of userRows) if (u.partnerId) userByPartner.set(u.partnerId, u.id);
+  }
+
+  const emailOn = (role: "admin" | "partner", ev: "run_summary" | "status_change" | "new_leads") =>
+    !input.prefs || resolvePref(input.prefs, role, ev).email;
+  const inAppOn = (role: "admin" | "partner", ev: "run_summary" | "status_change" | "new_leads") =>
+    !!input.prefs && resolvePref(input.prefs, role, ev).inApp;
+
   let enqueued = 0;
   for (const g of byPartner.values()) {
-    // NTF-01: partners with zero new leads receive nothing; a partner without an
-    // email address can't be reached (they'll still see the leads in-portal).
-    if (!g.email || g.leads.length === 0) continue;
+    if (g.leads.length === 0) continue;
     const c = buildPartnerDigest({
       appName: APP_NAME,
       partnerName: g.name,
@@ -127,29 +150,56 @@ export async function enqueueRunDigests(
       uploadRef: input.uploadRef,
       leads: g.leads,
     });
-    await enqueueEmail(db, {
-      tenantId: scope.tenantId,
-      to: g.email,
-      subject: c.subject,
-      body: c.body,
-      kind: "partner_digest",
-      meta: { uploadRef: input.uploadRef, partnerRef: g.ref },
-    });
-    enqueued++;
+    // NTF-01: email a partner with an address, when their digest email is on.
+    if (g.email && emailOn("partner", "new_leads")) {
+      await enqueueEmail(db, {
+        tenantId: scope.tenantId,
+        to: g.email,
+        subject: c.subject,
+        body: c.body,
+        kind: "partner_digest",
+        meta: { uploadRef: input.uploadRef, partnerRef: g.ref },
+      });
+      enqueued++;
+    }
+    // NTF-04: in-app notification for onboarded partners, when the in-app channel is on.
+    const uid = userByPartner.get(g.partnerId);
+    if (uid && inAppOn("partner", "new_leads")) {
+      await createNotification(db, {
+        tenantId: scope.tenantId,
+        userId: uid,
+        type: "new_leads",
+        title: c.subject,
+        body: `${g.leads.length} new lead${g.leads.length === 1 ? "" : "s"} from ${input.uploadRef}.`,
+        deepLink: "/portal/leads",
+      });
+    }
   }
 
-  // NTF-02: admin run summary (always, even for an all-unmatched run).
+  // NTF-02/04: admin run summary — email (default on) + in-app for the acting admin.
   const summary = buildAdminRunSummary({ appName: APP_NAME, uploadRef: input.uploadRef, summary: input.summary });
-  for (const email of dedupe(input.adminEmails)) {
-    await enqueueEmail(db, {
+  if (emailOn("admin", "run_summary")) {
+    for (const email of dedupe(input.adminEmails)) {
+      await enqueueEmail(db, {
+        tenantId: scope.tenantId,
+        to: email,
+        subject: summary.subject,
+        body: summary.body,
+        kind: "admin_run_summary",
+        meta: { uploadRef: input.uploadRef },
+      });
+      enqueued++;
+    }
+  }
+  if (input.adminUserId && inAppOn("admin", "run_summary")) {
+    await createNotification(db, {
       tenantId: scope.tenantId,
-      to: email,
-      subject: summary.subject,
-      body: summary.body,
-      kind: "admin_run_summary",
-      meta: { uploadRef: input.uploadRef },
+      userId: input.adminUserId,
+      type: "run_summary",
+      title: summary.subject,
+      body: `${input.summary.kept} delivered · ${input.summary.removed} removed · ${input.summary.unmatched} unmatched.`,
+      deepLink: `/runs/${input.uploadRef}`,
     });
-    enqueued++;
   }
 
   return enqueued;
@@ -157,6 +207,52 @@ export async function enqueueRunDigests(
 
 function dedupe(emails: string[]): string[] {
   return [...new Set(emails.map((e) => e.trim().toLowerCase()).filter(Boolean))];
+}
+
+/**
+ * Notify admins that a partner changed a lead's status (NTF-02 alert / SET-03).
+ * In-app for every admin user (default on); email only if the admin alert email is
+ * on (default off). Best-effort — call sites swallow errors.
+ */
+export async function notifyStatusChange(
+  db: DB,
+  scope: ScopeContext,
+  input: { leadRef: string; status: string },
+): Promise<void> {
+  const ch = resolvePref(await loadNotificationPrefs(db, scope), "admin", "status_change");
+  if (!ch.inApp && !ch.email) return;
+
+  const admins = await db
+    .select({ id: schema.users.id, email: schema.users.email })
+    .from(schema.users)
+    .where(and(tenantWhere(schema.users, scope), eq(schema.users.role, "admin")));
+  if (admins.length === 0) return;
+
+  const title = `Lead ${input.leadRef} → ${input.status}`;
+  if (ch.inApp) {
+    for (const a of admins) {
+      await createNotification(db, {
+        tenantId: scope.tenantId,
+        userId: a.id,
+        type: "status_change",
+        title,
+        body: "A partner updated a lead's status.",
+        deepLink: `/leads/${input.leadRef}`,
+      });
+    }
+  }
+  if (ch.email) {
+    for (const email of dedupe(admins.map((a) => a.email))) {
+      await enqueueEmail(db, {
+        tenantId: scope.tenantId,
+        to: email,
+        subject: title,
+        body: `A partner updated lead ${input.leadRef} to "${input.status}".`,
+        kind: "status_change",
+        meta: { leadRef: input.leadRef },
+      });
+    }
+  }
 }
 
 export interface DrainResult {

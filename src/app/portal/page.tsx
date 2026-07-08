@@ -4,7 +4,7 @@ import { getDb } from "@/db";
 import { getServerScope } from "@/lib/scope-context";
 import { latestTosVersion } from "@/lib/auth/tos-store";
 import { needsTosAcceptance } from "@/lib/legal/tos";
-import { Card, CardBody, CardHeader, CardTitle } from "@/components";
+import { Card, CardBody, CardHeader, CardTitle, NotificationBell } from "@/components";
 
 // PTL-01: partner portal landing. Server-side ToS gate — a partner cannot reach the
 // portal without accepting the current ToS. The scoped leads/statuses/notes views
@@ -24,6 +24,10 @@ export default async function PortalHome() {
 
   return (
     <main className="mx-auto w-full max-w-2xl flex-1 p-6">
+      <div className="mb-4 flex items-center justify-between">
+        <h1 className="font-display text-lg font-semibold text-text">Your portal</h1>
+        <NotificationBell />
+      </div>
       <Card>
         <CardHeader>
           <CardTitle>Partner portal</CardTitle>

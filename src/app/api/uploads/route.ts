@@ -9,6 +9,7 @@ import { DrizzleRunStore } from "@/modules/run/store";
 import { withDbIdempotency, RequestInProgressError } from "@/lib/idempotency-db";
 import { assertCsrf, authErrorResponse, requireAdminResponse } from "@/lib/auth/guard";
 import { enqueueRunDigests, drainOutbox } from "@/modules/notify/outbox";
+import { loadNotificationPrefs } from "@/modules/notify/prefs";
 import { storeExport } from "@/modules/export/storage";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { adminAllowlist } from "@/lib/env";
@@ -104,12 +105,17 @@ export async function POST(req: Request) {
       // NTF-01/02: enqueue per-partner + admin digests for this run. Best-effort —
       // a notification problem must never fail (or roll back) a processed upload.
       try {
-        const adminEmails = await resolveAdminEmails(db, scope.tenantId, scope.userId);
+        const [adminEmails, prefs] = await Promise.all([
+          resolveAdminEmails(db, scope.tenantId, scope.userId),
+          loadNotificationPrefs(db, scope),
+        ]);
         await enqueueRunDigests(db, scope, {
           uploadRef: result.uploadRefId,
           summary: result.summary,
           portalBaseUrl: origin,
           adminEmails,
+          adminUserId: scope.userId,
+          prefs,
         });
       } catch (e) {
         logError("digest_enqueue_failed", { message: e instanceof Error ? e.message : String(e) });

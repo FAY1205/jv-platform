@@ -1,7 +1,10 @@
 import { z } from "zod";
+import { getDb } from "@/db";
 import { getServerScope } from "@/lib/scope-context";
 import { assertCsrf, authErrorResponse } from "@/lib/auth/guard";
 import { updateLeadStatus, LeadNotFoundError, InvalidStatusError } from "@/modules/portal/status-update";
+import { notifyStatusChange, drainOutbox } from "@/modules/notify/outbox";
+import { logError } from "@/lib/observability";
 import { jsonOk, jsonError } from "@/lib/http";
 
 const RefSchema = z.string().regex(/^LD-\d{4}-\d{3,}$/);
@@ -20,7 +23,18 @@ export async function POST(request: Request, { params }: { params: Promise<{ ref
 
   try {
     const scope = await getServerScope();
-    return jsonOk(await updateLeadStatus(scope, ref, parsed.data.status));
+    const result = await updateLeadStatus(scope, ref, parsed.data.status);
+
+    // NTF-02/04: alert admins (in-app always; email per SET-03, default off). Best-effort.
+    try {
+      const db = getDb();
+      await notifyStatusChange(db, scope, { leadRef: ref, status: parsed.data.status });
+      await drainOutbox(db, { tenantId: scope.tenantId });
+    } catch (e) {
+      logError("status_notify_failed", { message: e instanceof Error ? e.message : String(e) });
+    }
+
+    return jsonOk(result);
   } catch (e) {
     const authResp = authErrorResponse(e);
     if (authResp) return authResp;

@@ -1,13 +1,15 @@
 import Link from "next/link";
 import { APP_NAME } from "@/lib/app";
+import { NotificationBell } from "@/components";
 
 // Route-private app chrome for the admin views (underscore keeps it out of routing).
 const NAV = [
   { href: "/runs", label: "Runs" },
   { href: "/partners", label: "Partners" },
+  { href: "/settings/notifications", label: "Settings" },
 ];
 
-export function TopBar({ active }: { active?: "runs" | "partners" }) {
+export function TopBar({ active }: { active?: "runs" | "partners" | "settings" }) {
   return (
     <header className="sticky top-0 z-10 border-b border-border bg-surface/85 backdrop-blur">
       <div className="mx-auto flex max-w-[1160px] items-center justify-between px-6 py-3.5">
@@ -35,7 +37,10 @@ export function TopBar({ active }: { active?: "runs" | "partners" }) {
             })}
           </nav>
         </div>
-        <span className="num text-xs text-text-3">admin</span>
+        <div className="flex items-center gap-3">
+          <NotificationBell />
+          <span className="num text-xs text-text-3">admin</span>
+        </div>
       </div>
     </header>
   );

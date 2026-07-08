@@ -26,3 +26,4 @@ export { ToastProvider, useToast } from "./Toast";
 export { Skeleton } from "./Skeleton";
 export { EmptyState, type EmptyStateProps } from "./EmptyState";
 export { NotesPanel } from "./NotesPanel";
+export { NotificationBell } from "./NotificationBell";
