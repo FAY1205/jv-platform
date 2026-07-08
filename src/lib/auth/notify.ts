@@ -5,6 +5,7 @@ import {
   type EmailTransport,
 } from "@/modules/notify/email";
 import { adminAllowlist } from "@/lib/env";
+import { APP_NAME } from "@/lib/app";
 
 // AUT-03/04 transactional security email. Routed through the SEC-07 sink guard in
 // non-production. Uses an in-memory transport as the dev stand-in; WP-028 swaps in
@@ -64,6 +65,42 @@ export async function notifyReset(email: string, link: string): Promise<void> {
 export async function notifyPasswordChanged(email: string): Promise<void> {
   try {
     await sendEmail(buildPasswordChangedEmail(email), transport());
+  } catch {
+    /* best-effort */
+  }
+}
+
+export function buildInviteEmail(email: string, link: string): EmailMessage {
+  return {
+    to: email,
+    subject: `You've been invited to ${APP_NAME}`,
+    text: `You've been invited to the ${APP_NAME} partner portal. Open this link and enter your email to receive a 6-digit sign-in code:\n\n${link}`,
+    meta: { kind: "partner_invite" },
+  };
+}
+
+export function buildOtpEmail(email: string, code: string): EmailMessage {
+  return {
+    to: email,
+    subject: "Your sign-in code",
+    text: `Your ${APP_NAME} sign-in code is ${code}. It expires in 10 minutes. If you didn't request this, you can ignore this email.`,
+    meta: { kind: "otp" },
+  };
+}
+
+/** Email a partner invite link (PTL-01). Best-effort. */
+export async function notifyInvite(email: string, link: string): Promise<void> {
+  try {
+    await sendEmail(buildInviteEmail(email, link), transport());
+  } catch {
+    /* best-effort */
+  }
+}
+
+/** Email a 6-digit OTP code (PTL-01). Best-effort. */
+export async function notifyOtp(email: string, code: string): Promise<void> {
+  try {
+    await sendEmail(buildOtpEmail(email, code), transport());
   } catch {
     /* best-effort */
   }

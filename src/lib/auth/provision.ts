@@ -79,3 +79,43 @@ export async function deprovisionAdmin(admin: SupabaseClient, db: DB, userId: st
   await db.delete(schema.users).where(eq(schema.users.id, userId));
   await admin.auth.admin.deleteUser(userId);
 }
+
+export interface ProvisionPartnerParams {
+  tenantId: string;
+  partnerId: string;
+  email: string;
+}
+
+/**
+ * Create/update a Supabase auth user for a partner (PTL-01). Partners have NO
+ * password — they log in via email-OTP — so no password is set. app_metadata
+ * carries tenant_id/role/partner_id for the RLS backstop; the users row mirrors it.
+ */
+export async function provisionPartnerUser(
+  admin: SupabaseClient,
+  db: DB,
+  { tenantId, partnerId, email }: ProvisionPartnerParams,
+): Promise<ProvisionAdminResult> {
+  const app_metadata = { tenant_id: tenantId, role: "partner" as const, partner_id: partnerId };
+
+  const created = await admin.auth.admin.createUser({ email, email_confirm: true, app_metadata });
+  let userId = created.data.user?.id;
+  let wasCreated = true;
+  if (created.error || !userId) {
+    const existing = await findAuthUserByEmail(admin, email);
+    if (!existing) {
+      throw new Error(`Could not create or locate partner auth user for ${email}: ${created.error?.message ?? "unknown"}`);
+    }
+    userId = existing.id;
+    wasCreated = false;
+    const upd = await admin.auth.admin.updateUserById(userId, { app_metadata });
+    if (upd.error) throw upd.error;
+  }
+
+  await db
+    .insert(schema.users)
+    .values({ id: userId, tenantId, email, role: "partner", partnerId })
+    .onConflictDoUpdate({ target: schema.users.id, set: { email, role: "partner", tenantId, partnerId } });
+
+  return { userId, created: wasCreated };
+}

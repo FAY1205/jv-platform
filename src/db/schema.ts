@@ -510,3 +510,34 @@ export const resetTokens = pgTable(
     index("reset_tokens_user_idx").on(t.userId),
   ],
 );
+
+// ── Partner email-OTP challenges (PTL-01): 6-digit code, hashed at rest. ──
+// Not tenant-scoped (issued before the session exists); server-managed, RLS
+// deny-by-default. Constant-time verify (AUT-09); attempt_count caps guessing.
+export const otpChallenges = pgTable(
+  "otp_challenges",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    identifier: text("identifier").notNull(), // lowercased email
+    codeHash: text("code_hash").notNull(),
+    pepper: text("pepper").notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    attemptCount: integer("attempt_count").notNull().default(0),
+    consumedAt: timestamp("consumed_at", { withTimezone: true }),
+    createdAt: createdAt(),
+  },
+  (t) => [index("otp_challenges_identifier_idx").on(t.identifier, t.createdAt)],
+);
+
+// ── ToS / Privacy acceptances (LGL-01): versioned, one row per (user, version). ──
+export const tosAcceptances = pgTable(
+  "tos_acceptances",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id").notNull(),
+    version: text("version").notNull(),
+    acceptedAt: timestamp("accepted_at", { withTimezone: true }).notNull().defaultNow(),
+    createdAt: createdAt(),
+  },
+  (t) => [uniqueIndex("tos_acceptances_user_version_idx").on(t.userId, t.version)],
+);

@@ -13,10 +13,13 @@ import { newCsrfToken, CSRF_COOKIE_NAME } from "@/lib/auth/csrf-token";
 // does not JSON-block them.
 // ─────────────────────────────────────────────────────────────────────────────
 
-// Protected page prefixes. Public: "/", "/login", "/gallery", static assets.
-const PROTECTED_PAGE_PREFIXES = ["/runs", "/upload", "/account"];
+// Protected page prefixes. Public: "/", "/login", "/forgot", "/reset", "/gallery",
+// "/portal/login", static assets.
+const PROTECTED_PAGE_PREFIXES = ["/runs", "/upload", "/account", "/portal"];
+const PUBLIC_EXCEPTIONS = ["/portal/login"];
 
 function isProtectedPage(pathname: string): boolean {
+  if (PUBLIC_EXCEPTIONS.includes(pathname)) return false;
   return PROTECTED_PAGE_PREFIXES.some((p) => pathname === p || pathname.startsWith(`${p}/`));
 }
 
