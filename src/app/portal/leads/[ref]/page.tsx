@@ -6,7 +6,7 @@ import { useParams } from "next/navigation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiGet } from "@/lib/api";
 import { csrfHeaders } from "@/lib/csrf-client";
-import { Card, CardBody, CardHeader, CardTitle, Select, Badge, Skeleton } from "@/components";
+import { Card, CardBody, CardHeader, CardTitle, Select, Badge, Skeleton, NotesPanel } from "@/components";
 
 interface LeadDetail {
   refId: string;
@@ -133,6 +133,8 @@ export default function PortalLeadDetailPage() {
               )}
             </CardBody>
           </Card>
+
+          <NotesPanel leadRef={ref} title="Your notes" />
         </div>
       )}
     </main>
