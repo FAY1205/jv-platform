@@ -1,13 +1,23 @@
 import { z } from "zod";
+import { and, eq } from "drizzle-orm";
+import { getDb } from "@/db";
+import * as schema from "@/db/schema";
+import { tenantWhere } from "@/lib/scope";
 import { getServerScope } from "@/lib/scope-context";
 import { authErrorResponse, requireAdminResponse } from "@/lib/auth/guard";
 import { getRunExportData } from "@/modules/run/export-data";
 import { renderExport } from "@/modules/export/render";
+import { signedExportUrl } from "@/modules/export/storage";
+import { getSupabaseAdmin } from "@/lib/supabase/admin";
+import { logError } from "@/lib/observability";
 import { jsonError } from "@/lib/http";
 
 const RefSchema = z.string().regex(/^UP-\d{4}-\d{3,}$/);
 
-// GET /api/runs/[ref]/export — regenerate the colored deliverable .xlsx from persisted leads.
+// GET /api/runs/[ref]/export — download the colored deliverable .xlsx (EXP-05).
+// Prefer a short-lived signed URL to the stored file (SEC-02); fall back to
+// regenerating from persisted leads for runs stored before EXP-05 (or if storage
+// is unavailable). The rules snapshot pins determinism, so regeneration is faithful.
 export async function GET(_req: Request, { params }: { params: Promise<{ ref: string }> }) {
   const { ref } = await params;
   const parsed = RefSchema.safeParse(ref);
@@ -17,6 +27,23 @@ export async function GET(_req: Request, { params }: { params: Promise<{ ref: st
     const scope = await getServerScope();
     const adminOnly = requireAdminResponse(scope);
     if (adminOnly) return adminOnly;
+
+    // If we have a stored file, hand back a signed URL (private bucket, no regen).
+    const [upload] = await getDb()
+      .select({ storagePath: schema.uploads.storagePath })
+      .from(schema.uploads)
+      .where(and(tenantWhere(schema.uploads, scope), eq(schema.uploads.refId, parsed.data)));
+
+    if (upload?.storagePath) {
+      try {
+        const url = await signedExportUrl(getSupabaseAdmin(), upload.storagePath, `${parsed.data}.xlsx`);
+        return Response.redirect(url, 302);
+      } catch (e) {
+        // Signing failed — fall through to regenerate rather than 500 the download.
+        logError("export_sign_failed", { message: e instanceof Error ? e.message : String(e) });
+      }
+    }
+
     const data = await getRunExportData(scope, parsed.data);
     if (!data) return jsonError("not_found", `Run ${parsed.data} not found.`, 404);
 

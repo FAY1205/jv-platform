@@ -9,9 +9,12 @@ import { DrizzleRunStore } from "@/modules/run/store";
 import { withDbIdempotency, RequestInProgressError } from "@/lib/idempotency-db";
 import { assertCsrf, authErrorResponse, requireAdminResponse } from "@/lib/auth/guard";
 import { enqueueRunDigests, drainOutbox } from "@/modules/notify/outbox";
+import { storeExport } from "@/modules/export/storage";
+import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { adminAllowlist } from "@/lib/env";
+import { MAX_UPLOAD_ROWS } from "@/lib/upload-guard";
 import { logError } from "@/lib/observability";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import * as schema from "@/db/schema";
 import { jsonOk, jsonError, newTraceId } from "@/lib/http";
 
@@ -21,7 +24,7 @@ import { jsonOk, jsonError, newTraceId } from "@/lib/http";
 const BodySchema = z.object({
   filename: z.string().min(1).max(255),
   headers: z.array(z.string()).min(1),
-  rows: z.array(z.record(z.string(), z.unknown())).min(1),
+  rows: z.array(z.record(z.string(), z.unknown())).min(1).max(MAX_UPLOAD_ROWS), // SEC-03 row cap
   idempotencyKey: z.string().min(8).max(200).optional(),
 });
 
@@ -81,6 +84,22 @@ export async function POST(req: Request) {
         },
         { store, clock: () => new Date().toISOString() },
       );
+
+      // EXP-05: store the rendered deliverable in the private bucket and record its
+      // path. Best-effort — if storage hiccups, the download route regenerates.
+      try {
+        const path = await storeExport(getSupabaseAdmin(), {
+          tenantId: scope.tenantId,
+          uploadRef: result.uploadRefId,
+          bytes: result.exportBytes,
+        });
+        await db
+          .update(schema.uploads)
+          .set({ storagePath: path })
+          .where(and(eq(schema.uploads.tenantId, scope.tenantId), eq(schema.uploads.refId, result.uploadRefId)));
+      } catch (e) {
+        logError("export_store_failed", { message: e instanceof Error ? e.message : String(e) });
+      }
 
       // NTF-01/02: enqueue per-partner + admin digests for this run. Best-effort —
       // a notification problem must never fail (or roll back) a processed upload.

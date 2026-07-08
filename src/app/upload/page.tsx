@@ -8,6 +8,7 @@ import { detectProfile } from "@/modules/sources";
 import { SEED_SOURCE_PROFILES } from "@/modules/sources/seed-profiles";
 import { Card, CardBody, Button, Badge } from "@/components";
 import { csrfHeaders } from "@/lib/csrf-client";
+import { validateUploadFile } from "@/lib/upload-guard";
 import { TopBar } from "../runs/_shell";
 
 interface Parsed {
@@ -72,6 +73,13 @@ export default function UploadPage() {
   async function handleFile(file: File) {
     setErr(null);
     setParsed(null);
+    // SEC-03: reject an unsupported extension or an oversized file before parsing.
+    const check = validateUploadFile({ name: file.name, size: file.size });
+    if (!check.ok) {
+      setErr(check.error ?? "That file can't be used.");
+      setPhase("error");
+      return;
+    }
     setPhase("parsing");
     try {
       const { headers, rows } = await parseWorkbookInWorker(file);
