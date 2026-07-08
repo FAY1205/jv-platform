@@ -2,7 +2,7 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { getServerScope } from "@/lib/scope-context";
 import { getPartnerLeadDetail } from "@/modules/portal/queries";
-import { Card, CardBody, CardHeader, CardTitle, Badge, NotesPanel } from "@/components";
+import { Card, CardBody, CardHeader, CardTitle, Badge, NotesPanel, ListingBadge } from "@/components";
 
 // Admin lead detail — a per-lead view for the admin (the run tables only list them).
 // Reuses the scoped detail query (admin scope sees the whole tenant) and hosts the
@@ -47,6 +47,10 @@ export default async function AdminLeadPage({ params }: { params: Promise<{ ref:
             <Field label="Email" value={detail.seller.email} />
             <Field label="Property" value={`${detail.address}, ${detail.city} ${detail.state} ${detail.zip}`.trim()} />
             <Field label="Reason for selling" value={detail.reasonForSelling} />
+            <div className="flex flex-col gap-1">
+              <span className="text-xs font-semibold uppercase tracking-wide text-text-3">Listing check</span>
+              <ListingBadge status={detail.listing.status} link={detail.listing.link} />
+            </div>
           </CardBody>
         </Card>
 

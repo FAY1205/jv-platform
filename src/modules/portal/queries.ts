@@ -124,6 +124,8 @@ export interface PartnerLeadDetail {
   status: string;
   history: { status: string; changedAt: string }[];
   availableStatuses: string[];
+  /** LST-01: listing-check flag (never affects delivery) + a link to verify. */
+  listing: { status: "pending" | "yes" | "no" | "unknown"; link: string | null };
 }
 
 /** A single owned lead + its status history (PTL-02/03). Null if not the partner's. */
@@ -142,6 +144,16 @@ export async function getPartnerLeadDetail(scope: ScopeContext, refId: string): 
     .orderBy(desc(schema.leadStatusHistory.createdAt));
   const history = hist.map((h) => ({ status: h.status, changedAt: h.createdAt.toISOString() }));
 
+  // LST-01: latest listing check for this lead (link comes from the check; the flag
+  // lives on the lead). Scoped via leadChildWhere.
+  const [check] = await db
+    .select({ result: schema.listingChecks.result })
+    .from(schema.listingChecks)
+    .where(and(leadChildWhere(schema.listingChecks, scope, db), eq(schema.listingChecks.leadId, lead.id)))
+    .orderBy(desc(schema.listingChecks.checkedAt))
+    .limit(1);
+  const listing = { status: lead.possibleMlsListing, link: (check?.result as { link?: string } | null)?.link ?? null };
+
   return {
     refId: lead.refId,
     seller: { first: lead.sellerFirst ?? "", last: lead.sellerLast ?? "", phone: lead.phone ?? "", email: lead.email ?? "" },
@@ -158,6 +170,7 @@ export async function getPartnerLeadDetail(scope: ScopeContext, refId: string): 
     status: currentStatus(history.map((h) => ({ status: h.status, createdAt: h.changedAt }))),
     history,
     availableStatuses: [...SEED_LEAD_STATUSES],
+    listing,
   };
 }
 

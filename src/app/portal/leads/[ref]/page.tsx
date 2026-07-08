@@ -6,7 +6,7 @@ import { useParams } from "next/navigation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiGet } from "@/lib/api";
 import { csrfHeaders } from "@/lib/csrf-client";
-import { Card, CardBody, CardHeader, CardTitle, Select, Badge, Skeleton, NotesPanel } from "@/components";
+import { Card, CardBody, CardHeader, CardTitle, Select, Badge, Skeleton, NotesPanel, ListingBadge } from "@/components";
 
 interface LeadDetail {
   refId: string;
@@ -24,6 +24,7 @@ interface LeadDetail {
   status: string;
   history: { status: string; changedAt: string }[];
   availableStatuses: string[];
+  listing: { status: "pending" | "yes" | "no" | "unknown"; link: string | null };
 }
 
 function Field({ label, value }: { label: string; value: string }) {
@@ -90,6 +91,11 @@ export default function PortalLeadDetailPage() {
                 <Field label="Reason for selling" value={data.reasonForSelling} />
                 <Field label="Motivation" value={data.motivation} />
                 <Field label="Time to sell" value={data.timeToSell} />
+              </div>
+
+              <div className="flex flex-col gap-1">
+                <span className="text-xs font-semibold uppercase tracking-wide text-text-3">Listing check</span>
+                <ListingBadge status={data.listing.status} link={data.listing.link} />
               </div>
 
               {data.notes && (

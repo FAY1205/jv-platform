@@ -11,6 +11,7 @@ import { storeExport } from "@/modules/export/storage";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { enqueueRunDigests, drainOutbox } from "@/modules/notify/outbox";
 import { loadNotificationPrefs } from "@/modules/notify/prefs";
+import { runListingChecks } from "@/modules/listing/run-checks";
 import { adminAllowlist } from "@/lib/env";
 import { logError } from "@/lib/observability";
 import { newTraceId } from "@/lib/http";
@@ -72,6 +73,14 @@ export async function runUpload(scope: ScopeContext, input: RunUploadInput): Pro
       await enqueueRunDigests(db, scope, { uploadRef: result.uploadRefId, summary: result.summary, portalBaseUrl: input.origin, adminEmails, adminUserId: scope.userId, prefs });
     } catch (e) {
       logError("digest_enqueue_failed", { message: errMsg(e) });
+    }
+
+    // LST-01: run the listing check (LinkOnly) after the pipeline. Best-effort; it
+    // never removes leads and never blocks the export (already stored above).
+    try {
+      await runListingChecks(db, scope, result.uploadRefId);
+    } catch (e) {
+      logError("listing_check_failed", { message: errMsg(e) });
     }
 
     return { uploadRef: result.uploadRefId, summary: result.summary };
