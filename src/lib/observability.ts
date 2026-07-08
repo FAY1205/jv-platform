@@ -6,7 +6,6 @@
 // or seller PII in `detail`. Pass identifiers, error messages, IPs, counts only.
 export function logError(code: string, detail: Record<string, unknown> = {}): void {
   try {
-    // eslint-disable-next-line no-console
     console.error(JSON.stringify({ level: "error", scope: "server", code, ...detail }));
   } catch {
     // Logging must never break a request.

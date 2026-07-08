@@ -541,3 +541,34 @@ export const tosAcceptances = pgTable(
   },
   (t) => [uniqueIndex("tos_acceptances_user_version_idx").on(t.userId, t.version)],
 );
+
+// ── Trusted devices (AUT-10 / ACC-02): rotating refresh-token families backing the
+// "remember this device" skip-OTP flow and the sessions/devices registry. Only the
+// token hash is stored; reuse of a rotated token ⇒ revoke the whole family. The
+// per-device list + revoke work because these tokens are app-owned. Server-managed.
+export const trustedDevices = pgTable(
+  "trusted_devices",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    familyId: uuid("family_id").notNull(),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenants.id),
+    userId: uuid("user_id").notNull(),
+    partnerId: uuid("partner_id"),
+    tokenHash: text("token_hash").notNull(),
+    deviceLabel: text("device_label"),
+    ip: text("ip"),
+    issuedAt: timestamp("issued_at", { withTimezone: true }).notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    lastSeenAt: timestamp("last_seen_at", { withTimezone: true }),
+    rotatedTo: text("rotated_to"),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    uniqueIndex("trusted_devices_hash_idx").on(t.tokenHash),
+    index("trusted_devices_family_idx").on(t.familyId),
+    index("trusted_devices_user_idx").on(t.tenantId, t.userId),
+  ],
+);

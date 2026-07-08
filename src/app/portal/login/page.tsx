@@ -1,19 +1,59 @@
 "use client";
 
 import * as React from "react";
-import { useRouter } from "next/navigation";
+import { Suspense } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Card, CardBody, Input, Button } from "@/components";
 import { APP_NAME } from "@/lib/app";
 
-// PTL-01: partner sign-in — email → 6-digit code (no password). The request step
-// always shows the uniform "code sent" state; the code step establishes the session.
-export default function PortalLoginPage() {
+// PTL-01 + AUT-10: partner sign-in. On load we silently try the trusted-device
+// route (skip OTP for a remembered browser); on 401 we fall back to email → code.
+function PortalLoginForm() {
   const router = useRouter();
+  const params = useSearchParams();
+  const next = params.get("next") || "/portal";
+
+  const [checking, setChecking] = React.useState(true);
   const [step, setStep] = React.useState<"email" | "code">("email");
   const [email, setEmail] = React.useState("");
   const [code, setCode] = React.useState("");
+  const [remember, setRemember] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const [loading, setLoading] = React.useState(false);
+
+  const goNext = React.useCallback(
+    (tosRequired?: boolean) => {
+      router.push(tosRequired ? "/portal/tos" : next);
+      router.refresh();
+    },
+    [router, next],
+  );
+
+  // Trusted-device auto sign-in.
+  React.useEffect(() => {
+    let active = true;
+    (async () => {
+      try {
+        const res = await fetch("/api/auth/trust/refresh", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: "{}",
+        });
+        if (!active) return;
+        if (res.ok) {
+          const body = (await res.json().catch(() => null)) as { tosRequired?: boolean } | null;
+          goNext(body?.tosRequired);
+          return;
+        }
+      } catch {
+        /* fall through to OTP */
+      }
+      if (active) setChecking(false);
+    })();
+    return () => {
+      active = false;
+    };
+  }, [goNext]);
 
   async function requestCode(e: React.FormEvent) {
     e.preventDefault();
@@ -46,12 +86,11 @@ export default function PortalLoginPage() {
       const res = await fetch("/api/auth/otp/verify", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, code }),
+        body: JSON.stringify({ email, code, remember }),
       });
-      const body = (await res.json().catch(() => null)) as { message?: string; tosRequired?: boolean } | null;
+      const body = (await res.json().catch(() => null)) as { tosRequired?: boolean; message?: string } | null;
       if (res.ok) {
-        router.push(body?.tosRequired ? "/portal/tos" : "/portal");
-        router.refresh();
+        goNext(body?.tosRequired);
         return;
       }
       setError(body?.message ?? "That code is invalid or has expired.");
@@ -70,7 +109,10 @@ export default function PortalLoginPage() {
             <span className="font-display text-lg font-semibold text-text">{APP_NAME}</span>
             <span className="text-sm text-text-3">Partner portal sign-in</span>
           </div>
-          {step === "email" ? (
+
+          {checking ? (
+            <p className="py-4 text-sm text-text-3">Checking this device…</p>
+          ) : step === "email" ? (
             <form onSubmit={requestCode} className="flex flex-col gap-4" noValidate>
               <Input
                 label="Email"
@@ -101,8 +143,17 @@ export default function PortalLoginPage() {
                 error={error ?? undefined}
                 className="font-mono tracking-[0.3em]"
               />
+              <label className="flex items-center gap-2 text-sm text-text-2">
+                <input
+                  type="checkbox"
+                  checked={remember}
+                  onChange={(e) => setRemember(e.target.checked)}
+                  className="h-4 w-4 rounded border-border accent-brand"
+                />
+                Remember this device for 30 days
+              </label>
               <Button type="submit" variant="primary" loading={loading} disabled={code.length !== 6} className="mt-1 w-full">
-                Verify & sign in
+                Verify &amp; sign in
               </Button>
               <button
                 type="button"
@@ -120,5 +171,13 @@ export default function PortalLoginPage() {
         </CardBody>
       </Card>
     </main>
+  );
+}
+
+export default function PortalLoginPage() {
+  return (
+    <Suspense fallback={null}>
+      <PortalLoginForm />
+    </Suspense>
   );
 }

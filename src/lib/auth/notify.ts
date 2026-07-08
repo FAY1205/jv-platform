@@ -96,6 +96,24 @@ export function buildOtpEmail(email: string, code: string): EmailMessage {
   };
 }
 
+export function buildTrustReuseEmail(email: string): EmailMessage {
+  return {
+    to: email,
+    subject: "Security alert: a saved device was signed out",
+    text: "We detected reuse of an old 'remember this device' token on your account and signed that device family out as a precaution. If this wasn't you, sign in and review your devices.",
+    meta: { kind: "trust_reuse" },
+  };
+}
+
+/** Notify on trusted-device token reuse (AUT-10). Best-effort; failure logged. */
+export async function notifyTrustReuse(email: string): Promise<void> {
+  try {
+    await sendEmail(buildTrustReuseEmail(email), transport());
+  } catch (e) {
+    logError("notify_trust_reuse_failed", { message: errMessage(e) });
+  }
+}
+
 /** Email a partner invite link (PTL-01). Best-effort; delivery failure logged. */
 export async function notifyInvite(email: string, link: string): Promise<void> {
   try {

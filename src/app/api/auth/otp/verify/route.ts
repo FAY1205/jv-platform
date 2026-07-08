@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { cookies } from "next/headers";
 import { eq, sql } from "drizzle-orm";
 import { z } from "zod";
 import { getDb } from "@/db";
@@ -13,11 +14,18 @@ import { otpOutcome } from "@/lib/auth/otp-verify";
 import { establishSessionForEmail } from "@/lib/auth/otp-session";
 import { latestTosVersion } from "@/lib/auth/tos-store";
 import { needsTosAcceptance, CURRENT_TOS_VERSION } from "@/lib/legal/tos";
+import { TrustedDeviceService } from "@/lib/auth/trusted-device";
+import { TRUST_COOKIE_NAME, TRUST_COOKIE_OPTIONS } from "@/lib/supabase/cookie-options";
 
 // PTL-01: verify a partner's 6-digit code (constant-time, single-use, attempt-
 // capped), then establish a Supabase session and report whether ToS acceptance is
 // still required. Uniform "invalid or expired" for every failure. Origin-checked.
-const Input = z.object({ email: z.email(), code: z.string().regex(/^\d{6}$/) });
+// AUT-10: an optional "remember this device" issues a 30-day trusted-device token.
+const Input = z.object({
+  email: z.email(),
+  code: z.string().regex(/^\d{6}$/),
+  remember: z.boolean().optional(),
+});
 const KIND = "otp";
 const MAX_ATTEMPTS = 5;
 const INVALID = { code: "otp_invalid", message: "That code is invalid or has expired." };
@@ -30,7 +38,7 @@ export async function POST(request: Request) {
   if (!parsed.success) return jsonError("invalid_input", "Enter the 6-digit code.", 400);
 
   const email = parsed.data.email.toLowerCase();
-  const { code } = parsed.data;
+  const { code, remember } = parsed.data;
   const ip = clientIp(request);
   const now = Date.now();
   const db = getDb();
@@ -61,12 +69,28 @@ export async function POST(request: Request) {
   await store.consume(challenge.id, now);
 
   const [user] = await db
-    .select({ id: schema.users.id, partnerId: schema.users.partnerId })
+    .select({ id: schema.users.id, tenantId: schema.users.tenantId, partnerId: schema.users.partnerId })
     .from(schema.users)
     .where(sql`lower(${schema.users.email}) = ${email}`);
   if (user?.partnerId) {
     await db.update(schema.partners).set({ lastPortalLoginAt: new Date() }).where(eq(schema.partners.id, user.partnerId));
   }
+
+  // AUT-10: issue a trusted-device token if requested, so this device can skip OTP.
+  if (remember && user) {
+    const { token } = await new TrustedDeviceService(db).issue(
+      {
+        tenantId: user.tenantId,
+        userId: user.id,
+        partnerId: user.partnerId,
+        deviceLabel: request.headers.get("user-agent"),
+        ip,
+      },
+      now,
+    );
+    (await cookies()).set(TRUST_COOKIE_NAME, token, TRUST_COOKIE_OPTIONS);
+  }
+
   const accepted = user ? await latestTosVersion(db, user.id) : null;
 
   return jsonOk({
