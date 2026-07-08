@@ -15,7 +15,7 @@ import { newCsrfToken, CSRF_COOKIE_NAME } from "@/lib/auth/csrf-token";
 
 // Protected page prefixes. Public: "/", "/login", "/forgot", "/reset", "/gallery",
 // "/portal/login", static assets.
-const PROTECTED_PAGE_PREFIXES = ["/runs", "/upload", "/account", "/portal", "/leads", "/dev", "/partners", "/settings"];
+const PROTECTED_PAGE_PREFIXES = ["/runs", "/upload", "/account", "/portal", "/leads", "/dev", "/partners", "/settings", "/rules"];
 const PUBLIC_EXCEPTIONS = ["/portal/login"];
 
 function isProtectedPage(pathname: string): boolean {
