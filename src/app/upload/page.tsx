@@ -4,9 +4,7 @@ import * as React from "react";
 import { useRouter } from "next/navigation";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { parseWorkbookInWorker } from "@/lib/xlsx-client";
-import { detectProfile } from "@/modules/sources";
-import { SEED_SOURCE_PROFILES } from "@/modules/sources/seed-profiles";
-import { Card, CardBody, Button, Badge } from "@/components";
+import { Card, CardBody, Button, Badge, Input, Select } from "@/components";
 import { csrfHeaders } from "@/lib/csrf-client";
 import { validateUploadFile } from "@/lib/upload-guard";
 import { TopBar } from "../runs/_shell";
@@ -15,33 +13,35 @@ interface Parsed {
   filename: string;
   headers: string[];
   rows: Record<string, string>[];
-  profileName: string | null;
-  status: string;
 }
 
-type Step = { label: string; state: "done" | "active" | "pending" };
+// Friendly labels for the canonical fields the app maps to (ING-03).
+const CANONICAL_LABELS: Record<string, string> = {
+  campaign: "Campaign", dateCreated: "Date created", notes: "Notes", address: "Address",
+  city: "City", state: "State", zip: "ZIP", sellerFirst: "Seller first name",
+  sellerLast: "Seller last name", phone: "Phone", email: "Email",
+  reasonForSelling: "Reason for selling", motivation: "Motivation", timeToSell: "Time to sell",
+};
 
-function Steps({ steps }: { steps: Step[] }) {
-  return (
-    <ol className="flex flex-col gap-2.5">
-      {steps.map((s) => (
-        <li key={s.label} className="flex items-center gap-2.5 text-sm">
-          <span
-            className={
-              s.state === "done"
-                ? "grid h-5 w-5 place-items-center rounded-full bg-success-soft text-success"
-                : s.state === "active"
-                  ? "grid h-5 w-5 place-items-center rounded-full bg-brand-soft text-brand"
-                  : "grid h-5 w-5 place-items-center rounded-full bg-surface-3 text-text-3"
-            }
-          >
-            {s.state === "done" ? "✓" : s.state === "active" ? <span className="h-2 w-2 animate-pulse rounded-full bg-current" /> : "○"}
-          </span>
-          <span className={s.state === "pending" ? "text-text-3" : "text-text-2"}>{s.label}</span>
-        </li>
-      ))}
-    </ol>
-  );
+interface MappingNeed {
+  kind: "drift" | "unknown";
+  baseProfileId: string | null;
+  baseProfileName: string | null;
+  strictness: "flexible" | "strict";
+  uploadHeaders: string[];
+  suggestedMapping: Record<string, string>;
+  diff: { added: string[]; removed: string[]; renamed: { from: string; to: string }[] } | null;
+  requiredColumns: string[];
+  canonicalFields: string[];
+}
+
+const TEMPLATE_HREF = "/api/templates/investorfuse";
+
+async function post(url: string, body: unknown) {
+  const res = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json", ...csrfHeaders() }, body: JSON.stringify(body) });
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error((json as { message?: string }).message ?? "Request failed.");
+  return json;
 }
 
 export default function UploadPage() {
@@ -52,39 +52,52 @@ export default function UploadPage() {
   const [phase, setPhase] = React.useState<"idle" | "parsing" | "ready" | "error">("idle");
   const [parsed, setParsed] = React.useState<Parsed | null>(null);
   const [err, setErr] = React.useState<string | null>(null);
+  const [need, setNeed] = React.useState<MappingNeed | null>(null);
+  const [mapping, setMapping] = React.useState<Record<string, string>>({});
+  const [newName, setNewName] = React.useState("");
+
+  const idemKey = React.useRef<string>(crypto.randomUUID());
 
   const process = useMutation({
-    mutationFn: async (p: Parsed) => {
-      const res = await fetch("/api/uploads", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", ...csrfHeaders() },
-        body: JSON.stringify({ filename: p.filename, headers: p.headers, rows: p.rows, idempotencyKey: crypto.randomUUID() }),
-      });
-      const body = await res.json();
-      if (!res.ok) throw new Error(body?.message ?? "Processing failed.");
-      return body as { uploadRef: string };
+    mutationFn: (p: Parsed) => post("/api/uploads", { filename: p.filename, headers: p.headers, rows: p.rows, idempotencyKey: idemKey.current }),
+    onSuccess: (data: { result: string; uploadRef?: string } & MappingNeed) => {
+      if (data.result === "processed" && data.uploadRef) {
+        qc.invalidateQueries({ queryKey: ["runs"] });
+        router.push(`/runs/${data.uploadRef}`);
+      } else if (data.result === "needs_mapping") {
+        setNeed(data);
+        setMapping({ ...data.suggestedMapping });
+        setErr(null);
+      }
     },
-    onSuccess: (data) => {
+    onError: (e: Error) => setErr(e.message),
+  });
+
+  const confirm = useMutation({
+    mutationFn: (p: Parsed) =>
+      post("/api/uploads/confirm", {
+        filename: p.filename, headers: p.headers, rows: p.rows, mapping,
+        baseProfileId: need?.baseProfileId ?? undefined,
+        newFormatName: need?.kind === "unknown" ? newName : undefined,
+        strictness: need?.strictness ?? "flexible",
+        idempotencyKey: idemKey.current,
+      }),
+    onSuccess: (data: { uploadRef: string }) => {
       qc.invalidateQueries({ queryKey: ["runs"] });
       router.push(`/runs/${data.uploadRef}`);
     },
+    onError: (e: Error) => setErr(e.message),
   });
 
   async function handleFile(file: File) {
-    setErr(null);
-    setParsed(null);
-    // SEC-03: reject an unsupported extension or an oversized file before parsing.
+    setErr(null); setParsed(null); setNeed(null);
     const check = validateUploadFile({ name: file.name, size: file.size });
-    if (!check.ok) {
-      setErr(check.error ?? "That file can't be used.");
-      setPhase("error");
-      return;
-    }
+    if (!check.ok) { setErr(check.error ?? "That file can't be used."); setPhase("error"); return; }
     setPhase("parsing");
+    idemKey.current = crypto.randomUUID();
     try {
       const { headers, rows } = await parseWorkbookInWorker(file);
-      const det = detectProfile(headers, SEED_SOURCE_PROFILES);
-      setParsed({ filename: file.name, headers, rows, profileName: det.profile?.name ?? null, status: det.status });
+      setParsed({ filename: file.name, headers, rows });
       setPhase("ready");
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Could not read the file.");
@@ -92,12 +105,11 @@ export default function UploadPage() {
     }
   }
 
-  const isExact = parsed?.status === "exact";
-  const steps: Step[] = [
-    { label: parsed ? `Read ${parsed.rows.length} rows` : "Read the file", state: phase === "parsing" ? "active" : parsed ? "done" : "pending" },
-    { label: parsed ? (isExact ? `Detected ${parsed.profileName}` : "Format not recognized") : "Detect the source format", state: parsed ? "done" : "pending" },
-    { label: "Process & distribute", state: process.isPending ? "active" : process.isSuccess ? "done" : "pending" },
-  ];
+  function reset() {
+    setPhase("idle"); setParsed(null); setErr(null); setNeed(null); setMapping({});
+  }
+
+  const headerOptions = (need?.uploadHeaders ?? []).map((h) => ({ value: h, label: h }));
 
   return (
     <div className="min-h-full">
@@ -106,26 +118,20 @@ export default function UploadPage() {
         <div className="mb-6 flex items-end justify-between gap-3">
           <div>
             <h1 className="font-display text-2xl font-semibold tracking-tight text-text">New run</h1>
-            <p className="mt-1 text-sm text-text-2">Drop this week&apos;s InvestorFuse export to process and distribute it.</p>
+            <p className="mt-1 text-sm text-text-2">Drop this week&apos;s export to process and distribute it.</p>
           </div>
-          {/* File-download endpoint (not a page) — a plain anchor is correct here. */}
-          {/* eslint-disable-next-line @next/next/no-html-link-for-pages */}
-          <a href="/api/templates/investorfuse" download className="shrink-0 text-xs text-brand hover:underline" title="Download a template with the expected columns">
+          {/* File-download endpoint (not a page) — a plain anchor is correct; the href
+              is a variable so the pages-link lint rule doesn't misfire. */}
+          <a href={TEMPLATE_HREF} download className="shrink-0 text-xs text-brand hover:underline" title="Download a template with the expected columns">
             ↓ Download template
           </a>
         </div>
 
         <Card>
           <CardBody>
-            <input
-              ref={inputRef}
-              type="file"
-              accept=".xlsx,.csv"
-              className="hidden"
-              onChange={(e) => e.target.files?.[0] && handleFile(e.target.files[0])}
-            />
+            <input ref={inputRef} type="file" accept=".xlsx,.csv" className="hidden" onChange={(e) => e.target.files?.[0] && handleFile(e.target.files[0])} />
 
-            {phase === "idle" || phase === "error" ? (
+            {(phase === "idle" || phase === "error") && !need ? (
               <button
                 type="button"
                 onClick={() => inputRef.current?.click()}
@@ -136,9 +142,72 @@ export default function UploadPage() {
               >
                 <span className="grid h-11 w-11 place-items-center rounded-full bg-surface-3 text-lg text-text-2">↑</span>
                 <span className="text-sm font-semibold text-text">Drop a weekly .xlsx here</span>
-                <span className="text-xs text-text-3">or click to browse · InvestorFuse export</span>
+                <span className="text-xs text-text-3">or click to browse</span>
+                {err && <span className="mt-2 text-xs text-danger">{err}</span>}
               </button>
+            ) : need ? (
+              // ── Mapping / drift confirm screen (ING-02/08) ──
+              <div className="flex flex-col gap-4">
+                <div>
+                  <h2 className="font-display text-base font-semibold text-text">
+                    {need.kind === "drift" ? `The ${need.baseProfileName} format changed` : "New file format"}
+                  </h2>
+                  <p className="mt-1 text-sm text-text-2">
+                    {need.kind === "drift"
+                      ? "Confirm how the columns map, and I'll save it as a new version."
+                      : "Tell me which column is which, and I'll save it as a new format."}
+                  </p>
+                </div>
+
+                {need.diff && (need.diff.added.length > 0 || need.diff.removed.length > 0) && (
+                  <div className="flex flex-wrap gap-1.5 rounded-md border border-border-soft bg-surface-2 p-3 text-xs">
+                    {need.diff.renamed.map((r) => <Badge key={r.from} variant="warn">renamed: {r.from} → {r.to}</Badge>)}
+                    {need.diff.added.filter((a) => !need.diff!.renamed.some((r) => r.to === a)).map((a) => <Badge key={a} variant="success">added: {a}</Badge>)}
+                    {need.diff.removed.filter((a) => !need.diff!.renamed.some((r) => r.from === a)).map((a) => <Badge key={a} variant="removed">removed: {a}</Badge>)}
+                  </div>
+                )}
+
+                {need.kind === "unknown" && (
+                  <Input label="Format name" value={newName} onChange={(e) => setNewName(e.target.value)} hint="e.g. Acme CRM export" />
+                )}
+
+                <div className="flex flex-col gap-2">
+                  {need.canonicalFields.map((field) => {
+                    const req = need.requiredColumns.includes(field);
+                    return (
+                      <div key={field} className="grid grid-cols-[1fr_1.4fr] items-center gap-3">
+                        <span className="text-sm text-text-2">
+                          {CANONICAL_LABELS[field] ?? field}
+                          {req && <span className="ml-1 text-danger">*</span>}
+                        </span>
+                        <Select
+                          value={mapping[field] ?? ""}
+                          onChange={(e) => setMapping((m) => ({ ...m, [field]: e.target.value }))}
+                        >
+                          <option value="">— not in file —</option>
+                          {headerOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                        </Select>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {err && <p className="text-sm text-danger">{err}</p>}
+
+                <div className="flex items-center gap-3">
+                  <Button
+                    variant="primary"
+                    loading={confirm.isPending}
+                    disabled={need.kind === "unknown" && !newName.trim()}
+                    onClick={() => parsed && confirm.mutate(parsed)}
+                  >
+                    Confirm &amp; process
+                  </Button>
+                  <Button variant="ghost" onClick={reset} disabled={confirm.isPending}>Cancel</Button>
+                </div>
+              </div>
             ) : (
+              // ── Ready-to-process screen ──
               <div className="flex flex-col gap-5">
                 <div className="flex items-center justify-between gap-3 rounded-lg border border-border-soft bg-surface-2 px-4 py-3">
                   <div className="min-w-0">
@@ -149,26 +218,15 @@ export default function UploadPage() {
                       </div>
                     )}
                   </div>
-                  {parsed && (isExact ? <Badge variant="success">{parsed.profileName}</Badge> : <Badge variant="warn">{parsed.status}</Badge>)}
                 </div>
 
-                <Steps steps={steps} />
-
                 {err && <p className="text-sm text-danger">{err}</p>}
-                {process.isError && <p className="text-sm text-danger">{(process.error as Error).message}</p>}
 
                 <div className="flex items-center gap-3">
-                  <Button
-                    variant="primary"
-                    onClick={() => parsed && process.mutate(parsed)}
-                    disabled={!isExact || process.isPending || phase === "parsing"}
-                    loading={process.isPending}
-                  >
+                  <Button variant="primary" onClick={() => parsed && process.mutate(parsed)} disabled={!parsed || process.isPending || phase === "parsing"} loading={process.isPending}>
                     Process run
                   </Button>
-                  <Button variant="ghost" onClick={() => { setPhase("idle"); setParsed(null); setErr(null); }} disabled={process.isPending}>
-                    Choose another file
-                  </Button>
+                  <Button variant="ghost" onClick={reset} disabled={process.isPending}>Choose another file</Button>
                 </div>
               </div>
             )}

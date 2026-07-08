@@ -18,7 +18,7 @@ import {
 interface Recode { id: string; matchPattern: string; code: string }
 interface MlsPattern { id: string; patternKey: string; type: "disqualify" | "keep_override"; regex: string; flags: string; label: string; enabled: boolean }
 interface Coverage { zipCount: number; stateRules: { state: string; partnerName: string; partnerRef: string; color: string }[] }
-interface Format { id: string; name: string; version: number; columns: number; strictness: "flexible" | "strict" }
+interface Format { id: string; name: string; version: number; columns: number; strictness: "flexible" | "strict"; source: "saved" | "builtin" }
 interface RulesData { recodes: Recode[]; mlsPatterns: MlsPattern[]; coverage: Coverage; formats: Format[] }
 
 async function send(url: string, method: string, body?: unknown) {
@@ -197,7 +197,10 @@ function RulesInner() {
                   <TBody>
                     {data.formats.map((fmt) => (
                       <Tr key={fmt.id}>
-                        <Td><span className="text-sm text-text">{fmt.name}</span> <span className="num text-xs text-text-3">v{fmt.version}</span></Td>
+                        <Td>
+                          <span className="text-sm text-text">{fmt.name}</span> <span className="num text-xs text-text-3">v{fmt.version}</span>
+                          {fmt.source === "saved" && <Badge variant="success" className="ml-2">saved</Badge>}
+                        </Td>
                         <Td align="right"><span className="num text-sm text-text-2">{fmt.columns}</span></Td>
                         <Td><Badge variant={fmt.strictness === "strict" ? "warn" : "neutral"}>{fmt.strictness}</Badge></Td>
                         <Td align="right">

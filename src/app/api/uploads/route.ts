@@ -2,41 +2,25 @@ import { z } from "zod";
 import { getDb } from "@/db";
 import { getServerScope } from "@/lib/scope-context";
 import { detectProfile } from "@/modules/sources";
-import { SEED_SOURCE_PROFILES } from "@/modules/sources/seed-profiles";
-import { loadRunRules } from "@/modules/run/rules";
-import { processRun } from "@/modules/run/process";
-import { DrizzleRunStore } from "@/modules/run/store";
-import { withDbIdempotency, RequestInProgressError } from "@/lib/idempotency-db";
+import { loadProfilesForDetection } from "@/modules/sources/profile-store";
+import { suggestMapping } from "@/modules/sources/mapping";
+import { CANONICAL_FIELDS } from "@/modules/sources/types";
+import { runUpload } from "@/modules/run/run-upload";
+import { RequestInProgressError } from "@/lib/idempotency-db";
 import { assertCsrf, authErrorResponse, requireAdminResponse } from "@/lib/auth/guard";
-import { enqueueRunDigests, drainOutbox } from "@/modules/notify/outbox";
-import { loadNotificationPrefs } from "@/modules/notify/prefs";
-import { storeExport } from "@/modules/export/storage";
-import { getSupabaseAdmin } from "@/lib/supabase/admin";
-import { adminAllowlist } from "@/lib/env";
 import { MAX_UPLOAD_ROWS } from "@/lib/upload-guard";
-import { logError } from "@/lib/observability";
-import { and, eq } from "drizzle-orm";
-import * as schema from "@/db/schema";
 import { jsonOk, jsonError, newTraceId } from "@/lib/http";
+import { NextResponse } from "next/server";
 
-// POST /api/uploads — process a parsed weekly file end-to-end (WP-020). The client parses
-// the workbook off the main thread (FEP-06) and posts { headers, rows }; the server detects
-// the Source Profile, loads the tenant's rules, runs the pipeline, and persists the run.
+// POST /api/uploads — detect the file's Source Profile (ING-02/08) and either process
+// it (exact match) or return the drift/unknown mapping payload so the client can show
+// the confirm-mapping screen. Confirmed mappings go to POST /api/uploads/confirm.
 const BodySchema = z.object({
   filename: z.string().min(1).max(255),
   headers: z.array(z.string()).min(1),
   rows: z.array(z.record(z.string(), z.unknown())).min(1).max(MAX_UPLOAD_ROWS), // SEC-03 row cap
   idempotencyKey: z.string().min(8).max(200).optional(),
 });
-
-/** Admin recipients for the run-summary email: the acting admin + the env allowlist. */
-async function resolveAdminEmails(db: ReturnType<typeof getDb>, tenantId: string, userId: string): Promise<string[]> {
-  const [me] = await db
-    .select({ email: schema.users.email })
-    .from(schema.users)
-    .where(eq(schema.users.id, userId));
-  return [...(me?.email ? [me.email] : []), ...adminAllowlist];
-}
 
 export async function POST(req: Request) {
   if (!assertCsrf(req, { requireToken: true })) {
@@ -49,90 +33,55 @@ export async function POST(req: Request) {
     return jsonError("invalid_body", "Malformed upload payload.", 400);
   }
 
-  // ING-02/08: exact signature auto-applies; anything else is surfaced, never silently guessed.
-  const detected = detectProfile(body.headers, SEED_SOURCE_PROFILES);
-  if (detected.status !== "exact" || !detected.profile) {
-    return jsonError(
-      "format_unrecognized",
-      `File format not recognized (${detected.status}). The mapping/drift screen is coming; for now upload an InvestorFuse export.`,
-      409,
-    );
-  }
-  const profile = detected.profile;
-
   try {
     const scope = await getServerScope();
     const adminOnly = requireAdminResponse(scope);
     if (adminOnly) return adminOnly;
+
     const db = getDb();
-    const { rules, snapshotParts } = await loadRunRules(scope);
-    const key = body.idempotencyKey ?? newTraceId();
-    const year = new Date().getUTCFullYear();
-
+    const profiles = await loadProfilesForDetection(db, scope);
+    const detected = detectProfile(body.headers, profiles);
     const origin = new URL(req.url).origin;
-    const { response } = await withDbIdempotency(db, scope.tenantId, key, async () => {
-      const store = new DrizzleRunStore(db);
-      const result = await processRun(
-        {
-          tenantId: scope.tenantId,
-          filename: body.filename,
-          rows: body.rows,
-          profile,
-          rules,
-          snapshotInput: { sourceProfile: { id: profile.id, version: profile.version }, ...snapshotParts },
-          year,
-          colorCoding: true,
-        },
-        { store, clock: () => new Date().toISOString() },
-      );
 
-      // EXP-05: store the rendered deliverable in the private bucket and record its
-      // path. Best-effort — if storage hiccups, the download route regenerates.
-      try {
-        const path = await storeExport(getSupabaseAdmin(), {
-          tenantId: scope.tenantId,
-          uploadRef: result.uploadRefId,
-          bytes: result.exportBytes,
-        });
-        await db
-          .update(schema.uploads)
-          .set({ storagePath: path })
-          .where(and(eq(schema.uploads.tenantId, scope.tenantId), eq(schema.uploads.refId, result.uploadRefId)));
-      } catch (e) {
-        logError("export_store_failed", { message: e instanceof Error ? e.message : String(e) });
-      }
-
-      // NTF-01/02: enqueue per-partner + admin digests for this run. Best-effort —
-      // a notification problem must never fail (or roll back) a processed upload.
-      try {
-        const [adminEmails, prefs] = await Promise.all([
-          resolveAdminEmails(db, scope.tenantId, scope.userId),
-          loadNotificationPrefs(db, scope),
-        ]);
-        await enqueueRunDigests(db, scope, {
-          uploadRef: result.uploadRefId,
-          summary: result.summary,
-          portalBaseUrl: origin,
-          adminEmails,
-          adminUserId: scope.userId,
-          prefs,
-        });
-      } catch (e) {
-        logError("digest_enqueue_failed", { message: e instanceof Error ? e.message : String(e) });
-      }
-
-      return { uploadRef: result.uploadRefId, summary: result.summary };
-    });
-
-    // Drain the outbox (best-effort). In dev this captures to the Sent-emails viewer;
-    // in production it sends via Resend. Failures retry on the next drain (backoff).
-    try {
-      await drainOutbox(db, { tenantId: scope.tenantId });
-    } catch (e) {
-      logError("outbox_drain_failed", { message: e instanceof Error ? e.message : String(e) });
+    if (detected.status === "exact" && detected.profile) {
+      const res = await runUpload(scope, {
+        profile: detected.profile,
+        filename: body.filename,
+        rows: body.rows,
+        origin,
+        idempotencyKey: body.idempotencyKey,
+      });
+      return jsonOk({ result: "processed", ...res });
     }
 
-    return jsonOk(response);
+    // ING-08: a genuinely-missing required column with nothing to remap → hard block.
+    if (detected.status === "missing_required" && detected.missingRequired?.length) {
+      return NextResponse.json(
+        {
+          code: "missing_required",
+          message: `This file is missing required column(s): ${detected.missingRequired.join(", ")}. Add them and re-upload.`,
+          traceId: newTraceId(),
+          missingRequired: detected.missingRequired,
+        },
+        { status: 422 },
+      );
+    }
+
+    // ING-02/08: drift or unknown → surface a mapping to confirm (never silently guess).
+    const base = detected.profile ?? null;
+    return jsonOk({
+      result: "needs_mapping",
+      kind: detected.status, // "drift" | "unknown"
+      baseProfileId: base?.id ?? null,
+      baseProfileName: base?.name ?? null,
+      strictness: base?.strictness ?? "flexible",
+      uploadHeaders: body.headers,
+      suggestedMapping: suggestMapping(base, body.headers),
+      diff: detected.diff ?? null,
+      missingRequired: detected.missingRequired ?? [],
+      requiredColumns: base?.requiredColumns ?? [],
+      canonicalFields: CANONICAL_FIELDS,
+    });
   } catch (e) {
     const authResp = authErrorResponse(e);
     if (authResp) return authResp;

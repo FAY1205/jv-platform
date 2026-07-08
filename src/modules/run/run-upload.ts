@@ -1,0 +1,87 @@
+import { and, eq } from "drizzle-orm";
+import { getDb } from "@/db";
+import * as schema from "@/db/schema";
+import type { ScopeContext } from "@/lib/scope";
+import type { SourceProfile } from "@/modules/sources";
+import { loadRunRules } from "./rules";
+import { processRun } from "./process";
+import { DrizzleRunStore } from "./store";
+import { withDbIdempotency } from "@/lib/idempotency-db";
+import { storeExport } from "@/modules/export/storage";
+import { getSupabaseAdmin } from "@/lib/supabase/admin";
+import { enqueueRunDigests, drainOutbox } from "@/modules/notify/outbox";
+import { loadNotificationPrefs } from "@/modules/notify/prefs";
+import { adminAllowlist } from "@/lib/env";
+import { logError } from "@/lib/observability";
+import { newTraceId } from "@/lib/http";
+import type { RunSummary } from "@/modules/analytics/run-summary";
+
+// Shared upload processing (WP-020 + WP-028/029/032): run the pipeline for a chosen
+// Source Profile, store the export, enqueue digests + notifications, and drain the
+// outbox — all best-effort around the run so email/storage never fail an upload.
+// Both the exact-detect path and the confirmed-mapping path (ING-08) call this.
+
+const errMsg = (e: unknown) => (e instanceof Error ? e.message : String(e));
+
+async function resolveAdminEmails(db: ReturnType<typeof getDb>, tenantId: string, userId: string): Promise<string[]> {
+  const [me] = await db.select({ email: schema.users.email }).from(schema.users).where(eq(schema.users.id, userId));
+  return [...(me?.email ? [me.email] : []), ...adminAllowlist];
+}
+
+export interface RunUploadInput {
+  profile: SourceProfile;
+  filename: string;
+  rows: readonly Record<string, unknown>[];
+  origin: string;
+  idempotencyKey?: string;
+}
+
+export async function runUpload(scope: ScopeContext, input: RunUploadInput): Promise<{ uploadRef: string; summary: RunSummary }> {
+  const db = getDb();
+  const { rules, snapshotParts } = await loadRunRules(scope);
+  const key = input.idempotencyKey ?? newTraceId();
+  const year = new Date().getUTCFullYear();
+
+  const { response } = await withDbIdempotency(db, scope.tenantId, key, async () => {
+    const store = new DrizzleRunStore(db);
+    const result = await processRun(
+      {
+        tenantId: scope.tenantId,
+        filename: input.filename,
+        rows: input.rows,
+        profile: input.profile,
+        rules,
+        snapshotInput: { sourceProfile: { id: input.profile.id, version: input.profile.version }, ...snapshotParts },
+        year,
+        colorCoding: true,
+      },
+      { store, clock: () => new Date().toISOString() },
+    );
+
+    // EXP-05: store the rendered deliverable (best-effort).
+    try {
+      const path = await storeExport(getSupabaseAdmin(), { tenantId: scope.tenantId, uploadRef: result.uploadRefId, bytes: result.exportBytes });
+      await db.update(schema.uploads).set({ storagePath: path }).where(and(eq(schema.uploads.tenantId, scope.tenantId), eq(schema.uploads.refId, result.uploadRefId)));
+    } catch (e) {
+      logError("export_store_failed", { message: errMsg(e) });
+    }
+
+    // NTF-01/02/04/05: digests + in-app notifications (best-effort).
+    try {
+      const [adminEmails, prefs] = await Promise.all([resolveAdminEmails(db, scope.tenantId, scope.userId), loadNotificationPrefs(db, scope)]);
+      await enqueueRunDigests(db, scope, { uploadRef: result.uploadRefId, summary: result.summary, portalBaseUrl: input.origin, adminEmails, adminUserId: scope.userId, prefs });
+    } catch (e) {
+      logError("digest_enqueue_failed", { message: errMsg(e) });
+    }
+
+    return { uploadRef: result.uploadRefId, summary: result.summary };
+  });
+
+  try {
+    await drainOutbox(db, { tenantId: scope.tenantId });
+  } catch (e) {
+    logError("outbox_drain_failed", { message: errMsg(e) });
+  }
+
+  return response;
+}
