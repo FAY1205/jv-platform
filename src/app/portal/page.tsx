@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getDb } from "@/db";
 import { getServerScope } from "@/lib/scope-context";
@@ -28,9 +29,23 @@ export default async function PortalHome() {
           <CardTitle>Partner portal</CardTitle>
         </CardHeader>
         <CardBody>
-          <p className="text-sm text-text-2">
-            You&apos;re signed in. Your leads, statuses, and notes will appear here.
-          </p>
+          <p className="mb-5 text-sm text-text-2">You&apos;re signed in. Manage your leads and devices below.</p>
+          <div className="grid grid-cols-2 gap-3">
+            <Link
+              href="/portal/leads"
+              className="rounded-md border border-border bg-surface p-4 transition-colors hover:border-text-3 hover:bg-surface-2"
+            >
+              <span className="block text-sm font-semibold text-text">Your leads</span>
+              <span className="block text-xs text-text-3">View, update statuses, and export</span>
+            </Link>
+            <Link
+              href="/portal/devices"
+              className="rounded-md border border-border bg-surface p-4 transition-colors hover:border-text-3 hover:bg-surface-2"
+            >
+              <span className="block text-sm font-semibold text-text">Your devices</span>
+              <span className="block text-xs text-text-3">Remembered browsers you can sign out</span>
+            </Link>
+          </div>
         </CardBody>
       </Card>
     </main>

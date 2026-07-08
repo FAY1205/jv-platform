@@ -58,7 +58,9 @@ export async function proxy(request: NextRequest) {
   } = await supabase.auth.getUser();
 
   if (isProtectedPage(pathname) && !user) {
-    const loginUrl = new URL("/login", request.url);
+    // Partners onboard via the portal OTP screen; admins via the password screen.
+    const loginPath = pathname.startsWith("/portal") ? "/portal/login" : "/login";
+    const loginUrl = new URL(loginPath, request.url);
     loginUrl.searchParams.set("next", pathname);
     return NextResponse.redirect(loginUrl);
   }
