@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiGet } from "@/lib/api";
+import { csrfHeaders } from "@/lib/csrf-client";
 import type { RunDetail, RunLeadView, PartnerView } from "@/modules/run/view-types";
 import { Badge, Button, Modal, Card, CardHeader, CardTitle, CardBody, Stat, PartnerTag, Table, THead, TBody, Th, Tr, Td, EmptyState, Skeleton } from "@/components";
 import { TopBar, fmtDate } from "../_shell";
@@ -56,7 +57,7 @@ function RunView({ detail }: { detail: RunDetail }) {
     mutationFn: async () => {
       const res = await fetch(`/api/runs/${upload.refId}/void`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...csrfHeaders() },
         body: JSON.stringify({ reason }),
       });
       const b = await res.json();

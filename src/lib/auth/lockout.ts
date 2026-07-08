@@ -21,3 +21,19 @@ export function lockoutState(failedCount: number): LockoutState {
   const retryAfterMs = Math.min(BASE_MS * 2 ** (over - 1), CAP_MS);
   return { locked: true, retryAfterMs, shouldNotify: over === 1 };
 }
+
+/**
+ * Pre-attempt gate: is the account currently locked, given its recent failed
+ * count and the time since the last failure? Composes lockoutState's progressive
+ * delay with elapsed time so the lock lifts automatically once the delay passes.
+ */
+export function lockoutGate(
+  failedCount: number,
+  msSinceLastFailure: number,
+): { locked: boolean; retryAfterMs: number } {
+  const state = lockoutState(failedCount);
+  if (!state.locked) return { locked: false, retryAfterMs: 0 };
+  const remaining = state.retryAfterMs - msSinceLastFailure;
+  if (remaining <= 0) return { locked: false, retryAfterMs: 0 };
+  return { locked: true, retryAfterMs: remaining };
+}

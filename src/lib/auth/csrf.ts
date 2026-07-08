@@ -1,5 +1,8 @@
 import { timingSafeEqualStr } from "./constant-time";
 
+// Re-exported so consumers importing from "./csrf" get the Edge-safe minter too.
+export { newCsrfToken, CSRF_COOKIE_NAME, CSRF_HEADER_NAME } from "./csrf-token";
+
 // AUT-12: CSRF protection for state-changing routes. SameSite=Lax on the session
 // cookie is the first line; on top of it the server verifies the request Origin
 // against an allowlist (fail closed on a missing Origin) and, where a token is
@@ -19,4 +22,20 @@ export function isAllowedOrigin(origin: string | null | undefined, allowed: read
 export function csrfTokenMatches(cookieToken: string | undefined, submitted: string | undefined): boolean {
   if (!cookieToken || !submitted) return false;
   return timingSafeEqualStr(cookieToken, submitted);
+}
+
+export interface CsrfCheck {
+  origin: string | null | undefined;
+  allowedOrigins: readonly string[];
+  /** True for authed state-changing routes; false pre-session (e.g. login). */
+  requireToken: boolean;
+  cookieToken?: string;
+  headerToken?: string;
+}
+
+/** Combined CSRF verdict: Origin allowlist, plus the double-submit token when required. */
+export function csrfOk(c: CsrfCheck): boolean {
+  if (!isAllowedOrigin(c.origin, c.allowedOrigins)) return false;
+  if (c.requireToken && !csrfTokenMatches(c.cookieToken, c.headerToken)) return false;
+  return true;
 }

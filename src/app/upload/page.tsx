@@ -7,6 +7,7 @@ import { parseWorkbookInWorker } from "@/lib/xlsx-client";
 import { detectProfile } from "@/modules/sources";
 import { SEED_SOURCE_PROFILES } from "@/modules/sources/seed-profiles";
 import { Card, CardBody, Button, Badge } from "@/components";
+import { csrfHeaders } from "@/lib/csrf-client";
 import { TopBar } from "../runs/_shell";
 
 interface Parsed {
@@ -55,7 +56,7 @@ export default function UploadPage() {
     mutationFn: async (p: Parsed) => {
       const res = await fetch("/api/uploads", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...csrfHeaders() },
         body: JSON.stringify({ filename: p.filename, headers: p.headers, rows: p.rows, idempotencyKey: crypto.randomUUID() }),
       });
       const body = await res.json();

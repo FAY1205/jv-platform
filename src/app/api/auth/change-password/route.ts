@@ -2,7 +2,7 @@ import { z } from "zod";
 import { getSupabaseServer } from "@/lib/supabase/server";
 import { getServerScope } from "@/lib/scope-context";
 import { jsonOk, jsonError } from "@/lib/http";
-import { originAllowed, authErrorResponse } from "@/lib/auth/guard";
+import { assertCsrf, authErrorResponse } from "@/lib/auth/guard";
 import { evaluateNewPassword, hibpRangeFetcher } from "@/lib/auth/password";
 
 // AUT-02 / AUT-08: authenticated admin changes their password. Requires recent
@@ -15,8 +15,8 @@ const Input = z.object({
 });
 
 export async function POST(request: Request) {
-  if (!originAllowed(request)) {
-    return jsonError("csrf_origin_rejected", "Request origin not allowed.", 403);
+  if (!assertCsrf(request, { requireToken: true })) {
+    return jsonError("csrf_rejected", "CSRF check failed.", 403);
   }
 
   // Must be authenticated (401/403 via the uniform envelope).

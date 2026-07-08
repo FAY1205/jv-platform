@@ -7,7 +7,7 @@ import { loadRunRules } from "@/modules/run/rules";
 import { processRun } from "@/modules/run/process";
 import { DrizzleRunStore } from "@/modules/run/store";
 import { withDbIdempotency, RequestInProgressError } from "@/lib/idempotency-db";
-import { authErrorResponse } from "@/lib/auth/guard";
+import { assertCsrf, authErrorResponse } from "@/lib/auth/guard";
 import { jsonOk, jsonError, newTraceId } from "@/lib/http";
 
 // POST /api/uploads — process a parsed weekly file end-to-end (WP-020). The client parses
@@ -21,6 +21,9 @@ const BodySchema = z.object({
 });
 
 export async function POST(req: Request) {
+  if (!assertCsrf(req, { requireToken: true })) {
+    return jsonError("csrf_rejected", "CSRF check failed.", 403);
+  }
   let body: z.infer<typeof BodySchema>;
   try {
     body = BodySchema.parse(await req.json());

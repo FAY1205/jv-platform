@@ -3,6 +3,7 @@
 import * as React from "react";
 import { useRouter } from "next/navigation";
 import { Card, CardBody, CardHeader, CardTitle, Input, Button } from "@/components";
+import { csrfHeaders } from "@/lib/csrf-client";
 
 // AUT-02: change password. Live feedback here is a lightweight guidance hint; the
 // SERVER runs the authoritative gate (length ≥ 12, zxcvbn ≥ 3, HIBP breach check)
@@ -37,7 +38,7 @@ export default function ChangePasswordPage() {
     try {
       const res = await fetch("/api/auth/change-password", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...csrfHeaders() },
         body: JSON.stringify({ currentPassword: current, newPassword: next }),
       });
       if (res.ok) {

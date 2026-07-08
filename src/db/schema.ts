@@ -471,3 +471,23 @@ export const idempotencyKeys = pgTable(
   },
   (t) => [uniqueIndex("idempotency_tenant_key_idx").on(t.tenantId, t.key)],
 );
+
+// ── Auth attempts (AUT-03/04): sliding-window rate limiting + progressive lockout. ──
+// NOT tenant-scoped: login/reset run BEFORE the tenant is known, so throttling keys
+// on the identifier (lowercased email) and IP. Server-managed (service role); RLS is
+// deny-by-default (no permissive policy) per SEC-01.
+export const authAttempts = pgTable(
+  "auth_attempts",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    identifier: text("identifier").notNull(), // lowercased email
+    ip: text("ip"),
+    kind: text("kind").notNull(), // 'login' | 'reset' | 'change_password'
+    success: boolean("success").notNull().default(false),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    index("auth_attempts_identifier_idx").on(t.identifier, t.kind, t.createdAt),
+    index("auth_attempts_ip_idx").on(t.ip, t.kind, t.createdAt),
+  ],
+);

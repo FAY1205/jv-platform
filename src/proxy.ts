@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 import { env, isProduction } from "@/lib/env";
 import { AUTH_COOKIE_OPTIONS } from "@/lib/supabase/cookie-options";
+import { newCsrfToken, CSRF_COOKIE_NAME } from "@/lib/auth/csrf-token";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Auth proxy (WP-023; Next 16 renamed the `middleware` convention to `proxy`).
@@ -59,8 +60,20 @@ export async function proxy(request: NextRequest) {
     return NextResponse.redirect(loginUrl);
   }
 
-  // AUT-13: never cache authenticated responses (back button reveals no data).
-  if (user) response.headers.set("Cache-Control", "no-store");
+  if (user) {
+    // AUT-13: never cache authenticated responses (back button reveals no data).
+    response.headers.set("Cache-Control", "no-store");
+    // AUT-12: issue the readable double-submit CSRF token if the session lacks one.
+    // Readable (not HttpOnly) so the client echoes it in the x-csrf-token header.
+    if (!request.cookies.get(CSRF_COOKIE_NAME)) {
+      response.cookies.set(CSRF_COOKIE_NAME, newCsrfToken(), {
+        httpOnly: false,
+        secure: true,
+        sameSite: "lax",
+        path: "/",
+      });
+    }
+  }
 
   return response;
 }

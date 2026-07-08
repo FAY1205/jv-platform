@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { getServerScope } from "@/lib/scope-context";
-import { authErrorResponse } from "@/lib/auth/guard";
+import { assertCsrf, authErrorResponse } from "@/lib/auth/guard";
 import { voidUpload, UploadNotFoundError, AlreadyVoidedError } from "@/modules/run/void";
 import { jsonOk, jsonError } from "@/lib/http";
 
@@ -9,6 +9,9 @@ const BodySchema = z.object({ reason: z.string().trim().min(3).max(500) });
 
 // POST /api/runs/[ref]/void — soft-void a processed run with a required reason (ING-09).
 export async function POST(req: Request, { params }: { params: Promise<{ ref: string }> }) {
+  if (!assertCsrf(req, { requireToken: true })) {
+    return jsonError("csrf_rejected", "CSRF check failed.", 403);
+  }
   const { ref } = await params;
   if (!RefSchema.safeParse(ref).success) return jsonError("invalid_ref", "Invalid run reference.", 400);
 
