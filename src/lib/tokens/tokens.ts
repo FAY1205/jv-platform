@@ -169,5 +169,27 @@ export const PARTNER_PALETTE: readonly PartnerColor[] = [
   { name: "Jason Beery", hex: "#c9a0dc" },
 ] as const;
 
+/**
+ * The partner swatch pool (SET-02). New partners created in-app (ADM-03) are
+ * assigned the first unused color from this ordered, locked pool (PRN-06). Every
+ * hue is a soft tint chosen to keep AA text contrast when used as a row/legend
+ * fill (PRN-14) — color is never the sole signal (always paired with name +
+ * JV-### ref-id). Starts with the seeded 9, then extends with more vetted tints.
+ */
+export const PARTNER_SWATCHES: readonly string[] = [
+  ...PARTNER_PALETTE.map((p) => p.hex),
+  "#a3c4a0", // sage
+  "#e0b0d5", // orchid
+  "#c7b299", // taupe
+  "#8fc6d1", // aqua
+  "#e8b98a", // apricot
+  "#b6bce0", // periwinkle
+  "#d9b8a0", // clay
+  "#a8d0b9", // mint
+  "#e3a9a9", // rose
+  "#bcd08a", // pear
+  "#9fb8e8", // cornflower
+] as const;
+
 export const themes = { light: lightColors, dark: darkColors } as const;
 export type ThemeName = keyof typeof themes;
