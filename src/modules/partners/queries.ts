@@ -1,4 +1,4 @@
-import { and, eq, isNull, sql } from "drizzle-orm";
+import { and, count, eq, isNull, sql } from "drizzle-orm";
 import { getDb } from "@/db";
 import * as schema from "@/db/schema";
 import { tenantWhere, type ScopeContext } from "@/lib/scope";
@@ -21,6 +21,9 @@ export interface PartnerRow {
   lastPortalLoginAt: string | null;
   /** Kept leads assigned to this partner (simple count; full stats → WP-029). */
   leadCount: number;
+  /** Current coverage: ZIPs + whole states this partner owns (CVG-01). */
+  zipCount: number;
+  stateCount: number;
 }
 
 export interface Territory {
@@ -46,6 +49,20 @@ export async function listPartners(scope: ScopeContext): Promise<PartnerRow[]> {
     .groupBy(schema.leads.partnerId);
   const countBy = new Map(counts.map((c) => [c.partnerId, Number(c.n)]));
 
+  const zipCounts = await db
+    .select({ partnerId: schema.coverageZips.partnerId, n: count() })
+    .from(schema.coverageZips)
+    .where(and(tenantWhere(schema.coverageZips, scope), isNull(schema.coverageZips.effectiveTo)))
+    .groupBy(schema.coverageZips.partnerId);
+  const zipBy = new Map(zipCounts.map((c) => [c.partnerId, Number(c.n)]));
+
+  const stateCounts = await db
+    .select({ partnerId: schema.stateRules.partnerId, n: count() })
+    .from(schema.stateRules)
+    .where(tenantWhere(schema.stateRules, scope))
+    .groupBy(schema.stateRules.partnerId);
+  const stateBy = new Map(stateCounts.map((c) => [c.partnerId, Number(c.n)]));
+
   return rows.map((p) => ({
     id: p.id,
     refId: p.refId,
@@ -60,6 +77,8 @@ export async function listPartners(scope: ScopeContext): Promise<PartnerRow[]> {
     activatedAt: iso(p.activatedAt),
     lastPortalLoginAt: iso(p.lastPortalLoginAt),
     leadCount: countBy.get(p.id) ?? 0,
+    zipCount: zipBy.get(p.id) ?? 0,
+    stateCount: stateBy.get(p.id) ?? 0,
   }));
 }
 

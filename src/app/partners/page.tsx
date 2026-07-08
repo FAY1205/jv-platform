@@ -41,6 +41,8 @@ interface Partner {
   adminNotes: string | null;
   status: "not_invited" | "invited" | "active" | "revoked";
   leadCount: number;
+  zipCount: number;
+  stateCount: number;
 }
 interface Territory {
   states: string[];
@@ -66,8 +68,8 @@ async function send(url: string, method: string, body?: unknown): Promise<Record
 }
 
 // ── Create / edit form ───────────────────────────────────────────────────────
-type FormFields = { name: string; email: string; phone: string; dealTerms: string; adminNotes: string };
-const EMPTY: FormFields = { name: "", email: "", phone: "", dealTerms: "", adminNotes: "" };
+type FormFields = { name: string; email: string; phone: string; dealTerms: string; adminNotes: string; zips: string; states: string };
+const EMPTY: FormFields = { name: "", email: "", phone: "", dealTerms: "", adminNotes: "", zips: "", states: "" };
 
 function PartnerForm({
   editing,
@@ -86,6 +88,8 @@ function PartnerForm({
           phone: editing.phone ?? "",
           dealTerms: editing.dealTerms ?? "",
           adminNotes: editing.adminNotes ?? "",
+          zips: "",
+          states: "",
         }
       : EMPTY,
   );
@@ -93,17 +97,38 @@ function PartnerForm({
   const set = (k: keyof FormFields) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) =>
     setF((p) => ({ ...p, [k]: e.target.value }));
 
+  // On edit, load the partner's current coverage and seed the ZIP/state fields once
+  // (adjust-during-render — the React-recommended alternative to an effect).
+  const detail = useQuery({
+    queryKey: ["partner", editing?.id],
+    queryFn: () => apiGet<{ partner: Partner & { territory: Territory } }>(`/api/admin/partners/${editing!.id}`),
+    enabled: !!editing,
+  });
+  const [seeded, setSeeded] = React.useState(false);
+  if (editing && detail.data && !seeded) {
+    setSeeded(true);
+    const t = detail.data.partner.territory;
+    setF((p) => ({ ...p, zips: t.zips.join(", "), states: t.states.join(", ") }));
+  }
+
   const mutation = useMutation({
-    mutationFn: () =>
-      editing
-        ? send(`/api/admin/partners/${editing.id}`, "PATCH", f)
-        : send("/api/admin/partners", "POST", f),
+    mutationFn: async () => {
+      const contact = { name: f.name, email: f.email, phone: f.phone, dealTerms: f.dealTerms, adminNotes: f.adminNotes };
+      const id = editing
+        ? (await send(`/api/admin/partners/${editing.id}`, "PATCH", contact), editing.id)
+        : ((await send("/api/admin/partners", "POST", contact)).partner as { id: string }).id;
+      // CVG-01: apply coverage (validated server-side; rejects unrecognized tokens).
+      await send(`/api/admin/partners/${id}/coverage`, "PUT", { zips: f.zips, states: f.states });
+    },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["partners"] });
       toast(editing ? "Partner updated." : "Partner created.", "success");
       onClose();
     },
-    onError: (e: Error) => setErr(e.message),
+    onError: (e: Error & { json?: Record<string, unknown> }) => {
+      const bad = [...((e.json?.invalidZips as string[]) ?? []), ...((e.json?.invalidStates as string[]) ?? [])];
+      setErr(bad.length ? `Not recognized: ${bad.join(", ")}` : e.message);
+    },
   });
 
   return (
@@ -135,6 +160,20 @@ function PartnerForm({
         <Input label="Name" value={f.name} onChange={set("name")} autoFocus />
         <Input label="Email" type="email" value={f.email} onChange={set("email")} hint="Needed to send an invite." />
         <Input label="Phone" value={f.phone} onChange={set("phone")} />
+        <Textarea
+          label="Coverage — ZIP codes"
+          value={f.zips}
+          onChange={set("zips")}
+          rows={2}
+          hint="ZIPs this partner covers, separated by commas or spaces."
+        />
+        <Textarea
+          label="Coverage — whole states (optional)"
+          value={f.states}
+          onChange={set("states")}
+          rows={1}
+          hint="2-letter states (e.g. TX, CA) this partner covers as a fallback."
+        />
         <Textarea label="Deal terms" value={f.dealTerms} onChange={set("dealTerms")} rows={2} />
         <Textarea label="Admin notes" value={f.adminNotes} onChange={set("adminNotes")} rows={2} hint="Private to admins." />
         {!editing && <p className="text-xs text-text-3">A locked color and JV-### reference are assigned automatically.</p>}
@@ -337,6 +376,7 @@ function PartnersInner() {
                   <Th>Partner</Th>
                   <Th>Contact</Th>
                   <Th>Status</Th>
+                  <Th>Coverage</Th>
                   <Th align="right">Leads</Th>
                   <Th align="right">Actions</Th>
                 </Tr>
@@ -353,6 +393,12 @@ function PartnersInner() {
                     </Td>
                     <Td>
                       <Badge variant={STATUS[p.status].variant}>{STATUS[p.status].label}</Badge>
+                    </Td>
+                    <Td>
+                      <span className="num text-xs text-text-3">
+                        {p.zipCount} ZIP{p.zipCount === 1 ? "" : "s"}
+                        {p.stateCount > 0 && ` · ${p.stateCount} state${p.stateCount === 1 ? "" : "s"}`}
+                      </span>
                     </Td>
                     <Td align="right">
                       <span className="num text-sm text-text-2">{p.leadCount}</span>
