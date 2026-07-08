@@ -41,16 +41,32 @@ export interface UserRow {
   partnerId: string | null;
 }
 
+/** Partner lifecycle state consulted when resolving a partner scope (PTL-01). */
+export interface PartnerState {
+  status: string;
+  deletedAt: Date | null;
+}
+
 /**
  * Pure mapping: a verified user + the authoritative `users` row → a ScopeContext.
  * A partner row without a partnerId is refused rather than yielding an unscoped
- * partner query (PRN-08). Kept pure so the authz decision is unit-testable.
+ * partner query (PRN-08); a revoked or soft-deleted partner is refused a session
+ * (PTL-01). Kept pure so the authz decision is unit-testable.
  */
-export function resolveScope(user: AuthedUser | null, row: UserRow | null): ScopeContext {
+export function resolveScope(
+  user: AuthedUser | null,
+  row: UserRow | null,
+  partner?: PartnerState,
+): ScopeContext {
   if (!user) throw new UnauthenticatedError();
   if (!row) throw new NotProvisionedError("No workspace membership for this account.");
-  if (row.role === "partner" && !row.partnerId) {
-    throw new NotProvisionedError("Partner account is missing its partner link.");
+  if (row.role === "partner") {
+    if (!row.partnerId) {
+      throw new NotProvisionedError("Partner account is missing its partner link.");
+    }
+    if (partner && (partner.status === "revoked" || partner.deletedAt != null)) {
+      throw new NotProvisionedError("This partner account is no longer active.");
+    }
   }
   const scope: ScopeContext = { tenantId: row.tenantId, role: row.role, userId: user.id };
   if (row.role === "partner") scope.partnerId = row.partnerId as string;
@@ -79,5 +95,16 @@ export async function getServerScope(): Promise<ScopeContext> {
     .from(schema.users)
     .where(eq(schema.users.id, data.user.id));
 
-  return resolveScope({ id: data.user.id }, row ?? null);
+  // For a partner, consult the partner lifecycle so a revoked/soft-deleted partner
+  // cannot resolve a session (PTL-01).
+  let partner: PartnerState | undefined;
+  if (row?.role === "partner" && row.partnerId) {
+    const [p] = await db
+      .select({ status: schema.partners.status, deletedAt: schema.partners.deletedAt })
+      .from(schema.partners)
+      .where(eq(schema.partners.id, row.partnerId));
+    if (p) partner = { status: p.status, deletedAt: p.deletedAt };
+  }
+
+  return resolveScope({ id: data.user.id }, row ?? null, partner);
 }

@@ -7,7 +7,7 @@ import { loadRunRules } from "@/modules/run/rules";
 import { processRun } from "@/modules/run/process";
 import { DrizzleRunStore } from "@/modules/run/store";
 import { withDbIdempotency, RequestInProgressError } from "@/lib/idempotency-db";
-import { assertCsrf, authErrorResponse } from "@/lib/auth/guard";
+import { assertCsrf, authErrorResponse, requireAdminResponse } from "@/lib/auth/guard";
 import { jsonOk, jsonError, newTraceId } from "@/lib/http";
 
 // POST /api/uploads — process a parsed weekly file end-to-end (WP-020). The client parses
@@ -44,6 +44,8 @@ export async function POST(req: Request) {
 
   try {
     const scope = await getServerScope();
+    const adminOnly = requireAdminResponse(scope);
+    if (adminOnly) return adminOnly;
     const db = getDb();
     const { rules, snapshotParts } = await loadRunRules(scope);
     const key = body.idempotencyKey ?? newTraceId();

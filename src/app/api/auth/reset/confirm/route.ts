@@ -12,6 +12,7 @@ import { ResetStore } from "@/lib/auth/reset-store";
 import { evaluateNewPassword, hibpRangeFetcher } from "@/lib/auth/password";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { notifyPasswordChanged } from "@/lib/auth/notify";
+import { logError } from "@/lib/observability";
 
 // AUT-06: complete a password reset. Verify the single-use token, enforce strength
 // + breach, set the password (Supabase admin), revoke ALL sessions, notify, and mark
@@ -50,19 +51,34 @@ export async function POST(request: Request) {
 
   // AUT-06: revoke ALL existing sessions. Sign in with the new password to obtain a
   // token, then global sign-out revokes every refresh token (including that one).
+  // Track success so we never claim revocation happened when it didn't.
+  let sessionsRevoked = false;
   if (env.SUPABASE_URL && env.SUPABASE_ANON_KEY) {
     try {
       const anon = createClient(env.SUPABASE_URL, env.SUPABASE_ANON_KEY);
       const { data } = await anon.auth.signInWithPassword({ email: user.email, password: newPassword });
       const accessToken = data.session?.access_token;
-      if (accessToken) await admin.auth.admin.signOut(accessToken, "global");
-    } catch {
-      /* best-effort revocation — the password is already changed */
+      if (accessToken) {
+        const { error: signOutError } = await admin.auth.admin.signOut(accessToken, "global");
+        if (signOutError) logError("reset_revoke_failed", { userId: record.userId, message: signOutError.message });
+        else sessionsRevoked = true;
+      } else {
+        logError("reset_revoke_no_session", { userId: record.userId });
+      }
+    } catch (e) {
+      logError("reset_revoke_failed", { userId: record.userId, message: e instanceof Error ? e.message : String(e) });
     }
+  } else {
+    logError("reset_revoke_unconfigured", { userId: record.userId });
   }
 
   await store.markUsed(record.id, now);
-  await notifyPasswordChanged(user.email);
+  await notifyPasswordChanged(user.email, sessionsRevoked);
 
-  return jsonOk({ code: "ok", message: "Password updated. Please sign in." });
+  return jsonOk({
+    code: "ok",
+    message: sessionsRevoked
+      ? "Password updated. Please sign in."
+      : "Password updated. Please sign in, and sign out of any other devices to be safe.",
+  });
 }

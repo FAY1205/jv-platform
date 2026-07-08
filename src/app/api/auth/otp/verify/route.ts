@@ -53,11 +53,12 @@ export async function POST(request: Request) {
     return jsonError(INVALID.code, INVALID.message, 400);
   }
 
-  await store.consume(challenge.id, now);
-
+  // Establish the session BEFORE consuming the code, so an infrastructure failure
+  // here leaves the (correct) code usable for an immediate retry.
   if (!(await establishSessionForEmail(email))) {
     return jsonError("session_failed", "Could not establish a session. Please try again.", 500);
   }
+  await store.consume(challenge.id, now);
 
   const [user] = await db
     .select({ id: schema.users.id, partnerId: schema.users.partnerId })

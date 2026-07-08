@@ -36,4 +36,25 @@ describe("TST-12: resolveScope — session → scope", () => {
       resolveScope({ id: uid }, { tenantId: tid, role: "partner", partnerId: null }),
     ).toThrow(NotProvisionedError);
   });
+
+  it("PTL-01: a revoked partner is refused a session", () => {
+    expect(() =>
+      resolveScope({ id: uid }, { tenantId: tid, role: "partner", partnerId: pid }, { status: "revoked", deletedAt: null }),
+    ).toThrow(NotProvisionedError);
+  });
+
+  it("a soft-deleted partner is refused a session", () => {
+    expect(() =>
+      resolveScope({ id: uid }, { tenantId: tid, role: "partner", partnerId: pid }, { status: "active", deletedAt: new Date() }),
+    ).toThrow(NotProvisionedError);
+  });
+
+  it("an active partner resolves normally", () => {
+    const scope = resolveScope(
+      { id: uid },
+      { tenantId: tid, role: "partner", partnerId: pid },
+      { status: "active", deletedAt: null },
+    );
+    expect(scope).toEqual({ tenantId: tid, role: "partner", userId: uid, partnerId: pid });
+  });
 });

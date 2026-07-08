@@ -1,6 +1,7 @@
 import { type NextResponse } from "next/server";
 import { jsonError } from "@/lib/http";
 import { UnauthenticatedError, NotProvisionedError } from "@/lib/scope-context";
+import type { ScopeContext } from "@/lib/scope";
 import { isAllowedOrigin, csrfOk } from "./csrf";
 import { CSRF_COOKIE_NAME, CSRF_HEADER_NAME } from "./csrf-token";
 
@@ -52,4 +53,13 @@ export function authErrorResponse(e: unknown): NextResponse | null {
     return jsonError("forbidden", e.message, 403);
   }
   return null;
+}
+
+/**
+ * Admin-only gate for admin surfaces (dashboard/runs/uploads). Returns a 403
+ * response when the scope is not an admin, else null. Partners share the tenant,
+ * so tenant scoping alone does NOT separate them from admin routes.
+ */
+export function requireAdminResponse(scope: ScopeContext): NextResponse | null {
+  return scope.role === "admin" ? null : jsonError("forbidden", "Admin access required.", 403);
 }

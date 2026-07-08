@@ -1,5 +1,6 @@
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { getSupabaseServer } from "@/lib/supabase/server";
+import { logError } from "@/lib/observability";
 
 // PTL-01 (Option B, ADR-0009): after WE verify our own 6-digit OTP, establish a
 // Supabase session WITHOUT sending any Supabase email. admin.generateLink mints a
@@ -14,12 +15,20 @@ export async function establishSessionForEmail(email: string): Promise<boolean> 
 
   // Token-hash verify type differs across Supabase versions ("email" vs "magiclink");
   // regenerate a fresh one per attempt so a type mismatch never consumes the token.
+  let lastError = "no attempt made";
   for (const type of ["email", "magiclink"] as const) {
     const { data, error } = await admin.auth.admin.generateLink({ type: "magiclink", email });
     const tokenHash = data?.properties?.hashed_token;
-    if (error || !tokenHash) continue;
+    if (error || !tokenHash) {
+      lastError = error?.message ?? "generateLink returned no token_hash";
+      continue;
+    }
     const { error: verifyError } = await supabase.auth.verifyOtp({ token_hash: tokenHash, type });
     if (!verifyError) return true;
+    lastError = `verifyOtp(${type}): ${verifyError.message}`;
   }
+  // The OTP was already correct; a failure here is an infrastructure problem worth
+  // surfacing (bad service-role key, wrong project URL, Supabase outage).
+  logError("otp_session_establish_failed", { message: lastError });
   return false;
 }

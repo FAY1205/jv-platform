@@ -6,6 +6,9 @@ import {
 } from "@/modules/notify/email";
 import { adminAllowlist } from "@/lib/env";
 import { APP_NAME } from "@/lib/app";
+import { logError } from "@/lib/observability";
+
+const errMessage = (e: unknown): string => (e instanceof Error ? e.message : String(e));
 
 // AUT-03/04 transactional security email. Routed through the SEC-07 sink guard in
 // non-production. Uses an in-memory transport as the dev stand-in; WP-028 swaps in
@@ -43,30 +46,35 @@ export function buildResetEmail(email: string, link: string): EmailMessage {
   };
 }
 
-export function buildPasswordChangedEmail(email: string): EmailMessage {
+export function buildPasswordChangedEmail(email: string, sessionsRevoked: boolean): EmailMessage {
+  // Only claim revocation when it actually happened — never tell the user their
+  // sessions were signed out if we couldn't confirm it (silent-failure honesty).
+  const revocationLine = sessionsRevoked
+    ? "All other sessions were signed out."
+    : "If you were signed in on other devices, sign out everywhere to be safe.";
   return {
     to: email,
     subject: "Your password was changed",
-    text: "Your password was just changed and all sessions were signed out. If this wasn't you, reset your password immediately and contact your administrator.",
+    text: `Your password was just changed. ${revocationLine} If this wasn't you, reset your password immediately and contact your administrator.`,
     meta: { kind: "password_changed" },
   };
 }
 
-/** Email a reset link (AUT-06). Best-effort. */
+/** Email a reset link (AUT-06). Best-effort, but delivery failure is logged. */
 export async function notifyReset(email: string, link: string): Promise<void> {
   try {
     await sendEmail(buildResetEmail(email, link), transport());
-  } catch {
-    /* best-effort */
+  } catch (e) {
+    logError("notify_reset_failed", { message: errMessage(e) });
   }
 }
 
-/** Notify that the password changed (AUT-06). Best-effort. */
-export async function notifyPasswordChanged(email: string): Promise<void> {
+/** Notify that the password changed (AUT-06). Best-effort; delivery failure logged. */
+export async function notifyPasswordChanged(email: string, sessionsRevoked: boolean): Promise<void> {
   try {
-    await sendEmail(buildPasswordChangedEmail(email), transport());
-  } catch {
-    /* best-effort */
+    await sendEmail(buildPasswordChangedEmail(email, sessionsRevoked), transport());
+  } catch (e) {
+    logError("notify_password_changed_failed", { message: errMessage(e) });
   }
 }
 
@@ -88,21 +96,21 @@ export function buildOtpEmail(email: string, code: string): EmailMessage {
   };
 }
 
-/** Email a partner invite link (PTL-01). Best-effort. */
+/** Email a partner invite link (PTL-01). Best-effort; delivery failure logged. */
 export async function notifyInvite(email: string, link: string): Promise<void> {
   try {
     await sendEmail(buildInviteEmail(email, link), transport());
-  } catch {
-    /* best-effort */
+  } catch (e) {
+    logError("notify_invite_failed", { message: errMessage(e) });
   }
 }
 
-/** Email a 6-digit OTP code (PTL-01). Best-effort. */
+/** Email a 6-digit OTP code (PTL-01). Best-effort; delivery failure logged (never the code). */
 export async function notifyOtp(email: string, code: string): Promise<void> {
   try {
     await sendEmail(buildOtpEmail(email, code), transport());
-  } catch {
-    /* best-effort */
+  } catch (e) {
+    logError("notify_otp_failed", { message: errMessage(e) });
   }
 }
 
@@ -110,17 +118,18 @@ export async function notifyOtp(email: string, code: string): Promise<void> {
 export async function notifyLockout(identifier: string): Promise<void> {
   try {
     await sendEmail(buildLockoutEmail(identifier), transport());
-  } catch {
-    /* email delivery is best-effort; never block the auth response on it */
+  } catch (e) {
+    // Best-effort (never block the auth response), but a failed security alert is logged.
+    logError("notify_lockout_failed", { message: errMessage(e) });
   }
 }
 
-/** Alert admins to sustained auth abuse (AUT-03). Best-effort. */
+/** Alert admins to sustained auth abuse (AUT-03). Best-effort; failure logged. */
 export async function notifyAuthAnomaly(detail: string): Promise<void> {
   if (adminAllowlist.length === 0) return;
   try {
     await sendEmail(buildAnomalyEmail([...adminAllowlist], detail), transport());
-  } catch {
-    /* best-effort */
+  } catch (e) {
+    logError("notify_anomaly_failed", { message: errMessage(e) });
   }
 }

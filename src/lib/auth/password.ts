@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import zxcvbn from "zxcvbn";
+import { logError } from "@/lib/observability";
 
 // AUT-02: admin passwords require min length 12, zxcvbn score ≥ 3, and a breach
 // check via the HaveIBeenPwned k-anonymity range API. Supabase Auth handles the
@@ -68,9 +69,11 @@ export async function evaluateNewPassword(
   let breached = false;
   try {
     breached = await isPasswordBreached(password, fetchRange);
-  } catch {
+  } catch (e) {
     // Fail open: if the breach service is unreachable, don't block a legitimate
-    // password change/reset — the local strength gate above already passed.
+    // password change/reset — the local strength gate above already passed. But log
+    // it, so a persistent outage/misconfig that silently disables the check is visible.
+    logError("breach_check_failed", { message: e instanceof Error ? e.message : String(e) });
     breached = false;
   }
   if (breached) {

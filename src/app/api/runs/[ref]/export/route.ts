@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { getServerScope } from "@/lib/scope-context";
-import { authErrorResponse } from "@/lib/auth/guard";
+import { authErrorResponse, requireAdminResponse } from "@/lib/auth/guard";
 import { getRunExportData } from "@/modules/run/export-data";
 import { renderExport } from "@/modules/export/render";
 import { jsonError } from "@/lib/http";
@@ -15,6 +15,8 @@ export async function GET(_req: Request, { params }: { params: Promise<{ ref: st
 
   try {
     const scope = await getServerScope();
+    const adminOnly = requireAdminResponse(scope);
+    if (adminOnly) return adminOnly;
     const data = await getRunExportData(scope, parsed.data);
     if (!data) return jsonError("not_found", `Run ${parsed.data} not found.`, 404);
 
