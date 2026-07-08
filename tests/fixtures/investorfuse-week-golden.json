@@ -1,0 +1,405 @@
+{
+  "rulesHash": "31a9f5072de7ec8fc9f968c5b580d0efc7f6cf16ac94bb9d502e1012908b2e75",
+  "outcomes": [
+    {
+      "key": "101 sample st|90815",
+      "campaign": "Z",
+      "mls": "removed",
+      "match": "zip",
+      "partner": "Jason Beery",
+      "prev": false
+    },
+    {
+      "key": "102 sample st|98503",
+      "campaign": "Z",
+      "mls": "removed",
+      "match": "state_fallback",
+      "partner": "Dylan Tanaka",
+      "prev": false
+    },
+    {
+      "key": "103 sample st|85901",
+      "campaign": "Z",
+      "mls": "removed",
+      "match": "state_fallback",
+      "partner": "Jeff Lister",
+      "prev": false
+    },
+    {
+      "key": "104 sample st|89005",
+      "campaign": "Z",
+      "mls": "removed",
+      "match": "state_fallback",
+      "partner": "Randy Wolfe",
+      "prev": false
+    },
+    {
+      "key": "105 sample st|56345",
+      "campaign": "Z",
+      "mls": "removed",
+      "match": "state_fallback",
+      "partner": "Joe Lieber",
+      "prev": false
+    },
+    {
+      "key": "106 sample st|88310",
+      "campaign": "B",
+      "mls": "kept",
+      "match": "state_fallback",
+      "partner": "Forrest McGhee",
+      "prev": false
+    },
+    {
+      "key": "107 sample st|77021",
+      "campaign": "B",
+      "mls": "kept",
+      "match": "zip",
+      "partner": "Joe Lieber",
+      "prev": false
+    },
+    {
+      "key": "108 sample st|76255",
+      "campaign": "Z",
+      "mls": "kept",
+      "match": "state_fallback",
+      "partner": "Michael Pinter",
+      "prev": false
+    },
+    {
+      "key": "109 sample st|77351",
+      "campaign": "Z",
+      "mls": "kept",
+      "match": "state_fallback",
+      "partner": "Michael Pinter",
+      "prev": false
+    },
+    {
+      "key": "110 sample st|97850",
+      "campaign": "Z",
+      "mls": "kept",
+      "match": "state_fallback",
+      "partner": "Jason Beery",
+      "prev": false
+    },
+    {
+      "key": "111 sample st|34450",
+      "campaign": "Z",
+      "mls": "kept",
+      "match": "state_fallback",
+      "partner": "Josh Ax",
+      "prev": false
+    },
+    {
+      "key": "112 sample st|75785",
+      "campaign": "Z",
+      "mls": "kept",
+      "match": "state_fallback",
+      "partner": "Michael Pinter",
+      "prev": false
+    },
+    {
+      "key": "113 sample st|77046",
+      "campaign": "Z",
+      "mls": "kept",
+      "match": "state_fallback",
+      "partner": "Michael Pinter",
+      "prev": false
+    },
+    {
+      "key": "114 sample st|34224",
+      "campaign": "Z",
+      "mls": "kept",
+      "match": "state_fallback",
+      "partner": "Josh Ax",
+      "prev": false
+    },
+    {
+      "key": "115 sample st|34114",
+      "campaign": "Z",
+      "mls": "kept",
+      "match": "state_fallback",
+      "partner": "Josh Ax",
+      "prev": false
+    },
+    {
+      "key": "116 sample st|34476",
+      "campaign": "Z",
+      "mls": "kept",
+      "match": "state_fallback",
+      "partner": "Josh Ax",
+      "prev": false
+    },
+    {
+      "key": "117 sample st|45663",
+      "campaign": "Z",
+      "mls": "kept",
+      "match": "state_fallback",
+      "partner": "Michael Pinter",
+      "prev": false
+    },
+    {
+      "key": "118 sample st|34606",
+      "campaign": "Z",
+      "mls": "kept",
+      "match": "state_fallback",
+      "partner": "Josh Ax",
+      "prev": false
+    },
+    {
+      "key": "119 sample st|95531",
+      "campaign": "Z",
+      "mls": "kept",
+      "match": "state_fallback",
+      "partner": "Blake McCreight",
+      "prev": false
+    },
+    {
+      "key": "120 sample st|80751",
+      "campaign": "Z",
+      "mls": "kept",
+      "match": "state_fallback",
+      "partner": "Blake McCreight",
+      "prev": false
+    },
+    {
+      "key": "121 sample st|95521",
+      "campaign": "Z",
+      "mls": "kept",
+      "match": "state_fallback",
+      "partner": "Blake McCreight",
+      "prev": false
+    },
+    {
+      "key": "122 sample st|33598",
+      "campaign": "Z",
+      "mls": "kept",
+      "match": "state_fallback",
+      "partner": "Josh Ax",
+      "prev": false
+    },
+    {
+      "key": "123 sample st|34974",
+      "campaign": "Z",
+      "mls": "kept",
+      "match": "state_fallback",
+      "partner": "Josh Ax",
+      "prev": false
+    },
+    {
+      "key": "124 sample st|33304",
+      "campaign": "Z",
+      "mls": "kept",
+      "match": "state_fallback",
+      "partner": "Josh Ax",
+      "prev": false
+    },
+    {
+      "key": "125 sample st|93301",
+      "campaign": "Z",
+      "mls": "kept",
+      "match": "state_fallback",
+      "partner": "Blake McCreight",
+      "prev": false
+    },
+    {
+      "key": "126 sample st|85648",
+      "campaign": "Z",
+      "mls": "kept",
+      "match": "state_fallback",
+      "partner": "Jeff Lister",
+      "prev": false
+    },
+    {
+      "key": "127 sample st|86432",
+      "campaign": "Z",
+      "mls": "removed",
+      "match": "state_fallback",
+      "partner": "Jeff Lister",
+      "prev": false
+    },
+    {
+      "key": "128 sample st|78681",
+      "campaign": "Z",
+      "mls": "removed",
+      "match": "state_fallback",
+      "partner": "Michael Pinter",
+      "prev": false
+    },
+    {
+      "key": "129 sample st|85302",
+      "campaign": "Z",
+      "mls": "removed",
+      "match": "state_fallback",
+      "partner": "Jeff Lister",
+      "prev": false
+    },
+    {
+      "key": "130 sample st|95472",
+      "campaign": "Z",
+      "mls": "removed",
+      "match": "state_fallback",
+      "partner": "Blake McCreight",
+      "prev": false
+    },
+    {
+      "key": "131 sample st|79762",
+      "campaign": "Z",
+      "mls": "removed",
+      "match": "state_fallback",
+      "partner": "Michael Pinter",
+      "prev": false
+    },
+    {
+      "key": "132 sample st|85383",
+      "campaign": "Z",
+      "mls": "removed",
+      "match": "state_fallback",
+      "partner": "Jeff Lister",
+      "prev": false
+    },
+    {
+      "key": "133 sample st|97362",
+      "campaign": "Z",
+      "mls": "removed",
+      "match": "state_fallback",
+      "partner": "Jason Beery",
+      "prev": false
+    },
+    {
+      "key": "134 sample st|80134",
+      "campaign": "Z",
+      "mls": "removed",
+      "match": "state_fallback",
+      "partner": "Blake McCreight",
+      "prev": false
+    },
+    {
+      "key": "135 sample st|55811",
+      "campaign": "Z",
+      "mls": "kept",
+      "match": "state_fallback",
+      "partner": "Joe Lieber",
+      "prev": false
+    },
+    {
+      "key": "136 sample st|92211",
+      "campaign": "Z",
+      "mls": "removed",
+      "match": "state_fallback",
+      "partner": "Blake McCreight",
+      "prev": false
+    },
+    {
+      "key": "137 sample st|75021",
+      "campaign": "Z",
+      "mls": "removed",
+      "match": "state_fallback",
+      "partner": "Michael Pinter",
+      "prev": false
+    },
+    {
+      "key": "138 sample st|88310",
+      "campaign": "Z",
+      "mls": "removed",
+      "match": "state_fallback",
+      "partner": "Forrest McGhee",
+      "prev": false
+    },
+    {
+      "key": "139 sample st|76543",
+      "campaign": "Z",
+      "mls": "removed",
+      "match": "state_fallback",
+      "partner": "Michael Pinter",
+      "prev": false
+    },
+    {
+      "key": "140 sample st|78586",
+      "campaign": "Z",
+      "mls": "removed",
+      "match": "state_fallback",
+      "partner": "Michael Pinter",
+      "prev": false
+    },
+    {
+      "key": "141 sample st|92240",
+      "campaign": "Z",
+      "mls": "removed",
+      "match": "state_fallback",
+      "partner": "Blake McCreight",
+      "prev": false
+    },
+    {
+      "key": "142 sample st|98058",
+      "campaign": "Z",
+      "mls": "removed",
+      "match": "state_fallback",
+      "partner": "Dylan Tanaka",
+      "prev": false
+    },
+    {
+      "key": "143 sample st|76092",
+      "campaign": "B",
+      "mls": "kept",
+      "match": "state_fallback",
+      "partner": "Michael Pinter",
+      "prev": false
+    },
+    {
+      "key": "144 sample st|96826",
+      "campaign": "Z",
+      "mls": "removed",
+      "match": "none",
+      "partner": null,
+      "prev": false
+    },
+    {
+      "key": "145 sample st|95765",
+      "campaign": "Z",
+      "mls": "removed",
+      "match": "state_fallback",
+      "partner": "Blake McCreight",
+      "prev": false
+    },
+    {
+      "key": "146 sample st|77384",
+      "campaign": "B",
+      "mls": "kept",
+      "match": "state_fallback",
+      "partner": "Michael Pinter",
+      "prev": false
+    },
+    {
+      "key": "147 sample st|77009",
+      "campaign": "Z",
+      "mls": "removed",
+      "match": "state_fallback",
+      "partner": "Michael Pinter",
+      "prev": false
+    },
+    {
+      "key": "148 sample st|92203",
+      "campaign": "Z",
+      "mls": "removed",
+      "match": "state_fallback",
+      "partner": "Blake McCreight",
+      "prev": false
+    },
+    {
+      "key": "149 sample st|98332",
+      "campaign": "Z",
+      "mls": "removed",
+      "match": "state_fallback",
+      "partner": "Dylan Tanaka",
+      "prev": false
+    },
+    {
+      "key": "150 sample st|76310",
+      "campaign": "Z",
+      "mls": "removed",
+      "match": "state_fallback",
+      "partner": "Michael Pinter",
+      "prev": false
+    }
+  ]
+}
