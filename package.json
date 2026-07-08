@@ -23,6 +23,8 @@
     "db:seed": "tsx src/db/seed.ts"
   },
   "dependencies": {
+    "@supabase/ssr": "^0.12.0",
+    "@supabase/supabase-js": "^2.110.0",
     "@tanstack/react-query": "^5.101.2",
     "drizzle-orm": "^0.45.2",
     "exceljs": "^4.4.0",

@@ -4,29 +4,80 @@ import * as schema from "@/db/schema";
 import type { ScopeContext } from "@/lib/scope";
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Server-side scope resolution. In Phase 1 (admin-only, no portal yet) this resolves
-// the dev tenant as admin so the pipeline UI has a scope to query through (PRN-08).
+// Server-side scope resolution (WP-023, AUT-13). The authenticated Supabase
+// session is verified (getUser), then the caller is mapped to a ScopeContext via
+// the authoritative `users` row — keyed by the VERIFIED auth uid, never by
+// client-supplied claims. The scope guard (lib/scope.ts) and RLS are unchanged;
+// only the source of the scope changed (was the Phase-1 dev stub).
 //
-// TODO (Phase 2, PTL-01): replace with the authenticated Supabase session →
-// tenant/role/partner from JWT app_metadata claims. The scope guard (lib/scope.ts)
-// and RLS do not change; only this resolver does.
+// The DB row is the single source of truth (PRN-15 spirit); JWT app_metadata is
+// still populated at provisioning so the RLS backstop has claims for any future
+// authenticated (non-service) DB path (0001 migration).
 // ─────────────────────────────────────────────────────────────────────────────
 
-const DEV_TENANT_SLUG = "dev-jv";
-const SYSTEM_ADMIN_USER = "00000000-0000-0000-0000-000000000000";
-
-let cached: ScopeContext | null = null;
-
-export async function getServerScope(): Promise<ScopeContext> {
-  if (cached) return cached;
-  const db = getDb();
-  const [tenant] = await db
-    .select({ id: schema.tenants.id })
-    .from(schema.tenants)
-    .where(eq(schema.tenants.slug, DEV_TENANT_SLUG));
-  if (!tenant) {
-    throw new Error(`Dev tenant "${DEV_TENANT_SLUG}" not found — run the seed first.`);
+/** No verified session on the request → the caller is not authenticated (401). */
+export class UnauthenticatedError extends Error {
+  constructor(message = "Authentication required.") {
+    super(message);
+    this.name = "UnauthenticatedError";
   }
-  cached = { tenantId: tenant.id, role: "admin", userId: SYSTEM_ADMIN_USER };
-  return cached;
+}
+
+/** Authenticated, but no valid workspace membership → forbidden (403). */
+export class NotProvisionedError extends Error {
+  constructor(message = "Your account is not provisioned for this workspace.") {
+    super(message);
+    this.name = "NotProvisionedError";
+  }
+}
+
+export interface AuthedUser {
+  id: string;
+}
+
+export interface UserRow {
+  tenantId: string;
+  role: "admin" | "partner";
+  partnerId: string | null;
+}
+
+/**
+ * Pure mapping: a verified user + the authoritative `users` row → a ScopeContext.
+ * A partner row without a partnerId is refused rather than yielding an unscoped
+ * partner query (PRN-08). Kept pure so the authz decision is unit-testable.
+ */
+export function resolveScope(user: AuthedUser | null, row: UserRow | null): ScopeContext {
+  if (!user) throw new UnauthenticatedError();
+  if (!row) throw new NotProvisionedError("No workspace membership for this account.");
+  if (row.role === "partner" && !row.partnerId) {
+    throw new NotProvisionedError("Partner account is missing its partner link.");
+  }
+  const scope: ScopeContext = { tenantId: row.tenantId, role: row.role, userId: user.id };
+  if (row.role === "partner") scope.partnerId = row.partnerId as string;
+  return scope;
+}
+
+/**
+ * Resolve the scope for the current request from the authenticated Supabase
+ * session. Throws UnauthenticatedError when there is no valid session and
+ * NotProvisionedError when the user has no membership. The Supabase client is
+ * imported lazily so pure consumers of resolveScope never load `next/headers`.
+ */
+export async function getServerScope(): Promise<ScopeContext> {
+  const { getSupabaseServer } = await import("@/lib/supabase/server");
+  const supabase = await getSupabaseServer();
+  const { data, error } = await supabase.auth.getUser();
+  if (error || !data.user) throw new UnauthenticatedError();
+
+  const db = getDb();
+  const [row] = await db
+    .select({
+      tenantId: schema.users.tenantId,
+      role: schema.users.role,
+      partnerId: schema.users.partnerId,
+    })
+    .from(schema.users)
+    .where(eq(schema.users.id, data.user.id));
+
+  return resolveScope({ id: data.user.id }, row ?? null);
 }

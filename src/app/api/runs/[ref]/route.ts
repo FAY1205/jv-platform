@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { getServerScope } from "@/lib/scope-context";
+import { authErrorResponse } from "@/lib/auth/guard";
 import { getRunDetail } from "@/modules/run/queries";
 import { jsonOk, jsonError } from "@/lib/http";
 
@@ -15,6 +16,9 @@ export async function GET(_req: Request, { params }: { params: Promise<{ ref: st
     if (!detail) return jsonError("not_found", `Run ${parsed.data} not found.`, 404);
     return jsonOk(detail);
   } catch (e) {
-    return jsonError("run_detail_failed", e instanceof Error ? e.message : "Failed to load run", 500);
+    return (
+      authErrorResponse(e) ??
+      jsonError("run_detail_failed", e instanceof Error ? e.message : "Failed to load run", 500)
+    );
   }
 }

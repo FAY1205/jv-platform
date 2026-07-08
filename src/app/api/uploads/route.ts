@@ -7,6 +7,7 @@ import { loadRunRules } from "@/modules/run/rules";
 import { processRun } from "@/modules/run/process";
 import { DrizzleRunStore } from "@/modules/run/store";
 import { withDbIdempotency, RequestInProgressError } from "@/lib/idempotency-db";
+import { authErrorResponse } from "@/lib/auth/guard";
 import { jsonOk, jsonError, newTraceId } from "@/lib/http";
 
 // POST /api/uploads — process a parsed weekly file end-to-end (WP-020). The client parses
@@ -65,6 +66,8 @@ export async function POST(req: Request) {
 
     return jsonOk(response);
   } catch (e) {
+    const authResp = authErrorResponse(e);
+    if (authResp) return authResp;
     if (e instanceof RequestInProgressError) return jsonError("in_progress", "This upload is already being processed.", 409);
     return jsonError("process_failed", e instanceof Error ? e.message : "Processing failed.", 500);
   }

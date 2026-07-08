@@ -52,3 +52,26 @@ export const hibpRangeFetcher: RangeFetcher = async (prefix) => {
   if (!res.ok) throw new Error(`HIBP range fetch failed: ${res.status}`);
   return res.text();
 };
+
+/**
+ * AUT-02 set/change gate: local strength first (length + zxcvbn), then — only if
+ * that passes — the breach check. Ordering keeps a weak password from ever leaving
+ * the process as an HIBP prefix, and avoids a network call on the common reject.
+ */
+export async function evaluateNewPassword(
+  password: string,
+  userInputs: string[],
+  fetchRange: RangeFetcher,
+): Promise<PasswordStrength> {
+  const strength = checkPasswordStrength(password, userInputs);
+  if (!strength.ok) return strength;
+  const breached = await isPasswordBreached(password, fetchRange);
+  if (breached) {
+    return {
+      ok: false,
+      score: strength.score,
+      reasons: ["This password appeared in a known data breach — choose another."],
+    };
+  }
+  return strength;
+}

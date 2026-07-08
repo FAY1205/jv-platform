@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { getServerScope } from "@/lib/scope-context";
+import { authErrorResponse } from "@/lib/auth/guard";
 import { voidUpload, UploadNotFoundError, AlreadyVoidedError } from "@/modules/run/void";
 import { jsonOk, jsonError } from "@/lib/http";
 
@@ -23,6 +24,8 @@ export async function POST(req: Request, { params }: { params: Promise<{ ref: st
     const result = await voidUpload(scope, ref, body.reason);
     return jsonOk(result);
   } catch (e) {
+    const authResp = authErrorResponse(e);
+    if (authResp) return authResp;
     if (e instanceof UploadNotFoundError) return jsonError("not_found", e.message, 404);
     if (e instanceof AlreadyVoidedError) return jsonError("already_voided", e.message, 409);
     return jsonError("void_failed", e instanceof Error ? e.message : "Void failed.", 500);
