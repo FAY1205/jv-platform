@@ -19,6 +19,8 @@ export {
   DropdownMenuSeparator,
   DropdownMenuLabel,
 } from "./DropdownMenu";
+export { Pagination, type PaginationProps, PAGE_SIZES, DEFAULT_PAGE_SIZE } from "./Pagination";
+export { RowOpenButton, type RowOpenButtonProps } from "./RowOpenButton";
 export {
   Table,
   THead,

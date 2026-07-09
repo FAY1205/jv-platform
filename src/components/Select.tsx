@@ -25,6 +25,8 @@ export interface SelectProps {
   disabled?: boolean;
   id?: string;
   className?: string;
+  /** Accessible label when no visible `label` is provided (e.g. rows-per-page). */
+  ariaLabel?: string;
 }
 
 export function Select({
@@ -38,6 +40,7 @@ export function Select({
   disabled,
   id,
   className,
+  ariaLabel,
 }: SelectProps) {
   const autoId = React.useId();
   const selectId = id ?? autoId;
@@ -53,6 +56,7 @@ export function Select({
       <RadixSelect.Root value={value} onValueChange={onValueChange} disabled={disabled}>
         <RadixSelect.Trigger
           id={selectId}
+          aria-label={label ? undefined : ariaLabel}
           aria-invalid={error ? true : undefined}
           aria-describedby={describedBy}
           className={cn(

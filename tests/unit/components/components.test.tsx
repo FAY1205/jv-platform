@@ -11,6 +11,7 @@ import {
   Modal,
   Dialog,
   Checkbox,
+  Pagination,
   Tooltip,
   EmptyState,
 } from "@/components";
@@ -152,6 +153,25 @@ describe("F-62: Checkbox (Radix)", () => {
     expect(box).toHaveAttribute("data-state", "unchecked");
     await user.click(box);
     expect(onChange).toHaveBeenCalledWith(true);
+  });
+});
+
+describe("FEP-03: Pagination", () => {
+  it("shows the current window + total and disables prev on page 1", async () => {
+    const user = userEvent.setup();
+    const onPage = vi.fn();
+    render(<Pagination page={1} pageSize={20} total={95} onPageChange={onPage} onPageSizeChange={() => {}} />);
+    expect(screen.getByText("1–20 of 95")).toBeInTheDocument();
+    expect(screen.getByText("1 / 5")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Previous page" })).toBeDisabled();
+    await user.click(screen.getByRole("button", { name: "Next page" }));
+    expect(onPage).toHaveBeenCalledWith(2);
+  });
+
+  it("disables next on the last page", () => {
+    render(<Pagination page={5} pageSize={20} total={95} onPageChange={() => {}} onPageSizeChange={() => {}} />);
+    expect(screen.getByText("81–95 of 95")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Next page" })).toBeDisabled();
   });
 });
 
