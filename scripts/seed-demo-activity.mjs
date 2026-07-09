@@ -13,7 +13,7 @@ import postgres from "postgres";
 const sql = postgres(process.env.DATABASE_URL, { prepare: false, max: 1 });
 const WIPE_ONLY = process.argv.includes("--wipe");
 const BACKDATED_REF = "IM-26-000";
-const BACKDATED_LEAD_PREFIX = "LD-2025-9"; // sentinel for demo backdated leads
+const BACKDATED_LEAD_PREFIX = "LD-25-9"; // sentinel for demo backdated leads (ref-ID v2, ADR-0019)
 
 const [{ now }] = await sql`select now() as now`;
 const NOW = now.getTime();

@@ -188,7 +188,7 @@ export const uploads = pgTable(
     tenantId: uuid("tenant_id")
       .notNull()
       .references(() => tenants.id),
-    refId: text("ref_id").notNull(), // UP-YYYY-### (DM-07)
+    refId: text("ref_id").notNull(), // IM-YY-### (DM-07, ADR-0019 v2)
     filename: text("filename").notNull(),
     storagePath: text("storage_path"),
     sourceProfileId: uuid("source_profile_id").references(() => sourceProfiles.id),
@@ -214,7 +214,7 @@ export const leads = pgTable(
     tenantId: uuid("tenant_id")
       .notNull()
       .references(() => tenants.id),
-    refId: text("ref_id").notNull(), // LD-YYYY-##### (DM-07)
+    refId: text("ref_id").notNull(), // LD-YY-##### (DM-07, ADR-0019 v2)
     uploadId: uuid("upload_id")
       .notNull()
       .references(() => uploads.id),

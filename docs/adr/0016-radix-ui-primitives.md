@@ -18,16 +18,24 @@ we do not re-derive them per component and re-introduce the same class of bug.
 ## Decision
 
 Adopt **Radix UI** primitives (headless, unstyled) as the interaction layer for
-Select, DropdownMenu, Dialog, Checkbox, Tooltip, and Popover. Radix owns behavior and
+Select, DropdownMenu, Dialog, Checkbox, and Popover. Radix owns behavior and
 accessibility; we own presentation via the existing Tailwind design tokens
 (`src/lib/tokens`, PRN-12) — no hex/font literals enter component code.
 
 New dependencies:
 `@radix-ui/react-select`, `@radix-ui/react-dropdown-menu`, `@radix-ui/react-dialog`,
-`@radix-ui/react-checkbox`, `@radix-ui/react-tooltip`, `@radix-ui/react-popover`, and
+`@radix-ui/react-checkbox`, `@radix-ui/react-popover`, and
 **`react-day-picker`** (the calendar grid behind DatePicker/DateRangePicker, mounted in
 a Radix Popover — boring, well-tested, avoids hand-rolling a calendar and its keyboard
 model).
+
+**Tooltip — reconciliation (WS-1):** the existing `Tooltip` stays HAND-ROLLED, not
+Radix. It is already accessible (shows on hover AND keyboard focus, `role="tooltip"` +
+`aria-describedby`) and usable app-wide, and Radix's hover-intent/portal model does not
+meaningfully improve it while it would churn a passing component test. Radix Tooltip is
+therefore NOT adopted and its package is not installed; the WS-1 primitive item ("Tooltip
+usable app-wide") is met by the existing component. Revisit only if a future need
+(collision-aware positioning inside tables/overlays) makes the Radix version worthwhile.
 
 `Dialog` is added alongside the existing `Modal`; call sites migrate as their pages are
 reworked (WS-2+) and `Modal` is deleted at the end of WS-8. The Radix `Select` is a new

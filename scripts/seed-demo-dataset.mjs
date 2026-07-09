@@ -151,8 +151,8 @@ importDates.sort((a, b) => a - b); // oldest first
 // global cap that would starve the newest weeks). Recent weeks a touch heavier.
 
 const uploadRows = importDates.map((d, i) => {
-  const yr = new Date(d).getUTCFullYear();
-  return { tenant_id: tenant.id, ref_id: `UP-${yr}-${String(i + 1).padStart(3, "0")}`, filename: `week-${new Date(d).toISOString().slice(0, 10)}.xlsx`, status: "processed", row_count: 0, created_at: new Date(d).toISOString() };
+  const yy = String(new Date(d).getUTCFullYear() % 100).padStart(2, "0"); // ref-ID v2 (ADR-0019)
+  return { tenant_id: tenant.id, ref_id: `IM-${yy}-${String(i + 1).padStart(3, "0")}`, filename: `week-${new Date(d).toISOString().slice(0, 10)}.xlsx`, status: "processed", row_count: 0, created_at: new Date(d).toISOString() };
 });
 const insertedUploads = await sql`insert into uploads ${sql(uploadRows, "tenant_id","ref_id","filename","status","row_count","created_at")} returning id`;
 const uploadId = insertedUploads.map((r) => r.id);
@@ -185,8 +185,8 @@ for (let u = 0; u < importDates.length; u++) {
     const effPartner = manualPartner ?? partnerId;
     const prev = Boolean(!removed && effPartner && chance(0.06));
     seq += 1;
-    const yr = new Date(received).getUTCFullYear();
-    const ref = `LD-${yr}-${String(seq).padStart(5, "0")}`;
+    const yy = String(new Date(received).getUTCFullYear() % 100).padStart(2, "0"); // ref-ID v2 (ADR-0019)
+    const ref = `LD-${yy}-${String(seq).padStart(5, "0")}`;
     leads.push({
       tenant_id: tenant.id, ref_id: ref, upload_id: uploadId[u], dedupe_key: `demo|${ref}`, raw_json: sql.json({ demo: true }),
       campaign: source.name, address: `${int(100, 9999)} ${pick(STREETS)} ${pick(SUFF)}`, city: CITY[st], state: st, zip,

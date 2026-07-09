@@ -5,7 +5,7 @@ import { getAdminLeadDetail } from "@/modules/leads/queries";
 import { editLead, LeadNotFoundError, InvalidAssignTargetError } from "@/modules/leads/commands";
 import { jsonOk, jsonError } from "@/lib/http";
 
-// Lead ref format (v1). Sibling routes validate this before touching the DB (F-13).
+// Lead ref format (v2, ADR-0019). Sibling routes validate this before touching the DB (F-13).
 const RefSchema = z.string().regex(/^LD-\d{2}-\d{5,}$/);
 
 // ADM: full lead detail for the Leads dialog — includes removed leads, the

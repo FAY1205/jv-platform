@@ -84,7 +84,7 @@ const LEADS: Lead[] = [
   { id: "LD-26-00405", partner: "Jeff Lister", addr: "2216 Pine St", city: "Philadelphia", st: "PA", zip: "19103", seller: "A. Boyd", match: "zip", mls: "Yes" },
 ];
 
-const colorOf = (name: string) => PARTNER_PALETTE.find((p) => p.name === name)?.hex ?? "#999";
+const colorOf = (name: string) => PARTNER_PALETTE.find((p) => p.name === name)?.hex ?? PARTNER_PALETTE[0].hex;
 const refOf = (name: string) =>
   "JV-" + String(PARTNER_PALETTE.findIndex((p) => p.name === name) + 1).padStart(3, "0");
 

@@ -12,6 +12,7 @@ import {
   Dialog,
   Checkbox,
   Pagination,
+  Select,
   Tooltip,
   EmptyState,
 } from "@/components";
@@ -141,6 +142,24 @@ describe("F-15: Dialog (Radix)", () => {
     expect(screen.getByRole("dialog")).toBeInTheDocument();
     expect(screen.getByText("Edit lead")).toBeInTheDocument();
     expect(screen.getByText("Lead body")).toBeInTheDocument();
+  });
+});
+
+describe("Select (Radix)", () => {
+  it("renders the selected option's label + a bound label", () => {
+    render(
+      <Select
+        label="Status"
+        value="contacted"
+        onValueChange={() => {}}
+        options={[
+          { value: "new", label: "New" },
+          { value: "contacted", label: "Contacted" },
+        ]}
+      />,
+    );
+    const trigger = screen.getByRole("combobox", { name: "Status" });
+    expect(trigger).toHaveTextContent("Contacted");
   });
 });
 
