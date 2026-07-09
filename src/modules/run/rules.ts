@@ -25,7 +25,9 @@ export interface RunRulesBundle {
 export async function loadRunRules(scope: ScopeContext): Promise<RunRulesBundle> {
   const db = getDb();
   const [patternRows, recodeRows, stateRows, zipRows] = await Promise.all([
-    db.select().from(schema.mlsPatterns).where(and(tenantWhere(schema.mlsPatterns, scope), eq(schema.mlsPatterns.enabled, true))),
+    // Pin the load order (F-03/TR-3): the MLS engine is first-match-wins, so an
+    // unordered SELECT can emit a different mlsPatternKey for identical rule sets.
+    db.select().from(schema.mlsPatterns).where(and(tenantWhere(schema.mlsPatterns, scope), eq(schema.mlsPatterns.enabled, true))).orderBy(schema.mlsPatterns.patternKey),
     db.select({ matchPattern: schema.campaignRecodes.matchPattern, code: schema.campaignRecodes.code }).from(schema.campaignRecodes).where(tenantWhere(schema.campaignRecodes, scope)),
     db.select({ state: schema.stateRules.state, partnerId: schema.stateRules.partnerId }).from(schema.stateRules).where(tenantWhere(schema.stateRules, scope)),
     db.select({ zip5: schema.coverageZips.zip5, partnerId: schema.coverageZips.partnerId }).from(schema.coverageZips).where(and(tenantWhere(schema.coverageZips, scope), isNull(schema.coverageZips.effectiveTo))),

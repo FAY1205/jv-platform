@@ -7,7 +7,13 @@
       "mls": "removed",
       "match": "zip",
       "partner": "Jason Beery",
-      "prev": false
+      "prev": false,
+      "patternKey": "dq_is_listed_yes",
+      "span": {
+        "start": 0,
+        "end": 19,
+        "text": "Is it Listed? : Yes"
+      }
     },
     {
       "key": "102 sample st|98503",
@@ -15,7 +21,13 @@
       "mls": "removed",
       "match": "state_fallback",
       "partner": "Dylan Tanaka",
-      "prev": false
+      "prev": false,
+      "patternKey": "dq_is_listed_yes",
+      "span": {
+        "start": 0,
+        "end": 19,
+        "text": "Is it Listed? : Yes"
+      }
     },
     {
       "key": "103 sample st|85901",
@@ -23,7 +35,13 @@
       "mls": "removed",
       "match": "state_fallback",
       "partner": "Jeff Lister",
-      "prev": false
+      "prev": false,
+      "patternKey": "dq_is_listed_yes",
+      "span": {
+        "start": 0,
+        "end": 19,
+        "text": "Is it Listed? : Yes"
+      }
     },
     {
       "key": "104 sample st|89005",
@@ -31,7 +49,13 @@
       "mls": "removed",
       "match": "state_fallback",
       "partner": "Randy Wolfe",
-      "prev": false
+      "prev": false,
+      "patternKey": "dq_is_listed_yes",
+      "span": {
+        "start": 0,
+        "end": 19,
+        "text": "Is it Listed? : Yes"
+      }
     },
     {
       "key": "105 sample st|56345",
@@ -39,7 +63,13 @@
       "mls": "removed",
       "match": "state_fallback",
       "partner": "Joe Lieber",
-      "prev": false
+      "prev": false,
+      "patternKey": "dq_is_listed_yes",
+      "span": {
+        "start": 0,
+        "end": 19,
+        "text": "Is it Listed? : Yes"
+      }
     },
     {
       "key": "106 sample st|88310",
@@ -47,7 +77,9 @@
       "mls": "kept",
       "match": "state_fallback",
       "partner": "Forrest McGhee",
-      "prev": false
+      "prev": false,
+      "patternKey": null,
+      "span": null
     },
     {
       "key": "107 sample st|77021",
@@ -55,7 +87,9 @@
       "mls": "kept",
       "match": "zip",
       "partner": "Joe Lieber",
-      "prev": false
+      "prev": false,
+      "patternKey": null,
+      "span": null
     },
     {
       "key": "108 sample st|76255",
@@ -63,7 +97,9 @@
       "mls": "kept",
       "match": "state_fallback",
       "partner": "Michael Pinter",
-      "prev": false
+      "prev": false,
+      "patternKey": null,
+      "span": null
     },
     {
       "key": "109 sample st|77351",
@@ -71,7 +107,9 @@
       "mls": "kept",
       "match": "state_fallback",
       "partner": "Michael Pinter",
-      "prev": false
+      "prev": false,
+      "patternKey": null,
+      "span": null
     },
     {
       "key": "110 sample st|97850",
@@ -79,7 +117,9 @@
       "mls": "kept",
       "match": "state_fallback",
       "partner": "Jason Beery",
-      "prev": false
+      "prev": false,
+      "patternKey": null,
+      "span": null
     },
     {
       "key": "111 sample st|34450",
@@ -87,7 +127,9 @@
       "mls": "kept",
       "match": "state_fallback",
       "partner": "Josh Ax",
-      "prev": false
+      "prev": false,
+      "patternKey": null,
+      "span": null
     },
     {
       "key": "112 sample st|75785",
@@ -95,7 +137,9 @@
       "mls": "kept",
       "match": "state_fallback",
       "partner": "Michael Pinter",
-      "prev": false
+      "prev": false,
+      "patternKey": null,
+      "span": null
     },
     {
       "key": "113 sample st|77046",
@@ -103,7 +147,9 @@
       "mls": "kept",
       "match": "state_fallback",
       "partner": "Michael Pinter",
-      "prev": false
+      "prev": false,
+      "patternKey": null,
+      "span": null
     },
     {
       "key": "114 sample st|34224",
@@ -111,7 +157,9 @@
       "mls": "kept",
       "match": "state_fallback",
       "partner": "Josh Ax",
-      "prev": false
+      "prev": false,
+      "patternKey": null,
+      "span": null
     },
     {
       "key": "115 sample st|34114",
@@ -119,7 +167,9 @@
       "mls": "kept",
       "match": "state_fallback",
       "partner": "Josh Ax",
-      "prev": false
+      "prev": false,
+      "patternKey": null,
+      "span": null
     },
     {
       "key": "116 sample st|34476",
@@ -127,7 +177,9 @@
       "mls": "kept",
       "match": "state_fallback",
       "partner": "Josh Ax",
-      "prev": false
+      "prev": false,
+      "patternKey": null,
+      "span": null
     },
     {
       "key": "117 sample st|45663",
@@ -135,7 +187,13 @@
       "mls": "kept",
       "match": "state_fallback",
       "partner": "Michael Pinter",
-      "prev": false
+      "prev": false,
+      "patternKey": "ko_is_listed_no",
+      "span": {
+        "start": 0,
+        "end": 21,
+        "text": "Is it Listed? : false"
+      }
     },
     {
       "key": "118 sample st|34606",
@@ -143,7 +201,9 @@
       "mls": "kept",
       "match": "state_fallback",
       "partner": "Josh Ax",
-      "prev": false
+      "prev": false,
+      "patternKey": null,
+      "span": null
     },
     {
       "key": "119 sample st|95531",
@@ -151,7 +211,9 @@
       "mls": "kept",
       "match": "state_fallback",
       "partner": "Blake McCreight",
-      "prev": false
+      "prev": false,
+      "patternKey": null,
+      "span": null
     },
     {
       "key": "120 sample st|80751",
@@ -159,7 +221,9 @@
       "mls": "kept",
       "match": "state_fallback",
       "partner": "Blake McCreight",
-      "prev": false
+      "prev": false,
+      "patternKey": null,
+      "span": null
     },
     {
       "key": "121 sample st|95521",
@@ -167,7 +231,9 @@
       "mls": "kept",
       "match": "state_fallback",
       "partner": "Blake McCreight",
-      "prev": false
+      "prev": false,
+      "patternKey": null,
+      "span": null
     },
     {
       "key": "122 sample st|33598",
@@ -175,7 +241,9 @@
       "mls": "kept",
       "match": "state_fallback",
       "partner": "Josh Ax",
-      "prev": false
+      "prev": false,
+      "patternKey": null,
+      "span": null
     },
     {
       "key": "123 sample st|34974",
@@ -183,7 +251,9 @@
       "mls": "kept",
       "match": "state_fallback",
       "partner": "Josh Ax",
-      "prev": false
+      "prev": false,
+      "patternKey": null,
+      "span": null
     },
     {
       "key": "124 sample st|33304",
@@ -191,7 +261,9 @@
       "mls": "kept",
       "match": "state_fallback",
       "partner": "Josh Ax",
-      "prev": false
+      "prev": false,
+      "patternKey": null,
+      "span": null
     },
     {
       "key": "125 sample st|93301",
@@ -199,7 +271,9 @@
       "mls": "kept",
       "match": "state_fallback",
       "partner": "Blake McCreight",
-      "prev": false
+      "prev": false,
+      "patternKey": null,
+      "span": null
     },
     {
       "key": "126 sample st|85648",
@@ -207,7 +281,9 @@
       "mls": "kept",
       "match": "state_fallback",
       "partner": "Jeff Lister",
-      "prev": false
+      "prev": false,
+      "patternKey": null,
+      "span": null
     },
     {
       "key": "127 sample st|86432",
@@ -215,7 +291,13 @@
       "mls": "removed",
       "match": "state_fallback",
       "partner": "Jeff Lister",
-      "prev": false
+      "prev": false,
+      "patternKey": "dq_is_listed_yes",
+      "span": {
+        "start": 0,
+        "end": 19,
+        "text": "Is it Listed? : Yes"
+      }
     },
     {
       "key": "128 sample st|78681",
@@ -223,7 +305,13 @@
       "mls": "removed",
       "match": "state_fallback",
       "partner": "Michael Pinter",
-      "prev": false
+      "prev": false,
+      "patternKey": "dq_is_listed_yes",
+      "span": {
+        "start": 0,
+        "end": 19,
+        "text": "Is it Listed? : Yes"
+      }
     },
     {
       "key": "129 sample st|85302",
@@ -231,7 +319,13 @@
       "mls": "removed",
       "match": "state_fallback",
       "partner": "Jeff Lister",
-      "prev": false
+      "prev": false,
+      "patternKey": "dq_is_listed_yes",
+      "span": {
+        "start": 0,
+        "end": 19,
+        "text": "Is it Listed? : Yes"
+      }
     },
     {
       "key": "130 sample st|95472",
@@ -239,7 +333,13 @@
       "mls": "removed",
       "match": "state_fallback",
       "partner": "Blake McCreight",
-      "prev": false
+      "prev": false,
+      "patternKey": "dq_is_listed_yes",
+      "span": {
+        "start": 0,
+        "end": 19,
+        "text": "Is it Listed? : Yes"
+      }
     },
     {
       "key": "131 sample st|79762",
@@ -247,7 +347,13 @@
       "mls": "removed",
       "match": "state_fallback",
       "partner": "Michael Pinter",
-      "prev": false
+      "prev": false,
+      "patternKey": "dq_is_listed_yes",
+      "span": {
+        "start": 0,
+        "end": 19,
+        "text": "Is it Listed? : Yes"
+      }
     },
     {
       "key": "132 sample st|85383",
@@ -255,7 +361,13 @@
       "mls": "removed",
       "match": "state_fallback",
       "partner": "Jeff Lister",
-      "prev": false
+      "prev": false,
+      "patternKey": "dq_is_listed_yes",
+      "span": {
+        "start": 0,
+        "end": 19,
+        "text": "Is it Listed? : Yes"
+      }
     },
     {
       "key": "133 sample st|97362",
@@ -263,7 +375,13 @@
       "mls": "removed",
       "match": "state_fallback",
       "partner": "Jason Beery",
-      "prev": false
+      "prev": false,
+      "patternKey": "dq_is_listed_yes",
+      "span": {
+        "start": 0,
+        "end": 19,
+        "text": "Is it Listed? : Yes"
+      }
     },
     {
       "key": "134 sample st|80134",
@@ -271,7 +389,13 @@
       "mls": "removed",
       "match": "state_fallback",
       "partner": "Blake McCreight",
-      "prev": false
+      "prev": false,
+      "patternKey": "dq_is_listed_yes",
+      "span": {
+        "start": 0,
+        "end": 19,
+        "text": "Is it Listed? : Yes"
+      }
     },
     {
       "key": "135 sample st|55811",
@@ -279,7 +403,13 @@
       "mls": "kept",
       "match": "state_fallback",
       "partner": "Joe Lieber",
-      "prev": false
+      "prev": false,
+      "patternKey": "ko_is_listed_no",
+      "span": {
+        "start": 0,
+        "end": 21,
+        "text": "Is it Listed? : false"
+      }
     },
     {
       "key": "136 sample st|92211",
@@ -287,7 +417,13 @@
       "mls": "removed",
       "match": "state_fallback",
       "partner": "Blake McCreight",
-      "prev": false
+      "prev": false,
+      "patternKey": "dq_is_listed_yes",
+      "span": {
+        "start": 0,
+        "end": 19,
+        "text": "Is it Listed? : Yes"
+      }
     },
     {
       "key": "137 sample st|75021",
@@ -295,7 +431,13 @@
       "mls": "removed",
       "match": "state_fallback",
       "partner": "Michael Pinter",
-      "prev": false
+      "prev": false,
+      "patternKey": "dq_is_listed_yes",
+      "span": {
+        "start": 0,
+        "end": 19,
+        "text": "Is it Listed? : Yes"
+      }
     },
     {
       "key": "138 sample st|88310",
@@ -303,7 +445,13 @@
       "mls": "removed",
       "match": "state_fallback",
       "partner": "Forrest McGhee",
-      "prev": false
+      "prev": false,
+      "patternKey": "dq_is_listed_yes",
+      "span": {
+        "start": 0,
+        "end": 19,
+        "text": "Is it Listed? : Yes"
+      }
     },
     {
       "key": "139 sample st|76543",
@@ -311,7 +459,13 @@
       "mls": "removed",
       "match": "state_fallback",
       "partner": "Michael Pinter",
-      "prev": false
+      "prev": false,
+      "patternKey": "dq_is_listed_yes",
+      "span": {
+        "start": 0,
+        "end": 19,
+        "text": "Is it Listed? : Yes"
+      }
     },
     {
       "key": "140 sample st|78586",
@@ -319,7 +473,13 @@
       "mls": "removed",
       "match": "state_fallback",
       "partner": "Michael Pinter",
-      "prev": false
+      "prev": false,
+      "patternKey": "dq_is_listed_yes",
+      "span": {
+        "start": 0,
+        "end": 19,
+        "text": "Is it Listed? : Yes"
+      }
     },
     {
       "key": "141 sample st|92240",
@@ -327,7 +487,13 @@
       "mls": "removed",
       "match": "state_fallback",
       "partner": "Blake McCreight",
-      "prev": false
+      "prev": false,
+      "patternKey": "dq_is_listed_yes",
+      "span": {
+        "start": 0,
+        "end": 20,
+        "text": "Is it Listed? : true"
+      }
     },
     {
       "key": "142 sample st|98058",
@@ -335,7 +501,13 @@
       "mls": "removed",
       "match": "state_fallback",
       "partner": "Dylan Tanaka",
-      "prev": false
+      "prev": false,
+      "patternKey": "dq_is_listed_yes",
+      "span": {
+        "start": 0,
+        "end": 19,
+        "text": "Is it Listed? : Yes"
+      }
     },
     {
       "key": "143 sample st|76092",
@@ -343,7 +515,9 @@
       "mls": "kept",
       "match": "state_fallback",
       "partner": "Michael Pinter",
-      "prev": false
+      "prev": false,
+      "patternKey": null,
+      "span": null
     },
     {
       "key": "144 sample st|96826",
@@ -351,7 +525,13 @@
       "mls": "removed",
       "match": "none",
       "partner": null,
-      "prev": false
+      "prev": false,
+      "patternKey": "dq_is_listed_yes",
+      "span": {
+        "start": 0,
+        "end": 19,
+        "text": "Is it Listed? : Yes"
+      }
     },
     {
       "key": "145 sample st|95765",
@@ -359,7 +539,13 @@
       "mls": "removed",
       "match": "state_fallback",
       "partner": "Blake McCreight",
-      "prev": false
+      "prev": false,
+      "patternKey": "dq_is_listed_yes",
+      "span": {
+        "start": 0,
+        "end": 19,
+        "text": "Is it Listed? : Yes"
+      }
     },
     {
       "key": "146 sample st|77384",
@@ -367,7 +553,9 @@
       "mls": "kept",
       "match": "state_fallback",
       "partner": "Michael Pinter",
-      "prev": false
+      "prev": false,
+      "patternKey": null,
+      "span": null
     },
     {
       "key": "147 sample st|77009",
@@ -375,7 +563,13 @@
       "mls": "removed",
       "match": "state_fallback",
       "partner": "Michael Pinter",
-      "prev": false
+      "prev": false,
+      "patternKey": "dq_is_listed_yes",
+      "span": {
+        "start": 0,
+        "end": 19,
+        "text": "Is it Listed? : Yes"
+      }
     },
     {
       "key": "148 sample st|92203",
@@ -383,7 +577,13 @@
       "mls": "removed",
       "match": "state_fallback",
       "partner": "Blake McCreight",
-      "prev": false
+      "prev": false,
+      "patternKey": "dq_is_listed_yes",
+      "span": {
+        "start": 0,
+        "end": 19,
+        "text": "Is it Listed? : Yes"
+      }
     },
     {
       "key": "149 sample st|98332",
@@ -391,7 +591,13 @@
       "mls": "removed",
       "match": "state_fallback",
       "partner": "Dylan Tanaka",
-      "prev": false
+      "prev": false,
+      "patternKey": "dq_is_listed_yes",
+      "span": {
+        "start": 0,
+        "end": 19,
+        "text": "Is it Listed? : Yes"
+      }
     },
     {
       "key": "150 sample st|76310",
@@ -399,7 +605,13 @@
       "mls": "removed",
       "match": "state_fallback",
       "partner": "Michael Pinter",
-      "prev": false
+      "prev": false,
+      "patternKey": "dq_is_listed_yes",
+      "span": {
+        "start": 0,
+        "end": 19,
+        "text": "Is it Listed? : Yes"
+      }
     }
   ]
 }

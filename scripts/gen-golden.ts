@@ -46,6 +46,8 @@ const outcomes = leads
     match: l.matchMethod,
     partner: l.partnerId,
     prev: l.previouslyMatched,
+    patternKey: l.mlsPatternKey,
+    span: l.mlsMatchSpan,
   }))
   .sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
 

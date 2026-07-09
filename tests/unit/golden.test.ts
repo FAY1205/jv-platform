@@ -32,7 +32,7 @@ const { leads } = planRun(
 );
 
 const actual = leads
-  .map((l) => ({ key: l.dedupeKey, campaign: l.campaignCode, mls: l.mlsStatus, match: l.matchMethod, partner: l.partnerId, prev: l.previouslyMatched }))
+  .map((l) => ({ key: l.dedupeKey, campaign: l.campaignCode, mls: l.mlsStatus, match: l.matchMethod, partner: l.partnerId, prev: l.previouslyMatched, patternKey: l.mlsPatternKey, span: l.mlsMatchSpan }))
   .sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
 
 describe("TST-05: golden semantic zero-diff (real anonymized week)", () => {
