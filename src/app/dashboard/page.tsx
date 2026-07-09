@@ -25,6 +25,14 @@ const RANGES: { value: RangeKey; label: string }[] = [
 const panel = "rounded-2xl border border-border-soft bg-surface p-5 shadow-sm";
 const pct = (n: number) => `${Math.round(n * 100)}%`;
 
+// Trend x-axis label: "Jul 3" for daily buckets, "Jul 2026" for monthly (F-4).
+const fmtBucket = (iso: string, bucket: "day" | "month") => {
+  const dt = new Date(`${iso.slice(0, 10)}T00:00:00Z`);
+  return bucket === "month"
+    ? dt.toLocaleDateString("en-US", { month: "short", year: "numeric", timeZone: "UTC" })
+    : dt.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
+};
+
 // Donut palette from tokens (PRN-12); cycled per source. Names always accompany
 // color in the legend + tooltip (PRN-14).
 const SOURCE_COLORS = ["var(--brand)", "var(--warn)", "var(--danger)", "var(--text-3)", "var(--brand-strong)"];
@@ -137,7 +145,7 @@ export default function DashboardPage() {
               <p className="py-8 text-center text-sm text-text-3">No leads in this range.</p>
             ) : (
               <LineChart
-                data={d!.trend.map((b) => ({ x: b.bucketStart.slice(0, 10), "Leads in": b.leadsIn, Distributed: b.distributed, Unmatched: b.unmatched }))}
+                data={d!.trend.map((b) => ({ x: fmtBucket(b.bucketStart, d!.range.bucket), "Leads in": b.leadsIn, Distributed: b.distributed, Unmatched: b.unmatched }))}
                 xKey="x"
                 series={[
                   { key: "Leads in", name: "Leads in", color: "var(--text-2)" },
@@ -163,7 +171,7 @@ export default function DashboardPage() {
                     <tr className="border-b border-border text-left text-[.65rem] font-semibold uppercase tracking-wider text-text-3">
                       <th className="py-2 pr-3 font-semibold">Partner</th>
                       <th className="px-2 py-2 text-right font-semibold">Given</th>
-                      <th className="px-2 py-2 text-right font-semibold"><HeaderTip label="Untouched" tip="Given leads still at status New (no partner action yet)." /></th>
+                      <th className="px-2 py-2 text-right font-semibold"><HeaderTip label="Untouched" tip="Given leads with no partner action yet — no status change or partner note." /></th>
                       <th className="px-2 py-2 text-right font-semibold"><HeaderTip label="Contacted" tip="Leads whose first partner action fell in the selected range." /></th>
                       <th className="px-2 py-2 text-right font-semibold"><HeaderTip label="Avg contact" tip={AVG_CONTACT_DEFINITION} /></th>
                       <th className="px-2 py-2 text-right font-semibold">Closed</th>

@@ -181,6 +181,11 @@ export async function dashboardData(scope: ScopeContext, range: RangeKey): Promi
   const trunc = w.bucket; // 'day' | 'month' — from a fixed enum, safe to bind
   const leadTenant = tenantWhere(schema.leads, scope);
   const histTenant = tenantWhere(schema.leadStatusHistory, scope);
+  const noteTenant = tenantWhere(schema.leadNotes, scope);
+  // Trend spans the FULL selected window for fixed ranges (edges zero-filled);
+  // for all-time it falls back to the actual lead date span (F-2).
+  const seriesStart = range === "all" ? null : start;
+  const seriesEnd = range === "all" ? null : end;
 
   const [statRes, closedRes, trendRes, partnerRes, partnerMeta, sourceRes] = await Promise.all([
     // ── Flat lead-count stats: current + prior windows in one pass ──
@@ -210,7 +215,9 @@ export async function dashboardData(scope: ScopeContext, range: RangeKey): Promi
     // ── Trend: zero-filled buckets between first & last in-window lead ──
     db.execute(sql`
       with bounds as (
-        select date_trunc(${trunc}, min(created_at)) as lo, date_trunc(${trunc}, max(created_at)) as hi
+        select
+          coalesce(date_trunc(${trunc}, ${seriesStart}::timestamptz), date_trunc(${trunc}, min(created_at))) as lo,
+          coalesce(date_trunc(${trunc}, ${seriesEnd}::timestamptz), date_trunc(${trunc}, max(created_at))) as hi
         from leads where ${leadTenant} and deleted_at is null and created_at >= ${start} and created_at < ${end}
       ),
       buckets as (
@@ -230,27 +237,36 @@ export async function dashboardData(scope: ScopeContext, range: RangeKey): Promi
         coalesce(agg.unmatched, 0)::int as unmatched
       from buckets left join agg on agg.b = buckets.b order by buckets.b
     `),
-    // ── Partner performance: per-lead history facts → per effective-partner aggregates ──
+    // ── Partner performance: per-lead history facts → per effective-partner aggregates.
+    //    A partner's first "action" = earliest non-New status change OR earliest
+    //    partner note (spec/ANA-03: "status change or partner note"). Notes are
+    //    filtered to author_role='partner' so admin notes stay invisible (PRN-13);
+    //    "untouched" = a given lead with no action at all. ──
     db.execute(sql`
-      with hist as (
+      with status_hist as (
         select lead_id,
-          min(created_at) filter (where status <> ${DEFAULT_STATUS}) as first_touch_at,
-          max(created_at) filter (where status = 'Closed') as closed_at,
-          (array_agg(status order by created_at desc))[1] as current_status
+          min(created_at) filter (where status <> ${DEFAULT_STATUS}) as status_touch,
+          max(created_at) filter (where status = 'Closed') as closed_at
         from lead_status_history where ${histTenant} group by lead_id
+      ),
+      note_hist as (
+        select lead_id, min(created_at) as note_touch
+        from lead_notes where ${noteTenant} and author_role = 'partner' group by lead_id
       ),
       facts as (
         select coalesce(leads.manual_partner_id, leads.partner_id) as pid,
           leads.created_at as received_at,
-          hist.first_touch_at, hist.closed_at,
-          coalesce(hist.current_status, ${DEFAULT_STATUS}) as current_status
-        from leads left join hist on hist.lead_id = leads.id
+          least(sh.status_touch, nh.note_touch) as first_touch_at,
+          sh.closed_at
+        from leads
+        left join status_hist sh on sh.lead_id = leads.id
+        left join note_hist nh on nh.lead_id = leads.id
         where ${leadTenant} and leads.deleted_at is null and leads.mls_status='kept'
           and coalesce(leads.manual_partner_id, leads.partner_id) is not null
       )
       select pid::text as pid,
         count(*) filter (where received_at >= ${start} and received_at < ${end})::int as given,
-        count(*) filter (where received_at >= ${start} and received_at < ${end} and current_status = ${DEFAULT_STATUS})::int as untouched,
+        count(*) filter (where received_at >= ${start} and received_at < ${end} and first_touch_at is null)::int as untouched,
         count(*) filter (where first_touch_at >= ${start} and first_touch_at < ${end})::int as contacted,
         count(*) filter (where closed_at >= ${start} and closed_at < ${end})::int as closed,
         avg(extract(epoch from (first_touch_at - received_at)) / 3600.0)
