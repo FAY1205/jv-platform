@@ -6,7 +6,7 @@ import { useParams } from "next/navigation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiGet } from "@/lib/api";
 import { csrfHeaders } from "@/lib/csrf-client";
-import { Card, CardBody, CardHeader, CardTitle, Select, Badge, Skeleton, NotesPanel, ListingBadge } from "@/components";
+import { Card, CardBody, CardHeader, CardTitle, NativeSelect, Badge, Skeleton, NotesPanel, ListingBadge } from "@/components";
 
 interface LeadDetail {
   refId: string;
@@ -106,7 +106,7 @@ export default function PortalLeadDetailPage() {
               )}
 
               <div className="max-w-xs">
-                <Select
+                <NativeSelect
                   label="Status"
                   value={data.status}
                   disabled={update.isPending}

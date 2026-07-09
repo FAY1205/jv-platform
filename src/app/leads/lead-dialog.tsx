@@ -10,7 +10,7 @@ import {
   Badge,
   Input,
   Textarea,
-  Select,
+  NativeSelect,
   PartnerTag,
   NotesPanel,
   Skeleton,
@@ -351,20 +351,20 @@ function EditForm({
 
       <div className="grid grid-cols-2 gap-3">
         {d.editable ? (
-          <Select label="Status" value={status} onChange={(e) => setStatus(e.target.value)}>
+          <NativeSelect label="Status" value={status} onChange={(e) => setStatus(e.target.value)}>
             {d.availableStatuses.map((s) => (
               <option key={s} value={s}>
                 {s}
               </option>
             ))}
-          </Select>
+          </NativeSelect>
         ) : (
           <div className="flex flex-col gap-1.5">
             <span className="text-xs font-semibold text-text-2">Status</span>
             <Badge variant="removed">Removed · MLS (read-only)</Badge>
           </div>
         )}
-        <Select label="Assigned partner" value={partnerSel} onChange={(e) => setPartnerSel(e.target.value)}>
+        <NativeSelect label="Assigned partner" value={partnerSel} onChange={(e) => setPartnerSel(e.target.value)}>
           <option value="">Unassigned</option>
           {partners.map((p) => (
             <option key={p.id} value={p.id}>
@@ -374,7 +374,7 @@ function EditForm({
           {d.assignment.manual && d.assignment.original && (
             <option value={REVERT}>↩ Revert to original routing ({d.assignment.original.name})</option>
           )}
-        </Select>
+        </NativeSelect>
       </div>
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">

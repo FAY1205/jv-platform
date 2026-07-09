@@ -19,7 +19,7 @@ import {
   Modal,
   Input,
   Textarea,
-  Select,
+  NativeSelect,
   PartnerTag,
   EmptyState,
   Skeleton,
@@ -275,7 +275,7 @@ function DeactivateModal({
                   {others.length === 0 ? (
                     <p className="text-danger">No other partner to reassign to — route to Unmatched instead.</p>
                   ) : (
-                    <Select
+                    <NativeSelect
                       value={toPartnerId}
                       onChange={(e) => setToPartnerId(e.target.value)}
                       options={others.map((p) => ({ value: p.id, label: `${p.name} (${p.refId})` }))}

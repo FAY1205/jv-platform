@@ -17,7 +17,7 @@ import {
   Td,
   Badge,
   Button,
-  Select,
+  NativeSelect,
   PartnerTag,
   EmptyState,
   Skeleton,
@@ -178,7 +178,7 @@ export function LeadsView({ initialQ }: { initialQ: string }) {
           aria-label="Search leads"
           className={`${fieldCls} w-full max-w-[300px]`}
         />
-        <Select value={partnerId} onChange={(e) => setPartnerId(e.target.value)} aria-label="Filter by partner" className="w-auto">
+        <NativeSelect value={partnerId} onChange={(e) => setPartnerId(e.target.value)} aria-label="Filter by partner" className="w-auto">
           <option value="">All partners</option>
           <option value="unmatched">Unmatched only</option>
           {(roster.data?.partners ?? []).map((p) => (
@@ -186,15 +186,15 @@ export function LeadsView({ initialQ }: { initialQ: string }) {
               {p.name} ({p.refId})
             </option>
           ))}
-        </Select>
-        <Select value={source} onChange={(e) => setSource(e.target.value)} aria-label="Filter by source" className="w-auto">
+        </NativeSelect>
+        <NativeSelect value={source} onChange={(e) => setSource(e.target.value)} aria-label="Filter by source" className="w-auto">
           <option value="">All sources</option>
           {(sourcesQ.data?.sources ?? []).map((s) => (
             <option key={s} value={s}>
               {s}
             </option>
           ))}
-        </Select>
+        </NativeSelect>
         <input
           value={state}
           onChange={(e) => setState(e.target.value.toUpperCase().slice(0, 2))}

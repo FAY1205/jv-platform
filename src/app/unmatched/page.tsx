@@ -11,7 +11,7 @@ import {
   Badge,
   Button,
   Modal,
-  Select,
+  NativeSelect,
   EmptyState,
   Skeleton,
   ToastProvider,
@@ -80,12 +80,12 @@ function AssignModal({ lead, onClose }: { lead: UnmatchedLead; onClose: () => vo
         <div className="text-xs text-text-3">{lead.address}, {lead.city} <span className="num">{lead.state} {lead.zip}</span></div>
       </div>
       <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-text-3">Partner</label>
-      <Select value={partnerId} onChange={(e) => setPartnerId(e.target.value)} aria-label="Partner">
+      <NativeSelect value={partnerId} onChange={(e) => setPartnerId(e.target.value)} aria-label="Partner">
         <option value="">Choose a partner…</option>
         {(roster.data?.partners ?? []).map((p) => (
           <option key={p.id} value={p.id}>{p.name} ({p.refId})</option>
         ))}
-      </Select>
+      </NativeSelect>
       <label className="mb-1.5 mt-4 block text-xs font-semibold uppercase tracking-wider text-text-3">Reason (optional)</label>
       <input
         value={reason}

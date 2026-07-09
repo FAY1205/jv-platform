@@ -11,7 +11,7 @@ import {
   Stat,
   PartnerTag,
   Input,
-  Select,
+  NativeSelect,
   Table,
   THead,
   TBody,
@@ -221,7 +221,7 @@ function Gallery() {
               <Input label="Partner name" placeholder="e.g. Josh Ax" defaultValue="Josh Ax" />
               <Input label="Seller ZIP" placeholder="5 digits" hint="Leading zeros preserved" defaultValue="06511" />
               <Input label="Seller ZIP" placeholder="5 digits" defaultValue="6404" error="ZIP must be 5 digits" />
-              <Select label="Match type" defaultValue="zip" options={[{ value: "zip", label: "ZIP match" }, { value: "state", label: "State fallback" }, { value: "none", label: "Unmatched" }]} />
+              <NativeSelect label="Match type" defaultValue="zip" options={[{ value: "zip", label: "ZIP match" }, { value: "state", label: "State fallback" }, { value: "none", label: "Unmatched" }]} />
             </CardBody>
           </Card>
         </Section>

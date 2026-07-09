@@ -4,7 +4,7 @@ import * as React from "react";
 import { useRouter } from "next/navigation";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { parseWorkbookInWorker } from "@/lib/xlsx-client";
-import { Card, CardBody, Button, Badge, Input, Select, AppShell } from "@/components";
+import { Card, CardBody, Button, Badge, Input, NativeSelect, AppShell } from "@/components";
 import { csrfHeaders } from "@/lib/csrf-client";
 import { validateUploadFile } from "@/lib/upload-guard";
 
@@ -178,13 +178,13 @@ export default function UploadPage() {
                           {CANONICAL_LABELS[field] ?? field}
                           {req && <span className="ml-1 text-danger">*</span>}
                         </span>
-                        <Select
+                        <NativeSelect
                           value={mapping[field] ?? ""}
                           onChange={(e) => setMapping((m) => ({ ...m, [field]: e.target.value }))}
                         >
                           <option value="">— not in file —</option>
                           {headerOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-                        </Select>
+                        </NativeSelect>
                       </div>
                     );
                   })}
