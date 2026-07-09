@@ -309,7 +309,10 @@ function RowActions({ p, onEdit, onDeactivate }: { p: Partner; onEdit: () => voi
     },
     onError: (e: Error) => toast(e.message, "danger"),
   });
-  const canInvite = p.status === "not_invited" || p.status === "invited";
+  // F-23: any non-active partner can be (re)invited — including a deactivated
+  // ("revoked") one, which the roster previously left with no path back in.
+  const canInvite = p.status !== "active";
+  const inviteLabel = p.status === "revoked" ? "Reactivate" : p.status === "invited" ? "Re-invite" : "Invite";
   return (
     <div className="flex items-center justify-end gap-1.5">
       <Button variant="secondary" size="sm" onClick={onEdit}>
@@ -324,12 +327,14 @@ function RowActions({ p, onEdit, onDeactivate }: { p: Partner; onEdit: () => voi
           title={p.email ? undefined : "Add an email first"}
           onClick={() => invite.mutate()}
         >
-          {p.status === "invited" ? "Re-invite" : "Invite"}
+          {inviteLabel}
         </Button>
       )}
-      <Button variant="ghost" size="sm" onClick={onDeactivate}>
-        Deactivate
-      </Button>
+      {p.status !== "revoked" && (
+        <Button variant="ghost" size="sm" onClick={onDeactivate}>
+          Deactivate
+        </Button>
+      )}
     </div>
   );
 }

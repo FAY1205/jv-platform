@@ -68,7 +68,12 @@ function ResetForm() {
               </Link>
             </div>
           ) : !token ? (
-            <p className="text-sm text-danger">This reset link is missing its token. Request a new one.</p>
+            <div className="flex flex-col gap-3">
+              <p className="text-sm text-danger">This reset link is missing its token.</p>
+              <Link href="/forgot" className="text-sm font-semibold text-brand hover:underline">
+                Request a new reset link
+              </Link>
+            </div>
           ) : (
             <form onSubmit={onSubmit} className="flex flex-col gap-4" noValidate>
               <Input

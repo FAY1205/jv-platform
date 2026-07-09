@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { useQuery, useMutation } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiGet } from "@/lib/api";
 import { csrfHeaders } from "@/lib/csrf-client";
 import { Card, CardBody, CardHeader, CardTitle, Button, Skeleton, EmptyState, ToastProvider, useToast, AppShell } from "@/components";
@@ -22,6 +22,7 @@ type Prefs = Record<string, Record<string, Channel>>;
 
 function SettingsInner() {
   const { toast } = useToast();
+  const queryClient = useQueryClient();
   const { data, isPending, error } = useQuery({
     queryKey: ["notif-prefs"],
     queryFn: () => apiGet<{ prefs: Prefs; events: EventDef[] }>("/api/settings/notifications"),
@@ -44,7 +45,11 @@ function SettingsInner() {
       });
       if (!res.ok) throw new Error((await res.json().catch(() => ({}))).message ?? "Save failed.");
     },
-    onSuccess: () => toast("Preferences saved.", "success"),
+    onSuccess: () => {
+      // ADR-0008 / F-79: refetch the server prefs so the draft re-seeds from truth.
+      queryClient.invalidateQueries({ queryKey: ["notif-prefs"] });
+      toast("Preferences saved.", "success");
+    },
     onError: (e: Error) => toast(e.message, "danger"),
   });
 
