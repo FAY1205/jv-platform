@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import { getDb } from "@/db";
 import * as schema from "@/db/schema";
 import { leadWhere, type ScopeContext } from "@/lib/scope";
@@ -42,6 +42,17 @@ export async function updateLeadStatus(
     if (!lead) throw new LeadNotFoundError(refId);
     // PRN-04: a removed lead's status IS "Removed MLS" — refuse workflow overwrites.
     if (lead.mlsStatus === "removed") throw new LeadRemovedError(refId);
+
+    // F-12: idempotent — if the lead is already at this status, do nothing (no dup
+    // history row, no dup event, no dup admin notification downstream). PRN-05 safe.
+    const [latest] = await tx
+      .select({ status: schema.leadStatusHistory.status })
+      .from(schema.leadStatusHistory)
+      .where(eq(schema.leadStatusHistory.leadId, lead.id))
+      .orderBy(desc(schema.leadStatusHistory.createdAt))
+      .limit(1);
+    const current = latest?.status ?? "New";
+    if (current === status) return { refId, status };
 
     await tx.insert(schema.leadStatusHistory).values({
       tenantId: lead.tenantId,

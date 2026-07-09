@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { drizzle, type PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
-import { inArray } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import * as schema from "@/db/schema";
 import type { ScopeContext } from "@/lib/scope";
@@ -94,5 +94,17 @@ suite("TST-08: partner portal scoping", () => {
 
   it("PRN-04: a workflow status change on an MLS-removed lead is refused", async () => {
     await expect(updateLeadStatus(adminA(), "LD-2026-00003", "Contacted")).rejects.toBeInstanceOf(LeadRemovedError);
+  });
+
+  it("F-12: re-setting the current status inserts no new history row or event (idempotent)", async () => {
+    const [lead] = await db.select({ id: schema.leads.id }).from(schema.leads).where(eq(schema.leads.refId, "LD-2026-00001"));
+    await updateLeadStatus(adminA(), "LD-2026-00001", "Appointment"); // a real change
+    const h1 = await db.select({ id: schema.leadStatusHistory.id }).from(schema.leadStatusHistory).where(eq(schema.leadStatusHistory.leadId, lead.id));
+    const e1 = await db.select({ id: schema.events.id }).from(schema.events).where(eq(schema.events.tenantId, id.tenant));
+    await updateLeadStatus(adminA(), "LD-2026-00001", "Appointment"); // same status again → no-op
+    const h2 = await db.select({ id: schema.leadStatusHistory.id }).from(schema.leadStatusHistory).where(eq(schema.leadStatusHistory.leadId, lead.id));
+    const e2 = await db.select({ id: schema.events.id }).from(schema.events).where(eq(schema.events.tenantId, id.tenant));
+    expect(h2.length).toBe(h1.length);
+    expect(e2.length).toBe(e1.length);
   });
 });
