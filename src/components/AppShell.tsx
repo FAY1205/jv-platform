@@ -10,7 +10,7 @@ import { NotificationBell } from "./NotificationBell";
 // renders its content inside <AppShell>; the active nav item is derived from the URL.
 // All color/spacing comes from semantic tokens (PRN-12).
 
-type IconName = "dashboard" | "runs" | "partners" | "coverage" | "rules" | "activity" | "settings" | "help" | "search" | "menu";
+type IconName = "dashboard" | "runs" | "partners" | "coverage" | "analytics" | "rules" | "activity" | "settings" | "help" | "search" | "menu";
 
 function Icon({ name }: { name: IconName }) {
   const p: Record<IconName, React.ReactNode> = {
@@ -18,6 +18,7 @@ function Icon({ name }: { name: IconName }) {
     runs: (<><path d="M4 6h16M4 12h16M4 18h10" /></>),
     partners: (<><circle cx="9" cy="8" r="3.2" /><path d="M3.5 20a5.5 5.5 0 0 1 11 0M16 11a3.2 3.2 0 0 0 0-6" /></>),
     coverage: (<><path d="M9 3 3 5.5v15L9 18l6 3 6-2.5v-15L15 6 9 3Z" /><path d="M9 3v15M15 6v15" /></>),
+    analytics: (<><path d="M4 20V4M4 20h16" /><rect x="7" y="12" width="3" height="5" rx="1" /><rect x="12" y="8" width="3" height="9" rx="1" /><rect x="17" y="5" width="3" height="12" rx="1" /></>),
     rules: (<><path d="M4 5h16M4 12h16M4 19h16" /><circle cx="8" cy="5" r="1.6" fill="currentColor" stroke="none" /><circle cx="15" cy="12" r="1.6" fill="currentColor" stroke="none" /><circle cx="10" cy="19" r="1.6" fill="currentColor" stroke="none" /></>),
     activity: (<><circle cx="12" cy="12" r="8.5" /><path d="M12 8v4l3 2" /></>),
     settings: (<><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.6 1.6 0 0 0 .3 1.8 2 2 0 1 1-2.8 2.8 1.6 1.6 0 0 0-2.7 1.1V21a2 2 0 1 1-4 0 1.6 1.6 0 0 0-2.4-1.4 1.6 1.6 0 0 0-1.8.3 2 2 0 1 1-2.8-2.8A1.6 1.6 0 0 0 3.7 15a2 2 0 1 1 0-4A1.6 1.6 0 0 0 5 8.6" /></>),
@@ -37,6 +38,7 @@ const NAV: { href: string; label: string; icon: IconName }[] = [
   { href: "/runs", label: "Runs", icon: "runs" },
   { href: "/partners", label: "Partners", icon: "partners" },
   { href: "/coverage", label: "Coverage", icon: "coverage" },
+  { href: "/analytics", label: "Analytics", icon: "analytics" },
   { href: "/rules", label: "Rules", icon: "rules" },
   { href: "/activity", label: "Activity", icon: "activity" },
   { href: "/settings/notifications", label: "Settings", icon: "settings" },
