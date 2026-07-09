@@ -51,9 +51,6 @@ const NAV_SECTIONS: { label: string | null; items: NavItem[] }[] = [
     { href: "/partners", label: "Partners", icon: "partners" },
     { href: "/coverage", label: "Coverage", icon: "coverage" },
   ]},
-  { label: "Insights", items: [
-    { href: "/analytics", label: "Analytics", icon: "analytics" },
-  ]},
   { label: "Admin", items: [
     { href: "/rules", label: "Rules", icon: "rules" },
     { href: "/activity", label: "Activity", icon: "activity" },

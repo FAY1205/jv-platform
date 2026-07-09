@@ -8,6 +8,8 @@ const nextConfig: NextConfig = {
     return [
       { source: "/runs", destination: "/imports", permanent: false },
       { source: "/runs/:ref", destination: "/imports/:ref", permanent: false },
+      // Analytics merged into the Dashboard (redesign R2).
+      { source: "/analytics", destination: "/dashboard", permanent: false },
     ];
   },
 };
