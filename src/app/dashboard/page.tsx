@@ -142,10 +142,10 @@ export default function DashboardPage() {
             <Stat label="Volume covered" value={d && d.keptLeadCount > 0 ? pct(d.coveredVolumePct) : "—"} />
           </div>
 
-          {/* Trend */}
+          {/* Trend — trailing window so a multi-year history stays readable */}
           <section className={panel}>
-            <h2 className="mb-4 font-display text-[.95rem] font-semibold tracking-tight">Leads per week</h2>
-            <TrendChart weekly={d!.weekly} />
+            <h2 className="mb-4 font-display text-[.95rem] font-semibold tracking-tight">Leads per week <span className="text-[.7rem] font-normal text-text-3">· last {Math.min(16, d!.weekly.length)} weeks</span></h2>
+            <TrendChart weekly={d!.weekly.slice(-16)} />
             <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-[.7rem] text-text-3">
               <span className="inline-flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-[3px]" style={{ background: "var(--brand)" }} /> Delivered</span>
               <span className="inline-flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-[3px]" style={{ background: "var(--warn)" }} /> Unmatched</span>
