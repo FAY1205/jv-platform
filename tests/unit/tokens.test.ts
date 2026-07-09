@@ -44,6 +44,47 @@ describe("DSN-01/SEAM-08: design tokens", () => {
   });
 });
 
+// F-17/F-18 (WCAG SC 1.4.3): text/status tokens meet AA against their background.
+// Pure WCAG relative-luminance contrast — the regression gate so a future token edit
+// cannot silently drop a role below AA. Badge variants pair text-<t> on bg-<t>-soft
+// (see Badge.tsx); text-3 must read on both surface and bg in both themes.
+function relLuminance(hex: string): number {
+  const c = hex.replace("#", "");
+  const chan = [0, 2, 4]
+    .map((i) => parseInt(c.slice(i, i + 2), 16) / 255)
+    .map((v) => (v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4));
+  return 0.2126 * chan[0] + 0.7152 * chan[1] + 0.0722 * chan[2];
+}
+function contrastRatio(a: string, b: string): number {
+  const [l1, l2] = [relLuminance(a), relLuminance(b)].sort((x, y) => y - x);
+  return (l1 + 0.05) / (l2 + 0.05);
+}
+
+describe("F-17/F-18: token contrast meets WCAG AA (4.5:1)", () => {
+  for (const [theme, t] of [["light", lightColors], ["dark", darkColors]] as const) {
+    it(`${theme}: body text roles read on their surfaces`, () => {
+      expect(contrastRatio(t.text, t.surface)).toBeGreaterThanOrEqual(4.5);
+      expect(contrastRatio(t.text2, t.surface)).toBeGreaterThanOrEqual(4.5);
+      expect(contrastRatio(t.text3, t.surface)).toBeGreaterThanOrEqual(4.5);
+      expect(contrastRatio(t.text3, t.bg)).toBeGreaterThanOrEqual(4.5);
+    });
+    it(`${theme}: every Badge variant's text reads on its fill`, () => {
+      const pairs: [string, string][] = [
+        [t.brand, t.brandSoft], // zip
+        [t.info, t.infoSoft], // state
+        [t.danger, t.dangerSoft], // removed
+        [t.warn, t.warnSoft], // warn
+        [t.prev, t.prevSoft], // prev
+        [t.success, t.successSoft], // success
+        [t.text2, t.surface3], // neutral
+      ];
+      for (const [fg, bg] of pairs) {
+        expect(contrastRatio(fg, bg)).toBeGreaterThanOrEqual(4.5);
+      }
+    });
+  }
+});
+
 // WP-003 / PRN-06 & PRN-14: locked, distinct partner colors.
 describe("SET-02: partner palette", () => {
   it("seeds the locked 9-partner roster with valid hex colors", () => {

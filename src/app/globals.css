@@ -19,20 +19,21 @@
   /* text tiers */
   --text: #1e2632;
   --text-2: #5b6472;
-  --text-3: #97a1b0;
-  /* brand — friendly green */
-  --brand: #3f9d7d;
-  --brand-strong: #31896b;
+  /* contrast pass (F-18): AA on surface + bg */
+  --text-3: #66707d;
+  /* brand — friendly green (F-17: darkened for AA text-on-soft + links) */
+  --brand: #2c785d;
+  --brand-strong: #276b54;
   --brand-soft: #e6f1eb;
   --brand-line: #c7e4d8;
   /* status: info / danger / warn / success + previously-matched accent */
   --info: #4f5bd5;
   --info-soft: #edeffc;
-  --danger: #cb4d43;
+  --danger: #b23a30;
   --danger-soft: #f9e6e2;
-  --warn: #bf7d2a;
+  --warn: #8a5a12;
   --warn-soft: #f6edd9;
-  --success: #3f9d7d;
+  --success: #2c785d;
   --success-soft: #e6f1eb;
   --prev: #6d4a9e;
   --prev-soft: #f2ecfa;
@@ -70,7 +71,7 @@
     --border-soft: #1c2431;
     --text: #e8edf4;
     --text-2: #a3adbb;
-    --text-3: #6b7688;
+    --text-3: #8a94a4;
     --brand: #4bb591;
     --brand-strong: #5cc5a1;
     --brand-soft: #123028;
@@ -103,7 +104,7 @@
   --border-soft: #1c2431;
   --text: #e8edf4;
   --text-2: #a3adbb;
-  --text-3: #6b7688;
+  --text-3: #8a94a4;
   --brand: #4bb591;
   --brand-strong: #5cc5a1;
   --brand-soft: #123028;
