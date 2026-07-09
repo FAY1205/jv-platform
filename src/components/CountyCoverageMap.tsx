@@ -81,7 +81,77 @@ export function CountyCoverageMap({ states, selectedPartnerId = null, onSelectPa
     });
   }, [geo, covOfCounty, selectedPartnerId]);
 
-  const onMove = (e: React.MouseEvent) => {
+  // ── Zoom & pan (SVG transform on a group; strokes stay crisp via
+  //    non-scaling-stroke). Drag to pan, wheel/buttons to zoom toward the cursor.
+  const [view, setView] = React.useState({ s: 1, x: 0, y: 0 });
+  const [vw, vh] = React.useMemo(() => {
+    const p = (geo?.viewBox ?? "0 0 960 600").split(" ").map(Number);
+    return [p[2] || 960, p[3] || 600];
+  }, [geo]);
+  const drag = React.useRef<{ x: number; y: number; moved: boolean } | null>(null);
+  const [dragging, setDragging] = React.useState(false);
+  const clampView = React.useCallback(
+    (v: { s: number; x: number; y: number }) => {
+      const s = Math.min(6, Math.max(1, v.s));
+      if (s === 1) return { s: 1, x: 0, y: 0 };
+      return { s, x: Math.min(0, Math.max(vw * (1 - s), v.x)), y: Math.min(0, Math.max(vh * (1 - s), v.y)) };
+    },
+    [vw, vh],
+  );
+
+  const zoomAt = (factor: number, cxPx: number, cyPx: number) => {
+    const rect = wrapRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const cvx = (cxPx / rect.width) * vw;
+    const cvy = (cyPx / rect.height) * vh;
+    setView((v) => {
+      const s2 = Math.min(6, Math.max(1, v.s * factor));
+      const px = (cvx - v.x) / v.s;
+      const py = (cvy - v.y) / v.s;
+      return clampView({ s: s2, x: cvx - px * s2, y: cvy - py * s2 });
+    });
+  };
+
+  // Non-passive wheel listener so zooming the map doesn't also scroll the page.
+  React.useEffect(() => {
+    const el = wrapRef.current;
+    if (!el) return;
+    const handler = (e: WheelEvent) => {
+      e.preventDefault();
+      const rect = el.getBoundingClientRect();
+      zoomAt(e.deltaY < 0 ? 1.2 : 1 / 1.2, e.clientX - rect.left, e.clientY - rect.top);
+    };
+    el.addEventListener("wheel", handler, { passive: false });
+    return () => el.removeEventListener("wheel", handler);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- rebind when geometry (vw/vh) is ready
+  }, [geo, vw, vh]);
+
+  const onPointerDown = (e: React.PointerEvent) => {
+    drag.current = { x: e.clientX, y: e.clientY, moved: false };
+    if (view.s > 1) setDragging(true);
+  };
+  const onPointerUp = (e: React.PointerEvent) => {
+    const wasDrag = drag.current?.moved;
+    drag.current = null;
+    setDragging(false);
+    if (!wasDrag) {
+      const fips = (e.target as Element).getAttribute?.("data-fips");
+      if (fips) onSelectPartner?.(covOfCounty(fips)?.partnerId ?? null);
+    }
+  };
+
+  const onMove = (e: React.MouseEvent | React.PointerEvent) => {
+    if (drag.current) {
+      const rect = wrapRef.current!.getBoundingClientRect();
+      const dx = ((e.clientX - drag.current.x) / rect.width) * vw;
+      const dy = ((e.clientY - drag.current.y) / rect.height) * vh;
+      if (Math.abs(e.clientX - drag.current.x) + Math.abs(e.clientY - drag.current.y) > 2) drag.current.moved = true;
+      drag.current.x = e.clientX;
+      drag.current.y = e.clientY;
+      if (hover) setHover(null);
+      setView((v) => clampView({ ...v, x: v.x + dx, y: v.y + dy }));
+      return;
+    }
     const el = e.target as Element;
     const fips = el.getAttribute?.("data-fips");
     if (!fips || !wrapRef.current) {
@@ -90,12 +160,6 @@ export function CountyCoverageMap({ states, selectedPartnerId = null, onSelectPa
     }
     const rect = wrapRef.current.getBoundingClientRect();
     setHover({ fips, name: el.getAttribute("data-name") ?? "", x: e.clientX - rect.left, y: e.clientY - rect.top });
-  };
-
-  const onClick = (e: React.MouseEvent) => {
-    const fips = (e.target as Element).getAttribute?.("data-fips");
-    if (!fips) return;
-    onSelectPartner?.(covOfCounty(fips)?.partnerId ?? null);
   };
 
   if (failed) {
@@ -108,25 +172,46 @@ export function CountyCoverageMap({ states, selectedPartnerId = null, onSelectPa
   const hoverCov = hover ? covOfCounty(hover.fips) : null;
   const hoverName = hover ? nameByFips.get(hover.fips) ?? "" : "";
 
+  const transform = `translate(${view.x} ${view.y}) scale(${view.s})`;
+  const zoomBtn = "grid h-8 w-8 place-items-center rounded-lg border border-border bg-surface text-text-2 shadow-sm transition-colors hover:bg-surface-2 disabled:opacity-40";
+
   return (
     <div ref={wrapRef} className="relative w-full">
       <svg
         viewBox={geo.viewBox}
-        className="w-full"
+        className="w-full touch-none"
         role="img"
         aria-label="United States county coverage map, colored by partner"
-        onMouseMove={onMove}
-        onMouseLeave={() => setHover(null)}
-        onClick={onClick}
+        style={{ cursor: view.s > 1 ? (dragging ? "grabbing" : "grab") : "default" }}
+        onPointerDown={onPointerDown}
+        onPointerMove={onMove}
+        onPointerUp={onPointerUp}
+        onPointerLeave={() => { drag.current = null; setDragging(false); setHover(null); }}
       >
-        {countyPaths}
-        {/* State borders overlay for legibility */}
-        <path d={geo.borders} fill="none" stroke="var(--surface)" strokeWidth={0.8} strokeLinejoin="round" pointerEvents="none" opacity={0.9} />
-        {/* Single highlight overlay for the hovered county */}
-        {hover && dByFips.get(hover.fips) && (
-          <path d={dByFips.get(hover.fips)!} fill="none" stroke="var(--text)" strokeWidth={1.2} pointerEvents="none" />
-        )}
+        <g transform={transform}>
+          {countyPaths}
+          {/* State borders — non-scaling so they stay crisp when zoomed */}
+          <path d={geo.borders} fill="none" stroke="var(--surface)" strokeWidth={0.8} strokeLinejoin="round" vectorEffect="non-scaling-stroke" pointerEvents="none" opacity={0.9} />
+          {hover && dByFips.get(hover.fips) && (
+            <path d={dByFips.get(hover.fips)!} fill="none" stroke="var(--text)" strokeWidth={1.4} vectorEffect="non-scaling-stroke" pointerEvents="none" />
+          )}
+        </g>
       </svg>
+
+      {/* Zoom controls */}
+      <div className="absolute right-2 top-2 flex flex-col gap-1.5">
+        <button type="button" aria-label="Zoom in" className={zoomBtn} onClick={() => zoomAt(1.4, (wrapRef.current?.clientWidth ?? 0) / 2, (wrapRef.current?.clientHeight ?? 0) / 2)}>
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
+        </button>
+        <button type="button" aria-label="Zoom out" className={zoomBtn} disabled={view.s <= 1} onClick={() => zoomAt(1 / 1.4, (wrapRef.current?.clientWidth ?? 0) / 2, (wrapRef.current?.clientHeight ?? 0) / 2)}>
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" aria-hidden="true"><path d="M5 12h14" /></svg>
+        </button>
+        {view.s > 1 && (
+          <button type="button" aria-label="Reset zoom" className={zoomBtn} onClick={() => setView({ s: 1, x: 0, y: 0 })}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 9-9 9 9 0 0 0-6.4 2.6L3 8" /><path d="M3 3v5h5" /></svg>
+          </button>
+        )}
+      </div>
 
       {hover && hoverCov && (
         <div

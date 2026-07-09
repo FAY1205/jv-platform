@@ -38,6 +38,8 @@ async function wipe() {
     where u.tenant_id=${tenant.id} and u.ref_id='UP-2026-001'`;
   const curIds = curLeads.map((l) => l.id);
   if (curIds.length) await sql`delete from lead_status_history where lead_id in ${sql(curIds)}`;
+  await sql`delete from lead_status_history where lead_id in (select id from leads where tenant_id=${tenant.id} and ref_id like 'LD-2026-U9%')`;
+  await sql`delete from leads where tenant_id=${tenant.id} and ref_id like 'LD-2026-U9%'`;
   console.log("wiped demo activity");
 }
 
@@ -117,5 +119,25 @@ for (let i = 0; i < current.length; i++) {
   if (await event(current[i].id, "Contacted", at)) contacted++;
 }
 
+// ── 3. A small live coverage gap: unmatched leads in uncovered states ─────────
+const [curUpload] = await sql`select id from uploads where tenant_id=${tenant.id} and ref_id='UP-2026-001'`;
+const GAPS = [
+  ["WY", "82001", "Cheyenne"], ["WY", "82601", "Casper"], ["WY", "82070", "Laramie"],
+  ["MT", "59101", "Billings"], ["ID", "83702", "Boise"],
+];
+let gaps = 0;
+for (let i = 0; i < GAPS.length; i++) {
+  const [st, zip, city] = GAPS[i];
+  const ref = `LD-2026-U9${String(100 + i)}`;
+  const received = NOW - (1 + (i % 2)) * DAY; // this week
+  await sql`
+    insert into leads (tenant_id, ref_id, upload_id, dedupe_key, raw_json, campaign, address, city, state, zip,
+                       seller_first, seller_last, partner_id, match_method, mls_status, created_at)
+    values (${tenant.id}, ${ref}, ${curUpload.id}, ${"demo|" + ref}, ${sql.json({ demo: true })}, ${"Lead Zolo 2.0"},
+            ${200 + i + " Frontier Rd"}, ${city}, ${st}, ${zip}, ${"Dana"}, ${"Frontier" + i}, null, 'none', 'kept',
+            ${new Date(received).toISOString()})`;
+  gaps++;
+}
+
 await sql.end();
-console.log(`seeded: backdated import ${BACKDATED_REF} with ${made} leads (${closes} closed), contacted ${contacted} current leads`);
+console.log(`seeded: backdated import ${BACKDATED_REF} with ${made} leads (${closes} closed), contacted ${contacted} current leads, ${gaps} unmatched gap leads`);

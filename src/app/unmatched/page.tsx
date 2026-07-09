@@ -16,8 +16,11 @@ import {
   Skeleton,
   ToastProvider,
   useToast,
+  CountyCoverageMap,
 } from "@/components";
 import type { UnmatchedGroup, UnmatchedLead } from "@/modules/leads/unmatched";
+import type { StateCoverage } from "@/modules/coverage/map";
+import { US_HEX_STATES } from "@/lib/geo/us-hexgrid";
 
 // ASN-03: the unmatched inbox. Leads no partner covers, grouped by state (biggest
 // gap first). Each can be handed to a partner (audited, additive — the original
@@ -105,6 +108,18 @@ function UnmatchedInner() {
   const [assigning, setAssigning] = React.useState<UnmatchedLead | null>(null);
   const total = (data?.groups ?? []).reduce((sum, g) => sum + g.count, 0);
 
+  // Light up the states with unmatched leads on the county map (reuses the
+  // choropleth; "—" / no-state groups can't be placed).
+  const gapMapStates: StateCoverage[] = React.useMemo(() => {
+    const countByCode = new Map((data?.groups ?? []).filter((g) => g.state !== "—").map((g) => [g.state, g.count]));
+    return US_HEX_STATES.map((h) => {
+      const count = countByCode.get(h.code);
+      return count
+        ? { code: h.code, name: h.name, partnerId: "gap", partnerName: `${count} unmatched lead${count === 1 ? "" : "s"}`, refId: null, color: "var(--warn)", leadCount: count, gap: true }
+        : { code: h.code, name: h.name, partnerId: null, partnerName: null, refId: null, color: null, leadCount: 0, gap: false };
+    });
+  }, [data]);
+
   return (
     <AppShell>
       <div className="mb-6">
@@ -121,6 +136,13 @@ function UnmatchedInner() {
       ) : (
         <div className="flex flex-col gap-5">
           <div className="text-sm text-text-2"><span className="num font-semibold text-text">{total}</span> lead{total === 1 ? "" : "s"} across <span className="num font-semibold text-text">{data!.groups.length}</span> state{data!.groups.length === 1 ? "" : "s"} need a home.</div>
+          {gapMapStates.some((s) => s.partnerId) && (
+            <section className="rounded-2xl border border-border-soft bg-surface p-5 shadow-sm">
+              <h2 className="mb-4 font-display text-[.95rem] font-semibold tracking-tight">Where the gaps are</h2>
+              <CountyCoverageMap states={gapMapStates} />
+              <p className="mt-3 text-[.7rem] text-text-3">States with unmatched leads are lit; every county in them is shown. Recruiting a partner (or adding a state rule) there closes the gap.</p>
+            </section>
+          )}
           {data!.groups.map((g) => (
             <section key={g.state} className="overflow-hidden rounded-2xl border border-border-soft bg-surface shadow-sm">
               <div className="flex flex-wrap items-center gap-3 border-b border-border-soft bg-surface-2 px-5 py-3">

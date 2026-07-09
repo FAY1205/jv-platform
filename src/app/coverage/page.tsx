@@ -4,7 +4,7 @@ import * as React from "react";
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
 import { apiGet } from "@/lib/api";
-import { AppShell, CoverageMap, CountyCoverageMap, PartnerTag, EmptyState, Skeleton } from "@/components";
+import { AppShell, CountyCoverageMap, PartnerTag, EmptyState, Skeleton } from "@/components";
 import type { StateCoverage, CoveragePartner } from "@/modules/coverage/map";
 
 // MAP-01. Read-only coverage overview: the hex map colors each state by its
@@ -41,15 +41,12 @@ export default function CoveragePage() {
   const [selected, setSelected] = React.useState<string | null>(null);
   const toggle = (id: string | null) => setSelected((prev) => (prev === id ? null : id));
 
-  const [view, setView] = React.useState<"county" | "state">("county");
-  const gaps = (data?.states ?? []).filter((s) => s.gap);
-
   return (
     <AppShell>
       <div className="mb-6 flex items-end justify-between gap-4">
         <div>
           <h1 className="font-display text-2xl font-semibold tracking-tight">Coverage</h1>
-          <p className="mt-1 text-sm text-text-2">Which partner owns each state — and where leads have nowhere to land.</p>
+          <p className="mt-1 text-sm text-text-2">Which partner owns which territory. Gaps live in Unmatched.</p>
         </div>
         <Link
           href="/partners"
@@ -67,53 +64,21 @@ export default function CoveragePage() {
         </div>
       ) : (
         <div className="stagger flex flex-col gap-5">
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-            <StatCard label="Volume covered" value={data!.keptLeadCount === 0 ? "—" : `${Math.round(data!.coveredVolumePct * 100)}%`} sub={`of ${data!.keptLeadCount} kept leads reached a partner`} />
-            <StatCard label="Coverage gaps" value={data!.gapCount} tone={data!.gapCount > 0 ? "warn" : undefined} sub="states with leads, no owner" />
+          <div className="grid grid-cols-3 gap-3">
             <StatCard label="States covered" value={`${data!.coveredCount}/51`} sub="by a state rule" />
-            <StatCard label="Unmatched leads" value={data!.unmatchedLeadCount} tone={data!.unmatchedLeadCount > 0 ? "danger" : undefined} sub="still need a partner" />
+            <StatCard label="ZIP overrides" value={data!.zipCoverageCount} sub="beat the state rule" />
+            <StatCard label="Partners with territory" value={data!.partners.length} sub="own states or ZIPs" />
           </div>
 
           <div className="grid grid-cols-1 items-start gap-5 lg:grid-cols-[1fr_300px]">
             <section className={panel}>
-              <div className="mb-4 flex items-center justify-between gap-3">
-                <h2 className="font-display text-[.95rem] font-semibold tracking-tight">
-                  {view === "county" ? "County map" : "State tiles"}
-                </h2>
-                <div className="inline-flex rounded-lg border border-border bg-surface-2 p-0.5">
-                  {(["county", "state"] as const).map((v) => (
-                    <button
-                      key={v}
-                      type="button"
-                      onClick={() => setView(v)}
-                      aria-pressed={view === v}
-                      className={
-                        "rounded-[7px] px-3 py-1 text-xs font-semibold transition-colors " +
-                        (view === v ? "bg-surface text-text shadow-xs" : "text-text-3 hover:text-text-2")
-                      }
-                    >
-                      {v === "county" ? "County" : "Tiles"}
-                    </button>
-                  ))}
-                </div>
-              </div>
-              {view === "county" ? (
-                <CountyCoverageMap states={data!.states} selectedPartnerId={selected} onSelectPartner={toggle} />
-              ) : (
-                <CoverageMap states={data!.states} selectedPartnerId={selected} onSelectPartner={toggle} />
-              )}
+              <h2 className="mb-4 font-display text-[.95rem] font-semibold tracking-tight">County map</h2>
+              <CountyCoverageMap states={data!.states} selectedPartnerId={selected} onSelectPartner={toggle} />
               <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[.7rem] text-text-3">
                 <span className="inline-flex items-center gap-1.5">
                   <span className="h-3 w-3 rounded-[3px] border border-border" style={{ background: "var(--surface-3)" }} /> Uncovered
                 </span>
-                {view === "state" && (
-                  <span className="inline-flex items-center gap-1.5">
-                    <span className="h-3 w-3 rounded-[3px] border border-dashed" style={{ borderColor: "var(--warn)" }} /> Gap — leads, no owner
-                  </span>
-                )}
-                <span className="text-text-3">
-                  {view === "county" ? "Counties inherit their state's partner. " : ""}Click to highlight a partner&apos;s territory.
-                </span>
+                <span className="text-text-3">Counties inherit their state&apos;s partner · scroll or use +/− to zoom, drag to pan · click to highlight a partner.</span>
               </div>
             </section>
 
@@ -150,16 +115,6 @@ export default function CoveragePage() {
                       </button>
                     );
                   })}
-                </div>
-              )}
-
-              {gaps.length > 0 && (
-                <div className="mt-4 rounded-lg border border-warn-soft p-3" style={{ background: "var(--warn-soft)" }}>
-                  <div className="text-xs font-semibold text-warn">Coverage gaps</div>
-                  <div className="num mt-1 text-xs text-text-2">{gaps.map((g) => g.code).join(", ")}</div>
-                  <p className="mt-1.5 text-[.7rem] text-text-3">
-                    Leads came from these states but no partner owns them — add a state rule or ZIP coverage so they route.
-                  </p>
                 </div>
               )}
             </aside>
