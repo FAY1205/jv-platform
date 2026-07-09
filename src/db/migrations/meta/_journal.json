@@ -71,6 +71,13 @@
       "when": 1783587969373,
       "tag": "0009_manual_assignment",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1783615888154,
+      "tag": "0010_effective_owner_rls",
+      "breakpoints": true
     }
   ]
 }
