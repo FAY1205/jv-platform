@@ -3,6 +3,8 @@
 import * as React from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
+import { useQuery } from "@tanstack/react-query";
+import { apiGet } from "@/lib/api";
 import { APP_NAME } from "@/lib/app";
 import { NotificationBell } from "./NotificationBell";
 
@@ -10,12 +12,13 @@ import { NotificationBell } from "./NotificationBell";
 // renders its content inside <AppShell>; the active nav item is derived from the URL.
 // All color/spacing comes from semantic tokens (PRN-12).
 
-type IconName = "dashboard" | "leads" | "runs" | "partners" | "coverage" | "analytics" | "rules" | "activity" | "settings" | "help" | "search" | "menu";
+type IconName = "dashboard" | "leads" | "unmatched" | "runs" | "partners" | "coverage" | "analytics" | "rules" | "activity" | "settings" | "help" | "search" | "menu";
 
 function Icon({ name }: { name: IconName }) {
   const p: Record<IconName, React.ReactNode> = {
     dashboard: (<><rect x="3" y="3" width="7" height="9" rx="2" /><rect x="14" y="3" width="7" height="5" rx="2" /><rect x="14" y="12" width="7" height="9" rx="2" /><rect x="3" y="16" width="7" height="5" rx="2" /></>),
     leads: (<><path d="M4 13V6a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v7" /><path d="M4 13h4l2 3h4l2-3h4" /><path d="M4 13v5a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-5" /></>),
+    unmatched: (<><path d="M12 9v4" /><path d="M12 17h.01" /><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z" /></>),
     runs: (<><path d="M4 6h16M4 12h16M4 18h10" /></>),
     partners: (<><circle cx="9" cy="8" r="3.2" /><path d="M3.5 20a5.5 5.5 0 0 1 11 0M16 11a3.2 3.2 0 0 0 0-6" /></>),
     coverage: (<><path d="M9 3 3 5.5v15L9 18l6 3 6-2.5v-15L15 6 9 3Z" /><path d="M9 3v15M15 6v15" /></>),
@@ -36,11 +39,12 @@ function Icon({ name }: { name: IconName }) {
 
 // Grouped navigation: sections keep the rail scannable and give future pages an
 // obvious home (Leads and Unmatched join the "Leads" section in later phases).
-interface NavItem { href: string; label: string; icon: IconName }
+interface NavItem { href: string; label: string; icon: IconName; badge?: "unmatched" }
 const NAV_SECTIONS: { label: string | null; items: NavItem[] }[] = [
   { label: null, items: [{ href: "/dashboard", label: "Dashboard", icon: "dashboard" }] },
   { label: "Leads", items: [
     { href: "/leads", label: "Leads", icon: "leads" },
+    { href: "/unmatched", label: "Unmatched", icon: "unmatched", badge: "unmatched" },
     { href: "/imports", label: "Imports", icon: "runs" },
   ]},
   { label: "Network", items: [
@@ -106,6 +110,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     }
   };
 
+  // Unmatched backlog count for the nav badge (cheap; cached across pages).
+  const unmatched = useQuery({
+    queryKey: ["unmatched", "count"],
+    queryFn: () => apiGet<{ count: number }>("/api/leads/unmatched/count"),
+    staleTime: 30_000,
+  });
+  const unmatchedCount = unmatched.data?.count ?? 0;
+
   // Rail contents, shared by the desktop column and the mobile drawer.
   const rail = (onNavigate?: () => void) => (
     <>
@@ -145,6 +157,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                     <Icon name={item.icon} />
                   </span>
                   {item.label}
+                  {item.badge === "unmatched" && unmatchedCount > 0 && (
+                    <span className="num ml-auto rounded-full bg-warn-soft px-1.5 py-0.5 text-[.62rem] font-semibold text-warn" aria-label={`${unmatchedCount} unmatched`}>
+                      {unmatchedCount}
+                    </span>
+                  )}
                 </Link>
               );
             })}

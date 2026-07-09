@@ -1,7 +1,7 @@
 import { and, count, desc, eq, isNull, sql } from "drizzle-orm";
 import { getDb } from "@/db";
 import * as schema from "@/db/schema";
-import { tenantWhere, type ScopeContext } from "@/lib/scope";
+import { tenantWhere, partnerOwnsLead, type ScopeContext } from "@/lib/scope";
 
 // ADM-03 read side. Every query is tenant-scoped through the guard (PRN-08).
 // Admin-only surface (the routes enforce role); partners never reach these.
@@ -42,11 +42,13 @@ export async function listPartners(scope: ScopeContext): Promise<PartnerRow[]> {
     .where(and(tenantWhere(schema.partners, scope), isNull(schema.partners.deletedAt)))
     .orderBy(schema.partners.refId);
 
+  // Effective delivered count per partner: pipeline routing OR manual assignment.
+  const effectivePartner = sql<string>`coalesce(${schema.leads.manualPartnerId}, ${schema.leads.partnerId})`;
   const counts = await db
-    .select({ partnerId: schema.leads.partnerId, n: sql<number>`count(*)::int` })
+    .select({ partnerId: effectivePartner, n: sql<number>`count(*)::int` })
     .from(schema.leads)
     .where(and(tenantWhere(schema.leads, scope), eq(schema.leads.mlsStatus, "kept")))
-    .groupBy(schema.leads.partnerId);
+    .groupBy(effectivePartner);
   const countBy = new Map(counts.map((c) => [c.partnerId, Number(c.n)]));
 
   const zipCounts = await db
@@ -112,8 +114,9 @@ export interface PartnerLeadSummary {
   city: string | null;
   state: string | null;
   zip: string | null;
-  /** How the lead reached this partner — ZIP hit or state fallback (ASN-01). */
-  matchMethod: "zip" | "state_fallback" | "none";
+  /** How the lead reached this partner — ZIP, state fallback (ASN-01), or a
+   *  manual admin assignment (ASN-03). */
+  matchMethod: "zip" | "state_fallback" | "none" | "manual";
   receivedAt: string;
 }
 
@@ -133,13 +136,14 @@ export async function recentLeadsForPartner(
       state: schema.leads.state,
       zip: schema.leads.zip,
       matchMethod: schema.leads.matchMethod,
+      manualPartnerId: schema.leads.manualPartnerId,
       createdAt: schema.leads.createdAt,
     })
     .from(schema.leads)
     .where(
       and(
         tenantWhere(schema.leads, scope),
-        eq(schema.leads.partnerId, partnerId),
+        partnerOwnsLead(partnerId), // pipeline-routed OR manually assigned (ASN-03)
         eq(schema.leads.mlsStatus, "kept"),
         isNull(schema.leads.deletedAt),
       ),
@@ -149,11 +153,11 @@ export async function recentLeadsForPartner(
 
   return rows.map((r) => ({
     refId: r.refId,
+    matchMethod: r.manualPartnerId ? ("manual" as const) : r.matchMethod,
     seller: `${r.sellerFirst ?? ""} ${r.sellerLast ?? ""}`.trim() || "—",
     city: r.city,
     state: r.state,
     zip: r.zip,
-    matchMethod: r.matchMethod,
     receivedAt: r.createdAt.toISOString(),
   }));
 }

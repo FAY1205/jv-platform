@@ -62,9 +62,15 @@ suite("TST-01: tenant & partner isolation", () => {
     const [lx] = await db.insert(schema.leads).values({ tenantId: ta.id, refId: "LD-2026-00001", uploadId: ua.id, dedupeKey: "x|00001", rawJson: {}, partnerId: px.id, matchMethod: "zip" }).returning({ id: schema.leads.id });
     const [ly] = await db.insert(schema.leads).values({ tenantId: ta.id, refId: "LD-2026-00002", uploadId: ua.id, dedupeKey: "y|00002", rawJson: {}, partnerId: py.id, matchMethod: "zip" }).returning({ id: schema.leads.id });
     const [lz] = await db.insert(schema.leads).values({ tenantId: tb.id, refId: "LD-2026-00001", uploadId: ub.id, dedupeKey: "z|00003", rawJson: {}, partnerId: pz.id, matchMethod: "zip" }).returning({ id: schema.leads.id });
+    // An unmatched lead in tenant A, manually assigned to partner Y (ASN-03).
+    const [lm] = await db
+      .insert(schema.leads)
+      .values({ tenantId: ta.id, refId: "LD-2026-00009", uploadId: ua.id, dedupeKey: "m|00009", rawJson: {}, partnerId: null, matchMethod: "none", manualPartnerId: py.id, manualAssignedAt: new Date(), manualAssignedBy: id.adminUser })
+      .returning({ id: schema.leads.id });
     id.leadX = lx.id;
     id.leadY = ly.id;
     id.leadZ = lz.id;
+    id.leadManualToY = lm.id;
 
     await db.insert(schema.leadNotes).values({ tenantId: ta.id, leadId: lx.id, authorUserId: id.adminUser, authorRole: "admin", body: "admin-only note" });
     await db.insert(schema.leadNotes).values({ tenantId: ta.id, leadId: lx.id, authorUserId: id.partnerUser, authorRole: "partner", body: "partner-only note" });
@@ -77,6 +83,7 @@ suite("TST-01: tenant & partner isolation", () => {
 
   const adminA = (): ScopeContext => ({ tenantId: id.tenantA, role: "admin", userId: id.adminUser });
   const partnerX = (): ScopeContext => ({ tenantId: id.tenantA, role: "partner", userId: id.partnerUser, partnerId: id.partnerX });
+  const partnerY = (): ScopeContext => ({ tenantId: id.tenantA, role: "partner", userId: id.partnerUser, partnerId: id.partnerY });
 
   it("tenant scope returns only that tenant's leads (never the other tenant's)", async () => {
     const rows = await db.select({ id: schema.leads.id }).from(schema.leads).where(tenantWhere(schema.leads, adminA()));
@@ -97,7 +104,21 @@ suite("TST-01: tenant & partner isolation", () => {
   it("admin sees all of their tenant's leads", async () => {
     const rows = await db.select({ id: schema.leads.id }).from(schema.leads).where(leadWhere(adminA()));
     const got = rows.map((r) => r.id).sort();
-    expect(got).toEqual([id.leadX, id.leadY].sort());
+    expect(got).toEqual([id.leadX, id.leadY, id.leadManualToY].sort());
+  });
+
+  it("ASN-03: a partner sees leads manually assigned to them", async () => {
+    const rows = await db.select({ id: schema.leads.id }).from(schema.leads).where(leadWhere(partnerY()));
+    const got = rows.map((r) => r.id);
+    expect(got).toContain(id.leadManualToY); // manually assigned to Y
+    expect(got).toContain(id.leadY); // and their pipeline-routed lead
+  });
+
+  it("ASN-03: a manual assignment to Y stays invisible to sibling partner X", async () => {
+    const rows = await db.select({ id: schema.leads.id }).from(schema.leads).where(leadWhere(partnerX()));
+    const got = rows.map((r) => r.id);
+    expect(got).toEqual([id.leadX]);
+    expect(got).not.toContain(id.leadManualToY);
   });
 
   it("PRN-13: admin sees admin notes only", async () => {

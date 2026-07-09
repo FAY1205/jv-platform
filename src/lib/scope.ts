@@ -1,4 +1,4 @@
-import { and, eq, inArray, type SQL } from "drizzle-orm";
+import { and, eq, inArray, or, type SQL } from "drizzle-orm";
 import type { PgColumn } from "drizzle-orm/pg-core";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import * as schema from "@/db/schema";
@@ -34,11 +34,19 @@ export function tenantWhere<T extends { tenantId: PgColumn }>(table: T, scope: S
   return eq(table.tenantId, scope.tenantId);
 }
 
+/** A partner "owns" a lead if it was routed to them by the pipeline OR manually
+ *  assigned to them (ASN-03). Manual assignment only ever fills unmatched leads
+ *  (partnerId null), so the two predicates never overlap. This is the one place
+ *  partner lead-ownership is defined; every partner-scoped read uses it. */
+export function partnerOwnsLead(me: string): SQL {
+  return or(eq(leads.partnerId, me), eq(leads.manualPartnerId, me))!;
+}
+
 /** Leads visibility: tenant + (admin sees all · partner sees only their own). */
 export function leadWhere(scope: ScopeContext): SQL {
   const base = eq(leads.tenantId, scope.tenantId);
   if (scope.role === "admin") return base;
-  return and(base, eq(leads.partnerId, requirePartner(scope)))!;
+  return and(base, partnerOwnsLead(requirePartner(scope)))!;
 }
 
 /**
@@ -53,7 +61,7 @@ export function noteWhere(scope: ScopeContext, db: DB): SQL {
   const ownLeads = db
     .select({ id: leads.id })
     .from(leads)
-    .where(and(eq(leads.tenantId, scope.tenantId), eq(leads.partnerId, requirePartner(scope))));
+    .where(and(eq(leads.tenantId, scope.tenantId), partnerOwnsLead(requirePartner(scope))));
   return and(base, eq(leadNotes.authorRole, "partner"), inArray(leadNotes.leadId, ownLeads))!;
 }
 
@@ -68,6 +76,6 @@ export function leadChildWhere(
   const ownLeads = db
     .select({ id: leads.id })
     .from(leads)
-    .where(and(eq(leads.tenantId, scope.tenantId), eq(leads.partnerId, requirePartner(scope))));
+    .where(and(eq(leads.tenantId, scope.tenantId), partnerOwnsLead(requirePartner(scope))));
   return and(base, inArray(table.leadId, ownLeads))!;
 }

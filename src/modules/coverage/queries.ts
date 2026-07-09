@@ -50,6 +50,8 @@ export async function coverageMapData(scope: ScopeContext): Promise<CoverageMapR
           tenantWhere(schema.leads, scope),
           eq(schema.leads.mlsStatus, "kept"),
           isNull(schema.leads.partnerId),
+          // A manually-assigned lead is no longer a coverage gap (ASN-03).
+          isNull(schema.leads.manualPartnerId),
         ),
       ),
   ]);

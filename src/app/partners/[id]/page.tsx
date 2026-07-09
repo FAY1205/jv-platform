@@ -50,7 +50,7 @@ interface PartnerLead {
   city: string | null;
   state: string | null;
   zip: string | null;
-  matchMethod: "zip" | "state_fallback" | "none";
+  matchMethod: "zip" | "state_fallback" | "none" | "manual";
   receivedAt: string;
 }
 
@@ -73,7 +73,7 @@ function Stat({ label, value }: { label: string; value: React.ReactNode }) {
 }
 
 function matchLabel(m: PartnerLead["matchMethod"]): string {
-  return m === "zip" ? "ZIP" : m === "state_fallback" ? "State" : "—";
+  return m === "zip" ? "ZIP" : m === "state_fallback" ? "State" : m === "manual" ? "Manual" : "—";
 }
 
 export default function PartnerDetailPage() {
@@ -222,7 +222,7 @@ export default function PartnerDetailPage() {
                           {[l.city, l.state].filter(Boolean).join(", ")} <span className="num">{l.zip}</span>
                         </span>
                       </Td>
-                      <Td><Badge variant={l.matchMethod === "zip" ? "zip" : "state"}>{matchLabel(l.matchMethod)}</Badge></Td>
+                      <Td><Badge variant={l.matchMethod === "zip" ? "zip" : l.matchMethod === "manual" ? "prev" : "state"}>{matchLabel(l.matchMethod)}</Badge></Td>
                       <Td align="right"><span className="num text-xs text-text-3">{new Date(l.receivedAt).toLocaleDateString()}</span></Td>
                     </Tr>
                   ))}

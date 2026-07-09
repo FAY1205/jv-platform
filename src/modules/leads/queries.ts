@@ -1,9 +1,21 @@
 import { and, desc, eq, ilike, inArray, isNull, or, sql, type SQL } from "drizzle-orm";
 import { getDb } from "@/db";
 import * as schema from "@/db/schema";
-import { tenantWhere, leadChildWhere, type ScopeContext } from "@/lib/scope";
+import { tenantWhere, leadChildWhere, partnerOwnsLead, type ScopeContext } from "@/lib/scope";
 import { currentStatus } from "../portal/statuses";
+import { groupUnmatchedByState, type UnmatchedGroup } from "./unmatched";
 import type { LeadsQuery } from "./schema";
+
+/** Currently-unmatched = kept, not pipeline-routed, not yet manually assigned. */
+function unmatchedWhere(scope: ScopeContext): SQL {
+  return and(
+    tenantWhere(schema.leads, scope),
+    isNull(schema.leads.deletedAt),
+    eq(schema.leads.mlsStatus, "kept"),
+    isNull(schema.leads.partnerId),
+    isNull(schema.leads.manualPartnerId),
+  )!;
+}
 
 // The global admin leads list (ADM). Tenant-scoped through the guard (PRN-08),
 // server-side paginated (FEP-03), filterable. Admin-only — the route enforces
@@ -38,7 +50,7 @@ export async function listLeads(scope: ScopeContext, query: LeadsQuery): Promise
 
   const conds: SQL[] = [tenantWhere(schema.leads, scope), isNull(schema.leads.deletedAt) as unknown as SQL];
   if (query.mls !== "all") conds.push(eq(schema.leads.mlsStatus, query.mls));
-  if (query.partnerId) conds.push(eq(schema.leads.partnerId, query.partnerId));
+  if (query.partnerId) conds.push(partnerOwnsLead(query.partnerId)); // effective owner
   if (query.state) conds.push(eq(schema.leads.state, query.state));
   if (query.q) {
     const like = `%${query.q}%`;
@@ -74,7 +86,8 @@ export async function listLeads(scope: ScopeContext, query: LeadsQuery): Promise
         pColor: schema.partners.color,
       })
       .from(schema.leads)
-      .leftJoin(schema.partners, eq(schema.leads.partnerId, schema.partners.id))
+      // Effective owner = manual assignment if present, else the pipeline routing.
+      .leftJoin(schema.partners, eq(schema.partners.id, sql`coalesce(${schema.leads.manualPartnerId}, ${schema.leads.partnerId})`))
       .where(where)
       .orderBy(desc(schema.leads.createdAt))
       .limit(LEADS_PAGE_SIZE)
@@ -124,4 +137,45 @@ export async function listLeads(scope: ScopeContext, query: LeadsQuery): Promise
     pageSize: LEADS_PAGE_SIZE,
     total: Number(totalRows[0]?.n ?? 0),
   };
+}
+
+/** Count of currently-unmatched leads (the backlog) — drives the nav badge and
+ *  the dashboard alert. Excludes leads already routed manually. */
+export async function unmatchedCount(scope: ScopeContext): Promise<number> {
+  const db = getDb();
+  const [row] = await db.select({ n: sql<number>`count(*)::int` }).from(schema.leads).where(unmatchedWhere(scope));
+  return Number(row?.n ?? 0);
+}
+
+/** The unmatched inbox: gap leads grouped by state (biggest gap first). */
+export async function listUnmatched(scope: ScopeContext): Promise<UnmatchedGroup[]> {
+  const db = getDb();
+  const rows = await db
+    .select({
+      refId: schema.leads.refId,
+      sellerFirst: schema.leads.sellerFirst,
+      sellerLast: schema.leads.sellerLast,
+      address: schema.leads.address,
+      city: schema.leads.city,
+      state: schema.leads.state,
+      zip: schema.leads.zip,
+      campaign: schema.leads.campaign,
+      createdAt: schema.leads.createdAt,
+    })
+    .from(schema.leads)
+    .where(unmatchedWhere(scope))
+    .orderBy(desc(schema.leads.createdAt));
+
+  return groupUnmatchedByState(
+    rows.map((r) => ({
+      refId: r.refId,
+      seller: `${r.sellerFirst ?? ""} ${r.sellerLast ?? ""}`.trim() || "—",
+      address: r.address ?? "—",
+      city: r.city,
+      state: r.state,
+      zip: r.zip,
+      campaign: r.campaign,
+      receivedAt: r.createdAt.toISOString(),
+    })),
+  );
 }

@@ -64,6 +64,13 @@
       "when": 1783522016187,
       "tag": "0008_tired_sister_grimm",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1783587969373,
+      "tag": "0009_manual_assignment",
+      "breakpoints": true
     }
   ]
 }

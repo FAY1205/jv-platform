@@ -261,6 +261,14 @@ export const leads = pgTable(
     originalPartnerId: uuid("original_partner_id").references(() => partners.id),
     firstMatchedAt: timestamp("first_matched_at", { withTimezone: true }),
     possibleMlsListing: possibleMlsEnum("possible_mls_listing").notNull().default("pending"),
+    // Manual-assignment overlay (ADM / ASN-03). ADDITIVE — the snapshot columns
+    // (partnerId / matchMethod) are NEVER rewritten (PRN-05: history is immutable).
+    // The "effective" owner is manualPartnerId ?? partnerId, derived in the read
+    // layer; only currently-unmatched leads may be manually assigned.
+    manualPartnerId: uuid("manual_partner_id").references(() => partners.id),
+    manualAssignedAt: timestamp("manual_assigned_at", { withTimezone: true }),
+    manualAssignedBy: uuid("manual_assigned_by"),
+    manualReason: text("manual_reason"),
     deletedAt: timestamp("deleted_at", { withTimezone: true }), // soft delete (DM-09)
     createdAt: createdAt(),
   },
@@ -268,6 +276,7 @@ export const leads = pgTable(
     uniqueIndex("leads_tenant_dedupe_idx").on(t.tenantId, t.dedupeKey),
     index("leads_tenant_upload_idx").on(t.tenantId, t.uploadId),
     index("leads_tenant_partner_created_idx").on(t.tenantId, t.partnerId, t.createdAt),
+    index("leads_tenant_manual_partner_idx").on(t.tenantId, t.manualPartnerId),
   ],
 );
 
