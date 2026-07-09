@@ -7,7 +7,7 @@ import { apiGet } from "@/lib/api";
 import { csrfHeaders } from "@/lib/csrf-client";
 import {
   Card, CardBody, CardHeader, CardTitle, Table, THead, TBody, Th, Tr, Td,
-  Badge, Button, Skeleton, EmptyState, PartnerTag, ToastProvider, useToast, AppShell,
+  Badge, Skeleton, EmptyState, PartnerTag, ToastProvider, useToast, AppShell,
 } from "@/components";
 
 // CVG-02: the Rules area. MLS phrases are view + on/off + label (never regex, PRN-04);
