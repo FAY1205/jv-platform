@@ -161,7 +161,7 @@ export async function renderExport(
 
     // Color OFF: a bold group-header row separates partners (EXP-06).
     if (!options.colorCoding) {
-      const hdr = ws.addRow([label]);
+      const hdr = ws.addRow([sanitizeCell(label)]); // SEC-06: partner name is user-originated (F-26)
       hdr.getCell(1).font = { bold: true };
     }
 
@@ -191,7 +191,7 @@ export async function renderExport(
     if (key === UNMATCHED) continue;
     const p = partners.get(key);
     if (!p) continue;
-    const row = legend.addRow([p.name, p.refId, p.color]);
+    const row = legend.addRow([sanitizeCell(p.name), p.refId, p.color]); // SEC-06: partner name (F-26)
     row.getCell(3).fill = { type: "pattern", pattern: "solid", fgColor: { argb: hexToArgb(p.color) } };
   }
 
@@ -207,7 +207,7 @@ export async function renderExport(
   sum.addRow(["Partner", "Delivered"]).eachCell((c) => (c.font = { bold: true }));
   for (const pp of summary.perPartner) {
     const p = partners.get(pp.partnerId);
-    sum.addRow([p ? `${p.name} (${p.refId})` : pp.partnerId, pp.count]);
+    sum.addRow([sanitizeCell(p ? `${p.name} (${p.refId})` : pp.partnerId), pp.count]); // SEC-06: partner name (F-26)
   }
 
   // exceljs types writeBuffer() against its own `Buffer`; return the raw bytes as a
