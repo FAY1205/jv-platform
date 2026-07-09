@@ -42,6 +42,9 @@ interface Partner {
   leadCount: number;
   zipCount: number;
   stateCount: number;
+  untouched: number;
+  oldestUntouchedDays: number;
+  avgFirstTouchHours: number | null;
   territory: Territory;
 }
 interface PartnerLead {
@@ -63,11 +66,13 @@ const STATUS: Record<Partner["status"], { label: string; variant: "neutral" | "w
 
 const panel = "rounded-2xl border border-border-soft bg-surface p-5 shadow-sm";
 
-function Stat({ label, value }: { label: string; value: React.ReactNode }) {
+function Stat({ label, value, sub, tone }: { label: string; value: React.ReactNode; sub?: string; tone?: "warn" | "danger" }) {
+  const color = tone === "danger" ? "text-danger" : tone === "warn" ? "text-warn" : "text-text";
   return (
     <div className={panel}>
       <div className="text-xs font-medium text-text-2">{label}</div>
-      <div className="mt-1.5 font-display text-2xl font-semibold leading-none tracking-tight tabular-nums">{value}</div>
+      <div className={`mt-1.5 font-display text-2xl font-semibold leading-none tracking-tight tabular-nums ${color}`}>{value}</div>
+      {sub && <div className="mt-1 text-[.66rem] text-text-3">{sub}</div>}
     </div>
   );
 }
@@ -153,10 +158,20 @@ export default function PartnerDetailPage() {
           </div>
 
           {/* Stats */}
-          <div className="grid grid-cols-3 gap-3">
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
             <Stat label="Leads delivered" value={partner.leadCount} />
-            <Stat label="States owned" value={partner.stateCount} />
-            <Stat label="ZIP codes" value={partner.zipCount} />
+            <Stat
+              label="Untouched"
+              value={partner.untouched}
+              tone={partner.untouched > 0 && partner.oldestUntouchedDays >= 7 ? "danger" : partner.untouched > 0 ? "warn" : undefined}
+              sub={partner.untouched > 0 && partner.oldestUntouchedDays > 0 ? `oldest ${partner.oldestUntouchedDays}d` : "still at New"}
+            />
+            <Stat
+              label="Avg first touch"
+              value={partner.avgFirstTouchHours === null ? "—" : `${partner.avgFirstTouchHours}h`}
+              sub="received → first action"
+            />
+            <Stat label="Coverage" value={`${partner.stateCount} · ${partner.zipCount}`} sub="states · ZIPs" />
           </div>
 
           <div className="grid grid-cols-1 items-start gap-5 lg:grid-cols-[1fr_320px]">

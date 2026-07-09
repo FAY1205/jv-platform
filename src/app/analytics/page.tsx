@@ -24,6 +24,7 @@ interface AnalyticsResponse {
   matchBreakdown: { zip: number; stateFallback: number; unmatched: number };
   removalReasons: { reason: string; count: number }[];
   partnerTotals: PartnerTotal[];
+  campaigns: { campaign: string; total: number; kept: number; removed: number; removalRate: number }[];
 }
 
 const panel = "rounded-2xl border border-border-soft bg-surface p-5 shadow-sm";
@@ -201,6 +202,36 @@ export default function AnalyticsPage() {
               )}
             </section>
           </div>
+
+          {/* Lead source quality — which campaign wastes money (ANA-02) */}
+          <section className={panel}>
+            <div className="mb-1 flex items-baseline justify-between">
+              <h2 className="font-display text-[.95rem] font-semibold tracking-tight">Lead source quality</h2>
+              <span className="text-[.7rem] text-text-3">removal rate = share discarded as MLS-listed</span>
+            </div>
+            {(data!.campaigns ?? []).length === 0 ? (
+              <p className="py-4 text-sm text-text-3">No campaigns yet.</p>
+            ) : (
+              <div className="mt-3 flex flex-col gap-2">
+                {data!.campaigns.map((c) => {
+                  const bad = c.removalRate >= 0.5;
+                  const warn = c.removalRate >= 0.3;
+                  return (
+                    <div key={c.campaign} className="grid grid-cols-[minmax(0,1.4fr)_1fr_auto] items-center gap-3">
+                      <div className="min-w-0">
+                        <div className="truncate text-sm font-medium text-text" title={c.campaign}>{c.campaign}</div>
+                        <div className="num text-[.68rem] text-text-3">{c.total} in · {c.kept} kept · {c.removed} removed</div>
+                      </div>
+                      <span className="h-2 overflow-hidden rounded-full bg-surface-3" title={`${Math.round(c.removalRate * 100)}% removed`}>
+                        <span className="block h-full rounded-full" style={{ width: `${Math.max(2, c.removalRate * 100)}%`, background: bad ? "var(--danger)" : warn ? "var(--warn)" : "var(--brand)" }} />
+                      </span>
+                      <span className={`num w-12 text-right text-sm font-semibold ${bad ? "text-danger" : warn ? "text-warn" : "text-text-2"}`}>{pct(c.removalRate)}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </section>
         </div>
       )}
     </AppShell>

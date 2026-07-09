@@ -2,6 +2,8 @@ import { and, count, desc, eq, isNull, sql } from "drizzle-orm";
 import { getDb } from "@/db";
 import * as schema from "@/db/schema";
 import { tenantWhere, partnerOwnsLead, type ScopeContext } from "@/lib/scope";
+import { currentStatus, DEFAULT_STATUS } from "../portal/statuses";
+import { computePartnerHealth, type PartnerHealth } from "./health";
 
 // ADM-03 read side. Every query is tenant-scoped through the guard (PRN-08).
 // Admin-only surface (the routes enforce role); partners never reach these.
@@ -24,6 +26,56 @@ export interface PartnerRow {
   /** Current coverage: ZIPs + whole states this partner owns (CVG-01). */
   zipCount: number;
   stateCount: number;
+  /** Accountability (ANA-02): untouched backlog + responsiveness. */
+  untouched: number;
+  oldestUntouchedDays: number;
+  avgFirstTouchHours: number | null;
+}
+
+/** Per-partner health, keyed by partner id. Reads each owned kept lead's status
+ *  history to derive current status + first-touch time (ANA-02). */
+async function healthByPartner(scope: ScopeContext): Promise<Map<string, PartnerHealth>> {
+  const db = getDb();
+  const effectivePartner = sql<string>`coalesce(${schema.leads.manualPartnerId}, ${schema.leads.partnerId})`;
+  const owned = await db
+    .select({ id: schema.leads.id, partnerId: effectivePartner, createdAt: schema.leads.createdAt })
+    .from(schema.leads)
+    .where(
+      and(
+        tenantWhere(schema.leads, scope),
+        eq(schema.leads.mlsStatus, "kept"),
+        isNull(schema.leads.deletedAt),
+        sql`coalesce(${schema.leads.manualPartnerId}, ${schema.leads.partnerId}) is not null`,
+      ),
+    );
+  if (owned.length === 0) return new Map();
+
+  const history = await db
+    .select({ leadId: schema.leadStatusHistory.leadId, status: schema.leadStatusHistory.status, createdAt: schema.leadStatusHistory.createdAt })
+    .from(schema.leadStatusHistory)
+    .where(tenantWhere(schema.leadStatusHistory, scope));
+  const byLead = new Map<string, { status: string; createdAt: string }[]>();
+  for (const h of history) {
+    const list = byLead.get(h.leadId) ?? [];
+    list.push({ status: h.status, createdAt: h.createdAt.toISOString() });
+    byLead.set(h.leadId, list);
+  }
+
+  return computePartnerHealth(
+    new Date(),
+    owned.map((l) => {
+      const h = byLead.get(l.id) ?? [];
+      const firstOff = [...h]
+        .filter((e) => e.status !== DEFAULT_STATUS)
+        .sort((a, b) => a.createdAt.localeCompare(b.createdAt))[0];
+      return {
+        partnerId: l.partnerId,
+        receivedAt: l.createdAt.toISOString(),
+        currentStatus: currentStatus(h),
+        firstTouchAt: firstOff?.createdAt ?? null,
+      };
+    }),
+  );
 }
 
 export interface Territory {
@@ -65,6 +117,8 @@ export async function listPartners(scope: ScopeContext): Promise<PartnerRow[]> {
     .groupBy(schema.stateRules.partnerId);
   const stateBy = new Map(stateCounts.map((c) => [c.partnerId, Number(c.n)]));
 
+  const health = await healthByPartner(scope);
+
   return rows.map((p) => ({
     id: p.id,
     refId: p.refId,
@@ -81,6 +135,9 @@ export async function listPartners(scope: ScopeContext): Promise<PartnerRow[]> {
     leadCount: countBy.get(p.id) ?? 0,
     zipCount: zipBy.get(p.id) ?? 0,
     stateCount: stateBy.get(p.id) ?? 0,
+    untouched: health.get(p.id)?.untouched ?? 0,
+    oldestUntouchedDays: health.get(p.id)?.oldestUntouchedDays ?? 0,
+    avgFirstTouchHours: health.get(p.id)?.avgFirstTouchHours ?? null,
   }));
 }
 

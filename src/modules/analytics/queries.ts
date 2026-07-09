@@ -10,6 +10,7 @@ import {
   type PeriodSummary,
   type WeekBucket,
 } from "./periods";
+import { campaignQuality, type CampaignQuality } from "./source-quality";
 
 // ANA-01 read side. Admin-only (the route enforces role); tenant-scoped through
 // the guard (PRN-08). Fetches minimal per-lead fields + run/partner metadata and
@@ -27,6 +28,8 @@ export interface AnalyticsResponse extends Omit<AnalyticsResult, "partnerTotals"
   partnerTotals: AnalyticsPartnerTotal[];
   /** Weekly trend series (zero-filled gaps make skipped weeks visible). */
   weekly: WeekBucket[];
+  /** Per-campaign volume + removal rate — lead-source quality (ANA-02). */
+  campaigns: CampaignQuality[];
 }
 
 export async function analyticsOverview(scope: ScopeContext): Promise<AnalyticsResponse> {
@@ -42,6 +45,7 @@ export async function analyticsOverview(scope: ScopeContext): Promise<AnalyticsR
         mlsReason: schema.leads.mlsReason,
         previouslyMatched: schema.leads.previouslyMatched,
         createdAt: schema.leads.createdAt,
+        campaign: schema.leads.campaign,
       })
       .from(schema.leads)
       .where(and(tenantWhere(schema.leads, scope), isNull(schema.leads.deletedAt))),
@@ -88,7 +92,9 @@ export async function analyticsOverview(scope: ScopeContext): Promise<AnalyticsR
     })),
   );
 
-  return { ...result, partnerTotals, weekly };
+  const campaigns = campaignQuality(leadRows.map((l) => ({ campaign: l.campaign, mlsStatus: l.mlsStatus })));
+
+  return { ...result, partnerTotals, weekly, campaigns };
 }
 
 /** Period KPIs for the dashboard (week/month/year/all + deltas vs the same

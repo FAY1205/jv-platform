@@ -44,6 +44,9 @@ interface Partner {
   leadCount: number;
   zipCount: number;
   stateCount: number;
+  untouched: number;
+  oldestUntouchedDays: number;
+  avgFirstTouchHours: number | null;
 }
 interface Territory {
   states: string[];
@@ -377,6 +380,7 @@ function PartnersInner() {
                   <Th>Status</Th>
                   <Th>Coverage</Th>
                   <Th align="right">Leads</Th>
+                  <Th>Untouched</Th>
                   <Th align="right">Actions</Th>
                 </Tr>
               </THead>
@@ -407,6 +411,20 @@ function PartnersInner() {
                     </Td>
                     <Td align="right">
                       <span className="num text-sm text-text-2">{p.leadCount}</span>
+                    </Td>
+                    <Td>
+                      {p.untouched === 0 ? (
+                        <span className="text-xs text-text-3">—</span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1.5">
+                          <span className={`num rounded-md px-1.5 py-0.5 text-xs font-semibold ${p.oldestUntouchedDays >= 7 ? "bg-danger-soft text-danger" : "bg-warn-soft text-warn"}`}>
+                            {p.untouched}
+                          </span>
+                          {p.oldestUntouchedDays >= 7 && (
+                            <span className="num text-[.66rem] text-text-3">{p.oldestUntouchedDays}d old</span>
+                          )}
+                        </span>
+                      )}
                     </Td>
                     <Td align="right">
                       <RowActions p={p} onEdit={() => setEditing(p)} onDeactivate={() => setDeactivating(p)} />

@@ -16,6 +16,8 @@ interface CoverageResponse {
   partners: CoveragePartner[];
   zipCoverageCount: number;
   unmatchedLeadCount: number;
+  coveredVolumePct: number;
+  keptLeadCount: number;
 }
 
 const panel = "rounded-2xl border border-border-soft bg-surface p-5 shadow-sm";
@@ -66,10 +68,10 @@ export default function CoveragePage() {
       ) : (
         <div className="stagger flex flex-col gap-5">
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            <StatCard label="Volume covered" value={data!.keptLeadCount === 0 ? "—" : `${Math.round(data!.coveredVolumePct * 100)}%`} sub={`of ${data!.keptLeadCount} kept leads reached a partner`} />
+            <StatCard label="Coverage gaps" value={data!.gapCount} tone={data!.gapCount > 0 ? "warn" : undefined} sub="states with leads, no owner" />
             <StatCard label="States covered" value={`${data!.coveredCount}/51`} sub="by a state rule" />
-            <StatCard label="Coverage gaps" value={data!.gapCount} tone={data!.gapCount > 0 ? "warn" : undefined} sub="leads, no owner" />
-            <StatCard label="ZIP overrides" value={data!.zipCoverageCount} sub="beat the state rule" />
-            <StatCard label="Unmatched leads" value={data!.unmatchedLeadCount} tone={data!.unmatchedLeadCount > 0 ? "danger" : undefined} sub="no partner matched" />
+            <StatCard label="Unmatched leads" value={data!.unmatchedLeadCount} tone={data!.unmatchedLeadCount > 0 ? "danger" : undefined} sub="still need a partner" />
           </div>
 
           <div className="grid grid-cols-1 items-start gap-5 lg:grid-cols-[1fr_300px]">

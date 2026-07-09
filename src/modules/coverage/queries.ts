@@ -13,13 +13,17 @@ export interface CoverageMapResponse extends CoverageMapModel {
   zipCoverageCount: number;
   /** Kept leads that matched no partner — the routing gaps, in raw count (ASN-03). */
   unmatchedLeadCount: number;
+  /** Volume-weighted coverage: share of kept leads that reached a partner. The
+   *  metric that matters — not "states covered" but "how much of MY volume is". */
+  coveredVolumePct: number;
+  keptLeadCount: number;
 }
 
 /** The whole coverage-map payload: per-state ownership, gaps, legend, aggregates. */
 export async function coverageMapData(scope: ScopeContext): Promise<CoverageMapResponse> {
   const db = getDb();
 
-  const [stateRuleRows, partnerRows, leadByState, zipCov, unmatched] = await Promise.all([
+  const [stateRuleRows, partnerRows, leadByState, zipCov, unmatched, volume] = await Promise.all([
     db
       .select({ state: schema.stateRules.state, partnerId: schema.stateRules.partnerId })
       .from(schema.stateRules)
@@ -54,7 +58,17 @@ export async function coverageMapData(scope: ScopeContext): Promise<CoverageMapR
           isNull(schema.leads.manualPartnerId),
         ),
       ),
+    db
+      .select({
+        keptTotal: sql<number>`count(*) filter (where ${schema.leads.mlsStatus} = 'kept')::int`,
+        keptCovered: sql<number>`count(*) filter (where ${schema.leads.mlsStatus} = 'kept' and (${schema.leads.partnerId} is not null or ${schema.leads.manualPartnerId} is not null))::int`,
+      })
+      .from(schema.leads)
+      .where(and(tenantWhere(schema.leads, scope), isNull(schema.leads.deletedAt))),
   ]);
+
+  const keptTotal = Number(volume[0]?.keptTotal ?? 0);
+  const keptCovered = Number(volume[0]?.keptCovered ?? 0);
 
   const leadCounts = leadByState
     .filter((r): r is { state: string; n: number } => Boolean(r.state))
@@ -70,5 +84,7 @@ export async function coverageMapData(scope: ScopeContext): Promise<CoverageMapR
     ...model,
     zipCoverageCount: Number(zipCov[0]?.n ?? 0),
     unmatchedLeadCount: Number(unmatched[0]?.n ?? 0),
+    keptLeadCount: keptTotal,
+    coveredVolumePct: keptTotal === 0 ? 0 : keptCovered / keptTotal,
   };
 }
