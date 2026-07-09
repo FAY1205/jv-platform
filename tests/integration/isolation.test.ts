@@ -67,10 +67,17 @@ suite("TST-01: tenant & partner isolation", () => {
       .insert(schema.leads)
       .values({ tenantId: ta.id, refId: "LD-2026-00009", uploadId: ua.id, dedupeKey: "m|00009", rawJson: {}, partnerId: null, matchMethod: "none", manualPartnerId: py.id, manualAssignedAt: new Date(), manualAssignedBy: id.adminUser })
       .returning({ id: schema.leads.id });
+    // A MATCHED lead (pipeline partner X) later re-routed to Y via the manual overlay.
+    // Effective owner is Y; X must LOSE access (audit F-01 divergence case).
+    const [lr] = await db
+      .insert(schema.leads)
+      .values({ tenantId: ta.id, refId: "LD-2026-00010", uploadId: ua.id, dedupeKey: "r|00010", rawJson: {}, partnerId: px.id, matchMethod: "zip", manualPartnerId: py.id, manualAssignedAt: new Date(), manualAssignedBy: id.adminUser })
+      .returning({ id: schema.leads.id });
     id.leadX = lx.id;
     id.leadY = ly.id;
     id.leadZ = lz.id;
     id.leadManualToY = lm.id;
+    id.leadReroutedXtoY = lr.id;
 
     await db.insert(schema.leadNotes).values({ tenantId: ta.id, leadId: lx.id, authorUserId: id.adminUser, authorRole: "admin", body: "admin-only note" });
     await db.insert(schema.leadNotes).values({ tenantId: ta.id, leadId: lx.id, authorUserId: id.partnerUser, authorRole: "partner", body: "partner-only note" });
@@ -104,7 +111,7 @@ suite("TST-01: tenant & partner isolation", () => {
   it("admin sees all of their tenant's leads", async () => {
     const rows = await db.select({ id: schema.leads.id }).from(schema.leads).where(leadWhere(adminA()));
     const got = rows.map((r) => r.id).sort();
-    expect(got).toEqual([id.leadX, id.leadY, id.leadManualToY].sort());
+    expect(got).toEqual([id.leadX, id.leadY, id.leadManualToY, id.leadReroutedXtoY].sort());
   });
 
   it("ASN-03: a partner sees leads manually assigned to them", async () => {
@@ -119,6 +126,14 @@ suite("TST-01: tenant & partner isolation", () => {
     const got = rows.map((r) => r.id);
     expect(got).toEqual([id.leadX]);
     expect(got).not.toContain(id.leadManualToY);
+  });
+
+  it("F-01/TST-01: a re-routed lead (partnerId=X, manualPartnerId=Y) leaves X's scope and enters Y's", async () => {
+    // The effective owner is Y, so re-routing REVOKES the original pipeline partner X.
+    const xRows = await db.select({ id: schema.leads.id }).from(schema.leads).where(leadWhere(partnerX()));
+    expect(xRows.map((r) => r.id)).not.toContain(id.leadReroutedXtoY);
+    const yRows = await db.select({ id: schema.leads.id }).from(schema.leads).where(leadWhere(partnerY()));
+    expect(yRows.map((r) => r.id)).toContain(id.leadReroutedXtoY);
   });
 
   it("PRN-13: admin sees admin notes only", async () => {
