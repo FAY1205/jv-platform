@@ -1,7 +1,15 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  /* config options here */
+  async redirects() {
+    // "Runs" became "Imports" (owner-facing rename). Old deep links — stored
+    // notification links, bookmarks — keep working. Not permanent so browsers
+    // don't cache the redirect forever while the app is still evolving.
+    return [
+      { source: "/runs", destination: "/imports", permanent: false },
+      { source: "/runs/:ref", destination: "/imports/:ref", permanent: false },
+    ];
+  },
 };
 
 export default nextConfig;

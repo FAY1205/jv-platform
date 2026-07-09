@@ -7,7 +7,9 @@ import type { RunListItem } from "@/modules/run/view-types";
 import { Card, Table, THead, TBody, Th, Tr, Td, Badge, EmptyState, Skeleton, AppShell } from "@/components";
 import { fmtDate } from "./_shell";
 
-export default function RunsIndexPage() {
+// The Imports list ("run" stays the internal engine term; the owner-facing word
+// is "import" — one processed weekly file).
+export default function ImportsIndexPage() {
   const { data, isPending, error } = useQuery({
     queryKey: ["runs"],
     queryFn: () => apiGet<{ runs: RunListItem[] }>("/api/runs"),
@@ -17,14 +19,14 @@ export default function RunsIndexPage() {
     <AppShell>
         <div className="mb-6 flex items-end justify-between gap-3">
           <div>
-            <h1 className="font-display text-2xl font-semibold tracking-tight text-text">Runs</h1>
+            <h1 className="font-display text-2xl font-semibold tracking-tight text-text">Imports</h1>
             <p className="mt-1 text-sm text-text-2">Every weekly file processed through the pipeline.</p>
           </div>
           <Link
             href="/upload"
             className="inline-flex items-center gap-1.5 rounded-md border border-brand bg-brand px-3.5 py-2 text-sm font-semibold text-white transition-colors hover:bg-brand-strong"
           >
-            + New run
+            + New import
           </Link>
         </div>
 
@@ -37,17 +39,17 @@ export default function RunsIndexPage() {
             </div>
           ) : error ? (
             <div className="p-6">
-              <EmptyState title="Couldn't load runs" description={(error as Error).message} />
+              <EmptyState title="Couldn't load imports" description={(error as Error).message} />
             </div>
           ) : data.runs.length === 0 ? (
             <div className="p-6">
-              <EmptyState title="No runs yet" description="Process a weekly file to see it here." />
+              <EmptyState title="No imports yet" description="Process a weekly file to see it here." />
             </div>
           ) : (
             <Table>
               <THead>
                 <Tr>
-                  <Th>Run</Th>
+                  <Th>Import</Th>
                   <Th>File</Th>
                   <Th align="right">Rows</Th>
                   <Th>Status</Th>
@@ -58,7 +60,7 @@ export default function RunsIndexPage() {
                 {data.runs.map((run) => (
                   <Tr key={run.refId} className="hover:bg-surface-2">
                     <Td>
-                      <Link href={`/runs/${run.refId}`} className="num font-semibold text-brand hover:underline">
+                      <Link href={`/imports/${run.refId}`} className="num font-semibold text-brand hover:underline">
                         {run.refId}
                       </Link>
                     </Td>

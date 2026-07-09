@@ -7,10 +7,11 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiGet } from "@/lib/api";
 import { csrfHeaders } from "@/lib/csrf-client";
 import type { RunDetail, RunLeadView, PartnerView } from "@/modules/run/view-types";
+import { buildAnalytics } from "@/modules/analytics/overview";
 import { Badge, Button, Modal, Card, CardHeader, CardTitle, CardBody, Stat, PartnerTag, Table, THead, TBody, Th, Tr, Td, EmptyState, Skeleton, AppShell } from "@/components";
 import { fmtDate } from "../_shell";
 
-export default function RunDetailPage() {
+export default function ImportDetailPage() {
   const params = useParams<{ ref: string }>();
   const ref = params.ref;
   const { data, isPending, error } = useQuery({
@@ -21,8 +22,8 @@ export default function RunDetailPage() {
 
   return (
     <AppShell>
-        <Link href="/runs" className="mb-4 inline-block text-sm text-text-3 transition-colors hover:text-text-2">
-          ← Runs
+        <Link href="/imports" className="mb-4 inline-block text-sm text-text-3 transition-colors hover:text-text-2">
+          ← Imports
         </Link>
         {isPending ? <LoadingState /> : error ? <ErrorState message={(error as Error).message} /> : <RunView detail={data} />}
     </AppShell>
@@ -40,7 +41,7 @@ function LoadingState() {
 }
 
 function ErrorState({ message }: { message: string }) {
-  return <Card><CardBody><EmptyState title="Couldn't load this run" description={message} /></CardBody></Card>;
+  return <Card><CardBody><EmptyState title="Couldn't load this import" description={message} /></CardBody></Card>;
 }
 
 function RunView({ detail }: { detail: RunDetail }) {
@@ -72,6 +73,22 @@ function RunView({ detail }: { detail: RunDetail }) {
   const delivered = leads.filter((l) => l.mlsStatus === "kept" && l.partnerId);
   const removed = leads.filter((l) => l.mlsStatus === "removed");
   const unmatched = leads.filter((l) => l.partnerId === null && l.mlsStatus === "kept");
+
+  // Per-import routing composition — computed by the analytics module (PRN-15),
+  // never re-derived here. mlsReason isn't in the view payload; the removed table
+  // below already shows each lead's matched pattern.
+  const composition = buildAnalytics(
+    leads.map((l) => ({
+      uploadId: upload.refId,
+      mlsStatus: l.mlsStatus,
+      matchMethod: l.matchMethod,
+      partnerId: l.partnerId,
+      mlsReason: null,
+      previouslyMatched: l.previouslyMatched,
+    })),
+    [],
+  ).matchBreakdown;
+  const keptTotal = composition.zip + composition.stateFallback + composition.unmatched;
 
   const byPartner = new Map<string, RunLeadView[]>();
   for (const l of delivered) {
@@ -108,7 +125,7 @@ function RunView({ detail }: { detail: RunDetail }) {
           </a>
           {!isVoided && (
             <Button variant="ghost" onClick={() => setModalOpen(true)}>
-              Void run
+              Void import
             </Button>
           )}
         </div>
@@ -116,7 +133,7 @@ function RunView({ detail }: { detail: RunDetail }) {
 
       {isVoided && (
         <div className="mb-6 rounded-lg border border-danger/40 bg-danger-soft px-4 py-3 text-sm text-danger">
-          This run was voided{upload.voidReason ? ` — ${upload.voidReason}` : ""}. Its leads are excluded from
+          This import was voided{upload.voidReason ? ` — ${upload.voidReason}` : ""}. Its leads are excluded from
           future dedupe, analytics and exports.
         </div>
       )}
@@ -149,6 +166,22 @@ function RunView({ detail }: { detail: RunDetail }) {
               </div>
             </div>
           )}
+
+          {keptTotal > 0 && (
+            <div className="mt-6">
+              <div className="mb-2 text-[.68rem] font-semibold uppercase tracking-wider text-text-3">How leads routed</div>
+              <div className="flex h-2.5 overflow-hidden rounded-full">
+                {composition.zip > 0 && <div style={{ flexGrow: composition.zip, background: "var(--brand)" }} title={`ZIP match: ${composition.zip}`} />}
+                {composition.stateFallback > 0 && <div style={{ flexGrow: composition.stateFallback, background: "var(--info)" }} title={`State fallback: ${composition.stateFallback}`} />}
+                {composition.unmatched > 0 && <div style={{ flexGrow: composition.unmatched, background: "var(--warn)" }} title={`Unmatched: ${composition.unmatched}`} />}
+              </div>
+              <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-text-2">
+                <span className="inline-flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-[3px]" style={{ background: "var(--brand)" }} /> ZIP match <b className="num">{composition.zip}</b></span>
+                <span className="inline-flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-[3px]" style={{ background: "var(--info)" }} /> State fallback <b className="num">{composition.stateFallback}</b></span>
+                <span className="inline-flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-[3px]" style={{ background: "var(--warn)" }} /> Unmatched <b className="num">{composition.unmatched}</b></span>
+              </div>
+            </div>
+          )}
         </CardBody>
       </Card>
 
@@ -158,7 +191,7 @@ function RunView({ detail }: { detail: RunDetail }) {
           <span className="text-xs text-text-3"><span className="num">{delivered.length}</span> delivered</span>
         </CardHeader>
         {delivered.length === 0 ? (
-          <CardBody><EmptyState title="Nothing distributed" description="No leads matched partner coverage this run." /></CardBody>
+          <CardBody><EmptyState title="Nothing distributed" description="No leads matched partner coverage in this import." /></CardBody>
         ) : (
           <Table>
             <THead>
@@ -233,7 +266,7 @@ function RunView({ detail }: { detail: RunDetail }) {
       <Modal
         open={modalOpen}
         onClose={() => setModalOpen(false)}
-        title="Void this run?"
+        title="Void this import?"
         footer={
           <>
             <Button variant="ghost" onClick={() => setModalOpen(false)} disabled={voidMut.isPending}>
@@ -245,13 +278,13 @@ function RunView({ detail }: { detail: RunDetail }) {
               loading={voidMut.isPending}
               disabled={reason.trim().length < 3}
             >
-              Void run
+              Void import
             </Button>
           </>
         }
       >
         <p className="mb-3 text-sm text-text-2">
-          Voiding excludes this run&apos;s leads from future dedupe, analytics and exports. It stays in history as voided.
+          Voiding excludes this import&apos;s leads from future dedupe, analytics and exports. It stays in history as voided.
         </p>
         <label htmlFor="void-reason" className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-text-3">
           Reason

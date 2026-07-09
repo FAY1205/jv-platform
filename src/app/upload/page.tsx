@@ -62,7 +62,7 @@ export default function UploadPage() {
     onSuccess: (data: { result: string; uploadRef?: string } & MappingNeed) => {
       if (data.result === "processed" && data.uploadRef) {
         qc.invalidateQueries({ queryKey: ["runs"] });
-        router.push(`/runs/${data.uploadRef}`);
+        router.push(`/imports/${data.uploadRef}`);
       } else if (data.result === "needs_mapping") {
         setNeed(data);
         setMapping({ ...data.suggestedMapping });
@@ -83,7 +83,7 @@ export default function UploadPage() {
       }),
     onSuccess: (data: { uploadRef: string }) => {
       qc.invalidateQueries({ queryKey: ["runs"] });
-      router.push(`/runs/${data.uploadRef}`);
+      router.push(`/imports/${data.uploadRef}`);
     },
     onError: (e: Error) => setErr(e.message),
   });
@@ -115,7 +115,7 @@ export default function UploadPage() {
         <div className="mx-auto max-w-[760px]">
         <div className="mb-6 flex items-end justify-between gap-3">
           <div>
-            <h1 className="font-display text-2xl font-semibold tracking-tight text-text">New run</h1>
+            <h1 className="font-display text-2xl font-semibold tracking-tight text-text">New import</h1>
             <p className="mt-1 text-sm text-text-2">Drop this week&apos;s export to process and distribute it.</p>
           </div>
           {/* File-download endpoint (not a page) — a plain anchor is correct; the href
@@ -222,7 +222,7 @@ export default function UploadPage() {
 
                 <div className="flex items-center gap-3">
                   <Button variant="primary" onClick={() => parsed && process.mutate(parsed)} disabled={!parsed || process.isPending || phase === "parsing"} loading={process.isPending}>
-                    Process run
+                    Process file
                   </Button>
                   <Button variant="ghost" onClick={reset} disabled={process.isPending}>Choose another file</Button>
                 </div>

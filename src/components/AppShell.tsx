@@ -33,15 +33,26 @@ function Icon({ name }: { name: IconName }) {
   );
 }
 
-const NAV: { href: string; label: string; icon: IconName }[] = [
-  { href: "/dashboard", label: "Dashboard", icon: "dashboard" },
-  { href: "/runs", label: "Runs", icon: "runs" },
-  { href: "/partners", label: "Partners", icon: "partners" },
-  { href: "/coverage", label: "Coverage", icon: "coverage" },
-  { href: "/analytics", label: "Analytics", icon: "analytics" },
-  { href: "/rules", label: "Rules", icon: "rules" },
-  { href: "/activity", label: "Activity", icon: "activity" },
-  { href: "/settings/notifications", label: "Settings", icon: "settings" },
+// Grouped navigation: sections keep the rail scannable and give future pages an
+// obvious home (Leads and Unmatched join the "Leads" section in later phases).
+interface NavItem { href: string; label: string; icon: IconName }
+const NAV_SECTIONS: { label: string | null; items: NavItem[] }[] = [
+  { label: null, items: [{ href: "/dashboard", label: "Dashboard", icon: "dashboard" }] },
+  { label: "Leads", items: [
+    { href: "/imports", label: "Imports", icon: "runs" },
+  ]},
+  { label: "Network", items: [
+    { href: "/partners", label: "Partners", icon: "partners" },
+    { href: "/coverage", label: "Coverage", icon: "coverage" },
+  ]},
+  { label: "Insights", items: [
+    { href: "/analytics", label: "Analytics", icon: "analytics" },
+  ]},
+  { label: "Admin", items: [
+    { href: "/rules", label: "Rules", icon: "rules" },
+    { href: "/activity", label: "Activity", icon: "activity" },
+    { href: "/settings/notifications", label: "Settings", icon: "settings" },
+  ]},
 ];
 
 const NAV_PREF_KEY = "jv.nav";
@@ -81,33 +92,42 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <span className="font-display text-[.95rem] font-semibold tracking-tight">{APP_NAME}</span>
       </Link>
       <nav className="flex flex-col gap-0.5">
-        {NAV.map((item) => {
-          const on = isActive(item.href);
-          return (
-            <Link
-              key={item.href}
-              href={item.href}
-              onClick={onNavigate}
-              aria-current={on ? "page" : undefined}
-              className={
-                "group flex items-center gap-3 rounded-[11px] px-3 py-2.5 text-sm font-medium transition-all duration-150 " +
-                (on
-                  ? "bg-brand-soft font-semibold text-brand-strong"
-                  : "text-text-2 hover:translate-x-0.5 hover:bg-surface-3 hover:text-text")
-              }
-            >
-              <span
-                className={
-                  "h-[18px] w-[18px] transition-transform duration-150 group-hover:scale-110 " +
-                  (on ? "text-brand" : "text-text-3")
-                }
-              >
-                <Icon name={item.icon} />
-              </span>
-              {item.label}
-            </Link>
-          );
-        })}
+        {NAV_SECTIONS.map((section, i) => (
+          <React.Fragment key={section.label ?? `s${i}`}>
+            {section.label && (
+              <div className="px-3 pb-1.5 pt-5 text-[.62rem] font-semibold uppercase tracking-[.1em] text-text-3">
+                {section.label}
+              </div>
+            )}
+            {section.items.map((item) => {
+              const on = isActive(item.href);
+              return (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  onClick={onNavigate}
+                  aria-current={on ? "page" : undefined}
+                  className={
+                    "group flex items-center gap-3 rounded-[11px] px-3 py-2.5 text-sm font-medium transition-all duration-150 " +
+                    (on
+                      ? "bg-brand-soft font-semibold text-brand-strong"
+                      : "text-text-2 hover:translate-x-0.5 hover:bg-surface-3 hover:text-text")
+                  }
+                >
+                  <span
+                    className={
+                      "h-[18px] w-[18px] transition-transform duration-150 group-hover:scale-110 " +
+                      (on ? "text-brand" : "text-text-3")
+                    }
+                  >
+                    <Icon name={item.icon} />
+                  </span>
+                  {item.label}
+                </Link>
+              );
+            })}
+          </React.Fragment>
+        ))}
       </nav>
       <div className="mt-auto">
         <Link href="/dev/emails" onClick={onNavigate} className="flex items-center gap-3 rounded-[11px] px-3 py-2.5 text-sm text-text-3 transition-colors hover:bg-surface-3 hover:text-text-2">
@@ -159,7 +179,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </button>
           <div className="flex h-9 w-full max-w-[320px] items-center gap-2.5 rounded-[11px] border border-border bg-surface px-3 text-text-3 transition-colors focus-within:border-brand-line">
             <span className="h-4 w-4"><Icon name="search" /></span>
-            <input className="w-full bg-transparent text-sm text-text outline-none placeholder:text-text-3" placeholder="Search runs, partners, ZIP codes…" aria-label="Search" />
+            <input className="w-full bg-transparent text-sm text-text outline-none placeholder:text-text-3" placeholder="Search leads, partners, ZIP codes…" aria-label="Search" />
             <kbd className="num hidden rounded-[5px] border border-border px-1.5 text-[.62rem] text-text-3 sm:inline">⌘K</kbd>
           </div>
           <div className="ml-auto flex items-center gap-2">

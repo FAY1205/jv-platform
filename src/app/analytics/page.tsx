@@ -40,7 +40,7 @@ function Stat({ label, value, sub, tone }: { label: string; value: React.ReactNo
 
 /** Stacked bars, one per run: delivered / unmatched / removed. Grows with runs. */
 function TrendChart({ series }: { series: AnalyticsSeriesPoint[] }) {
-  if (series.length === 0) return <p className="py-8 text-center text-sm text-text-3">No processed runs yet.</p>;
+  if (series.length === 0) return <p className="py-8 text-center text-sm text-text-3">No processed imports yet.</p>;
   const max = Math.max(1, ...series.map((s) => s.total));
   return (
     <div className="flex h-48 items-end gap-4">
@@ -92,7 +92,7 @@ export default function AnalyticsPage() {
     <AppShell>
       <div className="mb-6">
         <h1 className="font-display text-2xl font-semibold tracking-tight">Analytics</h1>
-        <p className="mt-1 text-sm text-text-2">How your leads route, get filtered, and reach partners — across every run.</p>
+        <p className="mt-1 text-sm text-text-2">How your leads route, get filtered, and reach partners — across every import.</p>
       </div>
 
       {isPending ? (
@@ -103,13 +103,13 @@ export default function AnalyticsPage() {
         </div>
       ) : t && t.total === 0 ? (
         <div className={panel}>
-          <EmptyState title="No data yet" description="Process your first weekly run to see analytics here." />
+          <EmptyState title="No data yet" description="Process your first weekly file to see analytics here." />
         </div>
       ) : (
         <div className="stagger flex flex-col gap-5">
           {/* KPI strip */}
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
-            <Stat label="Leads processed" value={t!.total} sub="all runs" />
+            <Stat label="Leads processed" value={t!.total} sub="all imports" />
             <Stat label="Delivered" value={t!.delivered} sub={`${pct(t!.deliveryRate)} of total`} tone="brand" />
             <Stat label="Removed · MLS" value={t!.removed} sub={`${pct(t!.removalRate)} of total`} tone="danger" />
             <Stat label="Unmatched" value={t!.unmatched} sub="no coverage" tone="warn" />
@@ -119,7 +119,7 @@ export default function AnalyticsPage() {
           <div className="grid grid-cols-1 items-start gap-5 lg:grid-cols-[1.6fr_1fr]">
             {/* Trend */}
             <section className={panel}>
-              <h2 className="mb-4 font-display text-[.95rem] font-semibold tracking-tight">Leads per run</h2>
+              <h2 className="mb-4 font-display text-[.95rem] font-semibold tracking-tight">Leads per import</h2>
               <TrendChart series={data!.series} />
               <div className="mt-4 flex flex-wrap gap-x-4 gap-y-1 text-[.7rem] text-text-3">
                 <span className="inline-flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-[3px]" style={{ background: "var(--brand)" }} /> Delivered</span>

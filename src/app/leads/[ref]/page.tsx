@@ -30,8 +30,8 @@ export default async function AdminLeadPage({ params }: { params: Promise<{ ref:
   return (
     <AppShell>
       <div className="mx-auto w-full max-w-2xl">
-      <Link href="/runs" className="mb-4 inline-block text-sm text-text-3 hover:text-text-2">
-        ← Back to runs
+      <Link href="/imports" className="mb-4 inline-block text-sm text-text-3 hover:text-text-2">
+        ← Back to imports
       </Link>
       <div className="flex flex-col gap-4">
         <Card>

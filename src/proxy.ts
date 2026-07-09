@@ -15,7 +15,9 @@ import { newCsrfToken, CSRF_COOKIE_NAME } from "@/lib/auth/csrf-token";
 
 // Protected page prefixes. Public: "/", "/login", "/forgot", "/reset", "/gallery",
 // "/portal/login", static assets.
-const PROTECTED_PAGE_PREFIXES = ["/dashboard", "/runs", "/upload", "/account", "/portal", "/leads", "/dev", "/partners", "/coverage", "/analytics", "/settings", "/rules", "/activity"];
+// "/runs" stays listed defensively: next.config redirects it to /imports (old
+// notification deep links, bookmarks), and the prefix guard is belt-and-braces.
+const PROTECTED_PAGE_PREFIXES = ["/dashboard", "/imports", "/runs", "/upload", "/account", "/portal", "/leads", "/dev", "/partners", "/coverage", "/analytics", "/settings", "/rules", "/activity"];
 const PUBLIC_EXCEPTIONS = ["/portal/login"];
 
 function isProtectedPage(pathname: string): boolean {

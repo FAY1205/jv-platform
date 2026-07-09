@@ -198,7 +198,7 @@ export async function enqueueRunDigests(
       type: "run_summary",
       title: summary.subject,
       body: `${input.summary.kept} delivered · ${input.summary.removed} removed · ${input.summary.unmatched} unmatched.`,
-      deepLink: `/runs/${input.uploadRef}`,
+      deepLink: `/imports/${input.uploadRef}`,
     });
   }
 

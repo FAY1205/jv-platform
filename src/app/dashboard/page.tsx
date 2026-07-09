@@ -53,18 +53,18 @@ export default function DashboardPage() {
         <div>
           <h1 className="font-display text-2xl font-semibold tracking-tight">Welcome back</h1>
           <p className="mt-1 text-sm text-text-2">
-            {detail.data ? <>Latest run <span className="num text-text">{detail.data.upload.refId}</span> · {detail.data.upload.rowCount ?? 0} leads processed.</> : "Here's your routing at a glance."}
+            {detail.data ? <>Latest import <span className="num text-text">{detail.data.upload.refId}</span> · {detail.data.upload.rowCount ?? 0} leads processed.</> : "Here's your routing at a glance."}
           </p>
         </div>
         <Link href="/upload" className="inline-flex items-center gap-1.5 rounded-xl bg-brand px-4 py-2.5 text-sm font-semibold text-white shadow-[0_8px_18px_-8px_var(--brand)] transition-all duration-150 hover:-translate-y-0.5 hover:bg-brand-strong hover:shadow-[0_12px_24px_-8px_var(--brand)] active:translate-y-0 active:scale-[.98]">
-          <span className="text-base leading-none">+</span> New run
+          <span className="text-base leading-none">+</span> New import
         </Link>
       </div>
 
       {runs.isPending ? (
         <Skeleton className="h-28" />
       ) : !latestRef ? (
-        <div className={panel}><EmptyState title="No runs yet" description="Process your first weekly file to see your routing here." /></div>
+        <div className={panel}><EmptyState title="No imports yet" description="Process your first weekly file to see your routing here." /></div>
       ) : (
         <div className="stagger flex flex-col gap-5">
           {/* KPI band */}
@@ -81,12 +81,12 @@ export default function DashboardPage() {
             <section className={panel}>
               <div className="mb-4 flex items-center justify-between">
                 <h2 className="font-display text-[.95rem] font-semibold tracking-tight">Routing ledger</h2>
-                <Link href={`/runs/${detail.data?.upload.refId}`} className="text-xs font-medium text-brand">Open run →</Link>
+                <Link href={`/imports/${detail.data?.upload.refId}`} className="text-xs font-medium text-brand">Open import →</Link>
               </div>
               {detail.isPending ? (
                 <Skeleton className="h-40" />
               ) : dist.length === 0 ? (
-                <p className="py-6 text-center text-sm text-text-3">This run distributed to no partners.</p>
+                <p className="py-6 text-center text-sm text-text-3">This import distributed to no partners.</p>
               ) : (
                 <>
                   <div className="flex h-7 gap-0.5 overflow-hidden rounded-lg">

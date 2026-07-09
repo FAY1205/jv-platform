@@ -24,8 +24,10 @@ describe("EXP-04 / PRN-15: computeRunSummary (single source of run stats)", () =
     expect(s.removed).toBe(2);
   });
 
-  it("counts unmatched by match method (none)", () => {
-    expect(s.unmatched).toBe(2);
+  it("counts unmatched among kept leads only — removed leads are out of the funnel", () => {
+    // The removed+unmatched lead is REMOVED, not a routing gap: total partitions
+    // cleanly into delivered + unmatched + removed, matching the on-screen tables.
+    expect(s.unmatched).toBe(1);
   });
 
   it("counts previously-matched leads", () => {

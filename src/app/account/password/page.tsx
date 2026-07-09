@@ -67,8 +67,8 @@ export default function ChangePasswordPage() {
           {done ? (
             <div className="flex flex-col gap-4">
               <p className="text-sm text-success">Your password was updated.</p>
-              <Button variant="secondary" onClick={() => router.push("/runs")} className="w-fit">
-                Back to runs
+              <Button variant="secondary" onClick={() => router.push("/dashboard")} className="w-fit">
+                Back to dashboard
               </Button>
             </div>
           ) : (

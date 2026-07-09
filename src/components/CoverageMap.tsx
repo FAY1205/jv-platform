@@ -100,7 +100,7 @@ export function CoverageMap({ states, selectedPartnerId = null, onSelectPartner 
                 className="mt-1"
               />
               <div className="num mt-1 text-[.7rem] text-text-3">
-                {hoveredCov.leadCount} lead{hoveredCov.leadCount === 1 ? "" : "s"} this run
+                {hoveredCov.leadCount} lead{hoveredCov.leadCount === 1 ? "" : "s"} received
               </div>
             </>
           ) : hoveredCov.gap ? (

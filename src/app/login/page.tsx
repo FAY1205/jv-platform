@@ -12,7 +12,7 @@ import { APP_NAME } from "@/lib/app";
 function LoginForm() {
   const router = useRouter();
   const params = useSearchParams();
-  const next = params.get("next") || "/runs";
+  const next = params.get("next") || "/dashboard";
 
   const [email, setEmail] = React.useState("");
   const [password, setPassword] = React.useState("");
