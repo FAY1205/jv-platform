@@ -21,6 +21,7 @@ suite("WS-2: dashboard SQL aggregation (ANA-01/02/03, F-10)", () => {
   let partnerB: string;
   let uploadId: string;
   let partnerUserId: string;
+  let adminUserId: string;
 
   const DAY = 86_400_000;
   const now = Date.now();
@@ -67,7 +68,9 @@ suite("WS-2: dashboard SQL aggregation (ANA-01/02/03, F-10)", () => {
     const [u] = await db.insert(schema.uploads).values({ tenantId: t.id, refId: "IM-26-001", status: "processed", filename: "x.csv" }).returning({ id: schema.uploads.id });
     uploadId = u.id;
     partnerUserId = randomUUID();
+    adminUserId = randomUUID();
     await db.insert(schema.users).values({ id: partnerUserId, tenantId: t.id, email: "partner@ws2.test", role: "partner", partnerId: partnerA });
+    await db.insert(schema.users).values({ id: adminUserId, tenantId: t.id, email: "admin@ws2.test", role: "admin" });
 
     // 1. In-window (30d) distributed lead to A, contacted via status +2h, closed at day 2.
     const l1 = await seedLead({ partnerId: partnerA, createdAt: daysAgo(5) });
@@ -79,8 +82,11 @@ suite("WS-2: dashboard SQL aggregation (ANA-01/02/03, F-10)", () => {
     await seedLead({ partnerId: null, createdAt: daysAgo(4) });
     // 4. In-window removed lead.
     await seedLead({ mlsStatus: "removed", partnerId: partnerA, createdAt: daysAgo(4) });
-    // 5. Re-routed lead: pipeline A, manual B → effective owner is B, no action.
-    await seedLead({ partnerId: partnerA, manualPartnerId: partnerB, createdAt: daysAgo(6) });
+    // 5. Re-routed lead: pipeline A, manual B → effective owner is B. Its only note is
+    //    an ADMIN note, which must NOT count as a partner action (PRN-13 / TST-08) — so
+    //    Bravo stays untouched below.
+    const lReroute = await seedLead({ partnerId: partnerA, manualPartnerId: partnerB, createdAt: daysAgo(6) });
+    await db.insert(schema.leadNotes).values({ tenantId: t.id, leadId: lReroute, authorUserId: adminUserId, authorRole: "admin", body: "admin note", createdAt: new Date(daysAgo(6).getTime() + 3_600_000) });
     // 6. In-window distributed lead to A whose ONLY action is a partner note (no status
     //    change) — proves a note counts as a first action (ANA-03).
     const lNote = await seedLead({ partnerId: partnerA, createdAt: daysAgo(3) });
@@ -126,8 +132,10 @@ suite("WS-2: dashboard SQL aggregation (ANA-01/02/03, F-10)", () => {
     // Avg contact = mean of (2h via status, 1h via note) = 1.5h.
     expect(alpha.avgContactHours).toBeGreaterThan(0.5);
     expect(alpha.avgContactHours).toBeLessThan(2.5);
-    // Bravo's re-routed lead has no action → untouched, no avg.
+    // Bravo's re-routed lead carries only an ADMIN note → not a partner action
+    // (PRN-13 / TST-08): it stays untouched with no contact and no avg.
     const bravo = d.partners.find((p) => p.partnerId === partnerB)!;
+    expect(bravo.contacted).toBe(0);
     expect(bravo.untouched).toBe(1);
     expect(bravo.avgContactHours).toBeNull();
   });
