@@ -264,18 +264,19 @@ export interface DrainResult {
 /**
  * Drain pending outbox rows whose backoff has elapsed. Sends through the seam
  * (Resend in prod / dev mailbox otherwise); marks sent, or schedules a retry with
- * backoff, or gives up after MAX_OUTBOX_ATTEMPTS. Scoped to `tenantId` when given.
+ * backoff, or gives up after MAX_OUTBOX_ATTEMPTS. Always scoped to `tenantId`.
  */
 export async function drainOutbox(
   db: DB,
-  opts: { tenantId?: string; transport?: EmailTransport; now?: Date; limit?: number } = {},
+  opts: { tenantId: string; transport?: EmailTransport; now?: Date; limit?: number },
 ): Promise<DrainResult> {
   const transport = opts.transport ?? resolveOutboxTransport();
   const now = opts.now ?? new Date();
+  // PRN-08 (F-33): a drain is always tenant-scoped — never fan out across tenants.
   const due = and(
     eq(schema.emailOutbox.status, "pending"),
     or(isNull(schema.emailOutbox.nextAttemptAt), lte(schema.emailOutbox.nextAttemptAt, now)),
-    opts.tenantId ? eq(schema.emailOutbox.tenantId, opts.tenantId) : undefined,
+    eq(schema.emailOutbox.tenantId, opts.tenantId),
   );
   const rows = await db.select().from(schema.emailOutbox).where(due).limit(opts.limit ?? 100);
 

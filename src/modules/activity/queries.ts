@@ -1,7 +1,7 @@
 import { and, count, desc, eq } from "drizzle-orm";
 import { getDb } from "@/db";
 import * as schema from "@/db/schema";
-import { tenantWhere, requirePartner, type ScopeContext } from "@/lib/scope";
+import { tenantWhere, partnerOwnsLead, requirePartner, type ScopeContext } from "@/lib/scope";
 import { categorizeActivity, type ActivityCategory } from "./categorize";
 
 // ACT-01/02/04 read side. Admin sees the tenant's audit trail (scoped, PRN-08),
@@ -90,14 +90,14 @@ export async function listPartnerActivity(scope: ScopeContext, page = 1): Promis
       .select({ when: schema.leadStatusHistory.createdAt, status: schema.leadStatusHistory.status, ref: schema.leads.refId })
       .from(schema.leadStatusHistory)
       .innerJoin(schema.leads, eq(schema.leads.id, schema.leadStatusHistory.leadId))
-      .where(and(tenantWhere(schema.leadStatusHistory, scope), eq(schema.leadStatusHistory.changedByUserId, scope.userId), eq(schema.leads.partnerId, partnerId)))
+      .where(and(tenantWhere(schema.leadStatusHistory, scope), eq(schema.leadStatusHistory.changedByUserId, scope.userId), partnerOwnsLead(partnerId)))
       .orderBy(desc(schema.leadStatusHistory.createdAt))
       .limit(window),
     db
       .select({ when: schema.leadNotes.createdAt, ref: schema.leads.refId })
       .from(schema.leadNotes)
       .innerJoin(schema.leads, eq(schema.leads.id, schema.leadNotes.leadId))
-      .where(and(tenantWhere(schema.leadNotes, scope), eq(schema.leadNotes.authorUserId, scope.userId), eq(schema.leads.partnerId, partnerId)))
+      .where(and(tenantWhere(schema.leadNotes, scope), eq(schema.leadNotes.authorUserId, scope.userId), partnerOwnsLead(partnerId)))
       .orderBy(desc(schema.leadNotes.createdAt))
       .limit(window),
   ]);

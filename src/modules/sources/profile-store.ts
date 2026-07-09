@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import * as schema from "@/db/schema";
 import { tenantWhere, type ScopeContext } from "@/lib/scope";
@@ -102,7 +102,10 @@ export async function findProfileById(db: DB, scope: ScopeContext, id: string): 
   if (seed) return seed;
   // Saved profiles use uuid ids; never query the uuid column with a non-uuid slug.
   if (!UUID_RE.test(id)) return null;
-  const [row] = await db.select().from(schema.sourceProfiles).where(eq(schema.sourceProfiles.id, id));
-  if (row && row.tenantId === scope.tenantId) return rowToProfile(row);
-  return null;
+  // PRN-08 (F-32): the tenant predicate belongs in the WHERE, never a post-fetch check.
+  const [row] = await db
+    .select()
+    .from(schema.sourceProfiles)
+    .where(and(eq(schema.sourceProfiles.id, id), tenantWhere(schema.sourceProfiles, scope)));
+  return row ? rowToProfile(row) : null;
 }
