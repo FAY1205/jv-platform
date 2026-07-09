@@ -24,7 +24,7 @@ export interface NotifChannel {
 export const NOTIFICATION_EVENTS = [
   { role: "admin", key: "run_summary", label: "Run summary after each upload" },
   { role: "admin", key: "status_change", label: "A partner updates a lead's status" },
-  { role: "partner", key: "new_leads", label: "New leads delivered to you" },
+  { role: "partner", key: "new_leads", label: "New leads distributed to you" },
 ] as const;
 
 export type NotifEvent = (typeof NOTIFICATION_EVENTS)[number]["key"];

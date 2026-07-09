@@ -58,7 +58,7 @@ export function buildAdminRunSummary(input: AdminSummaryInput): DigestContent {
   const body =
     `Run ${input.uploadRef} processed.\n\n` +
     `  Total rows:          ${s.total}\n` +
-    `  Delivered (kept):    ${s.kept}\n` +
+    `  Distributed (kept):  ${s.kept}\n` +
     `  Assigned to partners: ${delivered}\n` +
     `  Removed (MLS-listed): ${s.removed}\n` +
     `  Unmatched:           ${s.unmatched}\n` +

@@ -142,7 +142,7 @@ function RunView({ detail }: { detail: RunDetail }) {
         <CardBody>
           <div className="grid grid-cols-2 gap-6 sm:grid-cols-3 lg:grid-cols-5">
             <Stat label="Total leads" value={summary.total} />
-            <Stat label="Delivered" value={delivered.length} foot={`to ${distribution.length} ${distribution.length === 1 ? "partner" : "partners"}`} />
+            <Stat label="Distributed" value={delivered.length} foot={`to ${distribution.length} ${distribution.length === 1 ? "partner" : "partners"}`} />
             <Stat label="Removed · MLS" value={summary.removed} />
             <Stat label="Unmatched" value={summary.unmatched} foot="coverage gaps" />
             <Stat label="Previously matched" value={summary.previouslyMatched} />
@@ -188,7 +188,7 @@ function RunView({ detail }: { detail: RunDetail }) {
       <Card className="mb-6">
         <CardHeader>
           <CardTitle>Distributed leads</CardTitle>
-          <span className="text-xs text-text-3"><span className="num">{delivered.length}</span> delivered</span>
+          <span className="text-xs text-text-3"><span className="num">{delivered.length}</span> distributed</span>
         </CardHeader>
         {delivered.length === 0 ? (
           <CardBody><EmptyState title="Nothing distributed" description="No leads matched partner coverage in this import." /></CardBody>

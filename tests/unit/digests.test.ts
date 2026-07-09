@@ -47,9 +47,12 @@ describe("buildAdminRunSummary", () => {
       summary: { total: 50, kept: 24, removed: 26, unmatched: 1, previouslyMatched: 3, perPartner: [{ partnerId: "p1", count: 24 }] },
     });
     expect(out.subject).toContain("IM-26-014");
-    expect(out.body).toMatch(/24/); // delivered/kept
+    expect(out.body).toMatch(/24/); // distributed/kept
     expect(out.body).toMatch(/26/); // removed
     expect(out.body).toMatch(/unmatched/i);
+    // D5: the run-summary vocabulary is "Distributed", never "Delivered".
+    expect(out.body).toContain("Distributed (kept):");
+    expect(out.body).not.toContain("Delivered");
   });
 });
 

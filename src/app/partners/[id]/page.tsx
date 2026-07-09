@@ -159,7 +159,7 @@ export default function PartnerDetailPage() {
 
           {/* Stats */}
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-            <Stat label="Leads delivered" value={partner.leadCount} />
+            <Stat label="Leads distributed" value={partner.leadCount} />
             <Stat
               label="Untouched"
               value={partner.untouched}
@@ -217,7 +217,7 @@ export default function PartnerDetailPage() {
             {leadsQ.isPending ? (
               <div className="flex flex-col gap-2">{Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-9 w-full" />)}</div>
             ) : (leadsQ.data?.leads ?? []).length === 0 ? (
-              <p className="py-4 text-center text-sm text-text-3">No leads delivered to this partner yet.</p>
+              <p className="py-4 text-center text-sm text-text-3">No leads distributed to this partner yet.</p>
             ) : (
               <Table>
                 <THead>

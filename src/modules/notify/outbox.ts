@@ -197,7 +197,7 @@ export async function enqueueRunDigests(
       userId: input.adminUserId,
       type: "run_summary",
       title: summary.subject,
-      body: `${input.summary.kept} delivered · ${input.summary.removed} removed · ${input.summary.unmatched} unmatched.`,
+      body: `${input.summary.kept} distributed · ${input.summary.removed} removed · ${input.summary.unmatched} unmatched.`,
       deepLink: `/imports/${input.uploadRef}`,
     });
   }

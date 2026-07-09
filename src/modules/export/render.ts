@@ -204,7 +204,7 @@ export async function renderExport(
   sum.addRow(["Unmatched", summary.unmatched]);
   sum.addRow(["Previously matched", summary.previouslyMatched]);
   sum.addRow([]);
-  sum.addRow(["Partner", "Delivered"]).eachCell((c) => (c.font = { bold: true }));
+  sum.addRow(["Partner", "Distributed"]).eachCell((c) => (c.font = { bold: true }));
   for (const pp of summary.perPartner) {
     const p = partners.get(pp.partnerId);
     sum.addRow([sanitizeCell(p ? `${p.name} (${p.refId})` : pp.partnerId), pp.count]); // SEC-06: partner name (F-26)
