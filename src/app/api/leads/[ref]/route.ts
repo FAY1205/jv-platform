@@ -5,6 +5,9 @@ import { getAdminLeadDetail } from "@/modules/leads/queries";
 import { editLead, LeadNotFoundError, InvalidAssignTargetError } from "@/modules/leads/commands";
 import { jsonOk, jsonError } from "@/lib/http";
 
+// Lead ref format (v1). Sibling routes validate this before touching the DB (F-13).
+const RefSchema = z.string().regex(/^LD-\d{4}-\d{3,}$/);
+
 // ADM: full lead detail for the Leads dialog — includes removed leads, the
 // manual-assignment overlay, and the activity timeline. Admin-only; scoped (PRN-08).
 export async function GET(_request: Request, { params }: { params: Promise<{ ref: string }> }) {
@@ -13,6 +16,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ ref
     const adminOnly = requireAdminResponse(scope);
     if (adminOnly) return adminOnly;
     const { ref } = await params;
+    if (!RefSchema.safeParse(ref).success) return jsonError("invalid_ref", "Invalid lead reference.", 400);
     const detail = await getAdminLeadDetail(scope, ref);
     if (!detail) return jsonError("not_found", "Lead not found.", 404);
     return jsonOk(detail);
@@ -63,6 +67,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ re
     const adminOnly = requireAdminResponse(scope);
     if (adminOnly) return adminOnly;
     const { ref } = await params;
+    if (!RefSchema.safeParse(ref).success) return jsonError("invalid_ref", "Invalid lead reference.", 400);
     const parsed = EditSchema.safeParse(await request.json().catch(() => null));
     if (!parsed.success) return jsonError("invalid_input", parsed.error.issues[0]?.message ?? "Invalid input.", 400);
 

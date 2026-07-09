@@ -9,6 +9,7 @@ import {
 } from "@/modules/leads/commands";
 import { jsonOk, jsonError } from "@/lib/http";
 
+const RefSchema = z.string().regex(/^LD-\d{4}-\d{3,}$/);
 const BodySchema = z.object({
   partnerId: z.string().uuid(),
   reason: z.string().trim().max(280).optional(),
@@ -25,6 +26,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ ref
     const adminOnly = requireAdminResponse(scope);
     if (adminOnly) return adminOnly;
     const { ref } = await params;
+    if (!RefSchema.safeParse(ref).success) return jsonError("invalid_ref", "Invalid lead reference.", 400);
     const parsed = BodySchema.safeParse(await request.json().catch(() => null));
     if (!parsed.success) return jsonError("invalid_input", parsed.error.issues[0]?.message ?? "Invalid input.", 400);
 
