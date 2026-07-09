@@ -45,6 +45,9 @@ yarn-error.log*
 # real sample lead files — contain seller PII, NEVER commit (SEC-05/LGL)
 /.samples/
 
+# audit scratch — raw per-agent findings; final reports in docs/audit/ ARE committed
+/docs/audit/raw/
+
 # typescript
 *.tsbuildinfo
 next-env.d.ts
