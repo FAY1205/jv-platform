@@ -264,6 +264,10 @@ export const leads = pgTable(
     index("leads_tenant_upload_idx").on(t.tenantId, t.uploadId),
     index("leads_tenant_partner_created_idx").on(t.tenantId, t.partnerId, t.createdAt),
     index("leads_tenant_manual_partner_idx").on(t.tenantId, t.manualPartnerId),
+    // Leads-list query indexes (F-09): the global admin list filters/sorts by these.
+    index("leads_tenant_created_idx").on(t.tenantId, t.createdAt),
+    index("leads_tenant_state_idx").on(t.tenantId, t.state),
+    index("leads_tenant_campaign_idx").on(t.tenantId, t.campaign),
   ],
 );
 
