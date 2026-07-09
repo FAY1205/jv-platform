@@ -5,6 +5,7 @@ import { useQuery } from "@tanstack/react-query";
 import { apiGet } from "@/lib/api";
 import { AppShell, PartnerTag, EmptyState, Skeleton } from "@/components";
 import type { AnalyticsTotals, AnalyticsSeriesPoint } from "@/modules/analytics/overview";
+import type { WeekBucket } from "@/modules/analytics/periods";
 
 // ANA-01: the analytics overview — trends across runs and composition breakdowns.
 // Every number comes from /api/analytics (the analytics module), never re-derived
@@ -19,6 +20,7 @@ interface PartnerTotal {
 interface AnalyticsResponse {
   totals: AnalyticsTotals;
   series: AnalyticsSeriesPoint[];
+  weekly: WeekBucket[];
   matchBreakdown: { zip: number; stateFallback: number; unmatched: number };
   removalReasons: { reason: string; count: number }[];
   partnerTotals: PartnerTotal[];
@@ -38,24 +40,30 @@ function Stat({ label, value, sub, tone }: { label: string; value: React.ReactNo
   );
 }
 
-/** Stacked bars, one per run: delivered / unmatched / removed. Grows with runs. */
-function TrendChart({ series }: { series: AnalyticsSeriesPoint[] }) {
-  if (series.length === 0) return <p className="py-8 text-center text-sm text-text-3">No processed imports yet.</p>;
-  const max = Math.max(1, ...series.map((s) => s.total));
+/** Stacked weekly bars: delivered / unmatched / removed. Zero-filled weeks stay
+ *  visible so a skipped import week shows as a gap, not a lie (ANA-01). */
+function TrendChart({ weekly }: { weekly: WeekBucket[] }) {
+  if (weekly.length === 0) return <p className="py-8 text-center text-sm text-text-3">No processed imports yet.</p>;
+  const max = Math.max(1, ...weekly.map((w) => w.total));
+  const label = (iso: string) => new Date(`${iso}T00:00:00Z`).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
   return (
-    <div className="flex h-48 items-end gap-4">
-      {series.map((s) => (
-        <div key={s.uploadId} className="flex min-w-0 flex-1 flex-col items-center justify-end gap-2">
-          <div
-            className="flex w-full max-w-[56px] flex-col-reverse overflow-hidden rounded-md"
-            style={{ height: `${(s.total / max) * 100}%` }}
-            title={`${s.refId}: ${s.delivered} delivered, ${s.unmatched} unmatched, ${s.removed} removed`}
-          >
-            {s.delivered > 0 && <div style={{ flex: s.delivered, background: "var(--brand)" }} />}
-            {s.unmatched > 0 && <div style={{ flex: s.unmatched, background: "var(--warn)" }} />}
-            {s.removed > 0 && <div style={{ flex: s.removed, background: "var(--danger-soft)" }} className="border-t border-dashed border-danger" />}
-          </div>
-          <span className="num max-w-full truncate text-[.6rem] text-text-3">{s.refId}</span>
+    <div className="flex h-48 items-end gap-3">
+      {weekly.map((w) => (
+        <div key={w.weekStart} className="flex min-w-0 flex-1 flex-col items-center justify-end gap-2">
+          {w.total === 0 ? (
+            <div className="w-full max-w-[56px] rounded-md border border-dashed border-border" style={{ height: 3 }} title={`Week of ${label(w.weekStart)}: no leads`} />
+          ) : (
+            <div
+              className="flex w-full max-w-[56px] flex-col-reverse overflow-hidden rounded-md"
+              style={{ height: `${(w.total / max) * 100}%` }}
+              title={`Week of ${label(w.weekStart)}: ${w.delivered} delivered, ${w.unmatched} unmatched, ${w.removed} removed`}
+            >
+              {w.delivered > 0 && <div style={{ flex: w.delivered, background: "var(--brand)" }} />}
+              {w.unmatched > 0 && <div style={{ flex: w.unmatched, background: "var(--warn)" }} />}
+              {w.removed > 0 && <div style={{ flex: w.removed, background: "var(--danger-soft)" }} className="border-t border-dashed border-danger" />}
+            </div>
+          )}
+          <span className="num max-w-full truncate text-[.6rem] text-text-3">{label(w.weekStart)}</span>
         </div>
       ))}
     </div>
@@ -119,8 +127,8 @@ export default function AnalyticsPage() {
           <div className="grid grid-cols-1 items-start gap-5 lg:grid-cols-[1.6fr_1fr]">
             {/* Trend */}
             <section className={panel}>
-              <h2 className="mb-4 font-display text-[.95rem] font-semibold tracking-tight">Leads per import</h2>
-              <TrendChart series={data!.series} />
+              <h2 className="mb-4 font-display text-[.95rem] font-semibold tracking-tight">Leads per week</h2>
+              <TrendChart weekly={data!.weekly} />
               <div className="mt-4 flex flex-wrap gap-x-4 gap-y-1 text-[.7rem] text-text-3">
                 <span className="inline-flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-[3px]" style={{ background: "var(--brand)" }} /> Delivered</span>
                 <span className="inline-flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-[3px]" style={{ background: "var(--warn)" }} /> Unmatched</span>
