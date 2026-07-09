@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { APP_NAME } from "@/lib/app";
 import { NotificationBell } from "./NotificationBell";
 
@@ -10,11 +10,12 @@ import { NotificationBell } from "./NotificationBell";
 // renders its content inside <AppShell>; the active nav item is derived from the URL.
 // All color/spacing comes from semantic tokens (PRN-12).
 
-type IconName = "dashboard" | "runs" | "partners" | "coverage" | "analytics" | "rules" | "activity" | "settings" | "help" | "search" | "menu";
+type IconName = "dashboard" | "leads" | "runs" | "partners" | "coverage" | "analytics" | "rules" | "activity" | "settings" | "help" | "search" | "menu";
 
 function Icon({ name }: { name: IconName }) {
   const p: Record<IconName, React.ReactNode> = {
     dashboard: (<><rect x="3" y="3" width="7" height="9" rx="2" /><rect x="14" y="3" width="7" height="5" rx="2" /><rect x="14" y="12" width="7" height="9" rx="2" /><rect x="3" y="16" width="7" height="5" rx="2" /></>),
+    leads: (<><path d="M4 13V6a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v7" /><path d="M4 13h4l2 3h4l2-3h4" /><path d="M4 13v5a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-5" /></>),
     runs: (<><path d="M4 6h16M4 12h16M4 18h10" /></>),
     partners: (<><circle cx="9" cy="8" r="3.2" /><path d="M3.5 20a5.5 5.5 0 0 1 11 0M16 11a3.2 3.2 0 0 0 0-6" /></>),
     coverage: (<><path d="M9 3 3 5.5v15L9 18l6 3 6-2.5v-15L15 6 9 3Z" /><path d="M9 3v15M15 6v15" /></>),
@@ -39,6 +40,7 @@ interface NavItem { href: string; label: string; icon: IconName }
 const NAV_SECTIONS: { label: string | null; items: NavItem[] }[] = [
   { label: null, items: [{ href: "/dashboard", label: "Dashboard", icon: "dashboard" }] },
   { label: "Leads", items: [
+    { href: "/leads", label: "Leads", icon: "leads" },
     { href: "/imports", label: "Imports", icon: "runs" },
   ]},
   { label: "Network", items: [
@@ -59,8 +61,28 @@ const NAV_PREF_KEY = "jv.nav";
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const path = usePathname() ?? "";
+  const router = useRouter();
   const isActive = (href: string) =>
     href === "/dashboard" ? path === "/dashboard" || path === "/" : path === href || path.startsWith(`${href}/`);
+
+  // Topbar search: submit lands on the global Leads list; ⌘K / Ctrl+K focuses it.
+  const searchRef = React.useRef<HTMLInputElement>(null);
+  const [search, setSearch] = React.useState("");
+  React.useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        searchRef.current?.focus();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+  const submitSearch = (e: React.FormEvent) => {
+    e.preventDefault();
+    const q = search.trim();
+    router.push(q ? `/leads?q=${encodeURIComponent(q)}` : "/leads");
+  };
 
   // Sidebar state. `navOpen` = desktop collapse (persisted; each page renders
   // its own AppShell, so the choice must survive navigation). `mobileOpen` =
@@ -177,11 +199,18 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           >
             <span className="h-[18px] w-[18px]"><Icon name="menu" /></span>
           </button>
-          <div className="flex h-9 w-full max-w-[320px] items-center gap-2.5 rounded-[11px] border border-border bg-surface px-3 text-text-3 transition-colors focus-within:border-brand-line">
+          <form onSubmit={submitSearch} className="flex h-9 w-full max-w-[320px] items-center gap-2.5 rounded-[11px] border border-border bg-surface px-3 text-text-3 transition-colors focus-within:border-brand-line">
             <span className="h-4 w-4"><Icon name="search" /></span>
-            <input className="w-full bg-transparent text-sm text-text outline-none placeholder:text-text-3" placeholder="Search leads, partners, ZIP codes…" aria-label="Search" />
+            <input
+              ref={searchRef}
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="w-full bg-transparent text-sm text-text outline-none placeholder:text-text-3"
+              placeholder="Search leads, partners, ZIP codes…"
+              aria-label="Search leads"
+            />
             <kbd className="num hidden rounded-[5px] border border-border px-1.5 text-[.62rem] text-text-3 sm:inline">⌘K</kbd>
-          </div>
+          </form>
           <div className="ml-auto flex items-center gap-2">
             <NotificationBell />
             <button type="button" className="flex items-center gap-2 rounded-full border border-border bg-surface py-1 pl-1 pr-2.5 transition-colors hover:bg-surface-3">
