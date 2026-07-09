@@ -30,3 +30,4 @@ export { NotificationBell } from "./NotificationBell";
 export { ListingBadge, type ListingStatus } from "./ListingBadge";
 export { AppShell } from "./AppShell";
 export { CoverageMap, type CoverageMapProps } from "./CoverageMap";
+export { CountyCoverageMap, type CountyCoverageMapProps } from "./CountyCoverageMap";

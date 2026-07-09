@@ -4,7 +4,7 @@ import * as React from "react";
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
 import { apiGet } from "@/lib/api";
-import { AppShell, CoverageMap, PartnerTag, EmptyState, Skeleton } from "@/components";
+import { AppShell, CoverageMap, CountyCoverageMap, PartnerTag, EmptyState, Skeleton } from "@/components";
 import type { StateCoverage, CoveragePartner } from "@/modules/coverage/map";
 
 // MAP-01. Read-only coverage overview: the hex map colors each state by its
@@ -39,6 +39,7 @@ export default function CoveragePage() {
   const [selected, setSelected] = React.useState<string | null>(null);
   const toggle = (id: string | null) => setSelected((prev) => (prev === id ? null : id));
 
+  const [view, setView] = React.useState<"county" | "state">("county");
   const gaps = (data?.states ?? []).filter((s) => s.gap);
 
   return (
@@ -73,15 +74,44 @@ export default function CoveragePage() {
 
           <div className="grid grid-cols-1 items-start gap-5 lg:grid-cols-[1fr_300px]">
             <section className={panel}>
-              <CoverageMap states={data!.states} selectedPartnerId={selected} onSelectPartner={toggle} />
+              <div className="mb-4 flex items-center justify-between gap-3">
+                <h2 className="font-display text-[.95rem] font-semibold tracking-tight">
+                  {view === "county" ? "County map" : "State tiles"}
+                </h2>
+                <div className="inline-flex rounded-lg border border-border bg-surface-2 p-0.5">
+                  {(["county", "state"] as const).map((v) => (
+                    <button
+                      key={v}
+                      type="button"
+                      onClick={() => setView(v)}
+                      aria-pressed={view === v}
+                      className={
+                        "rounded-[7px] px-3 py-1 text-xs font-semibold transition-colors " +
+                        (view === v ? "bg-surface text-text shadow-xs" : "text-text-3 hover:text-text-2")
+                      }
+                    >
+                      {v === "county" ? "County" : "Tiles"}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              {view === "county" ? (
+                <CountyCoverageMap states={data!.states} selectedPartnerId={selected} onSelectPartner={toggle} />
+              ) : (
+                <CoverageMap states={data!.states} selectedPartnerId={selected} onSelectPartner={toggle} />
+              )}
               <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[.7rem] text-text-3">
                 <span className="inline-flex items-center gap-1.5">
                   <span className="h-3 w-3 rounded-[3px] border border-border" style={{ background: "var(--surface-3)" }} /> Uncovered
                 </span>
-                <span className="inline-flex items-center gap-1.5">
-                  <span className="h-3 w-3 rounded-[3px] border border-dashed" style={{ borderColor: "var(--warn)" }} /> Gap — leads, no owner
+                {view === "state" && (
+                  <span className="inline-flex items-center gap-1.5">
+                    <span className="h-3 w-3 rounded-[3px] border border-dashed" style={{ borderColor: "var(--warn)" }} /> Gap — leads, no owner
+                  </span>
+                )}
+                <span className="text-text-3">
+                  {view === "county" ? "Counties inherit their state's partner. " : ""}Click to highlight a partner&apos;s territory.
                 </span>
-                <span className="text-text-3">Click a state or partner to highlight its territory.</span>
               </div>
             </section>
 
