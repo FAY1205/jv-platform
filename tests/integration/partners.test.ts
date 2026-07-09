@@ -53,10 +53,10 @@ suite("WP-030: partners CRUD + deactivation → reassignment (ADM-03, PRN-05)", 
     // Alpha owns TX (state) + 75001 (zip). A historical lead is assigned to Alpha.
     await db.insert(schema.stateRules).values({ tenantId: t.id, state: "TX", partnerId: alphaId });
     await db.insert(schema.coverageZips).values({ tenantId: t.id, zip5: "75001", partnerId: alphaId, version: 1 });
-    const [up] = await db.insert(schema.uploads).values({ tenantId: t.id, refId: "UP-2026-001", filename: "w.xlsx", status: "processed" }).returning({ id: schema.uploads.id });
+    const [up] = await db.insert(schema.uploads).values({ tenantId: t.id, refId: "IM-26-001", filename: "w.xlsx", status: "processed" }).returning({ id: schema.uploads.id });
     const [ld] = await db
       .insert(schema.leads)
-      .values({ tenantId: t.id, refId: "LD-2026-00001", uploadId: up.id, dedupeKey: "1 tx st|75001", rawJson: {}, partnerId: alphaId, matchMethod: "zip", mlsStatus: "kept" })
+      .values({ tenantId: t.id, refId: "LD-26-00001", uploadId: up.id, dedupeKey: "1 tx st|75001", rawJson: {}, partnerId: alphaId, matchMethod: "zip", mlsStatus: "kept" })
       .returning({ id: schema.leads.id });
     leadId = ld.id;
   });

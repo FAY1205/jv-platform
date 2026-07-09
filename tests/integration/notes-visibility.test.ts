@@ -46,9 +46,9 @@ suite("PRN-13/NTS: two-stream note visibility", () => {
     id.pxUser = randomUUID();
     await db.insert(schema.users).values({ id: id.adminUser, tenantId: t.id, email: "admin@notes.test", role: "admin" });
     await db.insert(schema.users).values({ id: id.pxUser, tenantId: t.id, email: "px@notes.test", role: "partner", partnerId: px.id });
-    const [up] = await db.insert(schema.uploads).values({ tenantId: t.id, refId: "UP-2026-001", filename: "a.xlsx", status: "processed" }).returning({ id: schema.uploads.id });
-    await db.insert(schema.leads).values({ tenantId: t.id, refId: "LD-2026-00001", uploadId: up.id, dedupeKey: "x|1", rawJson: {}, partnerId: px.id, matchMethod: "zip", mlsStatus: "kept" });
-    await db.insert(schema.leads).values({ tenantId: t.id, refId: "LD-2026-00002", uploadId: up.id, dedupeKey: "y|2", rawJson: {}, partnerId: py.id, matchMethod: "zip", mlsStatus: "kept" });
+    const [up] = await db.insert(schema.uploads).values({ tenantId: t.id, refId: "IM-26-001", filename: "a.xlsx", status: "processed" }).returning({ id: schema.uploads.id });
+    await db.insert(schema.leads).values({ tenantId: t.id, refId: "LD-26-00001", uploadId: up.id, dedupeKey: "x|1", rawJson: {}, partnerId: px.id, matchMethod: "zip", mlsStatus: "kept" });
+    await db.insert(schema.leads).values({ tenantId: t.id, refId: "LD-26-00002", uploadId: up.id, dedupeKey: "y|2", rawJson: {}, partnerId: py.id, matchMethod: "zip", mlsStatus: "kept" });
   });
 
   afterAll(async () => {
@@ -60,26 +60,26 @@ suite("PRN-13/NTS: two-stream note visibility", () => {
   const partnerX = (): ScopeContext => ({ tenantId: id.tenant, role: "partner", userId: id.pxUser, partnerId: id.px });
 
   it("PRN-13: admin sees only admin notes; partner sees only partner notes", async () => {
-    await addLeadNote(admin(), "LD-2026-00001", "ADMIN-ONLY note");
-    await addLeadNote(partnerX(), "LD-2026-00001", "PARTNER-ONLY note");
+    await addLeadNote(admin(), "LD-26-00001", "ADMIN-ONLY note");
+    await addLeadNote(partnerX(), "LD-26-00001", "PARTNER-ONLY note");
 
-    const adminBodies = (await listLeadNotes(admin(), "LD-2026-00001")).map((n) => n.body);
+    const adminBodies = (await listLeadNotes(admin(), "LD-26-00001")).map((n) => n.body);
     expect(adminBodies).toContain("ADMIN-ONLY note");
     expect(adminBodies).not.toContain("PARTNER-ONLY note");
 
-    const partnerBodies = (await listLeadNotes(partnerX(), "LD-2026-00001")).map((n) => n.body);
+    const partnerBodies = (await listLeadNotes(partnerX(), "LD-26-00001")).map((n) => n.body);
     expect(partnerBodies).toContain("PARTNER-ONLY note");
     expect(partnerBodies).not.toContain("ADMIN-ONLY note");
   });
 
   it("a partner cannot add a note to a lead that isn't theirs", async () => {
-    await expect(addLeadNote(partnerX(), "LD-2026-00002", "sneaky")).rejects.toBeInstanceOf(LeadNotFoundError);
+    await expect(addLeadNote(partnerX(), "LD-26-00002", "sneaky")).rejects.toBeInstanceOf(LeadNotFoundError);
   });
 
   it("NTS-02: editing a note is audited (before/after)", async () => {
-    const { id: noteId } = await addLeadNote(partnerX(), "LD-2026-00001", "first draft");
+    const { id: noteId } = await addLeadNote(partnerX(), "LD-26-00001", "first draft");
     await editLeadNote(partnerX(), noteId, "revised text");
-    const bodies = (await listLeadNotes(partnerX(), "LD-2026-00001")).map((n) => n.body);
+    const bodies = (await listLeadNotes(partnerX(), "LD-26-00001")).map((n) => n.body);
     expect(bodies).toContain("revised text");
     expect(bodies).not.toContain("first draft");
     const audits = await db
@@ -93,7 +93,7 @@ suite("PRN-13/NTS: two-stream note visibility", () => {
   });
 
   it("a partner cannot edit an admin note (cross-stream)", async () => {
-    const { id: adminNoteId } = await addLeadNote(admin(), "LD-2026-00001", "admin private");
+    const { id: adminNoteId } = await addLeadNote(admin(), "LD-26-00001", "admin private");
     await expect(editLeadNote(partnerX(), adminNoteId, "hacked")).rejects.toThrow();
   });
 });

@@ -7,7 +7,7 @@ import { notifyStatusChange, drainOutbox } from "@/modules/notify/outbox";
 import { logError } from "@/lib/observability";
 import { jsonOk, jsonError } from "@/lib/http";
 
-const RefSchema = z.string().regex(/^LD-\d{4}-\d{3,}$/);
+const RefSchema = z.string().regex(/^LD-\d{2}-\d{5,}$/);
 const Input = z.object({ status: z.string().min(1).max(50) });
 
 // POST /api/portal/leads/[ref]/status — update an owned lead's status (PTL-03).

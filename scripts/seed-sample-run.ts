@@ -13,7 +13,7 @@ import { SAMPLE_STATE_RULES, SAMPLE_ZIP_COVERAGE } from "../tests/fixtures/sampl
 
 // Dev-only: persist ONE distributed run of the anonymized week into the dev tenant so
 // the run views have data. Clears prior demo runs first so it always yields a clean
-// UP-2026-001. Coverage is SAMPLE data (leaves HI uncovered to show an unmatched lead).
+// IM-26-001. Coverage is SAMPLE data (leaves HI uncovered to show an unmatched lead).
 
 const url = process.env.DATABASE_URL;
 if (!url) throw new Error("DATABASE_URL not set — run with node --env-file=.env.local");

@@ -2,24 +2,31 @@ import { sql } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Human-readable, tenant-scoped, immutable reference IDs (DM-07):
-//   partners  JV-###          leads  LD-YYYY-#####       uploads  UP-YYYY-###
-// Allocation is transactional via the ref_counters table (monotonic per
-// tenant+entity+year). Formatting is pure and unit-tested.
+// Human-readable, tenant-scoped, immutable reference IDs (DM-07, v2 / ADR-0019):
+//   partners  JV-###          leads  LD-YY-#####        imports  IM-YY-###
+// The year is rendered two-digit and imports carry the IM- prefix. Allocation is
+// transactional via the ref_counters table (monotonic per tenant+entity+year; the
+// "upload" entity key is unchanged — only the rendered format moved). Formatting is
+// pure and unit-tested.
 // ─────────────────────────────────────────────────────────────────────────────
 
 export type RefEntity = "partner" | "lead" | "upload";
+
+/** Two-digit year, e.g. 2026 → "26". */
+function yy(year: number): string {
+  return String(year % 100).padStart(2, "0");
+}
 
 export function formatPartnerRef(n: number): string {
   return `JV-${String(n).padStart(3, "0")}`;
 }
 
 export function formatLeadRef(year: number, n: number): string {
-  return `LD-${year}-${String(n).padStart(5, "0")}`;
+  return `LD-${yy(year)}-${String(n).padStart(5, "0")}`;
 }
 
-export function formatUploadRef(year: number, n: number): string {
-  return `UP-${year}-${String(n).padStart(3, "0")}`;
+export function formatImportRef(year: number, n: number): string {
+  return `IM-${yy(year)}-${String(n).padStart(3, "0")}`;
 }
 
 /**
@@ -47,6 +54,6 @@ export async function allocateRef(
     case "lead":
       return formatLeadRef(year, n);
     case "upload":
-      return formatUploadRef(year, n);
+      return formatImportRef(year, n);
   }
 }

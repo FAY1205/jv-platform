@@ -69,7 +69,7 @@ const exportLeads: ExportLead[] = processed
   .map((p, i) => ({ p, d: deduped[i], i }))
   .filter(({ p }) => p.mls === "kept")
   .map(({ p, d, i }) => ({
-    leadRefId: `LD-2026-${String(i + 1).padStart(5, "0")}`,
+    leadRefId: `LD-26-${String(i + 1).padStart(5, "0")}`,
     campaign: p.canonical.campaign ?? "",
     dateCreated: p.canonical.dateCreated ?? "",
     notes: p.canonical.notes ?? "",

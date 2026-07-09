@@ -10,10 +10,10 @@ describe("buildPartnerDigest", () => {
     appName: "JV Platform",
     partnerName: "Randy Wolfe",
     portalUrl: "https://app.test/portal",
-    uploadRef: "UP-2026-014",
+    uploadRef: "IM-26-014",
     leads: [
-      { refId: "LD-2026-00007", city: "Austin", state: "TX" },
-      { refId: "LD-2026-00008", city: "Dallas", state: "TX" },
+      { refId: "LD-26-00007", city: "Austin", state: "TX" },
+      { refId: "LD-26-00008", city: "Dallas", state: "TX" },
     ],
   };
 
@@ -23,8 +23,8 @@ describe("buildPartnerDigest", () => {
 
   it("NTF-01: body lists each lead reference ID + location and links to the portal", () => {
     const { body } = buildPartnerDigest(input);
-    expect(body).toContain("LD-2026-00007");
-    expect(body).toContain("LD-2026-00008");
+    expect(body).toContain("LD-26-00007");
+    expect(body).toContain("LD-26-00008");
     expect(body).toContain("Austin, TX");
     expect(body).toContain("https://app.test/portal");
   });
@@ -43,10 +43,10 @@ describe("buildAdminRunSummary", () => {
   it("NTF-02: subject references the run and body carries the totals", () => {
     const out = buildAdminRunSummary({
       appName: "JV Platform",
-      uploadRef: "UP-2026-014",
+      uploadRef: "IM-26-014",
       summary: { total: 50, kept: 24, removed: 26, unmatched: 1, previouslyMatched: 3, perPartner: [{ partnerId: "p1", count: 24 }] },
     });
-    expect(out.subject).toContain("UP-2026-014");
+    expect(out.subject).toContain("IM-26-014");
     expect(out.body).toMatch(/24/); // delivered/kept
     expect(out.body).toMatch(/26/); // removed
     expect(out.body).toMatch(/unmatched/i);

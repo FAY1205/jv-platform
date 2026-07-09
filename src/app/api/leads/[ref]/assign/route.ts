@@ -9,7 +9,7 @@ import {
 } from "@/modules/leads/commands";
 import { jsonOk, jsonError } from "@/lib/http";
 
-const RefSchema = z.string().regex(/^LD-\d{4}-\d{3,}$/);
+const RefSchema = z.string().regex(/^LD-\d{2}-\d{5,}$/);
 const BodySchema = z.object({
   partnerId: z.string().uuid(),
   reason: z.string().trim().max(280).optional(),

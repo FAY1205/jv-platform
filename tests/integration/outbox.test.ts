@@ -56,12 +56,12 @@ suite("WP-028a: email outbox + digests (NTF-01/02/03)", () => {
     const [a] = await db.insert(schema.partners).values({ tenantId: t.id, refId: "JV-001", name: "Alpha", email: "alpha@partner.test", color: "#f4c95d", status: "active" }).returning({ id: schema.partners.id });
     const [b] = await db.insert(schema.partners).values({ tenantId: t.id, refId: "JV-002", name: "Bravo", color: "#b9c4d6", status: "active" }).returning({ id: schema.partners.id });
 
-    const [up] = await db.insert(schema.uploads).values({ tenantId: t.id, refId: "UP-2026-014", filename: "w.xlsx", status: "processed" }).returning({ id: schema.uploads.id });
-    uploadRef = "UP-2026-014";
+    const [up] = await db.insert(schema.uploads).values({ tenantId: t.id, refId: "IM-26-014", filename: "w.xlsx", status: "processed" }).returning({ id: schema.uploads.id });
+    uploadRef = "IM-26-014";
     await db.insert(schema.leads).values([
-      { tenantId: t.id, refId: "LD-2026-00001", uploadId: up.id, dedupeKey: "1 a|75001", rawJson: {}, partnerId: a.id, city: "Austin", state: "TX", mlsStatus: "kept" },
-      { tenantId: t.id, refId: "LD-2026-00002", uploadId: up.id, dedupeKey: "2 b|75002", rawJson: {}, partnerId: a.id, city: "Dallas", state: "TX", mlsStatus: "kept" },
-      { tenantId: t.id, refId: "LD-2026-00003", uploadId: up.id, dedupeKey: "3 c|85001", rawJson: {}, partnerId: b.id, city: "Mesa", state: "AZ", mlsStatus: "kept" },
+      { tenantId: t.id, refId: "LD-26-00001", uploadId: up.id, dedupeKey: "1 a|75001", rawJson: {}, partnerId: a.id, city: "Austin", state: "TX", mlsStatus: "kept" },
+      { tenantId: t.id, refId: "LD-26-00002", uploadId: up.id, dedupeKey: "2 b|75002", rawJson: {}, partnerId: a.id, city: "Dallas", state: "TX", mlsStatus: "kept" },
+      { tenantId: t.id, refId: "LD-26-00003", uploadId: up.id, dedupeKey: "3 c|85001", rawJson: {}, partnerId: b.id, city: "Mesa", state: "AZ", mlsStatus: "kept" },
     ]);
   });
 
@@ -77,11 +77,11 @@ suite("WP-028a: email outbox + digests (NTF-01/02/03)", () => {
     const rows = await db.select().from(schema.emailOutbox).where(eq(schema.emailOutbox.tenantId, scope.tenantId));
     const partnerDigest = rows.find((r) => r.kind === "partner_digest")!;
     expect(partnerDigest.toAddress).toBe("alpha@partner.test");
-    expect(partnerDigest.body).toContain("LD-2026-00001");
-    expect(partnerDigest.body).toContain("LD-2026-00002");
+    expect(partnerDigest.body).toContain("LD-26-00001");
+    expect(partnerDigest.body).toContain("LD-26-00002");
     expect(rows.some((r) => r.kind === "admin_run_summary" && r.toAddress === "admin@dev.test")).toBe(true);
     // NTF-01: the partner with no email got nothing.
-    expect(rows.some((r) => r.body.includes("LD-2026-00003"))).toBe(false);
+    expect(rows.some((r) => r.body.includes("LD-26-00003"))).toBe(false);
   });
 
   it("NTF-03: drain sends pending rows and marks them sent", async () => {

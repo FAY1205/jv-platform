@@ -52,12 +52,12 @@ suite("TST-08: partner portal scoping", () => {
     await db.insert(schema.users).values({ id: id.adminUser, tenantId: t.id, email: "admin@portal.test", role: "admin" });
     await db.insert(schema.users).values({ id: id.pxUser, tenantId: t.id, email: "px@portal.test", role: "partner", partnerId: px.id });
 
-    const [up] = await db.insert(schema.uploads).values({ tenantId: t.id, refId: "UP-2026-001", filename: "a.xlsx", status: "processed" }).returning({ id: schema.uploads.id });
-    await db.insert(schema.leads).values({ tenantId: t.id, refId: "LD-2026-00001", uploadId: up.id, dedupeKey: "x|1", rawJson: {}, partnerId: px.id, matchMethod: "zip", mlsStatus: "kept", sellerFirst: "Xavier", sellerLast: "X" });
-    await db.insert(schema.leads).values({ tenantId: t.id, refId: "LD-2026-00002", uploadId: up.id, dedupeKey: "y|2", rawJson: {}, partnerId: py.id, matchMethod: "zip", mlsStatus: "kept", sellerFirst: "Yolanda", sellerLast: "Y" });
+    const [up] = await db.insert(schema.uploads).values({ tenantId: t.id, refId: "IM-26-001", filename: "a.xlsx", status: "processed" }).returning({ id: schema.uploads.id });
+    await db.insert(schema.leads).values({ tenantId: t.id, refId: "LD-26-00001", uploadId: up.id, dedupeKey: "x|1", rawJson: {}, partnerId: px.id, matchMethod: "zip", mlsStatus: "kept", sellerFirst: "Xavier", sellerLast: "X" });
+    await db.insert(schema.leads).values({ tenantId: t.id, refId: "LD-26-00002", uploadId: up.id, dedupeKey: "y|2", rawJson: {}, partnerId: py.id, matchMethod: "zip", mlsStatus: "kept", sellerFirst: "Yolanda", sellerLast: "Y" });
     // A removed lead — its status is the read-only "Removed MLS" verdict; workflow
     // status changes must be refused (PRN-04 keeps MLS state authoritative).
-    await db.insert(schema.leads).values({ tenantId: t.id, refId: "LD-2026-00003", uploadId: up.id, dedupeKey: "z|3", rawJson: {}, partnerId: px.id, matchMethod: "zip", mlsStatus: "removed", sellerFirst: "Zed", sellerLast: "Z" });
+    await db.insert(schema.leads).values({ tenantId: t.id, refId: "LD-26-00003", uploadId: up.id, dedupeKey: "z|3", rawJson: {}, partnerId: px.id, matchMethod: "zip", mlsStatus: "removed", sellerFirst: "Zed", sellerLast: "Z" });
   });
 
   afterAll(async () => {
@@ -71,38 +71,38 @@ suite("TST-08: partner portal scoping", () => {
   it("PTL-02: a partner sees only their own leads", async () => {
     const page = await listPartnerLeads(partnerX());
     const refs = page.leads.map((l) => l.refId);
-    expect(refs).toContain("LD-2026-00001");
-    expect(refs).not.toContain("LD-2026-00002");
+    expect(refs).toContain("LD-26-00001");
+    expect(refs).not.toContain("LD-26-00002");
     expect(page.total).toBe(1);
   });
 
   it("PTL-03: a partner updates their own lead → status history + current status", async () => {
-    await updateLeadStatus(partnerX(), "LD-2026-00001", "Contacted");
-    const detail = await getPartnerLeadDetail(partnerX(), "LD-2026-00001");
+    await updateLeadStatus(partnerX(), "LD-26-00001", "Contacted");
+    const detail = await getPartnerLeadDetail(partnerX(), "LD-26-00001");
     expect(detail?.status).toBe("Contacted");
     expect(detail?.history[0]?.status).toBe("Contacted");
   });
 
   it("a partner cannot update a lead that isn't theirs", async () => {
-    await expect(updateLeadStatus(partnerX(), "LD-2026-00002", "Contacted")).rejects.toBeInstanceOf(LeadNotFoundError);
+    await expect(updateLeadStatus(partnerX(), "LD-26-00002", "Contacted")).rejects.toBeInstanceOf(LeadNotFoundError);
   });
 
   it("PTL-03: the admin sees the partner's status change", async () => {
-    const detail = await getPartnerLeadDetail(adminA(), "LD-2026-00001");
+    const detail = await getPartnerLeadDetail(adminA(), "LD-26-00001");
     expect(detail?.status).toBe("Contacted");
   });
 
   it("PRN-04: a workflow status change on an MLS-removed lead is refused", async () => {
-    await expect(updateLeadStatus(adminA(), "LD-2026-00003", "Contacted")).rejects.toBeInstanceOf(LeadRemovedError);
+    await expect(updateLeadStatus(adminA(), "LD-26-00003", "Contacted")).rejects.toBeInstanceOf(LeadRemovedError);
   });
 
   it("F-12: re-setting the current status is a no-op (changed:false, no new history/event, so the route skips notify)", async () => {
-    const [lead] = await db.select({ id: schema.leads.id }).from(schema.leads).where(eq(schema.leads.refId, "LD-2026-00001"));
-    const first = await updateLeadStatus(adminA(), "LD-2026-00001", "Appointment"); // a real change
+    const [lead] = await db.select({ id: schema.leads.id }).from(schema.leads).where(eq(schema.leads.refId, "LD-26-00001"));
+    const first = await updateLeadStatus(adminA(), "LD-26-00001", "Appointment"); // a real change
     expect(first.changed).toBe(true);
     const h1 = await db.select({ id: schema.leadStatusHistory.id }).from(schema.leadStatusHistory).where(eq(schema.leadStatusHistory.leadId, lead.id));
     const e1 = await db.select({ id: schema.events.id }).from(schema.events).where(eq(schema.events.tenantId, id.tenant));
-    const second = await updateLeadStatus(adminA(), "LD-2026-00001", "Appointment"); // same status again → no-op
+    const second = await updateLeadStatus(adminA(), "LD-26-00001", "Appointment"); // same status again → no-op
     // changed:false is the seam the portal route gates its admin notification on (F-1).
     expect(second.changed).toBe(false);
     const h2 = await db.select({ id: schema.leadStatusHistory.id }).from(schema.leadStatusHistory).where(eq(schema.leadStatusHistory.leadId, lead.id));

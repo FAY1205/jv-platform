@@ -6,7 +6,7 @@ import { jsonOk, jsonError } from "@/lib/http";
 
 // Shared note API (NTS/PRN-13): both admin and partner use it; scope decides the
 // stream. GET returns the caller's own stream; POST adds to it. Scoped + CSRF.
-const RefSchema = z.string().regex(/^LD-\d{4}-\d{3,}$/);
+const RefSchema = z.string().regex(/^LD-\d{2}-\d{5,}$/);
 const Body = z.object({ body: z.string().trim().min(1).max(5000) });
 
 export async function GET(_req: Request, { params }: { params: Promise<{ ref: string }> }) {

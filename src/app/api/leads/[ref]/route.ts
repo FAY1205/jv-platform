@@ -6,7 +6,7 @@ import { editLead, LeadNotFoundError, InvalidAssignTargetError } from "@/modules
 import { jsonOk, jsonError } from "@/lib/http";
 
 // Lead ref format (v1). Sibling routes validate this before touching the DB (F-13).
-const RefSchema = z.string().regex(/^LD-\d{4}-\d{3,}$/);
+const RefSchema = z.string().regex(/^LD-\d{2}-\d{5,}$/);
 
 // ADM: full lead detail for the Leads dialog — includes removed leads, the
 // manual-assignment overlay, and the activity timeline. Admin-only; scoped (PRN-08).

@@ -102,14 +102,14 @@ suite("WP-017b: run persistence (DrizzleRunStore)", () => {
       { store, clock },
     );
 
-    expect(result.uploadRefId).toMatch(/^UP-2026-\d{3}$/);
+    expect(result.uploadRefId).toMatch(/^IM-26-\d{3}$/);
     const leads = await db.select().from(schema.leads).where(eq(schema.leads.tenantId, tenantId));
     expect(leads).toHaveLength(3); // DED-03: every processed lead is stored
 
     const nj = leads.find((l) => l.dedupeKey === "1 a st|08034")!;
     expect(nj.partnerId).toBe(partnerNJ);
     expect(nj.matchMethod).toBe("state_fallback");
-    expect(nj.refId).toMatch(/^LD-2026-\d{5}$/);
+    expect(nj.refId).toMatch(/^LD-26-\d{5}$/);
     expect(nj.firstMatchedAt?.toISOString()).toBe("2026-07-08T12:00:00.000Z");
 
     const ca = leads.find((l) => l.dedupeKey === "3 c st|90001")!;
@@ -152,6 +152,6 @@ suite("WP-017b: run persistence (DrizzleRunStore)", () => {
       .from(schema.leads)
       .where(and(eq(schema.leads.tenantId, tenantId), eq(schema.leads.dedupeKey, "9 new st|08034")));
     expect(fresh).toHaveLength(1);
-    expect(result.uploadRefId).toBe("UP-2026-002");
+    expect(result.uploadRefId).toBe("IM-26-002");
   });
 });

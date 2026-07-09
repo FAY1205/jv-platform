@@ -10,7 +10,7 @@ import {
 import { SEED_LEAD_STATUSES } from "@/modules/portal/statuses";
 import { jsonOk, jsonError } from "@/lib/http";
 
-const RefSchema = z.string().regex(/^LD-\d{4}-\d{3,}$/);
+const RefSchema = z.string().regex(/^LD-\d{2}-\d{5,}$/);
 const Input = z.object({ status: z.enum(SEED_LEAD_STATUSES) });
 
 // ADM: inline status change from the global Leads table. Admin-only; CSRF-guarded.

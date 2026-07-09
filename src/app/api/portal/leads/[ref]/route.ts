@@ -4,7 +4,7 @@ import { authErrorResponse } from "@/lib/auth/guard";
 import { getPartnerLeadDetail } from "@/modules/portal/queries";
 import { jsonOk, jsonError } from "@/lib/http";
 
-const RefSchema = z.string().regex(/^LD-\d{4}-\d{3,}$/);
+const RefSchema = z.string().regex(/^LD-\d{2}-\d{5,}$/);
 
 // GET /api/portal/leads/[ref] — one owned lead + its status history (PTL-02/03).
 export async function GET(_req: Request, { params }: { params: Promise<{ ref: string }> }) {

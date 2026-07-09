@@ -77,8 +77,8 @@ class FakeStore implements RunStore {
     this.persisted = input;
     return {
       uploadId: "u1",
-      uploadRefId: "UP-2026-001",
-      leadRefIds: input.leads.map((_, i) => `LD-2026-${String(i + 1).padStart(5, "0")}`),
+      uploadRefId: "IM-26-001",
+      leadRefIds: input.leads.map((_, i) => `LD-26-${String(i + 1).padStart(5, "0")}`),
     };
   }
 }
@@ -92,7 +92,7 @@ describe("WP-017: processRun orchestrates history → plan → stamp → persist
       { tenantId: "t1", filename: "week.xlsx", rows: ROWS, profile: GENERIC_PROFILE, rules: RULES, snapshotInput: SNAPSHOT_INPUT, year: 2026, colorCoding: true },
       deps(store),
     );
-    expect(result.uploadRefId).toBe("UP-2026-001");
+    expect(result.uploadRefId).toBe("IM-26-001");
     expect(store.persisted!.leads).toHaveLength(2);
     expect(result.summary.total).toBe(2);
   });

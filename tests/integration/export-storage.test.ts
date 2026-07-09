@@ -15,7 +15,7 @@ suite("WP-028b: export storage + signed URL (EXP-05, SEC-02)", () => {
     admin = createClient(supabaseUrl!, serviceKey!, { auth: { autoRefreshToken: false, persistSession: false } });
   });
   const tenantId = `test-${randomUUID()}`;
-  const uploadRef = "UP-2026-999";
+  const uploadRef = "IM-26-999";
   const bytes = new TextEncoder().encode("PK fake-xlsx-content for the round-trip test");
 
   it("EXP-05: stores the deliverable and a signed URL downloads the exact bytes back", async () => {

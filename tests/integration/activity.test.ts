@@ -42,8 +42,8 @@ suite("WP-034: activity views (ACT-01/02/04)", () => {
     admin = { tenantId: t.id, role: "admin", userId: adminUserId };
     partner = { tenantId: t.id, role: "partner", userId: partnerUserId, partnerId: p.id };
 
-    const [up] = await db.insert(schema.uploads).values({ tenantId: t.id, refId: "UP-2026-001", filename: "w.xlsx", status: "processed" }).returning({ id: schema.uploads.id });
-    const [lead] = await db.insert(schema.leads).values({ tenantId: t.id, refId: "LD-2026-00001", uploadId: up.id, dedupeKey: "1|75001", rawJson: {}, partnerId: p.id, mlsStatus: "kept" }).returning({ id: schema.leads.id });
+    const [up] = await db.insert(schema.uploads).values({ tenantId: t.id, refId: "IM-26-001", filename: "w.xlsx", status: "processed" }).returning({ id: schema.uploads.id });
+    const [lead] = await db.insert(schema.leads).values({ tenantId: t.id, refId: "LD-26-00001", uploadId: up.id, dedupeKey: "1|75001", rawJson: {}, partnerId: p.id, mlsStatus: "kept" }).returning({ id: schema.leads.id });
 
     await db.insert(schema.auditLog).values([
       { tenantId: t.id, actorUserId: adminUserId, action: "mls_pattern.updated", entityType: "rule", entityRef: "dq_is_listed_yes" },
@@ -71,6 +71,6 @@ suite("WP-034: activity views (ACT-01/02/04)", () => {
     const p = await listPartnerActivity(partner);
     expect(p.items).toHaveLength(2);
     expect(p.items.some((i) => i.kind === "status" && i.detail.includes("Contacted"))).toBe(true);
-    expect(p.items.some((i) => i.kind === "note" && i.detail.includes("LD-2026-00001"))).toBe(true);
+    expect(p.items.some((i) => i.kind === "note" && i.detail.includes("LD-26-00001"))).toBe(true);
   });
 });

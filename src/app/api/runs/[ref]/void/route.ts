@@ -4,7 +4,7 @@ import { assertCsrf, authErrorResponse, requireAdminResponse } from "@/lib/auth/
 import { voidUpload, UploadNotFoundError, AlreadyVoidedError } from "@/modules/run/void";
 import { jsonOk, jsonError } from "@/lib/http";
 
-const RefSchema = z.string().regex(/^UP-\d{4}-\d{3,}$/);
+const RefSchema = z.string().regex(/^IM-\d{2}-\d{3,}$/);
 const BodySchema = z.object({ reason: z.string().trim().min(3).max(500) });
 
 // POST /api/runs/[ref]/void — soft-void a processed run with a required reason (ING-09).

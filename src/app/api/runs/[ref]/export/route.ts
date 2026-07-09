@@ -12,7 +12,7 @@ import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { logError } from "@/lib/observability";
 import { jsonError } from "@/lib/http";
 
-const RefSchema = z.string().regex(/^UP-\d{4}-\d{3,}$/);
+const RefSchema = z.string().regex(/^IM-\d{2}-\d{3,}$/);
 
 // GET /api/runs/[ref]/export — download the colored deliverable .xlsx (EXP-05).
 // Prefer a short-lived signed URL to the stored file (SEC-02); fall back to

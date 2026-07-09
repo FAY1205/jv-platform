@@ -6,8 +6,8 @@ import { buildAnalytics, type AnalyticsLead, type AnalyticsRun } from "@/modules
 // (PRN-15). Partition is total = delivered + unmatched + removed.
 
 const runs: AnalyticsRun[] = [
-  { uploadId: "u2", refId: "UP-2026-002", createdAt: "2026-02-01T00:00:00Z" },
-  { uploadId: "u1", refId: "UP-2026-001", createdAt: "2026-01-01T00:00:00Z" },
+  { uploadId: "u2", refId: "IM-26-002", createdAt: "2026-02-01T00:00:00Z" },
+  { uploadId: "u1", refId: "IM-26-001", createdAt: "2026-01-01T00:00:00Z" },
 ];
 
 // u1: 2 delivered (zip→p1, state→p2), 1 unmatched, 1 removed(MLS: on market)
@@ -42,7 +42,7 @@ describe("buildAnalytics", () => {
   });
 
   it("ANA-01: series is one point per run, ordered oldest first", () => {
-    expect(a.series.map((s) => s.refId)).toEqual(["UP-2026-001", "UP-2026-002"]);
+    expect(a.series.map((s) => s.refId)).toEqual(["IM-26-001", "IM-26-002"]);
     const u1 = a.series[0];
     expect(u1).toMatchObject({ total: 4, delivered: 2, unmatched: 1, removed: 1 });
     const u2 = a.series[1];
@@ -77,7 +77,7 @@ describe("buildAnalytics", () => {
   it("ANA-01: removed leads with no reason fall under a stable label", () => {
     const r = buildAnalytics(
       [{ uploadId: "u1", mlsStatus: "removed", matchMethod: "none", partnerId: null, mlsReason: null, previouslyMatched: false }],
-      [{ uploadId: "u1", refId: "UP-2026-001", createdAt: "2026-01-01T00:00:00Z" }],
+      [{ uploadId: "u1", refId: "IM-26-001", createdAt: "2026-01-01T00:00:00Z" }],
     );
     expect(r.removalReasons).toEqual([{ reason: "Listed on MLS", count: 1 }]);
   });

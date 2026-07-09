@@ -62,23 +62,23 @@ suite("TST-01: tenant & partner isolation", () => {
     await db.insert(schema.users).values({ id: id.adminUser, tenantId: ta.id, email: "admin@a.test", role: "admin" });
     await db.insert(schema.users).values({ id: id.partnerUser, tenantId: ta.id, email: "px@a.test", role: "partner", partnerId: px.id });
 
-    const [ua] = await db.insert(schema.uploads).values({ tenantId: ta.id, refId: "UP-2026-001", filename: "a.xlsx", status: "processed" }).returning({ id: schema.uploads.id });
+    const [ua] = await db.insert(schema.uploads).values({ tenantId: ta.id, refId: "IM-26-001", filename: "a.xlsx", status: "processed" }).returning({ id: schema.uploads.id });
     id.uploadA = ua.id;
-    const [ub] = await db.insert(schema.uploads).values({ tenantId: tb.id, refId: "UP-2026-001", filename: "b.xlsx", status: "processed" }).returning({ id: schema.uploads.id });
+    const [ub] = await db.insert(schema.uploads).values({ tenantId: tb.id, refId: "IM-26-001", filename: "b.xlsx", status: "processed" }).returning({ id: schema.uploads.id });
 
-    const [lx] = await db.insert(schema.leads).values({ tenantId: ta.id, refId: "LD-2026-00001", uploadId: ua.id, dedupeKey: "x|00001", rawJson: {}, partnerId: px.id, matchMethod: "zip" }).returning({ id: schema.leads.id });
-    const [ly] = await db.insert(schema.leads).values({ tenantId: ta.id, refId: "LD-2026-00002", uploadId: ua.id, dedupeKey: "y|00002", rawJson: {}, partnerId: py.id, matchMethod: "zip" }).returning({ id: schema.leads.id });
-    const [lz] = await db.insert(schema.leads).values({ tenantId: tb.id, refId: "LD-2026-00001", uploadId: ub.id, dedupeKey: "z|00003", rawJson: {}, partnerId: pz.id, matchMethod: "zip" }).returning({ id: schema.leads.id });
+    const [lx] = await db.insert(schema.leads).values({ tenantId: ta.id, refId: "LD-26-00001", uploadId: ua.id, dedupeKey: "x|00001", rawJson: {}, partnerId: px.id, matchMethod: "zip" }).returning({ id: schema.leads.id });
+    const [ly] = await db.insert(schema.leads).values({ tenantId: ta.id, refId: "LD-26-00002", uploadId: ua.id, dedupeKey: "y|00002", rawJson: {}, partnerId: py.id, matchMethod: "zip" }).returning({ id: schema.leads.id });
+    const [lz] = await db.insert(schema.leads).values({ tenantId: tb.id, refId: "LD-26-00001", uploadId: ub.id, dedupeKey: "z|00003", rawJson: {}, partnerId: pz.id, matchMethod: "zip" }).returning({ id: schema.leads.id });
     // An unmatched lead in tenant A, manually assigned to partner Y (ASN-03).
     const [lm] = await db
       .insert(schema.leads)
-      .values({ tenantId: ta.id, refId: "LD-2026-00009", uploadId: ua.id, dedupeKey: "m|00009", rawJson: {}, partnerId: null, matchMethod: "none", manualPartnerId: py.id, manualAssignedAt: new Date(), manualAssignedBy: id.adminUser })
+      .values({ tenantId: ta.id, refId: "LD-26-00009", uploadId: ua.id, dedupeKey: "m|00009", rawJson: {}, partnerId: null, matchMethod: "none", manualPartnerId: py.id, manualAssignedAt: new Date(), manualAssignedBy: id.adminUser })
       .returning({ id: schema.leads.id });
     // A MATCHED lead (pipeline partner X) later re-routed to Y via the manual overlay.
     // Effective owner is Y; X must LOSE access (audit F-01 divergence case).
     const [lr] = await db
       .insert(schema.leads)
-      .values({ tenantId: ta.id, refId: "LD-2026-00010", uploadId: ua.id, dedupeKey: "r|00010", rawJson: {}, partnerId: px.id, matchMethod: "zip", manualPartnerId: py.id, manualAssignedAt: new Date(), manualAssignedBy: id.adminUser })
+      .values({ tenantId: ta.id, refId: "LD-26-00010", uploadId: ua.id, dedupeKey: "r|00010", rawJson: {}, partnerId: px.id, matchMethod: "zip", manualPartnerId: py.id, manualAssignedAt: new Date(), manualAssignedBy: id.adminUser })
       .returning({ id: schema.leads.id });
     id.leadX = lx.id;
     id.leadY = ly.id;
@@ -161,9 +161,9 @@ suite("TST-01: tenant & partner isolation", () => {
     const { editLead } = await import("@/modules/leads/commands");
     const [seed] = await db
       .insert(schema.leads)
-      .values({ tenantId: id.tenantA, refId: "LD-2026-00011", uploadId: id.uploadA, dedupeKey: "orig|00011", rawJson: {}, partnerId: id.partnerX, matchMethod: "zip", mlsStatus: "kept", address: "1 Old St", zip: "00011" })
+      .values({ tenantId: id.tenantA, refId: "LD-26-00011", uploadId: id.uploadA, dedupeKey: "orig|00011", rawJson: {}, partnerId: id.partnerX, matchMethod: "zip", mlsStatus: "kept", address: "1 Old St", zip: "00011" })
       .returning({ id: schema.leads.id });
-    await editLead(adminA(), { ref: "LD-2026-00011", fields: { address: "42 New Rd", zip: "75201" }, partner: { action: "set", partnerId: id.partnerY } });
+    await editLead(adminA(), { ref: "LD-26-00011", fields: { address: "42 New Rd", zip: "75201" }, partner: { action: "set", partnerId: id.partnerY } });
     const [row] = await db
       .select({ dedupeKey: schema.leads.dedupeKey, addrNorm: schema.leads.addressNormalized, partnerId: schema.leads.partnerId, matchMethod: schema.leads.matchMethod, manualPartnerId: schema.leads.manualPartnerId })
       .from(schema.leads)
@@ -185,12 +185,12 @@ suite("TST-01: tenant & partner isolation", () => {
   it("F-31: listPartnerActivity counts a partner's action on a manually-assigned (partnerId=null) lead", async () => {
     const [ml] = await db
       .insert(schema.leads)
-      .values({ tenantId: id.tenantA, refId: "LD-2026-00012", uploadId: id.uploadA, dedupeKey: "ma|00012", rawJson: {}, partnerId: null, matchMethod: "none", manualPartnerId: id.partnerX, mlsStatus: "kept" })
+      .values({ tenantId: id.tenantA, refId: "LD-26-00012", uploadId: id.uploadA, dedupeKey: "ma|00012", rawJson: {}, partnerId: null, matchMethod: "none", manualPartnerId: id.partnerX, mlsStatus: "kept" })
       .returning({ id: schema.leads.id });
     await db.insert(schema.leadStatusHistory).values({ tenantId: id.tenantA, leadId: ml.id, status: "Contacted", changedByUserId: id.partnerUser });
     // Under the old eq(partnerId) predicate this lead (partnerId=null) was under-reported.
     const activity = await listPartnerActivity(partnerX());
-    expect(activity.items.some((i) => i.detail.includes("LD-2026-00012"))).toBe(true);
+    expect(activity.items.some((i) => i.detail.includes("LD-26-00012"))).toBe(true);
   });
 
   it("F-32: findProfileById never returns another tenant's saved source profile", async () => {

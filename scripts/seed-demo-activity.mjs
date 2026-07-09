@@ -12,7 +12,7 @@ import postgres from "postgres";
 
 const sql = postgres(process.env.DATABASE_URL, { prepare: false, max: 1 });
 const WIPE_ONLY = process.argv.includes("--wipe");
-const BACKDATED_REF = "UP-2026-000";
+const BACKDATED_REF = "IM-26-000";
 const BACKDATED_LEAD_PREFIX = "LD-2025-9"; // sentinel for demo backdated leads
 
 const [{ now }] = await sql`select now() as now`;
@@ -35,11 +35,11 @@ async function wipe() {
   }
   const curLeads = await sql`
     select l.id from leads l join uploads u on u.id=l.upload_id
-    where u.tenant_id=${tenant.id} and u.ref_id='UP-2026-001'`;
+    where u.tenant_id=${tenant.id} and u.ref_id='IM-26-001'`;
   const curIds = curLeads.map((l) => l.id);
   if (curIds.length) await sql`delete from lead_status_history where lead_id in ${sql(curIds)}`;
-  await sql`delete from lead_status_history where lead_id in (select id from leads where tenant_id=${tenant.id} and ref_id like 'LD-2026-U9%')`;
-  await sql`delete from leads where tenant_id=${tenant.id} and ref_id like 'LD-2026-U9%'`;
+  await sql`delete from lead_status_history where lead_id in (select id from leads where tenant_id=${tenant.id} and ref_id like 'LD-26-U9%')`;
+  await sql`delete from leads where tenant_id=${tenant.id} and ref_id like 'LD-26-U9%'`;
   console.log("wiped demo activity");
 }
 
@@ -108,7 +108,7 @@ for (let i = 0; i < 26; i++) {
 // ── 2. Current import: contact ~half of the delivered leads (leave rest New) ──
 const current = await sql`
   select l.id, l.created_at from leads l join uploads u on u.id=l.upload_id
-  where u.tenant_id=${tenant.id} and u.ref_id='UP-2026-001' and l.partner_id is not null and l.mls_status='kept'
+  where u.tenant_id=${tenant.id} and u.ref_id='IM-26-001' and l.partner_id is not null and l.mls_status='kept'
   order by l.ref_id`;
 let contacted = 0;
 for (let i = 0; i < current.length; i++) {
@@ -120,7 +120,7 @@ for (let i = 0; i < current.length; i++) {
 }
 
 // ── 3. A small live coverage gap: unmatched leads in uncovered states ─────────
-const [curUpload] = await sql`select id from uploads where tenant_id=${tenant.id} and ref_id='UP-2026-001'`;
+const [curUpload] = await sql`select id from uploads where tenant_id=${tenant.id} and ref_id='IM-26-001'`;
 const GAPS = [
   ["WY", "82001", "Cheyenne"], ["WY", "82601", "Casper"], ["WY", "82070", "Laramie"],
   ["MT", "59101", "Billings"], ["ID", "83702", "Boise"],
@@ -128,7 +128,7 @@ const GAPS = [
 let gaps = 0;
 for (let i = 0; i < GAPS.length; i++) {
   const [st, zip, city] = GAPS[i];
-  const ref = `LD-2026-U9${String(100 + i)}`;
+  const ref = `LD-26-U9${String(100 + i)}`;
   const received = NOW - (1 + (i % 2)) * DAY; // this week
   await sql`
     insert into leads (tenant_id, ref_id, upload_id, dedupe_key, raw_json, campaign, address, city, state, zip,

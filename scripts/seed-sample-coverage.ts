@@ -6,7 +6,7 @@ import { SAMPLE_STATE_RULES, SAMPLE_ZIP_COVERAGE } from "../tests/fixtures/sampl
 
 // Dev-only: load SAMPLE coverage (states of the anon week, minus HI, + 2 ZIP overrides) into
 // the dev tenant so an uploaded national week distributes. Also clears prior demo runs so the
-// first upload through the route yields a clean UP-2026-001. NOT real territory data.
+// first upload through the route yields a clean IM-26-001. NOT real territory data.
 
 const url = process.env.DATABASE_URL;
 if (!url) throw new Error("DATABASE_URL not set — run with node --env-file=.env.local");

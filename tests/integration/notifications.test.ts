@@ -46,10 +46,10 @@ suite("WP-029: notification center + prefs (NTF-04/05)", () => {
     adminScope = { tenantId: t.id, role: "admin", userId: adminUserId };
     partnerScope = { tenantId: t.id, role: "partner", userId: partnerUserId, partnerId: p.id };
 
-    const [up] = await db.insert(schema.uploads).values({ tenantId: t.id, refId: "UP-2026-020", filename: "w.xlsx", status: "processed" }).returning({ id: schema.uploads.id });
+    const [up] = await db.insert(schema.uploads).values({ tenantId: t.id, refId: "IM-26-020", filename: "w.xlsx", status: "processed" }).returning({ id: schema.uploads.id });
     await db.insert(schema.leads).values([
-      { tenantId: t.id, refId: "LD-2026-00001", uploadId: up.id, dedupeKey: "1|75001", rawJson: {}, partnerId: p.id, city: "Austin", state: "TX", mlsStatus: "kept" },
-      { tenantId: t.id, refId: "LD-2026-00002", uploadId: up.id, dedupeKey: "2|75002", rawJson: {}, partnerId: p.id, city: "Dallas", state: "TX", mlsStatus: "kept" },
+      { tenantId: t.id, refId: "LD-26-00001", uploadId: up.id, dedupeKey: "1|75001", rawJson: {}, partnerId: p.id, city: "Austin", state: "TX", mlsStatus: "kept" },
+      { tenantId: t.id, refId: "LD-26-00002", uploadId: up.id, dedupeKey: "2|75002", rawJson: {}, partnerId: p.id, city: "Dallas", state: "TX", mlsStatus: "kept" },
     ]);
   });
 
@@ -60,7 +60,7 @@ suite("WP-029: notification center + prefs (NTF-04/05)", () => {
 
   it("NTF-04/05: run fan-out creates in-app notifications for the partner + admin, each scoped to their user", async () => {
     await enqueueRunDigests(db, adminScope, {
-      uploadRef: "UP-2026-020",
+      uploadRef: "IM-26-020",
       summary,
       portalBaseUrl: "https://app.test",
       adminEmails: ["admin@t.test"],
@@ -74,7 +74,7 @@ suite("WP-029: notification center + prefs (NTF-04/05)", () => {
     expect(partnerNotifs[0].deepLink).toBe("/portal/leads");
 
     const adminNotifs = await listNotifications(adminScope);
-    expect(adminNotifs.some((n) => n.type === "run_summary" && n.deepLink === "/imports/UP-2026-020")).toBe(true);
+    expect(adminNotifs.some((n) => n.type === "run_summary" && n.deepLink === "/imports/IM-26-020")).toBe(true);
     // scoping: the partner never sees the admin's run_summary.
     expect(partnerNotifs.some((n) => n.type === "run_summary")).toBe(false);
 
@@ -87,7 +87,7 @@ suite("WP-029: notification center + prefs (NTF-04/05)", () => {
     await db.delete(schema.notifications).where(eq(schema.notifications.tenantId, partnerScope.tenantId));
     const prefs = mergeNotificationPrefs({ partner: { new_leads: { email: true, inApp: false } } });
     await enqueueRunDigests(db, adminScope, {
-      uploadRef: "UP-2026-020",
+      uploadRef: "IM-26-020",
       summary,
       portalBaseUrl: "https://app.test",
       adminEmails: [],
@@ -99,7 +99,7 @@ suite("WP-029: notification center + prefs (NTF-04/05)", () => {
 
   it("NTF-02/04: a partner status change notifies the admin in-app", async () => {
     await db.delete(schema.notifications).where(eq(schema.notifications.tenantId, adminScope.tenantId));
-    await notifyStatusChange(db, partnerScope, { leadRef: "LD-2026-00001", status: "Contacted" });
+    await notifyStatusChange(db, partnerScope, { leadRef: "LD-26-00001", status: "Contacted" });
     const adminNotifs = await listNotifications(adminScope);
     expect(adminNotifs.some((n) => n.type === "status_change" && n.title.includes("Contacted"))).toBe(true);
   });

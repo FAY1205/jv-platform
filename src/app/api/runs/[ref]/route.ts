@@ -4,7 +4,7 @@ import { authErrorResponse, requireAdminResponse } from "@/lib/auth/guard";
 import { getRunDetail } from "@/modules/run/queries";
 import { jsonOk, jsonError } from "@/lib/http";
 
-const RefSchema = z.string().regex(/^UP-\d{4}-\d{3,}$/);
+const RefSchema = z.string().regex(/^IM-\d{2}-\d{3,}$/);
 
 export async function GET(_req: Request, { params }: { params: Promise<{ ref: string }> }) {
   const { ref } = await params;

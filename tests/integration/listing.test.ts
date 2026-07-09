@@ -35,9 +35,9 @@ suite("WP-033: LinkOnly listing check (LST-01/02/03)", () => {
     const [t] = await db.insert(schema.tenants).values({ name: "Listing", slug: SLUG }).returning({ id: schema.tenants.id });
     scope = { tenantId: t.id, role: "admin", userId: randomUUID() };
     const [p] = await db.insert(schema.partners).values({ tenantId: t.id, refId: "JV-001", name: "Alpha", color: "#f4c95d", status: "active" }).returning({ id: schema.partners.id });
-    const [up] = await db.insert(schema.uploads).values({ tenantId: t.id, refId: "UP-2026-001", filename: "w.xlsx", status: "processed" }).returning({ id: schema.uploads.id });
-    const [k] = await db.insert(schema.leads).values({ tenantId: t.id, refId: "LD-2026-00001", uploadId: up.id, dedupeKey: "1|75001", rawJson: {}, partnerId: p.id, address: "123 Main St", city: "Dallas", state: "TX", zip: "75001", mlsStatus: "kept" }).returning({ id: schema.leads.id });
-    const [r] = await db.insert(schema.leads).values({ tenantId: t.id, refId: "LD-2026-00002", uploadId: up.id, dedupeKey: "2|75002", rawJson: {}, partnerId: p.id, address: "9 Removed Rd", city: "Dallas", state: "TX", zip: "75002", mlsStatus: "removed" }).returning({ id: schema.leads.id });
+    const [up] = await db.insert(schema.uploads).values({ tenantId: t.id, refId: "IM-26-001", filename: "w.xlsx", status: "processed" }).returning({ id: schema.uploads.id });
+    const [k] = await db.insert(schema.leads).values({ tenantId: t.id, refId: "LD-26-00001", uploadId: up.id, dedupeKey: "1|75001", rawJson: {}, partnerId: p.id, address: "123 Main St", city: "Dallas", state: "TX", zip: "75001", mlsStatus: "kept" }).returning({ id: schema.leads.id });
+    const [r] = await db.insert(schema.leads).values({ tenantId: t.id, refId: "LD-26-00002", uploadId: up.id, dedupeKey: "2|75002", rawJson: {}, partnerId: p.id, address: "9 Removed Rd", city: "Dallas", state: "TX", zip: "75002", mlsStatus: "removed" }).returning({ id: schema.leads.id });
     keptId = k.id;
     removedId = r.id;
   });
@@ -48,7 +48,7 @@ suite("WP-033: LinkOnly listing check (LST-01/02/03)", () => {
   });
 
   it("LST-01/02/03: checks kept leads (LinkOnly → unknown + link), never removes, skips removed leads", async () => {
-    const n = await runListingChecks(db, scope, "UP-2026-001");
+    const n = await runListingChecks(db, scope, "IM-26-001");
     expect(n).toBe(1); // only the kept lead
 
     const checks = await db.select().from(schema.listingChecks).where(eq(schema.listingChecks.tenantId, scope.tenantId));
