@@ -7,3 +7,11 @@ allowBuilds:
   esbuild: true
   sharp: true
   unrs-resolver: true
+
+# Transitive-dependency security overrides (audit F-46). Two moderate advisories with
+# no fix available from the parent's pinned range:
+#   postcss <8.5.10 (via next)   — GHSA-qx2v-qp2m-jg93 (CSS stringify XSS)
+#   uuid <11.1.1 (via exceljs)   — GHSA-w5hq-g745-h8pq (buffer bounds check)
+overrides:
+  postcss@<8.5.10: '>=8.5.10'
+  uuid@<11.1.1: '>=11.1.1'
