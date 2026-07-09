@@ -20,6 +20,12 @@ export class InvalidStatusError extends Error {
     this.name = "InvalidStatusError";
   }
 }
+export class LeadRemovedError extends Error {
+  constructor(refId: string) {
+    super(`Lead ${refId} was removed from MLS — its status is read-only.`);
+    this.name = "LeadRemovedError";
+  }
+}
 
 export async function updateLeadStatus(
   scope: ScopeContext,
@@ -30,10 +36,12 @@ export async function updateLeadStatus(
   const db = getDb();
   return db.transaction(async (tx) => {
     const [lead] = await tx
-      .select({ id: schema.leads.id, tenantId: schema.leads.tenantId })
+      .select({ id: schema.leads.id, tenantId: schema.leads.tenantId, mlsStatus: schema.leads.mlsStatus })
       .from(schema.leads)
       .where(and(leadWhere(scope), eq(schema.leads.refId, refId)));
     if (!lead) throw new LeadNotFoundError(refId);
+    // PRN-04: a removed lead's status IS "Removed MLS" — refuse workflow overwrites.
+    if (lead.mlsStatus === "removed") throw new LeadRemovedError(refId);
 
     await tx.insert(schema.leadStatusHistory).values({
       tenantId: lead.tenantId,

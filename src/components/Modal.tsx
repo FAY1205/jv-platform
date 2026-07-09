@@ -12,13 +12,22 @@ export interface ModalProps {
   footer?: React.ReactNode;
   /** Accessible label when no visible title is provided. */
   ariaLabel?: string;
+  /** Panel width. Defaults to "md" (max-w-md) — unchanged from before. */
+  size?: "sm" | "md" | "lg" | "xl";
 }
+
+const SIZES: Record<NonNullable<ModalProps["size"]>, string> = {
+  sm: "max-w-sm",
+  md: "max-w-md",
+  lg: "max-w-2xl",
+  xl: "max-w-3xl",
+};
 
 /**
  * Modal — dialog with scrim. Esc closes, scrim click closes, focus moves into the
  * panel on open and the page scroll is locked (DSN-03, FRM-04). Rendered in a portal.
  */
-export function Modal({ open, onClose, title, children, footer, ariaLabel }: ModalProps) {
+export function Modal({ open, onClose, title, children, footer, ariaLabel, size = "md" }: ModalProps) {
   const panelRef = React.useRef<HTMLDivElement>(null);
 
   React.useEffect(() => {
@@ -53,7 +62,8 @@ export function Modal({ open, onClose, title, children, footer, ariaLabel }: Mod
         aria-label={typeof title === "string" ? title : ariaLabel}
         tabIndex={-1}
         className={cn(
-          "anim-pop w-full max-w-md bg-surface border border-border rounded-2xl shadow-lg outline-none",
+          "anim-pop w-full bg-surface border border-border rounded-2xl shadow-lg outline-none",
+          SIZES[size],
           "max-h-[90vh] overflow-auto",
         )}
       >

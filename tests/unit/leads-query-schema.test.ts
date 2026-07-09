@@ -7,8 +7,8 @@ import { LeadsQuerySchema } from "@/modules/leads/schema";
 const parse = (input: Record<string, unknown>) => LeadsQuerySchema.parse(input);
 
 describe("LeadsQuerySchema", () => {
-  it("applies defaults: page 1, mls all, empty filters", () => {
-    expect(parse({})).toEqual({ q: "", page: 1, partnerId: null, state: "", mls: "all" });
+  it("applies defaults: page 1, received-desc sort, empty filters", () => {
+    expect(parse({})).toEqual({ q: "", page: 1, partnerId: null, state: "", statuses: [], source: "", dateFrom: "", dateTo: "", sort: "received", dir: "desc" });
   });
 
   it("coerces page from string and floors invalid values to 1", () => {
@@ -29,15 +29,25 @@ describe("LeadsQuerySchema", () => {
     expect(parse({ state: "1" }).state).toBe("");
   });
 
-  it("accepts only a UUID partnerId, else null", () => {
+  it("accepts a UUID partnerId or the 'unmatched' sentinel, else null", () => {
     const uuid = "e2aaef6e-46d6-4e06-a903-4a0f85da68fa";
     expect(parse({ partnerId: uuid }).partnerId).toBe(uuid);
+    expect(parse({ partnerId: "unmatched" }).partnerId).toBe("unmatched");
     expect(parse({ partnerId: "not-a-uuid" }).partnerId).toBeNull();
   });
 
-  it("restricts mls to kept | removed | all", () => {
-    expect(parse({ mls: "kept" }).mls).toBe("kept");
-    expect(parse({ mls: "removed" }).mls).toBe("removed");
-    expect(parse({ mls: "everything" }).mls).toBe("all");
+  it("keeps only valid statuses from a comma list", () => {
+    expect(parse({ statuses: "New,Closed,Bogus,Removed MLS" }).statuses).toEqual(["New", "Closed", "Removed MLS"]);
+    expect(parse({ statuses: "" }).statuses).toEqual([]);
+  });
+
+  it("validates date range as YYYY-MM-DD, else empty", () => {
+    expect(parse({ dateFrom: "2026-01-15" }).dateFrom).toBe("2026-01-15");
+    expect(parse({ dateFrom: "01/15/2026" }).dateFrom).toBe("");
+  });
+
+  it("restricts sort field + direction to known values", () => {
+    expect(parse({ sort: "modified", dir: "asc" })).toMatchObject({ sort: "modified", dir: "asc" });
+    expect(parse({ sort: "nonsense", dir: "sideways" })).toMatchObject({ sort: "received", dir: "desc" });
   });
 });

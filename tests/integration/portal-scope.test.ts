@@ -6,7 +6,7 @@ import { randomUUID } from "node:crypto";
 import * as schema from "@/db/schema";
 import type { ScopeContext } from "@/lib/scope";
 import { listPartnerLeads, getPartnerLeadDetail } from "@/modules/portal/queries";
-import { updateLeadStatus, LeadNotFoundError } from "@/modules/portal/status-update";
+import { updateLeadStatus, LeadNotFoundError, LeadRemovedError } from "@/modules/portal/status-update";
 
 // TST-08 (live): partner portal scoping. A partner sees ONLY their own leads and can
 // only update their own leads' status; the admin sees the change. Self-skips w/o DB.
@@ -55,6 +55,9 @@ suite("TST-08: partner portal scoping", () => {
     const [up] = await db.insert(schema.uploads).values({ tenantId: t.id, refId: "UP-2026-001", filename: "a.xlsx", status: "processed" }).returning({ id: schema.uploads.id });
     await db.insert(schema.leads).values({ tenantId: t.id, refId: "LD-2026-00001", uploadId: up.id, dedupeKey: "x|1", rawJson: {}, partnerId: px.id, matchMethod: "zip", mlsStatus: "kept", sellerFirst: "Xavier", sellerLast: "X" });
     await db.insert(schema.leads).values({ tenantId: t.id, refId: "LD-2026-00002", uploadId: up.id, dedupeKey: "y|2", rawJson: {}, partnerId: py.id, matchMethod: "zip", mlsStatus: "kept", sellerFirst: "Yolanda", sellerLast: "Y" });
+    // A removed lead — its status is the read-only "Removed MLS" verdict; workflow
+    // status changes must be refused (PRN-04 keeps MLS state authoritative).
+    await db.insert(schema.leads).values({ tenantId: t.id, refId: "LD-2026-00003", uploadId: up.id, dedupeKey: "z|3", rawJson: {}, partnerId: px.id, matchMethod: "zip", mlsStatus: "removed", sellerFirst: "Zed", sellerLast: "Z" });
   });
 
   afterAll(async () => {
@@ -87,5 +90,9 @@ suite("TST-08: partner portal scoping", () => {
   it("PTL-03: the admin sees the partner's status change", async () => {
     const detail = await getPartnerLeadDetail(adminA(), "LD-2026-00001");
     expect(detail?.status).toBe("Contacted");
+  });
+
+  it("PRN-04: a workflow status change on an MLS-removed lead is refused", async () => {
+    await expect(updateLeadStatus(adminA(), "LD-2026-00003", "Contacted")).rejects.toBeInstanceOf(LeadRemovedError);
   });
 });

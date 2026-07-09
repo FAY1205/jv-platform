@@ -93,3 +93,130 @@ export async function manuallyAssignLead(scope: ScopeContext, input: ManualAssig
     return { partnerRefId: partner.refId };
   });
 }
+
+// ── Admin lead edit (ADM) — powers the Leads dialog "Edit everything" mode ─────
+// Corrects the canonical display fields (seller / property / contact / context)
+// and optionally re-routes the EFFECTIVE owner. PRN-05: the import snapshot
+// (partnerId / matchMethod) is NEVER rewritten — re-routing only ever writes the
+// additive manual overlay (manual_partner_id). Every edit is audited (DM-04).
+
+export interface EditLeadFields {
+  sellerFirst?: string;
+  sellerLast?: string;
+  phone?: string;
+  email?: string;
+  address?: string;
+  city?: string;
+  state?: string;
+  zip?: string;
+  campaign?: string;
+  reasonForSelling?: string;
+  motivation?: string;
+  timeToSell?: string;
+  notes?: string;
+}
+
+/** Partner re-routing intent for an edit. "keep" leaves ownership untouched;
+ *  "set" writes the manual overlay to a partner; "revert" clears the overlay so
+ *  the lead falls back to its pipeline routing. */
+export type PartnerEdit =
+  | { action: "keep" }
+  | { action: "set"; partnerId: string }
+  | { action: "revert" };
+
+export interface EditLeadInput {
+  ref: string;
+  fields: EditLeadFields;
+  partner: PartnerEdit;
+}
+
+const EDITABLE_COLUMNS = [
+  "sellerFirst",
+  "sellerLast",
+  "phone",
+  "email",
+  "address",
+  "city",
+  "state",
+  "zip",
+  "campaign",
+  "reasonForSelling",
+  "motivation",
+  "timeToSell",
+  "notes",
+] as const;
+
+export async function editLead(scope: ScopeContext, input: EditLeadInput): Promise<{ refId: string }> {
+  const db = getDb();
+  return db.transaction(async (tx) => {
+    const [lead] = await tx
+      .select()
+      .from(schema.leads)
+      .where(and(tenantWhere(schema.leads, scope), eq(schema.leads.refId, input.ref), isNull(schema.leads.deletedAt)));
+    if (!lead) throw new LeadNotFoundError();
+
+    // Build the canonical-field patch (only changed keys) for the update + audit diff.
+    const patch: Record<string, string | null> = {};
+    const before: Record<string, unknown> = {};
+    const after: Record<string, unknown> = {};
+    for (const col of EDITABLE_COLUMNS) {
+      const next = input.fields[col];
+      if (next === undefined) continue;
+      const clean = next.trim() === "" ? null : next.trim();
+      if (clean !== (lead[col] ?? null)) {
+        patch[col] = clean;
+        before[col] = lead[col] ?? null;
+        after[col] = clean;
+      }
+    }
+
+    // Effective owner today = manual overlay if present, else the pipeline snapshot.
+    const currentEffective = lead.manualPartnerId ?? lead.partnerId;
+    let partnerAudit: Record<string, unknown> | null = null;
+
+    if (input.partner.action === "set") {
+      const [partner] = await tx
+        .select({ id: schema.partners.id, refId: schema.partners.refId })
+        .from(schema.partners)
+        .where(
+          and(
+            tenantWhere(schema.partners, scope),
+            eq(schema.partners.id, input.partner.partnerId),
+            eq(schema.partners.status, "active"),
+            isNull(schema.partners.deletedAt),
+          ),
+        );
+      if (!partner) throw new InvalidAssignTargetError();
+      // Only write the overlay when it actually changes the effective owner.
+      if (partner.id !== currentEffective) {
+        patch.manualPartnerId = partner.id;
+        patch.manualAssignedAt = new Date() as unknown as string;
+        patch.manualAssignedBy = scope.userId;
+        partnerAudit = { from: currentEffective, to: partner.id, partnerRefId: partner.refId };
+      }
+    } else if (input.partner.action === "revert" && lead.manualPartnerId !== null) {
+      patch.manualPartnerId = null;
+      patch.manualAssignedAt = null;
+      patch.manualAssignedBy = null;
+      patch.manualReason = null;
+      partnerAudit = { from: lead.manualPartnerId, to: lead.partnerId, reverted: true };
+    }
+
+    if (Object.keys(patch).length === 0) return { refId: lead.refId };
+
+    await tx.update(schema.leads).set(patch).where(eq(schema.leads.id, lead.id));
+
+    await tx.insert(schema.auditLog).values({
+      tenantId: scope.tenantId,
+      actorUserId: scope.userId,
+      action: "lead.edited",
+      entityType: "lead",
+      entityRef: lead.refId,
+      before: { ...before, ...(partnerAudit ? { effectiveOwner: partnerAudit.from } : {}) },
+      after: { ...after, ...(partnerAudit ? { effectiveOwner: partnerAudit.to, partner: partnerAudit } : {}) },
+      traceId: globalThis.crypto.randomUUID(),
+    });
+
+    return { refId: lead.refId };
+  });
+}
