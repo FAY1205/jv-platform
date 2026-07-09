@@ -200,7 +200,7 @@ export async function recentLeadsForPartner(
     .where(
       and(
         tenantWhere(schema.leads, scope),
-        partnerOwnsLead(partnerId), // pipeline-routed OR manually assigned (ASN-03)
+        partnerOwnsLead(partnerId), // effective owner: manual overlay, else pipeline snapshot (ASN-03)
         eq(schema.leads.mlsStatus, "kept"),
         isNull(schema.leads.deletedAt),
       ),

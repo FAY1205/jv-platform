@@ -5,6 +5,8 @@ import { eq, inArray, sql } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import * as schema from "@/db/schema";
 import { tenantWhere, leadWhere, noteWhere, type ScopeContext } from "@/lib/scope";
+import { listPartnerActivity } from "@/modules/activity/queries";
+import { findProfileById } from "@/modules/sources/profile-store";
 
 // TST-01 runs against a live Postgres (the dev DB locally; a service container in
 // CI). It self-skips when DATABASE_URL is unset so the fast unit suite stays green.
@@ -27,10 +29,12 @@ suite("TST-01: tenant & partner isolation", () => {
     const tids = tenantsToClear.map((t) => t.id);
     if (tids.length === 0) return;
     await db.delete(schema.leadNotes).where(inArray(schema.leadNotes.tenantId, tids));
+    await db.delete(schema.leadStatusHistory).where(inArray(schema.leadStatusHistory.tenantId, tids));
     // editLead writes an audit_log row (action "lead.edited"); clear it before tenants.
     await db.delete(schema.auditLog).where(inArray(schema.auditLog.tenantId, tids));
     await db.delete(schema.leads).where(inArray(schema.leads.tenantId, tids));
     await db.delete(schema.uploads).where(inArray(schema.uploads.tenantId, tids));
+    await db.delete(schema.sourceProfiles).where(inArray(schema.sourceProfiles.tenantId, tids));
     await db.delete(schema.users).where(inArray(schema.users.tenantId, tids));
     await db.delete(schema.partners).where(inArray(schema.partners.tenantId, tids));
     await db.delete(schema.tenants).where(inArray(schema.tenants.id, tids));
@@ -169,6 +173,36 @@ suite("TST-01: tenant & partner isolation", () => {
     expect(row.partnerId).toBe(id.partnerX); // PRN-05: import snapshot untouched
     expect(row.matchMethod).toBe("zip"); // PRN-05: import snapshot untouched
     expect(row.manualPartnerId).toBe(id.partnerY); // overlay moved
+  });
+
+  it("F-01: the leads RLS policy uses the effective-owner coalesce form (DB backstop matches scope.ts)", async () => {
+    const rows = (await db.execute<{ qual: string }>(sql`
+      select qual from pg_policies where tablename = 'leads' and policyname = 'leads_scope'
+    `)) as unknown as { qual: string }[];
+    expect(String(rows[0]?.qual)).toContain("COALESCE(manual_partner_id, partner_id)");
+  });
+
+  it("F-31: listPartnerActivity counts a partner's action on a manually-assigned (partnerId=null) lead", async () => {
+    const [ml] = await db
+      .insert(schema.leads)
+      .values({ tenantId: id.tenantA, refId: "LD-2026-00012", uploadId: id.uploadA, dedupeKey: "ma|00012", rawJson: {}, partnerId: null, matchMethod: "none", manualPartnerId: id.partnerX, mlsStatus: "kept" })
+      .returning({ id: schema.leads.id });
+    await db.insert(schema.leadStatusHistory).values({ tenantId: id.tenantA, leadId: ml.id, status: "Contacted", changedByUserId: id.partnerUser });
+    // Under the old eq(partnerId) predicate this lead (partnerId=null) was under-reported.
+    const activity = await listPartnerActivity(partnerX());
+    expect(activity.items.some((i) => i.detail.includes("LD-2026-00012"))).toBe(true);
+  });
+
+  it("F-32: findProfileById never returns another tenant's saved source profile", async () => {
+    const [prof] = await db
+      .insert(schema.sourceProfiles)
+      .values({ tenantId: id.tenantB, name: "B Profile", headerSignature: [], mapping: {}, requiredColumns: [] })
+      .returning({ id: schema.sourceProfiles.id });
+    // Tenant A must not see tenant B's profile even with a valid uuid…
+    expect(await findProfileById(db, adminA(), prof.id)).toBeNull();
+    // …but tenant B does.
+    const adminB: ScopeContext = { tenantId: id.tenantB, role: "admin", userId: id.adminUser };
+    expect(await findProfileById(db, adminB, prof.id)).not.toBeNull();
   });
 
   it("RLS is enabled on every application table (the database backstop)", async () => {

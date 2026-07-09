@@ -31,7 +31,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ ref
     const adminOnly = requireAdminResponse(scope);
     if (adminOnly) return adminOnly;
     const result = await updateLeadStatus(scope, ref, parsed.data.status);
-    return jsonOk(result);
+    return jsonOk({ refId: result.refId, status: result.status });
   } catch (e) {
     const authResp = authErrorResponse(e);
     if (authResp) return authResp;

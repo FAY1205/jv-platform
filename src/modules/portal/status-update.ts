@@ -2,7 +2,7 @@ import { and, desc, eq } from "drizzle-orm";
 import { getDb } from "@/db";
 import * as schema from "@/db/schema";
 import { leadWhere, type ScopeContext } from "@/lib/scope";
-import { isValidStatus } from "./statuses";
+import { isValidStatus, DEFAULT_STATUS } from "./statuses";
 
 // PTL-03: a status update on an owned lead → lead_status_history + event (visible to
 // admin). Scoped (a partner can only update their own leads). PRN-05: historical
@@ -31,7 +31,7 @@ export async function updateLeadStatus(
   scope: ScopeContext,
   refId: string,
   status: string,
-): Promise<{ refId: string; status: string }> {
+): Promise<{ refId: string; status: string; changed: boolean }> {
   if (!isValidStatus(status)) throw new InvalidStatusError(status);
   const db = getDb();
   return db.transaction(async (tx) => {
@@ -44,15 +44,16 @@ export async function updateLeadStatus(
     if (lead.mlsStatus === "removed") throw new LeadRemovedError(refId);
 
     // F-12: idempotent — if the lead is already at this status, do nothing (no dup
-    // history row, no dup event, no dup admin notification downstream). PRN-05 safe.
+    // history row, no dup event) and signal `changed:false` so the route skips the
+    // admin notification too. PRN-05 safe. Deterministic tie-break on id.
     const [latest] = await tx
       .select({ status: schema.leadStatusHistory.status })
       .from(schema.leadStatusHistory)
       .where(eq(schema.leadStatusHistory.leadId, lead.id))
-      .orderBy(desc(schema.leadStatusHistory.createdAt))
+      .orderBy(desc(schema.leadStatusHistory.createdAt), desc(schema.leadStatusHistory.id))
       .limit(1);
-    const current = latest?.status ?? "New";
-    if (current === status) return { refId, status };
+    const current = latest?.status ?? DEFAULT_STATUS;
+    if (current === status) return { refId, status, changed: false };
 
     await tx.insert(schema.leadStatusHistory).values({
       tenantId: lead.tenantId,
@@ -65,6 +66,6 @@ export async function updateLeadStatus(
       type: "status.changed",
       payload: { leadRefId: refId, status, byRole: scope.role },
     });
-    return { refId, status };
+    return { refId, status, changed: true };
   });
 }

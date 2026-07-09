@@ -96,12 +96,15 @@ suite("TST-08: partner portal scoping", () => {
     await expect(updateLeadStatus(adminA(), "LD-2026-00003", "Contacted")).rejects.toBeInstanceOf(LeadRemovedError);
   });
 
-  it("F-12: re-setting the current status inserts no new history row or event (idempotent)", async () => {
+  it("F-12: re-setting the current status is a no-op (changed:false, no new history/event, so the route skips notify)", async () => {
     const [lead] = await db.select({ id: schema.leads.id }).from(schema.leads).where(eq(schema.leads.refId, "LD-2026-00001"));
-    await updateLeadStatus(adminA(), "LD-2026-00001", "Appointment"); // a real change
+    const first = await updateLeadStatus(adminA(), "LD-2026-00001", "Appointment"); // a real change
+    expect(first.changed).toBe(true);
     const h1 = await db.select({ id: schema.leadStatusHistory.id }).from(schema.leadStatusHistory).where(eq(schema.leadStatusHistory.leadId, lead.id));
     const e1 = await db.select({ id: schema.events.id }).from(schema.events).where(eq(schema.events.tenantId, id.tenant));
-    await updateLeadStatus(adminA(), "LD-2026-00001", "Appointment"); // same status again → no-op
+    const second = await updateLeadStatus(adminA(), "LD-2026-00001", "Appointment"); // same status again → no-op
+    // changed:false is the seam the portal route gates its admin notification on (F-1).
+    expect(second.changed).toBe(false);
     const h2 = await db.select({ id: schema.leadStatusHistory.id }).from(schema.leadStatusHistory).where(eq(schema.leadStatusHistory.leadId, lead.id));
     const e2 = await db.select({ id: schema.events.id }).from(schema.events).where(eq(schema.events.tenantId, id.tenant));
     expect(h2.length).toBe(h1.length);

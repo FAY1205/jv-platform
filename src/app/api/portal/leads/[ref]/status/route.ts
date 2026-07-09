@@ -26,15 +26,19 @@ export async function POST(request: Request, { params }: { params: Promise<{ ref
     const result = await updateLeadStatus(scope, ref, parsed.data.status);
 
     // NTF-02/04: alert admins (in-app always; email per SET-03, default off). Best-effort.
-    try {
-      const db = getDb();
-      await notifyStatusChange(db, scope, { leadRef: ref, status: parsed.data.status });
-      await drainOutbox(db, { tenantId: scope.tenantId });
-    } catch (e) {
-      logError("status_notify_failed", { message: e instanceof Error ? e.message : String(e) });
+    // F-12: skip entirely on a no-op update so a repeated same-status POST never
+    // re-notifies admins (the command already skipped the history/event writes).
+    if (result.changed) {
+      try {
+        const db = getDb();
+        await notifyStatusChange(db, scope, { leadRef: ref, status: parsed.data.status });
+        await drainOutbox(db, { tenantId: scope.tenantId });
+      } catch (e) {
+        logError("status_notify_failed", { message: e instanceof Error ? e.message : String(e) });
+      }
     }
 
-    return jsonOk(result);
+    return jsonOk({ refId: result.refId, status: result.status });
   } catch (e) {
     const authResp = authErrorResponse(e);
     if (authResp) return authResp;
