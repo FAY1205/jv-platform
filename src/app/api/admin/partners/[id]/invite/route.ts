@@ -32,7 +32,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
 
   const db = getDb();
   const [partner] = await db
-    .select({ id: schema.partners.id, email: schema.partners.email, status: schema.partners.status })
+    .select({ id: schema.partners.id, refId: schema.partners.refId, email: schema.partners.email, status: schema.partners.status })
     .from(schema.partners)
     .where(and(eq(schema.partners.tenantId, scope.tenantId), eq(schema.partners.id, id)));
 
@@ -53,6 +53,18 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     .update(schema.partners)
     .set({ status: "invited", invitedAt: new Date() })
     .where(and(eq(schema.partners.tenantId, scope.tenantId), eq(schema.partners.id, id)));
+
+  // ACT-04 / F-05: partner invites are admin actions and must reach the audit trail.
+  await db.insert(schema.auditLog).values({
+    tenantId: scope.tenantId,
+    actorUserId: scope.userId,
+    action: "partner.invited",
+    entityType: "partner",
+    entityRef: partner.refId,
+    before: { status: partner.status },
+    after: { status: "invited", email: partner.email },
+    traceId: globalThis.crypto.randomUUID(),
+  });
 
   const origin = new URL(request.url).origin;
   await notifyInvite(partner.email, `${origin}/portal/login`);

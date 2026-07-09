@@ -40,7 +40,7 @@ async function wipe() {
   await sql`delete from lead_notes where tenant_id=${T}`;
   await sql`delete from listing_checks where tenant_id=${T}`;
   await sql`delete from events where tenant_id=${T}`;
-  await sql`delete from audit_log where tenant_id=${T} and entity_type in ('lead','partner')`;
+  // audit_log is append-only evidence (ACT-04 / F-05) — the seeder never deletes it.
   await sql`delete from leads where tenant_id=${T}`;
   await sql`delete from coverage_zips where tenant_id=${T}`;
   await sql`delete from state_rules where tenant_id=${T}`;

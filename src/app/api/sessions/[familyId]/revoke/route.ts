@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { getDb } from "@/db";
+import * as schema from "@/db/schema";
 import { getServerScope } from "@/lib/scope-context";
 import { assertCsrf, authErrorResponse } from "@/lib/auth/guard";
 import { TrustedDeviceService } from "@/lib/auth/trusted-device";
@@ -24,7 +25,8 @@ export async function POST(request: Request, { params }: { params: Promise<{ fam
     return authErrorResponse(e) ?? jsonError("scope_failed", "Could not resolve session.", 500);
   }
 
-  const svc = new TrustedDeviceService(getDb());
+  const db = getDb();
+  const svc = new TrustedDeviceService(db);
   const owner = await svc.familyScope(familyId);
   if (!owner) return jsonError("not_found", "Device not found.", 404);
 
@@ -32,5 +34,21 @@ export async function POST(request: Request, { params }: { params: Promise<{ fam
   if (!allowed) return jsonError("forbidden", "Not allowed.", 403);
 
   await svc.revokeFamily(familyId, Date.now());
+
+  // ACC-02 / F-05: an admin forcing another user's device off is admin evidence and
+  // must reach the audit trail (self sign-out is a routine action, not audited here).
+  if (scope.role === "admin" && owner.userId !== scope.userId) {
+    await db.insert(schema.auditLog).values({
+      tenantId: scope.tenantId,
+      actorUserId: scope.userId,
+      action: "partner.session_revoked",
+      entityType: "trusted_device",
+      entityRef: familyId,
+      before: null,
+      after: { targetUserId: owner.userId },
+      traceId: globalThis.crypto.randomUUID(),
+    });
+  }
+
   return jsonOk({ code: "ok", message: "Device signed out." });
 }
