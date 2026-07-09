@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import Link from "next/link";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiGet } from "@/lib/api";
 import { csrfHeaders } from "@/lib/csrf-client";
@@ -383,7 +384,13 @@ function PartnersInner() {
                 {roster.map((p) => (
                   <Tr key={p.id}>
                     <Td>
-                      <PartnerTag name={p.name} color={p.color} refId={p.refId} />
+                      <Link
+                        href={`/partners/${p.id}`}
+                        className="inline-flex rounded-md transition-opacity hover:opacity-70 focus-visible:opacity-70"
+                        title={`Open ${p.name}`}
+                      >
+                        <PartnerTag name={p.name} color={p.color} refId={p.refId} />
+                      </Link>
                     </Td>
                     <Td>
                       <div className="text-sm text-text-2">{p.email ?? <span className="text-text-3">no email</span>}</div>

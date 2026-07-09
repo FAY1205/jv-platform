@@ -1,4 +1,4 @@
-import { and, count, eq, isNull, sql } from "drizzle-orm";
+import { and, count, desc, eq, isNull, sql } from "drizzle-orm";
 import { getDb } from "@/db";
 import * as schema from "@/db/schema";
 import { tenantWhere, type ScopeContext } from "@/lib/scope";
@@ -104,6 +104,58 @@ export async function territoryOf(scope: ScopeContext, partnerId: string): Promi
       .orderBy(schema.coverageZips.zip5),
   ]);
   return { states: states.map((s) => s.state), zips: zips.map((z) => z.zip5) };
+}
+
+export interface PartnerLeadSummary {
+  refId: string;
+  seller: string;
+  city: string | null;
+  state: string | null;
+  zip: string | null;
+  /** How the lead reached this partner — ZIP hit or state fallback (ASN-01). */
+  matchMethod: "zip" | "state_fallback" | "none";
+  receivedAt: string;
+}
+
+/** The partner's most recent kept leads (admin lead history for the detail page). */
+export async function recentLeadsForPartner(
+  scope: ScopeContext,
+  partnerId: string,
+  limit = 25,
+): Promise<PartnerLeadSummary[]> {
+  const db = getDb();
+  const rows = await db
+    .select({
+      refId: schema.leads.refId,
+      sellerFirst: schema.leads.sellerFirst,
+      sellerLast: schema.leads.sellerLast,
+      city: schema.leads.city,
+      state: schema.leads.state,
+      zip: schema.leads.zip,
+      matchMethod: schema.leads.matchMethod,
+      createdAt: schema.leads.createdAt,
+    })
+    .from(schema.leads)
+    .where(
+      and(
+        tenantWhere(schema.leads, scope),
+        eq(schema.leads.partnerId, partnerId),
+        eq(schema.leads.mlsStatus, "kept"),
+        isNull(schema.leads.deletedAt),
+      ),
+    )
+    .orderBy(desc(schema.leads.createdAt))
+    .limit(limit);
+
+  return rows.map((r) => ({
+    refId: r.refId,
+    seller: `${r.sellerFirst ?? ""} ${r.sellerLast ?? ""}`.trim() || "—",
+    city: r.city,
+    state: r.state,
+    zip: r.zip,
+    matchMethod: r.matchMethod,
+    receivedAt: r.createdAt.toISOString(),
+  }));
 }
 
 /** A single partner (active roster) with its current territory, or null. */

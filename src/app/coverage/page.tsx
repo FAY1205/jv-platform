@@ -86,7 +86,14 @@ export default function CoveragePage() {
             </section>
 
             <aside className={panel}>
-              <h2 className="mb-3 font-display text-[.95rem] font-semibold tracking-tight">Partners</h2>
+              <div className="mb-3 flex items-center justify-between gap-2">
+                <h2 className="font-display text-[.95rem] font-semibold tracking-tight">Partners</h2>
+                {selected && (
+                  <Link href={`/partners/${selected}`} className="text-xs font-semibold text-brand hover:underline">
+                    Open →
+                  </Link>
+                )}
+              </div>
               {data!.partners.length === 0 ? (
                 <p className="text-sm text-text-3">No state coverage assigned yet. Add state rules in Rules or ZIP coverage on a partner.</p>
               ) : (
