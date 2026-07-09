@@ -6,14 +6,13 @@ import { buildAnalytics, type AnalyticsResult } from "./overview";
 import {
   buildPeriodSummary,
   bucketByWeek,
-  periodRange,
   type Period,
   type PeriodSummary,
   type WeekBucket,
 } from "./periods";
 import { campaignQuality, type CampaignQuality } from "./source-quality";
-import { partnerPerformance, sourcePerformance, type PartnerPerf, type SourcePerf } from "./performance";
-import { currentStatus, DEFAULT_STATUS } from "../portal/statuses";
+import { rangeWindow, deltaOf, type RangeKey } from "./ranges";
+import { DEFAULT_STATUS } from "../portal/statuses";
 
 // ANA-01 read side. Admin-only (the route enforces role); tenant-scoped through
 // the guard (PRN-08). Fetches minimal per-lead fields + run/partner metadata and
@@ -127,98 +126,216 @@ export async function periodSummary(scope: ScopeContext, period: Period): Promis
   );
 }
 
-export interface DashboardPartnerPerf extends PartnerPerf {
+export interface DashboardStat {
+  value: number;
+  delta: number | null;
+}
+export interface DashboardPartnerRow {
+  partnerId: string;
   name: string;
   refId: string;
   color: string;
+  given: number;
+  untouched: number;
+  contacted: number;
+  closed: number;
+  avgContactHours: number | null;
+}
+export interface DashboardSourceRow {
+  campaign: string;
+  imported: number;
+  removed: number;
+  closed: number;
+  removalRate: number;
 }
 export interface DashboardData {
-  summary: PeriodSummary;
-  weekly: WeekBucket[];
-  partners: DashboardPartnerPerf[];
-  sources: SourcePerf[];
-  coveredVolumePct: number;
-  keptLeadCount: number;
+  range: { key: RangeKey; start: string; end: string; bucket: "day" | "month" };
+  stats: {
+    leadsIn: DashboardStat;
+    distributed: DashboardStat;
+    removed: DashboardStat;
+    unmatched: DashboardStat;
+    closed: DashboardStat;
+  };
+  trend: { bucketStart: string; leadsIn: number; distributed: number; unmatched: number }[];
+  partners: DashboardPartnerRow[];
+  sources: DashboardSourceRow[];
 }
 
-/** Everything the unified dashboard needs, from a single lead+status fetch.
- *  Performance is event-scoped to the selected period; KPIs/trend as before.
- *  All numbers originate here (PRN-15); `now` is stamped once. */
-export async function dashboardData(scope: ScopeContext, period: Period): Promise<DashboardData> {
+/** Every dashboard number, aggregated in SQL bounded by the selected range (F-10,
+ *  PRN-15). `now` is stamped once here; the pure window math lives in ranges.ts.
+ *  Distributed uses the effective owner `coalesce(manual_partner_id, partner_id)`
+ *  (the WS-0 / ASN-04 rule). Raw SQL embeds `tenantWhere` so scoping stays on the
+ *  guard (PRN-08); no table alias is used so the generated column resolves. */
+export async function dashboardData(scope: ScopeContext, range: RangeKey): Promise<DashboardData> {
   const db = getDb();
-  const now = new Date();
-  const range = periodRange(period, now);
+  const w = rangeWindow(range, new Date());
+  const start = w.start.toISOString();
+  const end = w.end.toISOString();
+  // Prior window: use the current start as a no-match sentinel when there is none
+  // (all-time), so prior counts read 0; deltas are nulled in JS via deltaOf.
+  const pStart = (w.prevStart ?? w.start).toISOString();
+  const pEnd = (w.prevEnd ?? w.start).toISOString();
+  const noPrior = w.prevStart === null;
+  const interval = w.bucket === "day" ? "1 day" : "1 month";
+  const trunc = w.bucket; // 'day' | 'month' — from a fixed enum, safe to bind
+  const leadTenant = tenantWhere(schema.leads, scope);
+  const histTenant = tenantWhere(schema.leadStatusHistory, scope);
 
-  const effectivePartner = sql<string | null>`coalesce(${schema.leads.manualPartnerId}, ${schema.leads.partnerId})`;
-  const [leadRows, historyRows, partnerRows] = await Promise.all([
-    db
-      .select({
-        id: schema.leads.id,
-        partnerId: effectivePartner,
-        campaign: schema.leads.campaign,
-        mlsStatus: schema.leads.mlsStatus,
-        previouslyMatched: schema.leads.previouslyMatched,
-        createdAt: schema.leads.createdAt,
-      })
-      .from(schema.leads)
-      .where(and(tenantWhere(schema.leads, scope), isNull(schema.leads.deletedAt))),
-    db
-      .select({ leadId: schema.leadStatusHistory.leadId, status: schema.leadStatusHistory.status, createdAt: schema.leadStatusHistory.createdAt })
-      .from(schema.leadStatusHistory)
-      .where(tenantWhere(schema.leadStatusHistory, scope)),
+  const [statRes, closedRes, trendRes, partnerRes, partnerMeta, sourceRes] = await Promise.all([
+    // ── Flat lead-count stats: current + prior windows in one pass ──
+    db.execute(sql`
+      select
+        count(*) filter (where created_at >= ${start} and created_at < ${end})::int as li,
+        count(*) filter (where created_at >= ${start} and created_at < ${end} and mls_status='kept' and coalesce(manual_partner_id, partner_id) is not null)::int as di,
+        count(*) filter (where created_at >= ${start} and created_at < ${end} and mls_status='removed')::int as rm,
+        count(*) filter (where created_at >= ${start} and created_at < ${end} and mls_status='kept' and coalesce(manual_partner_id, partner_id) is null)::int as un,
+        count(*) filter (where created_at >= ${pStart} and created_at < ${pEnd})::int as pli,
+        count(*) filter (where created_at >= ${pStart} and created_at < ${pEnd} and mls_status='kept' and coalesce(manual_partner_id, partner_id) is not null)::int as pdi,
+        count(*) filter (where created_at >= ${pStart} and created_at < ${pEnd} and mls_status='removed')::int as prm,
+        count(*) filter (where created_at >= ${pStart} and created_at < ${pEnd} and mls_status='kept' and coalesce(manual_partner_id, partner_id) is null)::int as pun
+      from leads where ${leadTenant} and deleted_at is null
+    `),
+    // ── Closed = leads whose LATEST Closed status event lands in the window ──
+    db.execute(sql`
+      with closed as (
+        select lead_id, max(created_at) as closed_at
+        from lead_status_history where ${histTenant} and status = 'Closed' group by lead_id
+      )
+      select
+        count(*) filter (where closed_at >= ${start} and closed_at < ${end})::int as c,
+        count(*) filter (where closed_at >= ${pStart} and closed_at < ${pEnd})::int as pc
+      from closed
+    `),
+    // ── Trend: zero-filled buckets between first & last in-window lead ──
+    db.execute(sql`
+      with bounds as (
+        select date_trunc(${trunc}, min(created_at)) as lo, date_trunc(${trunc}, max(created_at)) as hi
+        from leads where ${leadTenant} and deleted_at is null and created_at >= ${start} and created_at < ${end}
+      ),
+      buckets as (
+        select generate_series(bounds.lo, bounds.hi, ${sql.raw(`interval '${interval}'`)}) as b from bounds where bounds.lo is not null
+      ),
+      agg as (
+        select date_trunc(${trunc}, created_at) as b,
+          count(*)::int as leads_in,
+          count(*) filter (where mls_status='kept' and coalesce(manual_partner_id, partner_id) is not null)::int as distributed,
+          count(*) filter (where mls_status='kept' and coalesce(manual_partner_id, partner_id) is null)::int as unmatched
+        from leads where ${leadTenant} and deleted_at is null and created_at >= ${start} and created_at < ${end}
+        group by 1
+      )
+      select buckets.b::text as bucket_start,
+        coalesce(agg.leads_in, 0)::int as leads_in,
+        coalesce(agg.distributed, 0)::int as distributed,
+        coalesce(agg.unmatched, 0)::int as unmatched
+      from buckets left join agg on agg.b = buckets.b order by buckets.b
+    `),
+    // ── Partner performance: per-lead history facts → per effective-partner aggregates ──
+    db.execute(sql`
+      with hist as (
+        select lead_id,
+          min(created_at) filter (where status <> ${DEFAULT_STATUS}) as first_touch_at,
+          max(created_at) filter (where status = 'Closed') as closed_at,
+          (array_agg(status order by created_at desc))[1] as current_status
+        from lead_status_history where ${histTenant} group by lead_id
+      ),
+      facts as (
+        select coalesce(leads.manual_partner_id, leads.partner_id) as pid,
+          leads.created_at as received_at,
+          hist.first_touch_at, hist.closed_at,
+          coalesce(hist.current_status, ${DEFAULT_STATUS}) as current_status
+        from leads left join hist on hist.lead_id = leads.id
+        where ${leadTenant} and leads.deleted_at is null and leads.mls_status='kept'
+          and coalesce(leads.manual_partner_id, leads.partner_id) is not null
+      )
+      select pid::text as pid,
+        count(*) filter (where received_at >= ${start} and received_at < ${end})::int as given,
+        count(*) filter (where received_at >= ${start} and received_at < ${end} and current_status = ${DEFAULT_STATUS})::int as untouched,
+        count(*) filter (where first_touch_at >= ${start} and first_touch_at < ${end})::int as contacted,
+        count(*) filter (where closed_at >= ${start} and closed_at < ${end})::int as closed,
+        avg(extract(epoch from (first_touch_at - received_at)) / 3600.0)
+          filter (where first_touch_at >= ${start} and first_touch_at < ${end}) as avg_contact_hours
+      from facts group by pid
+      order by given desc, contacted desc, pid
+    `),
+    // ── Partner metadata for name/ref/color ──
     db
       .select({ id: schema.partners.id, name: schema.partners.name, refId: schema.partners.refId, color: schema.partners.color })
       .from(schema.partners)
       .where(and(tenantWhere(schema.partners, scope), isNull(schema.partners.deletedAt))),
+    // ── Source performance ──
+    db.execute(sql`
+      with closed as (
+        select lead_id, max(created_at) filter (where status='Closed') as closed_at
+        from lead_status_history where ${histTenant} group by lead_id
+      )
+      select coalesce(nullif(trim(leads.campaign), ''), 'Unattributed') as campaign,
+        count(*) filter (where leads.created_at >= ${start} and leads.created_at < ${end})::int as imported,
+        count(*) filter (where leads.created_at >= ${start} and leads.created_at < ${end} and leads.mls_status='removed')::int as removed,
+        count(*) filter (where closed.closed_at >= ${start} and closed.closed_at < ${end})::int as closed
+      from leads left join closed on closed.lead_id = leads.id
+      where ${leadTenant} and leads.deleted_at is null
+      group by 1 order by imported desc, campaign
+    `),
   ]);
 
-  const histByLead = new Map<string, { status: string; createdAt: string }[]>();
-  for (const h of historyRows) {
-    const list = histByLead.get(h.leadId) ?? [];
-    list.push({ status: h.status, createdAt: h.createdAt.toISOString() });
-    histByLead.set(h.leadId, list);
-  }
+  const s = (statRes as unknown as Record<string, number>[])[0] ?? {};
+  const cl = (closedRes as unknown as Record<string, number>[])[0] ?? { c: 0, pc: 0 };
+  const stat = (cur: unknown, prev: unknown): DashboardStat => {
+    const c = Number(cur ?? 0);
+    return { value: c, delta: noPrior ? null : deltaOf(c, Number(prev ?? 0)) };
+  };
 
-  const perfLeads = leadRows.map((l) => {
-    const h = histByLead.get(l.id) ?? [];
-    const sorted = [...h].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
-    const firstTouchAt = sorted.find((e) => e.status !== DEFAULT_STATUS)?.createdAt ?? null;
-    const closedAt = [...sorted].reverse().find((e) => e.status === "Closed")?.createdAt ?? null;
+  const metaById = new Map(
+    (partnerMeta as { id: string; name: string; refId: string; color: string }[]).map((p) => [p.id, p]),
+  );
+  const partners: DashboardPartnerRow[] = (
+    partnerRes as unknown as { pid: string; given: number; untouched: number; contacted: number; closed: number; avg_contact_hours: number | null }[]
+  ).map((r) => {
+    const meta = metaById.get(r.pid);
     return {
-      partnerId: l.partnerId,
-      campaign: l.campaign,
-      mlsStatus: l.mlsStatus,
-      receivedAt: l.createdAt.toISOString(),
-      firstTouchAt,
-      closedAt,
-      currentStatus: currentStatus(h),
+      partnerId: r.pid,
+      name: meta?.name ?? "Unknown partner",
+      refId: meta?.refId ?? "—",
+      color: meta?.color ?? "var(--text-3)",
+      given: Number(r.given),
+      untouched: Number(r.untouched),
+      contacted: Number(r.contacted),
+      closed: Number(r.closed),
+      avgContactHours: r.avg_contact_hours === null ? null : Math.round(Number(r.avg_contact_hours) * 10) / 10,
     };
   });
 
-  const partnerById = new Map(partnerRows.map((p) => [p.id, p]));
-  const partners: DashboardPartnerPerf[] = partnerPerformance(range, perfLeads).map((pp) => {
-    const meta = partnerById.get(pp.partnerId);
-    return { ...pp, name: meta?.name ?? "Unknown partner", refId: meta?.refId ?? "—", color: meta?.color ?? "var(--text-3)" };
-  });
+  const sources: DashboardSourceRow[] = (
+    sourceRes as unknown as { campaign: string; imported: number; removed: number; closed: number }[]
+  ).map((r) => ({
+    campaign: r.campaign,
+    imported: Number(r.imported),
+    removed: Number(r.removed),
+    closed: Number(r.closed),
+    removalRate: Number(r.imported) === 0 ? 0 : Number(r.removed) / Number(r.imported),
+  }));
 
-  const summary = buildPeriodSummary(
-    leadRows.map((l) => ({ receivedAt: l.createdAt.toISOString(), mlsStatus: l.mlsStatus, partnerId: l.partnerId, previouslyMatched: l.previouslyMatched })),
-    period,
-    now,
-  );
-  const weekly = bucketByWeek(
-    leadRows.map((l) => ({ receivedAt: l.createdAt.toISOString(), mlsStatus: l.mlsStatus, partnerId: l.partnerId, previouslyMatched: l.previouslyMatched })),
-  );
-
-  const kept = leadRows.filter((l) => l.mlsStatus === "kept");
-  const keptCovered = kept.filter((l) => l.partnerId !== null).length;
+  const trend = (
+    trendRes as unknown as { bucket_start: string; leads_in: number; distributed: number; unmatched: number }[]
+  ).map((r) => ({
+    bucketStart: r.bucket_start,
+    leadsIn: Number(r.leads_in),
+    distributed: Number(r.distributed),
+    unmatched: Number(r.unmatched),
+  }));
 
   return {
-    summary,
-    weekly,
+    range: { key: range, start, end, bucket: w.bucket },
+    stats: {
+      leadsIn: stat(s.li, s.pli),
+      distributed: stat(s.di, s.pdi),
+      removed: stat(s.rm, s.prm),
+      unmatched: stat(s.un, s.pun),
+      closed: stat(cl.c, cl.pc),
+    },
+    trend,
     partners,
-    sources: sourcePerformance(range, perfLeads),
-    keptLeadCount: kept.length,
-    coveredVolumePct: kept.length === 0 ? 0 : keptCovered / kept.length,
+    sources,
   };
 }
