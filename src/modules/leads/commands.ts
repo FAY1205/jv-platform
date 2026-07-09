@@ -2,6 +2,7 @@ import { and, eq, isNull } from "drizzle-orm";
 import { getDb } from "@/db";
 import * as schema from "@/db/schema";
 import { tenantWhere, type ScopeContext } from "@/lib/scope";
+import { computeDedupeKey, normalizeAddress } from "@/modules/pipeline/normalize";
 
 // ADM / ASN-03 write side. Manual assignment is ADDITIVE (PRN-05: the import
 // snapshot — partnerId / matchMethod — is never rewritten). Only a currently
@@ -168,6 +169,18 @@ export async function editLead(scope: ScopeContext, input: EditLeadInput): Promi
         before[col] = lead[col] ?? null;
         after[col] = clean;
       }
+    }
+
+    // Address/zip drive the dedupe key + normalized address (DM-01). Recompute both
+    // when either changes so future dedupe / PRN-05 "revert to original" stay consistent
+    // (audit F-01 data facet). The import snapshot (partnerId/matchMethod) is untouched.
+    // A recomputed key can collide with the (tenant, dedupe_key) unique index if the new
+    // address matches another lead — the tx then rolls back and the route surfaces it.
+    if ("address" in patch || "zip" in patch) {
+      const nextAddress = "address" in patch ? patch.address : lead.address;
+      const nextZip = "zip" in patch ? patch.zip : lead.zip;
+      patch.addressNormalized = normalizeAddress(nextAddress);
+      patch.dedupeKey = computeDedupeKey(nextAddress, nextZip);
     }
 
     // Effective owner today = manual overlay if present, else the pipeline snapshot.

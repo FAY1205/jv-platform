@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { drizzle, type PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
-import { inArray, sql } from "drizzle-orm";
+import { eq, inArray, sql } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import * as schema from "@/db/schema";
 import { tenantWhere, leadWhere, noteWhere, type ScopeContext } from "@/lib/scope";
@@ -27,6 +27,8 @@ suite("TST-01: tenant & partner isolation", () => {
     const tids = tenantsToClear.map((t) => t.id);
     if (tids.length === 0) return;
     await db.delete(schema.leadNotes).where(inArray(schema.leadNotes.tenantId, tids));
+    // editLead writes an audit_log row (action "lead.edited"); clear it before tenants.
+    await db.delete(schema.auditLog).where(inArray(schema.auditLog.tenantId, tids));
     await db.delete(schema.leads).where(inArray(schema.leads.tenantId, tids));
     await db.delete(schema.uploads).where(inArray(schema.uploads.tenantId, tids));
     await db.delete(schema.users).where(inArray(schema.users.tenantId, tids));
@@ -57,6 +59,7 @@ suite("TST-01: tenant & partner isolation", () => {
     await db.insert(schema.users).values({ id: id.partnerUser, tenantId: ta.id, email: "px@a.test", role: "partner", partnerId: px.id });
 
     const [ua] = await db.insert(schema.uploads).values({ tenantId: ta.id, refId: "UP-2026-001", filename: "a.xlsx", status: "processed" }).returning({ id: schema.uploads.id });
+    id.uploadA = ua.id;
     const [ub] = await db.insert(schema.uploads).values({ tenantId: tb.id, refId: "UP-2026-001", filename: "b.xlsx", status: "processed" }).returning({ id: schema.uploads.id });
 
     const [lx] = await db.insert(schema.leads).values({ tenantId: ta.id, refId: "LD-2026-00001", uploadId: ua.id, dedupeKey: "x|00001", rawJson: {}, partnerId: px.id, matchMethod: "zip" }).returning({ id: schema.leads.id });
@@ -148,6 +151,24 @@ suite("TST-01: tenant & partner isolation", () => {
     const bodies = rows.map((r) => r.body);
     expect(bodies).toContain("partner-only note");
     expect(bodies).not.toContain("admin-only note");
+  });
+
+  it("F-01: editLead recomputes dedupeKey/addressNormalized and never rewrites partnerId/matchMethod (PRN-05)", async () => {
+    const { editLead } = await import("@/modules/leads/commands");
+    const [seed] = await db
+      .insert(schema.leads)
+      .values({ tenantId: id.tenantA, refId: "LD-2026-00011", uploadId: id.uploadA, dedupeKey: "orig|00011", rawJson: {}, partnerId: id.partnerX, matchMethod: "zip", mlsStatus: "kept", address: "1 Old St", zip: "00011" })
+      .returning({ id: schema.leads.id });
+    await editLead(adminA(), { ref: "LD-2026-00011", fields: { address: "42 New Rd", zip: "75201" }, partner: { action: "set", partnerId: id.partnerY } });
+    const [row] = await db
+      .select({ dedupeKey: schema.leads.dedupeKey, addrNorm: schema.leads.addressNormalized, partnerId: schema.leads.partnerId, matchMethod: schema.leads.matchMethod, manualPartnerId: schema.leads.manualPartnerId })
+      .from(schema.leads)
+      .where(eq(schema.leads.id, seed.id));
+    expect(row.dedupeKey).toBe("42 new rd|75201"); // recomputed from the new address+zip
+    expect(row.addrNorm).toBe("42 new rd");
+    expect(row.partnerId).toBe(id.partnerX); // PRN-05: import snapshot untouched
+    expect(row.matchMethod).toBe("zip"); // PRN-05: import snapshot untouched
+    expect(row.manualPartnerId).toBe(id.partnerY); // overlay moved
   });
 
   it("RLS is enabled on every application table (the database backstop)", async () => {
