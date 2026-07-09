@@ -21,6 +21,9 @@ export {
 } from "./DropdownMenu";
 export { Pagination, type PaginationProps, PAGE_SIZES, DEFAULT_PAGE_SIZE } from "./Pagination";
 export { RowOpenButton, type RowOpenButtonProps } from "./RowOpenButton";
+export { ChartContainer, type ChartContainerProps, ChartTooltip } from "./ChartContainer";
+export { LineChart, type LineChartProps, type LineSeries } from "./LineChart";
+export { DonutChart, type DonutChartProps, type DonutDatum } from "./DonutChart";
 export {
   Table,
   THead,
