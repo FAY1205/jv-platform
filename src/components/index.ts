@@ -29,3 +29,4 @@ export { NotesPanel } from "./NotesPanel";
 export { NotificationBell } from "./NotificationBell";
 export { ListingBadge, type ListingStatus } from "./ListingBadge";
 export { AppShell } from "./AppShell";
+export { CoverageMap, type CoverageMapProps } from "./CoverageMap";
