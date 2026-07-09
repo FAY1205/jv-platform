@@ -21,6 +21,7 @@ export {
 } from "./Table";
 export { Tabs, type TabItem, type TabsProps } from "./Tabs";
 export { Modal, type ModalProps } from "./Modal";
+export { Dialog, type DialogProps } from "./Dialog";
 export { Tooltip, type TooltipProps } from "./Tooltip";
 export { ToastProvider, useToast } from "./Toast";
 export { Skeleton } from "./Skeleton";

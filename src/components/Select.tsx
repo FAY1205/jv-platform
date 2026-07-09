@@ -37,7 +37,8 @@ export const Select = React.forwardRef<HTMLSelectElement, SelectProps>(function 
           aria-describedby={describedBy}
           className={cn(
             "w-full appearance-none rounded-md border bg-surface px-3 py-2 pr-9 text-sm font-medium text-text-2",
-            "transition-[border-color] duration-[120ms] focus:outline-none",
+            // F-16: a visible keyboard focus ring (was suppressed with outline-none).
+            "transition-[border-color] duration-[120ms] outline-none focus-visible:ring-2 focus-visible:ring-brand/50",
             error ? "border-danger focus:border-danger" : "border-border focus:border-brand",
             className,
           )}

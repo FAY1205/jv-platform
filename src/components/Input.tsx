@@ -54,7 +54,8 @@ export const Input = React.forwardRef<HTMLInputElement, InputProps>(function Inp
             "w-full rounded-md border bg-surface px-3 py-2 text-sm text-text",
             isPassword && "pr-10",
             "placeholder:text-text-3 transition-[border-color] duration-[120ms]",
-            "focus:outline-none focus-visible:outline-none",
+            // F-16: a visible keyboard focus ring (was suppressed with outline-none).
+            "outline-none focus-visible:ring-2 focus-visible:ring-brand/50",
             error ? "border-danger focus:border-danger" : "border-border focus:border-brand",
             className,
           )}

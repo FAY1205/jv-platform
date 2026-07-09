@@ -38,7 +38,8 @@ export const Textarea = React.forwardRef<HTMLTextAreaElement, TextareaProps>(fun
         className={cn(
           "w-full resize-y rounded-md border bg-surface px-3 py-2 text-sm text-text",
           "placeholder:text-text-3 transition-[border-color] duration-[120ms]",
-          "focus:outline-none focus-visible:outline-none",
+          // F-16: a visible keyboard focus ring (was suppressed with outline-none).
+          "outline-none focus-visible:ring-2 focus-visible:ring-brand/50",
           "disabled:cursor-not-allowed disabled:opacity-60",
           error ? "border-danger focus:border-danger" : "border-border focus:border-brand",
           className,

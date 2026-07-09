@@ -9,6 +9,7 @@ import {
   Input,
   Tabs,
   Modal,
+  Dialog,
   Tooltip,
   EmptyState,
 } from "@/components";
@@ -118,6 +119,26 @@ describe("Modal", () => {
     expect(screen.getByRole("dialog")).toBeInTheDocument();
     fireEvent.keyDown(document, { key: "Escape" });
     expect(onClose).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("F-15: Dialog (Radix)", () => {
+  it("renders its title + body only when open", () => {
+    const onClose = () => {};
+    const { rerender } = render(
+      <Dialog open={false} onClose={onClose} title="Edit lead">
+        <p>Lead body</p>
+      </Dialog>,
+    );
+    expect(screen.queryByText("Edit lead")).not.toBeInTheDocument();
+    rerender(
+      <Dialog open onClose={onClose} title="Edit lead">
+        <p>Lead body</p>
+      </Dialog>,
+    );
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+    expect(screen.getByText("Edit lead")).toBeInTheDocument();
+    expect(screen.getByText("Lead body")).toBeInTheDocument();
   });
 });
 

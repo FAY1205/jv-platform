@@ -11,7 +11,9 @@ export interface TooltipProps {
 
 /**
  * Tooltip — shows on hover and keyboard focus (never hover-only, DSN-07). Used for
- * the calculation tooltips required on every computed value and badge (UXQ-05).
+ * the calculation tooltips required on every computed value and badge (UXQ-05/F-64).
+ * Hand-rolled and accessible (role="tooltip" + aria-describedby); usable on any page.
+ * (Tooltip is intentionally NOT a Radix primitive — it is outside the ADR-0016 list.)
  */
 export function Tooltip({ content, children, className }: TooltipProps) {
   const [open, setOpen] = React.useState(false);
