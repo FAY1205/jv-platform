@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { drizzle, type PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
-import { eq } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import * as schema from "@/db/schema";
@@ -31,11 +31,29 @@ suite("PTL-01: partner onboarding stores", () => {
   let partnerId = "";
   let userId = "";
 
+  // Cascade-safe pre-clean: an interrupted prior run can leave a partner/user row
+  // that FK-blocks deleting the tenant, wedging the whole suite (audit F-50). Resolve
+  // the tenant(s) by slug, then delete children before parents in FK order.
+  async function cleanupBySlug() {
+    const rows = await db.select({ id: schema.tenants.id }).from(schema.tenants).where(eq(schema.tenants.slug, SLUG));
+    const tids = rows.map((r) => r.id);
+    if (tids.length === 0) return;
+    const us = await db.select({ id: schema.users.id, email: schema.users.email }).from(schema.users).where(inArray(schema.users.tenantId, tids));
+    const uids = us.map((u) => u.id);
+    if (uids.length) {
+      await db.delete(schema.tosAcceptances).where(inArray(schema.tosAcceptances.userId, uids));
+      await db.delete(schema.otpChallenges).where(inArray(schema.otpChallenges.identifier, us.map((u) => u.email.toLowerCase())));
+    }
+    await db.delete(schema.users).where(inArray(schema.users.tenantId, tids));
+    await db.delete(schema.partners).where(inArray(schema.partners.tenantId, tids));
+    await db.delete(schema.tenants).where(inArray(schema.tenants.id, tids));
+  }
+
   beforeAll(async () => {
     client = postgres(dbUrl!, { prepare: false, max: 1 });
     db = drizzle(client, { schema });
     admin = createClient(supabaseUrl!, serviceKey!, { auth: { autoRefreshToken: false, persistSession: false } });
-    await db.delete(schema.tenants).where(eq(schema.tenants.slug, SLUG));
+    await cleanupBySlug();
     const [t] = await db.insert(schema.tenants).values({ name: "OTP Iso", slug: SLUG }).returning({ id: schema.tenants.id });
     tenantId = t.id;
     const [p] = await db

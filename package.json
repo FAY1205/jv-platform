@@ -15,7 +15,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:unit": "vitest run tests/unit",
-    "test:integration": "vitest run tests/integration",
+    "test:integration": "vitest run tests/integration --no-file-parallelism",
     "e2e": "playwright test",
     "check": "pnpm run typecheck && pnpm run lint && pnpm run test",
     "db:generate": "drizzle-kit generate",

@@ -74,7 +74,7 @@ suite("WP-029: notification center + prefs (NTF-04/05)", () => {
     expect(partnerNotifs[0].deepLink).toBe("/portal/leads");
 
     const adminNotifs = await listNotifications(adminScope);
-    expect(adminNotifs.some((n) => n.type === "run_summary" && n.deepLink === "/runs/UP-2026-020")).toBe(true);
+    expect(adminNotifs.some((n) => n.type === "run_summary" && n.deepLink === "/imports/UP-2026-020")).toBe(true);
     // scoping: the partner never sees the admin's run_summary.
     expect(partnerNotifs.some((n) => n.type === "run_summary")).toBe(false);
 
