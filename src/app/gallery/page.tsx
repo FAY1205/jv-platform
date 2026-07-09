@@ -21,7 +21,24 @@ import {
   type SortDir,
   Tabs,
   Modal,
+  Dialog,
   Tooltip,
+  Select,
+  Checkbox,
+  DatePicker,
+  DateRangePicker,
+  type DateRangeValue,
+  Pagination,
+  DEFAULT_PAGE_SIZE,
+  RowOpenButton,
+  LineChart,
+  DonutChart,
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuLabel,
   ToastProvider,
   useToast,
   EmptyState,
@@ -59,12 +76,12 @@ type Lead = {
 };
 
 const LEADS: Lead[] = [
-  { id: "LD-2026-00404", partner: "Josh Ax", addr: "142 Garden State Ave", city: "Cherry Hill", st: "NJ", zip: "08034", seller: "D. Romano", match: "state", mls: "No" },
-  { id: "LD-2026-00409", partner: "Josh Ax", addr: "18 Pocono Ridge Ln", city: "Scranton", st: "PA", zip: "18503", seller: "K. Weiss", match: "zip", mls: "Unknown" },
-  { id: "LD-2026-00415", partner: "Josh Ax", addr: "77 Sound View Ter", city: "New Haven", st: "CT", zip: "06511", seller: "M. Alves", match: "state", prev: true, mls: "No" },
-  { id: "LD-2026-00406", partner: "Michael Pinter", addr: "311 Merrick Blvd", city: "Queens", st: "NY", zip: "11434", seller: "T. Okafor", match: "zip", mls: "Yes" },
-  { id: "LD-2026-00411", partner: "Randy Wolfe", addr: "1204 Palmetto St", city: "Greenville", st: "SC", zip: "29601", seller: "B. Hutto", match: "state", mls: "No" },
-  { id: "LD-2026-00405", partner: "Jeff Lister", addr: "2216 Pine St", city: "Philadelphia", st: "PA", zip: "19103", seller: "A. Boyd", match: "zip", mls: "Yes" },
+  { id: "LD-26-00404", partner: "Josh Ax", addr: "142 Garden State Ave", city: "Cherry Hill", st: "NJ", zip: "08034", seller: "D. Romano", match: "state", mls: "No" },
+  { id: "LD-26-00409", partner: "Josh Ax", addr: "18 Pocono Ridge Ln", city: "Scranton", st: "PA", zip: "18503", seller: "K. Weiss", match: "zip", mls: "Unknown" },
+  { id: "LD-26-00415", partner: "Josh Ax", addr: "77 Sound View Ter", city: "New Haven", st: "CT", zip: "06511", seller: "M. Alves", match: "state", prev: true, mls: "No" },
+  { id: "LD-26-00406", partner: "Michael Pinter", addr: "311 Merrick Blvd", city: "Queens", st: "NY", zip: "11434", seller: "T. Okafor", match: "zip", mls: "Yes" },
+  { id: "LD-26-00411", partner: "Randy Wolfe", addr: "1204 Palmetto St", city: "Greenville", st: "SC", zip: "29601", seller: "B. Hutto", match: "state", mls: "No" },
+  { id: "LD-26-00405", partner: "Jeff Lister", addr: "2216 Pine St", city: "Philadelphia", st: "PA", zip: "19103", seller: "A. Boyd", match: "zip", mls: "Yes" },
 ];
 
 const colorOf = (name: string) => PARTNER_PALETTE.find((p) => p.name === name)?.hex ?? "#999";
@@ -101,6 +118,15 @@ function Gallery() {
   const [tab, setTab] = React.useState("zip");
   const [modalOpen, setModalOpen] = React.useState(false);
   const [addrSort, setAddrSort] = React.useState<SortDir>(null);
+  // WS-1 primitive demo state.
+  const [dialogOpen, setDialogOpen] = React.useState(false);
+  const [selectVal, setSelectVal] = React.useState("new");
+  const [checkA, setCheckA] = React.useState(true);
+  const [checkB, setCheckB] = React.useState(false);
+  const [date, setDate] = React.useState<string | null>("2026-07-10");
+  const [range, setRange] = React.useState<DateRangeValue>({ from: "2026-07-01", to: "2026-07-10" });
+  const [page, setPage] = React.useState(1);
+  const [pageSize, setPageSize] = React.useState(DEFAULT_PAGE_SIZE);
 
   React.useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -166,7 +192,7 @@ function Gallery() {
             <CardBody className="flex flex-col gap-3">
               <div className="font-display text-3xl font-bold tracking-tight">Display · Space Grotesk</div>
               <div className="text-base text-text-2">Body · Inter — deterministic lead-routing you can audit lead by lead.</div>
-              <div className="num text-sm text-text-2">Mono · IBM Plex — LD-2026-00404 · ZIP 06404 · 06511 · 1,284 leads · 77.8%</div>
+              <div className="num text-sm text-text-2">Mono · IBM Plex — LD-26-00404 · ZIP 06404 · 06511 · 1,284 leads · 77.8%</div>
             </CardBody>
           </Card>
         </Section>
@@ -313,7 +339,123 @@ function Gallery() {
             </Card>
           </div>
         </Section>
+
+        <Section title="Foundation primitives — REDESIGN-R3 WS-1 (Radix + Recharts)">
+          <div className="grid gap-4 md:grid-cols-2">
+            <Card>
+              <CardHeader><CardTitle>Select (Radix, controlled)</CardTitle></CardHeader>
+              <CardBody className="flex flex-col gap-4">
+                <div className="max-w-xs">
+                  <Select
+                    label="Status"
+                    value={selectVal}
+                    onValueChange={setSelectVal}
+                    options={[
+                      { value: "new", label: "New" },
+                      { value: "contacted", label: "Contacted" },
+                      { value: "appointment", label: "Appointment" },
+                      { value: "closed", label: "Closed" },
+                    ]}
+                  />
+                </div>
+                <div className="max-w-xs">
+                  <Select label="Disabled" value="new" onValueChange={() => {}} disabled options={[{ value: "new", label: "New" }]} />
+                </div>
+              </CardBody>
+            </Card>
+
+            <Card>
+              <CardHeader><CardTitle>Checkbox</CardTitle></CardHeader>
+              <CardBody className="flex flex-col gap-3">
+                <Checkbox checked={checkA} onCheckedChange={setCheckA} label="Email digest" />
+                <Checkbox checked={checkB} onCheckedChange={setCheckB} label="In-app alerts" />
+                <Checkbox checked={false} onCheckedChange={() => {}} label="Disabled" disabled />
+              </CardBody>
+            </Card>
+
+            <Card>
+              <CardHeader><CardTitle>Date + range pickers</CardTitle></CardHeader>
+              <CardBody className="flex flex-col gap-4">
+                <div className="max-w-xs"><DatePicker label="Single date" value={date} onChange={setDate} /></div>
+                <div className="max-w-xs"><DateRangePicker label="Date range" value={range} onChange={setRange} /></div>
+              </CardBody>
+            </Card>
+
+            <Card>
+              <CardHeader><CardTitle>Dropdown menu + Dialog + row-open</CardTitle></CardHeader>
+              <CardBody className="flex flex-wrap items-center gap-3">
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="secondary" size="sm">Actions ▾</Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="start">
+                    <DropdownMenuLabel>Partner</DropdownMenuLabel>
+                    <DropdownMenuItem onSelect={() => toast("Edit", "success")}>Edit</DropdownMenuItem>
+                    <DropdownMenuItem onSelect={() => toast("Reactivate", "success")}>Reactivate</DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem destructive onSelect={() => toast("Deactivated", "danger")}>Deactivate</DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+                <Button variant="secondary" size="sm" onClick={() => setDialogOpen(true)}>Open Dialog</Button>
+                <RowOpenButton onClick={() => setDialogOpen(true)}>LD-26-00404</RowOpenButton>
+              </CardBody>
+            </Card>
+
+            <Card>
+              <CardHeader><CardTitle>Pagination</CardTitle></CardHeader>
+              <CardBody>
+                <Pagination page={page} pageSize={pageSize} total={137} onPageChange={setPage} onPageSizeChange={(s) => { setPageSize(s); setPage(1); }} />
+              </CardBody>
+            </Card>
+
+            <Card>
+              <CardHeader><CardTitle>Line chart (Recharts)</CardTitle></CardHeader>
+              <CardBody>
+                <LineChart
+                  xKey="day"
+                  series={[
+                    { key: "in", name: "Leads in", color: "var(--brand)" },
+                    { key: "distributed", name: "Distributed", color: "var(--info)" },
+                    { key: "unmatched", name: "Unmatched", color: "var(--warn)" },
+                  ]}
+                  data={[
+                    { day: "Mon", in: 42, distributed: 33, unmatched: 9 },
+                    { day: "Tue", in: 51, distributed: 44, unmatched: 7 },
+                    { day: "Wed", in: 38, distributed: 30, unmatched: 8 },
+                    { day: "Thu", in: 60, distributed: 52, unmatched: 8 },
+                    { day: "Fri", in: 47, distributed: 41, unmatched: 6 },
+                  ]}
+                />
+              </CardBody>
+            </Card>
+
+            <Card>
+              <CardHeader><CardTitle>Donut chart (Recharts)</CardTitle></CardHeader>
+              <CardBody>
+                <DonutChart
+                  centerLabel="removed"
+                  data={[
+                    { name: "Lead Zolo", value: 18, color: colorOf("Josh Ax") },
+                    { name: "Real Estate Bees", value: 11, color: colorOf("Randy Wolfe") },
+                    { name: "Facebook Ads", value: 7, color: colorOf("Michael Pinter") },
+                  ]}
+                />
+              </CardBody>
+            </Card>
+          </div>
+        </Section>
       </main>
+
+      <Dialog
+        open={dialogOpen}
+        onClose={() => setDialogOpen(false)}
+        title="Lead LD-26-00404"
+        footer={<Button variant="primary" onClick={() => setDialogOpen(false)}>Done</Button>}
+      >
+        <p className="text-sm text-text-2">
+          Radix Dialog — focus is trapped inside and returns to the trigger on close (F-15). Try Tab and Esc.
+        </p>
+      </Dialog>
 
       <Modal
         open={modalOpen}
