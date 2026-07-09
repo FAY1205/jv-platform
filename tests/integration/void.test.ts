@@ -55,8 +55,8 @@ suite("WP-018: void-run (ING-09)", () => {
 
   it("voids a run, records the reason + audit, and drops its leads from future dedupe (ING-09)", async () => {
     // A run that lands one NJ lead (dedupe_key = DKEY).
-    const rules = { mlsPatterns: DEFAULT_MLS_PATTERNS, recodes: [], coverage: buildCoverage([], [{ state: "NJ", partnerId: partnerNJ }]) };
-    const snapshotInput = { sourceProfile: { id: GENERIC_PROFILE.id, version: GENERIC_PROFILE.version }, mlsPatterns: DEFAULT_MLS_PATTERNS, recodes: [], stateRules: [{ state: "NJ", partnerId: partnerNJ }], zipCoverage: [] };
+    const rules = { mlsPatterns: DEFAULT_MLS_PATTERNS, coverage: buildCoverage([], [{ state: "NJ", partnerId: partnerNJ }]) };
+    const snapshotInput = { sourceProfile: { id: GENERIC_PROFILE.id, version: GENERIC_PROFILE.version }, mlsPatterns: DEFAULT_MLS_PATTERNS, stateRules: [{ state: "NJ", partnerId: partnerNJ }], zipCoverage: [] };
     const row = { Campaign: "x", "Date Created": "2026-07-06", Notes: "off market", Address: "1 A St", City: "T", State: "NJ", Zip: "08034", "Seller First Name": "A", "Seller Last Name": "B", Phone: "", Email: "", "Reason For Selling": "", Motivation: "", "Time to Sell": "" };
     const result = await processRun(
       { tenantId: scope.tenantId, filename: "w.xlsx", rows: [row], profile: GENERIC_PROFILE, rules, snapshotInput, year: 2026, colorCoding: false },

@@ -7,18 +7,17 @@ import { apiGet } from "@/lib/api";
 import { csrfHeaders } from "@/lib/csrf-client";
 import {
   Card, CardBody, CardHeader, CardTitle, Table, THead, TBody, Th, Tr, Td,
-  Badge, Button, Modal, Input, Skeleton, EmptyState, PartnerTag, ToastProvider, useToast, AppShell,
+  Badge, Button, Skeleton, EmptyState, PartnerTag, ToastProvider, useToast, AppShell,
 } from "@/components";
 
-// CVG-02: the Rules area. Campaign recodes are fully editable; MLS phrases are
-// view + on/off + label (never regex, PRN-04); coverage is read-only here (edited
-// on Partners). Every change is audited and picked up by the next run (DM-08).
+// CVG-02: the Rules area. MLS phrases are view + on/off + label (never regex, PRN-04);
+// coverage is read-only here (edited on Partners). Every change is audited and picked
+// up by the next run (DM-08). (Campaign recodes removed, ADR-0018.)
 
-interface Recode { id: string; matchPattern: string; code: string }
 interface MlsPattern { id: string; patternKey: string; type: "disqualify" | "keep_override"; regex: string; flags: string; label: string; enabled: boolean }
 interface Coverage { zipCount: number; stateRules: { state: string; partnerName: string; partnerRef: string; color: string }[] }
 interface Format { id: string; name: string; version: number; columns: number; strictness: "flexible" | "strict"; source: "saved" | "builtin" }
-interface RulesData { recodes: Recode[]; mlsPatterns: MlsPattern[]; coverage: Coverage; formats: Format[] }
+interface RulesData { mlsPatterns: MlsPattern[]; coverage: Coverage; formats: Format[] }
 
 async function send(url: string, method: string, body?: unknown) {
   const res = await fetch(url, { method, headers: { "Content-Type": "application/json", ...csrfHeaders() }, body: body === undefined ? "{}" : JSON.stringify(body) });
@@ -27,50 +26,14 @@ async function send(url: string, method: string, body?: unknown) {
   return json;
 }
 
-function RecodeModal({ editing, onClose }: { editing: Recode | null; onClose: () => void }) {
-  const qc = useQueryClient();
-  const { toast } = useToast();
-  const [matchPattern, setMatch] = React.useState(editing?.matchPattern ?? "");
-  const [code, setCode] = React.useState(editing?.code ?? "");
-  const [err, setErr] = React.useState<string | null>(null);
-  const save = useMutation({
-    mutationFn: () =>
-      editing
-        ? send(`/api/admin/rules/recodes/${editing.id}`, "PATCH", { matchPattern, code })
-        : send("/api/admin/rules/recodes", "POST", { matchPattern, code }),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["rules"] }); toast(editing ? "Recode updated." : "Recode added.", "success"); onClose(); },
-    onError: (e: Error) => setErr(e.message),
-  });
-  return (
-    <Modal open onClose={onClose} title={editing ? "Edit recode" : "New recode"} footer={
-      <>
-        <Button variant="ghost" onClick={onClose}>Cancel</Button>
-        <Button variant="primary" loading={save.isPending} onClick={() => { setErr(null); if (!matchPattern.trim() || !code.trim()) return setErr("Both fields are required."); save.mutate(); }}>Save</Button>
-      </>
-    }>
-      <div className="flex flex-col gap-3">
-        {err && <p className="rounded-md bg-danger-soft px-3 py-2 text-sm text-danger">{err}</p>}
-        <Input label="Campaign match" value={matchPattern} onChange={(e) => setMatch(e.target.value)} hint="e.g. Lead Zolo*  (a * matches the rest)" autoFocus />
-        <Input label="Code" value={code} onChange={(e) => setCode(e.target.value)} hint="Short code used in the export, e.g. Z" />
-      </div>
-    </Modal>
-  );
-}
-
 function RulesInner() {
   const qc = useQueryClient();
   const { toast } = useToast();
   const { data, isPending, error } = useQuery({ queryKey: ["rules"], queryFn: () => apiGet<RulesData>("/api/admin/rules") });
-  const [recodeModal, setRecodeModal] = React.useState<{ editing: Recode | null } | null>(null);
 
   const toggleMls = useMutation({
     mutationFn: (v: { id: string; enabled: boolean }) => send(`/api/admin/rules/mls/${v.id}`, "PATCH", { enabled: v.enabled }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["rules"] }),
-    onError: (e: Error) => toast(e.message, "danger"),
-  });
-  const delRecode = useMutation({
-    mutationFn: (id: string) => send(`/api/admin/rules/recodes/${id}`, "DELETE"),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["rules"] }); toast("Recode removed.", "success"); },
     onError: (e: Error) => toast(e.message, "danger"),
   });
 
@@ -88,39 +51,6 @@ function RulesInner() {
           <Skeleton className="h-40" />
         ) : (
           <>
-            {/* Campaign recodes */}
-            <Card>
-              <CardHeader>
-                <div className="flex items-center justify-between gap-3">
-                  <CardTitle>Campaign recodes</CardTitle>
-                  <Button variant="secondary" size="sm" onClick={() => setRecodeModal({ editing: null })}>+ New recode</Button>
-                </div>
-              </CardHeader>
-              <CardBody>
-                {data.recodes.length === 0 ? (
-                  <EmptyState title="No recodes" description="Map a campaign name to a short export code." />
-                ) : (
-                  <Table>
-                    <THead><Tr><Th>Campaign match</Th><Th>Code</Th><Th align="right">Actions</Th></Tr></THead>
-                    <TBody>
-                      {data.recodes.map((r) => (
-                        <Tr key={r.id}>
-                          <Td><span className="num text-sm">{r.matchPattern}</span></Td>
-                          <Td><Badge variant="neutral">{r.code}</Badge></Td>
-                          <Td align="right">
-                            <div className="flex justify-end gap-1.5">
-                              <Button variant="secondary" size="sm" onClick={() => setRecodeModal({ editing: r })}>Edit</Button>
-                              <Button variant="ghost" size="sm" loading={delRecode.isPending && delRecode.variables === r.id} onClick={() => delRecode.mutate(r.id)}>Remove</Button>
-                            </div>
-                          </Td>
-                        </Tr>
-                      ))}
-                    </TBody>
-                  </Table>
-                )}
-              </CardBody>
-            </Card>
-
             {/* MLS phrases */}
             <Card>
               <CardHeader><CardTitle>MLS phrases</CardTitle></CardHeader>
@@ -213,8 +143,6 @@ function RulesInner() {
           </>
         )}
         </div>
-
-      {recodeModal && <RecodeModal editing={recodeModal.editing} onClose={() => setRecodeModal(null)} />}
     </AppShell>
   );
 }

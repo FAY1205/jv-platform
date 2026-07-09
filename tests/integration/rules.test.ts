@@ -1,11 +1,11 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { drizzle, type PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
-import { and, eq, inArray } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import * as schema from "@/db/schema";
-import { createRecode, updateRecode, deleteRecode, updateMlsPattern } from "@/modules/rules/commands";
-import { listRecodes, listMlsPatterns, coverageSummary } from "@/modules/rules/queries";
+import { updateMlsPattern } from "@/modules/rules/commands";
+import { listMlsPatterns, coverageSummary } from "@/modules/rules/queries";
 import type { ScopeContext } from "@/lib/scope";
 
 const url = process.env.DATABASE_URL;
@@ -22,7 +22,7 @@ suite("WP-032a: rules area (CVG-02, DM-08)", () => {
     const t = await db.select({ id: schema.tenants.id }).from(schema.tenants).where(eq(schema.tenants.slug, SLUG));
     const tids = t.map((x) => x.id);
     if (tids.length === 0) return;
-    for (const tbl of [schema.auditLog, schema.campaignRecodes, schema.mlsPatterns, schema.stateRules, schema.coverageZips, schema.partners]) {
+    for (const tbl of [schema.auditLog, schema.mlsPatterns, schema.stateRules, schema.coverageZips, schema.partners]) {
       await db.delete(tbl).where(inArray(tbl.tenantId, tids));
     }
     await db.delete(schema.tenants).where(inArray(schema.tenants.id, tids));
@@ -46,28 +46,15 @@ suite("WP-032a: rules area (CVG-02, DM-08)", () => {
     await client.end();
   });
 
-  it("CVG-02: recode create → update → delete, each audited", async () => {
-    const { id } = await createRecode(scope, { matchPattern: "Lead Zolo*", code: "Z" });
-    expect((await listRecodes(scope)).some((r) => r.code === "Z")).toBe(true);
-
-    await updateRecode(scope, id, { matchPattern: "Lead Zolo*", code: "ZZ" });
-    expect((await listRecodes(scope)).find((r) => r.id === id)?.code).toBe("ZZ");
-
-    await deleteRecode(scope, id);
-    expect((await listRecodes(scope)).some((r) => r.id === id)).toBe(false);
-
-    const audits = await db.select().from(schema.auditLog).where(and(eq(schema.auditLog.tenantId, scope.tenantId), eq(schema.auditLog.entityType, "rule")));
-    const actions = audits.map((a) => a.action);
-    expect(actions).toEqual(expect.arrayContaining(["recode.created", "recode.updated", "recode.deleted"]));
-  });
-
-  it("CVG-02/PRN-04: MLS toggle changes enabled + label but never the regex", async () => {
+  it("CVG-02/PRN-04: MLS toggle changes enabled + label but never the regex, audited", async () => {
     const before = (await listMlsPatterns(scope)).find((m) => m.id === mlsId)!;
     await updateMlsPattern(scope, mlsId, { enabled: false, label: "Listed = Yes" });
     const after = (await listMlsPatterns(scope)).find((m) => m.id === mlsId)!;
     expect(after.enabled).toBe(false);
     expect(after.label).toBe("Listed = Yes");
     expect(after.regex).toBe(before.regex); // regex untouched (PRN-04)
+    const audits = await db.select().from(schema.auditLog).where(eq(schema.auditLog.tenantId, scope.tenantId));
+    expect(audits.some((a) => a.action === "mls_pattern.updated")).toBe(true);
   });
 
   it("CVG-02: coverage summary reflects current ZIPs + state rules", async () => {

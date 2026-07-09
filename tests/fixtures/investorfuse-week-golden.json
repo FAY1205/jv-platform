@@ -1,9 +1,9 @@
 {
-  "rulesHash": "31a9f5072de7ec8fc9f968c5b580d0efc7f6cf16ac94bb9d502e1012908b2e75",
+  "rulesHash": "0a2ac117ca625a38c62e8945cc89827efcfa22bfba72a39d1c53b2d6a283a4a3",
   "outcomes": [
     {
       "key": "101 sample st|90815",
-      "campaign": "Z",
+      "campaign": "Lead Zolo 1.0",
       "mls": "removed",
       "match": "zip",
       "partner": "Jason Beery",
@@ -17,7 +17,7 @@
     },
     {
       "key": "102 sample st|98503",
-      "campaign": "Z",
+      "campaign": "Lead Zolo 1.0",
       "mls": "removed",
       "match": "state_fallback",
       "partner": "Dylan Tanaka",
@@ -31,7 +31,7 @@
     },
     {
       "key": "103 sample st|85901",
-      "campaign": "Z",
+      "campaign": "Lead Zolo 1.0",
       "mls": "removed",
       "match": "state_fallback",
       "partner": "Jeff Lister",
@@ -45,7 +45,7 @@
     },
     {
       "key": "104 sample st|89005",
-      "campaign": "Z",
+      "campaign": "Lead Zolo 1.0",
       "mls": "removed",
       "match": "state_fallback",
       "partner": "Randy Wolfe",
@@ -59,7 +59,7 @@
     },
     {
       "key": "105 sample st|56345",
-      "campaign": "Z",
+      "campaign": "Lead Zolo 1.0",
       "mls": "removed",
       "match": "state_fallback",
       "partner": "Joe Lieber",
@@ -73,7 +73,7 @@
     },
     {
       "key": "106 sample st|88310",
-      "campaign": "B",
+      "campaign": "Real Estate Bees ",
       "mls": "kept",
       "match": "state_fallback",
       "partner": "Forrest McGhee",
@@ -83,7 +83,7 @@
     },
     {
       "key": "107 sample st|77021",
-      "campaign": "B",
+      "campaign": "Real Estate Bees ",
       "mls": "kept",
       "match": "zip",
       "partner": "Joe Lieber",
@@ -93,7 +93,7 @@
     },
     {
       "key": "108 sample st|76255",
-      "campaign": "Z",
+      "campaign": "Lead Zolo 2.0",
       "mls": "kept",
       "match": "state_fallback",
       "partner": "Michael Pinter",
@@ -103,7 +103,7 @@
     },
     {
       "key": "109 sample st|77351",
-      "campaign": "Z",
+      "campaign": "Lead Zolo 2.0",
       "mls": "kept",
       "match": "state_fallback",
       "partner": "Michael Pinter",
@@ -113,7 +113,7 @@
     },
     {
       "key": "110 sample st|97850",
-      "campaign": "Z",
+      "campaign": "Lead Zolo 2.0",
       "mls": "kept",
       "match": "state_fallback",
       "partner": "Jason Beery",
@@ -123,7 +123,7 @@
     },
     {
       "key": "111 sample st|34450",
-      "campaign": "Z",
+      "campaign": "Lead Zolo 2.0",
       "mls": "kept",
       "match": "state_fallback",
       "partner": "Josh Ax",
@@ -133,7 +133,7 @@
     },
     {
       "key": "112 sample st|75785",
-      "campaign": "Z",
+      "campaign": "Lead Zolo 2.0",
       "mls": "kept",
       "match": "state_fallback",
       "partner": "Michael Pinter",
@@ -143,7 +143,7 @@
     },
     {
       "key": "113 sample st|77046",
-      "campaign": "Z",
+      "campaign": "Lead Zolo 2.0",
       "mls": "kept",
       "match": "state_fallback",
       "partner": "Michael Pinter",
@@ -153,7 +153,7 @@
     },
     {
       "key": "114 sample st|34224",
-      "campaign": "Z",
+      "campaign": "Lead Zolo 2.0",
       "mls": "kept",
       "match": "state_fallback",
       "partner": "Josh Ax",
@@ -163,7 +163,7 @@
     },
     {
       "key": "115 sample st|34114",
-      "campaign": "Z",
+      "campaign": "Lead Zolo 2.0",
       "mls": "kept",
       "match": "state_fallback",
       "partner": "Josh Ax",
@@ -173,7 +173,7 @@
     },
     {
       "key": "116 sample st|34476",
-      "campaign": "Z",
+      "campaign": "Lead Zolo 2.0",
       "mls": "kept",
       "match": "state_fallback",
       "partner": "Josh Ax",
@@ -183,7 +183,7 @@
     },
     {
       "key": "117 sample st|45663",
-      "campaign": "Z",
+      "campaign": "Lead Zolo 1.0",
       "mls": "kept",
       "match": "state_fallback",
       "partner": "Michael Pinter",
@@ -197,7 +197,7 @@
     },
     {
       "key": "118 sample st|34606",
-      "campaign": "Z",
+      "campaign": "Lead Zolo 2.0",
       "mls": "kept",
       "match": "state_fallback",
       "partner": "Josh Ax",
@@ -207,7 +207,7 @@
     },
     {
       "key": "119 sample st|95531",
-      "campaign": "Z",
+      "campaign": "Lead Zolo 2.0",
       "mls": "kept",
       "match": "state_fallback",
       "partner": "Blake McCreight",
@@ -217,7 +217,7 @@
     },
     {
       "key": "120 sample st|80751",
-      "campaign": "Z",
+      "campaign": "Lead Zolo 2.0",
       "mls": "kept",
       "match": "state_fallback",
       "partner": "Blake McCreight",
@@ -227,7 +227,7 @@
     },
     {
       "key": "121 sample st|95521",
-      "campaign": "Z",
+      "campaign": "Lead Zolo 2.0",
       "mls": "kept",
       "match": "state_fallback",
       "partner": "Blake McCreight",
@@ -237,7 +237,7 @@
     },
     {
       "key": "122 sample st|33598",
-      "campaign": "Z",
+      "campaign": "Lead Zolo 2.0",
       "mls": "kept",
       "match": "state_fallback",
       "partner": "Josh Ax",
@@ -247,7 +247,7 @@
     },
     {
       "key": "123 sample st|34974",
-      "campaign": "Z",
+      "campaign": "Lead Zolo 2.0",
       "mls": "kept",
       "match": "state_fallback",
       "partner": "Josh Ax",
@@ -257,7 +257,7 @@
     },
     {
       "key": "124 sample st|33304",
-      "campaign": "Z",
+      "campaign": "Lead Zolo 2.0",
       "mls": "kept",
       "match": "state_fallback",
       "partner": "Josh Ax",
@@ -267,7 +267,7 @@
     },
     {
       "key": "125 sample st|93301",
-      "campaign": "Z",
+      "campaign": "Lead Zolo 2.0",
       "mls": "kept",
       "match": "state_fallback",
       "partner": "Blake McCreight",
@@ -277,7 +277,7 @@
     },
     {
       "key": "126 sample st|85648",
-      "campaign": "Z",
+      "campaign": "Lead Zolo 2.0",
       "mls": "kept",
       "match": "state_fallback",
       "partner": "Jeff Lister",
@@ -287,7 +287,7 @@
     },
     {
       "key": "127 sample st|86432",
-      "campaign": "Z",
+      "campaign": "Lead Zolo 1.0",
       "mls": "removed",
       "match": "state_fallback",
       "partner": "Jeff Lister",
@@ -301,7 +301,7 @@
     },
     {
       "key": "128 sample st|78681",
-      "campaign": "Z",
+      "campaign": "Lead Zolo 1.0",
       "mls": "removed",
       "match": "state_fallback",
       "partner": "Michael Pinter",
@@ -315,7 +315,7 @@
     },
     {
       "key": "129 sample st|85302",
-      "campaign": "Z",
+      "campaign": "Lead Zolo 1.0",
       "mls": "removed",
       "match": "state_fallback",
       "partner": "Jeff Lister",
@@ -329,7 +329,7 @@
     },
     {
       "key": "130 sample st|95472",
-      "campaign": "Z",
+      "campaign": "Lead Zolo 1.0",
       "mls": "removed",
       "match": "state_fallback",
       "partner": "Blake McCreight",
@@ -343,7 +343,7 @@
     },
     {
       "key": "131 sample st|79762",
-      "campaign": "Z",
+      "campaign": "Lead Zolo 1.0",
       "mls": "removed",
       "match": "state_fallback",
       "partner": "Michael Pinter",
@@ -357,7 +357,7 @@
     },
     {
       "key": "132 sample st|85383",
-      "campaign": "Z",
+      "campaign": "Lead Zolo 1.0",
       "mls": "removed",
       "match": "state_fallback",
       "partner": "Jeff Lister",
@@ -371,7 +371,7 @@
     },
     {
       "key": "133 sample st|97362",
-      "campaign": "Z",
+      "campaign": "Lead Zolo 1.0",
       "mls": "removed",
       "match": "state_fallback",
       "partner": "Jason Beery",
@@ -385,7 +385,7 @@
     },
     {
       "key": "134 sample st|80134",
-      "campaign": "Z",
+      "campaign": "Lead Zolo 1.0",
       "mls": "removed",
       "match": "state_fallback",
       "partner": "Blake McCreight",
@@ -399,7 +399,7 @@
     },
     {
       "key": "135 sample st|55811",
-      "campaign": "Z",
+      "campaign": "Lead Zolo 1.0",
       "mls": "kept",
       "match": "state_fallback",
       "partner": "Joe Lieber",
@@ -413,7 +413,7 @@
     },
     {
       "key": "136 sample st|92211",
-      "campaign": "Z",
+      "campaign": "Lead Zolo 1.0",
       "mls": "removed",
       "match": "state_fallback",
       "partner": "Blake McCreight",
@@ -427,7 +427,7 @@
     },
     {
       "key": "137 sample st|75021",
-      "campaign": "Z",
+      "campaign": "Lead Zolo 1.0",
       "mls": "removed",
       "match": "state_fallback",
       "partner": "Michael Pinter",
@@ -441,7 +441,7 @@
     },
     {
       "key": "138 sample st|88310",
-      "campaign": "Z",
+      "campaign": "Lead Zolo 1.0",
       "mls": "removed",
       "match": "state_fallback",
       "partner": "Forrest McGhee",
@@ -455,7 +455,7 @@
     },
     {
       "key": "139 sample st|76543",
-      "campaign": "Z",
+      "campaign": "Lead Zolo 1.0",
       "mls": "removed",
       "match": "state_fallback",
       "partner": "Michael Pinter",
@@ -469,7 +469,7 @@
     },
     {
       "key": "140 sample st|78586",
-      "campaign": "Z",
+      "campaign": "Lead Zolo 1.0",
       "mls": "removed",
       "match": "state_fallback",
       "partner": "Michael Pinter",
@@ -483,7 +483,7 @@
     },
     {
       "key": "141 sample st|92240",
-      "campaign": "Z",
+      "campaign": "Lead Zolo 1.0",
       "mls": "removed",
       "match": "state_fallback",
       "partner": "Blake McCreight",
@@ -497,7 +497,7 @@
     },
     {
       "key": "142 sample st|98058",
-      "campaign": "Z",
+      "campaign": "Lead Zolo 1.0",
       "mls": "removed",
       "match": "state_fallback",
       "partner": "Dylan Tanaka",
@@ -511,7 +511,7 @@
     },
     {
       "key": "143 sample st|76092",
-      "campaign": "B",
+      "campaign": "Real Estate Bees ",
       "mls": "kept",
       "match": "state_fallback",
       "partner": "Michael Pinter",
@@ -521,7 +521,7 @@
     },
     {
       "key": "144 sample st|96826",
-      "campaign": "Z",
+      "campaign": "Lead Zolo 1.0",
       "mls": "removed",
       "match": "none",
       "partner": null,
@@ -535,7 +535,7 @@
     },
     {
       "key": "145 sample st|95765",
-      "campaign": "Z",
+      "campaign": "Lead Zolo 1.0",
       "mls": "removed",
       "match": "state_fallback",
       "partner": "Blake McCreight",
@@ -549,7 +549,7 @@
     },
     {
       "key": "146 sample st|77384",
-      "campaign": "B",
+      "campaign": "Real Estate Bees ",
       "mls": "kept",
       "match": "state_fallback",
       "partner": "Michael Pinter",
@@ -559,7 +559,7 @@
     },
     {
       "key": "147 sample st|77009",
-      "campaign": "Z",
+      "campaign": "Lead Zolo 1.0",
       "mls": "removed",
       "match": "state_fallback",
       "partner": "Michael Pinter",
@@ -573,7 +573,7 @@
     },
     {
       "key": "148 sample st|92203",
-      "campaign": "Z",
+      "campaign": "Lead Zolo 1.0",
       "mls": "removed",
       "match": "state_fallback",
       "partner": "Blake McCreight",
@@ -587,7 +587,7 @@
     },
     {
       "key": "149 sample st|98332",
-      "campaign": "Z",
+      "campaign": "Lead Zolo 1.0",
       "mls": "removed",
       "match": "state_fallback",
       "partner": "Dylan Tanaka",
@@ -601,7 +601,7 @@
     },
     {
       "key": "150 sample st|76310",
-      "campaign": "Z",
+      "campaign": "Lead Zolo 1.0",
       "mls": "removed",
       "match": "state_fallback",
       "partner": "Michael Pinter",

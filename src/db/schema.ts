@@ -161,19 +161,6 @@ export const mlsPatterns = pgTable(
   (t) => [uniqueIndex("mls_patterns_tenant_key_idx").on(t.tenantId, t.patternKey)],
 );
 
-export const campaignRecodes = pgTable(
-  "campaign_recodes",
-  {
-    id: uuid("id").primaryKey().defaultRandom(),
-    tenantId: uuid("tenant_id")
-      .notNull()
-      .references(() => tenants.id),
-    matchPattern: text("match_pattern").notNull(), // e.g. "Lead Zolo*"
-    code: text("code").notNull(), // e.g. "Z"
-    createdAt: createdAt(),
-  },
-  (t) => [index("recodes_tenant_idx").on(t.tenantId)],
-);
 
 export const sourceProfiles = pgTable(
   "source_profiles",

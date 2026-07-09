@@ -54,7 +54,6 @@ suite("WP-017b: run persistence (DrizzleRunStore)", () => {
 
   const rules = () => ({
     mlsPatterns: DEFAULT_MLS_PATTERNS,
-    recodes: [{ matchPattern: "Lead Zolo*", code: "Z" }],
     coverage: buildCoverage([], [
       { state: "NJ", partnerId: partnerNJ },
       { state: "SC", partnerId: partnerSC },
@@ -63,7 +62,6 @@ suite("WP-017b: run persistence (DrizzleRunStore)", () => {
   const snapshotInput = () => ({
     sourceProfile: { id: GENERIC_PROFILE.id, version: GENERIC_PROFILE.version },
     mlsPatterns: DEFAULT_MLS_PATTERNS,
-    recodes: [{ matchPattern: "Lead Zolo*", code: "Z" }],
     stateRules: [
       { state: "NJ", partnerId: partnerNJ },
       { state: "SC", partnerId: partnerSC },

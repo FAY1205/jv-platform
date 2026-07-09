@@ -89,12 +89,6 @@ async function main() {
       })),
     );
 
-    // Campaign recodes (EXP-01).
-    await db.insert(schema.campaignRecodes).values([
-      { tenantId, matchPattern: "Lead Zolo*", code: "Z" },
-      { tenantId, matchPattern: "Real Estate Bees", code: "B" },
-    ]);
-
     // Source profiles: InvestorFuse v1 (WP-013, the real source) + Generic fallback (WP-010).
     await db.insert(schema.sourceProfiles).values(
       SEED_SOURCE_PROFILES.map((p) => ({

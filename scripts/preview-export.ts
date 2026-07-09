@@ -10,7 +10,6 @@ import {
 } from "../src/modules/pipeline/normalize";
 import { evaluate } from "../src/modules/pipeline/mls";
 import { DEFAULT_MLS_PATTERNS } from "../src/modules/pipeline/mls-patterns";
-import { recode } from "../src/modules/pipeline/recode";
 import { assign, buildCoverage } from "../src/modules/pipeline/assign";
 import { dedupeRun, type DedupeInput } from "../src/modules/pipeline/dedupe";
 import { computeRunSummary, type RunSummaryLead } from "../src/modules/analytics/run-summary";
@@ -21,11 +20,6 @@ import { SAMPLE_STATE_RULES, SAMPLE_ZIP_COVERAGE } from "../tests/fixtures/sampl
 // Dev-only PREVIEW composer (NOT the production run path — that's WP-017). Runs the pure
 // pipeline over the anonymized real week using SAMPLE coverage so it distributes, and renders
 // the colored .xlsx so the owner can eyeball the deliverable. Real coverage is deferred.
-
-const RECODES = [
-  { matchPattern: "Lead Zolo*", code: "Z" },
-  { matchPattern: "Real Estate Bees", code: "B" },
-];
 
 const partners = new Map<string, PartnerInfo>(
   PARTNER_PALETTE.map((p, i) => [
@@ -76,7 +70,7 @@ const exportLeads: ExportLead[] = processed
   .filter(({ p }) => p.mls === "kept")
   .map(({ p, d, i }) => ({
     leadRefId: `LD-2026-${String(i + 1).padStart(5, "0")}`,
-    campaign: recode(p.canonical.campaign ?? "", RECODES),
+    campaign: p.canonical.campaign ?? "",
     dateCreated: p.canonical.dateCreated ?? "",
     notes: p.canonical.notes ?? "",
     address: p.canonical.address ?? "",

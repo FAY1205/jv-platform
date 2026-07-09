@@ -16,7 +16,6 @@ const CLOCK = "2026-07-08T12:00:00.000Z";
 
 const RULES = {
   mlsPatterns: DEFAULT_MLS_PATTERNS,
-  recodes: [{ matchPattern: "Lead Zolo*", code: "Z" }],
   coverage: buildCoverage([], [
     { state: "NJ", partnerId: "p-josh" },
     { state: "SC", partnerId: "p-randy" },
@@ -25,7 +24,6 @@ const RULES = {
 const SNAPSHOT_INPUT = {
   sourceProfile: { id: GENERIC_PROFILE.id, version: GENERIC_PROFILE.version },
   mlsPatterns: DEFAULT_MLS_PATTERNS,
-  recodes: RULES.recodes,
   stateRules: [
     { state: "NJ", partnerId: "p-josh" },
     { state: "SC", partnerId: "p-randy" },

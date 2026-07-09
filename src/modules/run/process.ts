@@ -66,7 +66,7 @@ export interface RunResult {
 function toExportLead(lead: StampedLead, refId: string): ExportLead {
   return {
     leadRefId: refId,
-    campaign: lead.campaignCode,
+    campaign: lead.campaign,
     dateCreated: lead.dateCreated,
     notes: lead.notes,
     address: lead.address,

@@ -4,7 +4,7 @@
 
 export type ActivityCategory = "security" | "data";
 
-const SECURITY_PREFIXES = ["recode.", "mls_pattern.", "source_profile.", "auth."];
+const SECURITY_PREFIXES = ["mls_pattern.", "source_profile.", "auth."];
 const SECURITY_MARKERS = ["deactivated", "coverage", "voided", "revoked", "note.edited"];
 
 export function categorizeActivity(action: string): ActivityCategory {

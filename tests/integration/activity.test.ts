@@ -46,7 +46,7 @@ suite("WP-034: activity views (ACT-01/02/04)", () => {
     const [lead] = await db.insert(schema.leads).values({ tenantId: t.id, refId: "LD-2026-00001", uploadId: up.id, dedupeKey: "1|75001", rawJson: {}, partnerId: p.id, mlsStatus: "kept" }).returning({ id: schema.leads.id });
 
     await db.insert(schema.auditLog).values([
-      { tenantId: t.id, actorUserId: adminUserId, action: "recode.created", entityType: "rule", entityRef: "Lead Zolo*" },
+      { tenantId: t.id, actorUserId: adminUserId, action: "mls_pattern.updated", entityType: "rule", entityRef: "dq_is_listed_yes" },
       { tenantId: t.id, actorUserId: adminUserId, action: "partner.created", entityType: "partner", entityRef: "JV-001" },
     ]);
     await db.insert(schema.leadStatusHistory).values({ tenantId: t.id, leadId: lead.id, status: "Contacted", changedByUserId: partnerUserId });
@@ -61,9 +61,9 @@ suite("WP-034: activity views (ACT-01/02/04)", () => {
   it("ACT-01/04: admin sees the audit trail with actor + security categorization", async () => {
     const p = await listAdminActivity(admin);
     expect(p.total).toBe(2);
-    const recode = p.items.find((i) => i.action === "recode.created")!;
-    expect(recode.category).toBe("security");
-    expect(recode.actor).toBe("admin@t.test"); // resolved from actorUserId
+    const ruleEvent = p.items.find((i) => i.action === "mls_pattern.updated")!;
+    expect(ruleEvent.category).toBe("security");
+    expect(ruleEvent.actor).toBe("admin@t.test"); // resolved from actorUserId
     expect(p.items.find((i) => i.action === "partner.created")!.category).toBe("data");
   });
 

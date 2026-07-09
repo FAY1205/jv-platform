@@ -40,10 +40,6 @@ async function main() {
     (z): z is { zip5: string; partnerId: string } => Boolean(z.partnerId),
   );
 
-  const recodes = [
-    { matchPattern: "Lead Zolo*", code: "Z" },
-    { matchPattern: "Real Estate Bees", code: "B" },
-  ];
   const rows = JSON.parse(readFileSync(join(process.cwd(), "tests", "fixtures", "investorfuse-week-anon.json"), "utf8")) as Record<string, string>[];
 
   const store = new DrizzleRunStore(db);
@@ -53,11 +49,10 @@ async function main() {
       filename: "investorfuse-week-anon.xlsx",
       rows,
       profile: INVESTORFUSE_PROFILE,
-      rules: { mlsPatterns: DEFAULT_MLS_PATTERNS, recodes, coverage: buildCoverage(zipCoverage, stateRules) },
+      rules: { mlsPatterns: DEFAULT_MLS_PATTERNS, coverage: buildCoverage(zipCoverage, stateRules) },
       snapshotInput: {
         sourceProfile: { id: INVESTORFUSE_PROFILE.id, version: INVESTORFUSE_PROFILE.version },
         mlsPatterns: DEFAULT_MLS_PATTERNS,
-        recodes,
         stateRules,
         zipCoverage,
       },

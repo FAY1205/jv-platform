@@ -17,22 +17,18 @@ import golden from "../fixtures/investorfuse-week-golden.json";
 // The golden coverage is pinned in the fixture; regenerate deliberately, never casually.
 // ─────────────────────────────────────────────────────────────────────────────
 
-const RECODES = [
-  { matchPattern: "Lead Zolo*", code: "Z" },
-  { matchPattern: "Real Estate Bees", code: "B" },
-];
 const STATE_RULES = SAMPLE_STATE_RULES.filter((s) => s.state !== "HI").map((s) => ({ state: s.state, partnerId: s.partnerId }));
 const ZIP_COVERAGE = SAMPLE_ZIP_COVERAGE.map((z) => ({ zip5: z.zip5, partnerId: z.partnerId }));
 
 const { leads } = planRun(
   anonRows as Record<string, unknown>[],
   INVESTORFUSE_PROFILE,
-  { mlsPatterns: DEFAULT_MLS_PATTERNS, recodes: RECODES, coverage: buildCoverage(ZIP_COVERAGE, STATE_RULES) },
+  { mlsPatterns: DEFAULT_MLS_PATTERNS, coverage: buildCoverage(ZIP_COVERAGE, STATE_RULES) },
   new Map(),
 );
 
 const actual = leads
-  .map((l) => ({ key: l.dedupeKey, campaign: l.campaignCode, mls: l.mlsStatus, match: l.matchMethod, partner: l.partnerId, prev: l.previouslyMatched, patternKey: l.mlsPatternKey, span: l.mlsMatchSpan }))
+  .map((l) => ({ key: l.dedupeKey, campaign: l.campaign, mls: l.mlsStatus, match: l.matchMethod, partner: l.partnerId, prev: l.previouslyMatched, patternKey: l.mlsPatternKey, span: l.mlsMatchSpan }))
   .sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
 
 describe("TST-05: golden semantic zero-diff (real anonymized week)", () => {
@@ -44,7 +40,6 @@ describe("TST-05: golden semantic zero-diff (real anonymized week)", () => {
     const { hash } = buildRulesSnapshot({
       sourceProfile: { id: INVESTORFUSE_PROFILE.id, version: INVESTORFUSE_PROFILE.version },
       mlsPatterns: DEFAULT_MLS_PATTERNS,
-      recodes: RECODES,
       stateRules: STATE_RULES,
       zipCoverage: ZIP_COVERAGE,
     });

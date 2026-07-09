@@ -3,7 +3,6 @@ import { getDb } from "@/db";
 import * as schema from "@/db/schema";
 import { tenantWhere, leadWhere, type ScopeContext } from "@/lib/scope";
 import { computeRunSummary } from "../analytics/run-summary";
-import { recode } from "../pipeline/recode";
 import type { RunListItem, PartnerView, RunLeadView, RunDetail } from "./view-types";
 
 export type { RunListItem, PartnerView, RunLeadView, RunDetail } from "./view-types";
@@ -38,7 +37,7 @@ export async function getRunDetail(scope: ScopeContext, ref: string): Promise<Ru
     .where(and(tenantWhere(schema.uploads, scope), eq(schema.uploads.refId, ref)));
   if (!upload) return null;
 
-  const [leadRows, partnerRows, recodeRows] = await Promise.all([
+  const [leadRows, partnerRows] = await Promise.all([
     db
       .select({
         refId: schema.leads.refId,
@@ -62,10 +61,6 @@ export async function getRunDetail(scope: ScopeContext, ref: string): Promise<Ru
       .select({ id: schema.partners.id, name: schema.partners.name, refId: schema.partners.refId, color: schema.partners.color })
       .from(schema.partners)
       .where(and(tenantWhere(schema.partners, scope), isNull(schema.partners.deletedAt))),
-    db
-      .select({ matchPattern: schema.campaignRecodes.matchPattern, code: schema.campaignRecodes.code })
-      .from(schema.campaignRecodes)
-      .where(tenantWhere(schema.campaignRecodes, scope)),
   ]);
 
   const partners: Record<string, PartnerView> = {};
@@ -89,7 +84,7 @@ export async function getRunDetail(scope: ScopeContext, ref: string): Promise<Ru
 
   const leads: RunLeadView[] = leadRows.map((l) => ({
     refId: l.refId,
-    campaignCode: recode(l.campaign ?? "", recodeRows),
+    campaign: l.campaign ?? "",
     address: l.address ?? "",
     city: l.city ?? "",
     state: l.state ?? "",

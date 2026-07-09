@@ -94,8 +94,13 @@ so drizzle stays in sync. Additive; applied to dev DB.
 ## F. Radix primitives (each in `/gallery`, all states)
 Styled with existing tokens (PRN-12). Match current component conventions (variant
 props, `focus-visible:ring-2`).
-- **`Select`** — Radix `react-select`; keep the current `SelectProps`/`SelectOption`
-  API so existing call sites compile unchanged (swap internals). Native → Radix listbox.
+- **`Select`** — Radix `react-select`. **Correction (code reality):** the existing
+  `Select` is a native `<select>` extending `SelectHTMLAttributes` (event-based
+  `onChange`); a Radix listbox cannot preserve that event contract. So the Radix
+  Select is a NEW **controlled-API** component (`value: string; onValueChange:
+  (v:string)=>void; options: SelectOption[]; label/error/hint`). The current native
+  select is retained as `NativeSelect` (its handful of call sites re-import that name)
+  and removed at end of WS-8 alongside `Modal`, as pages migrate to the Radix one.
 - **`DatePicker`** / **`DateRangePicker`** — Radix Popover trigger + `react-day-picker`
   calendar; emit ISO `yyyy-mm-dd` (range: `{from,to}`); tokened styling.
 - **`DropdownMenu`** — Radix `react-dropdown-menu` (for the profile menu, row actions).

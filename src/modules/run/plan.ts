@@ -6,7 +6,6 @@ import {
   computeDedupeKey,
 } from "../pipeline/normalize";
 import { evaluate, type MlsPattern } from "../pipeline/mls";
-import { recode, type CampaignRecode } from "../pipeline/recode";
 import { assign, type Coverage, type MatchMethod } from "../pipeline/assign";
 import { dedupeRun, type HistoryEntry } from "../pipeline/dedupe";
 import { computeRunSummary, type RunSummary } from "../analytics/run-summary";
@@ -20,16 +19,15 @@ import { computeRunSummary, type RunSummary } from "../analytics/run-summary";
 
 export interface RunRules {
   mlsPatterns: readonly MlsPattern[];
-  recodes: readonly CampaignRecode[];
   coverage: Coverage;
 }
 
 export interface PlannedLead {
   /** Full source row, preserved forever (DM-02). */
   rawJson: Record<string, unknown>;
-  // Canonical display values (ING-03).
+  // Canonical display values (ING-03). The as-imported campaign is the sole campaign
+  // value (ADR-0018: recodes removed).
   campaign: string;
-  campaignCode: string;
   dateCreated: string;
   notes: string;
   address: string;
@@ -86,7 +84,6 @@ export function planRun(
       phoneNorm: normalizePhone(c.phone),
       dedupeKey: computeDedupeKey(c.address, c.zip),
       mls: evaluate(c.notes, rules.mlsPatterns),
-      campaignCode: recode(c.campaign, rules.recodes),
     };
   });
 
@@ -106,7 +103,6 @@ export function planRun(
     return {
       rawJson: p.applied.raw,
       campaign: p.c.campaign ?? "",
-      campaignCode: p.campaignCode,
       dateCreated: p.c.dateCreated ?? "",
       notes: p.c.notes ?? "",
       address: p.c.address ?? "",

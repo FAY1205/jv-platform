@@ -320,7 +320,7 @@ function GroupRows({ info, rows }: { info: PartnerView | undefined; rows: RunLea
       {rows.map((l) => (
         <Tr key={l.refId} accent={color}>
           <Td rail={color}><Link href={`/leads/${l.refId}`} className="num text-brand hover:underline">{l.refId}</Link></Td>
-          <Td><Badge variant="neutral">{l.campaignCode}</Badge></Td>
+          <Td><Badge variant="neutral">{l.campaign}</Badge></Td>
           <Td>{l.address}, {l.city}</Td>
           <Td><span className="num">{l.zip}</span></Td>
           <Td>{l.matchMethod === "zip" ? <span className="text-xs font-medium text-brand">ZIP</span> : <span className="text-xs text-text-3">state</span>}</Td>

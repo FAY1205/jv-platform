@@ -2,7 +2,7 @@ import { and, eq } from "drizzle-orm";
 import { getDb } from "@/db";
 import * as schema from "@/db/schema";
 import { tenantWhere, type ScopeContext } from "@/lib/scope";
-import type { RecodeInput, MlsPatternUpdateInput } from "./schema";
+import type { MlsPatternUpdateInput } from "./schema";
 
 // CVG-02 write side. Every rules change is audited (DM-08 — the run captures the
 // live rules into an immutable snapshot; these edits change future runs only).
@@ -28,40 +28,6 @@ function audit(scope: ScopeContext, action: string, entityRef: string | null, be
       after: after as Record<string, unknown>,
       traceId: globalThis.crypto.randomUUID(),
     });
-}
-
-export async function createRecode(scope: ScopeContext, input: RecodeInput): Promise<{ id: string }> {
-  const [row] = await getDb()
-    .insert(schema.campaignRecodes)
-    .values({ tenantId: scope.tenantId, matchPattern: input.matchPattern, code: input.code })
-    .returning({ id: schema.campaignRecodes.id });
-  await audit(scope, "recode.created", input.matchPattern, null, input);
-  return { id: row.id };
-}
-
-export async function updateRecode(scope: ScopeContext, id: string, input: RecodeInput): Promise<void> {
-  const [before] = await getDb()
-    .select()
-    .from(schema.campaignRecodes)
-    .where(and(tenantWhere(schema.campaignRecodes, scope), eq(schema.campaignRecodes.id, id)));
-  if (!before) throw new RuleNotFoundError();
-  await getDb()
-    .update(schema.campaignRecodes)
-    .set({ matchPattern: input.matchPattern, code: input.code })
-    .where(and(tenantWhere(schema.campaignRecodes, scope), eq(schema.campaignRecodes.id, id)));
-  await audit(scope, "recode.updated", input.matchPattern, { matchPattern: before.matchPattern, code: before.code }, input);
-}
-
-export async function deleteRecode(scope: ScopeContext, id: string): Promise<void> {
-  const [before] = await getDb()
-    .select()
-    .from(schema.campaignRecodes)
-    .where(and(tenantWhere(schema.campaignRecodes, scope), eq(schema.campaignRecodes.id, id)));
-  if (!before) throw new RuleNotFoundError();
-  await getDb()
-    .delete(schema.campaignRecodes)
-    .where(and(tenantWhere(schema.campaignRecodes, scope), eq(schema.campaignRecodes.id, id)));
-  await audit(scope, "recode.deleted", before.matchPattern, { matchPattern: before.matchPattern, code: before.code }, null);
 }
 
 export async function updateMlsPattern(scope: ScopeContext, id: string, patch: MlsPatternUpdateInput): Promise<void> {

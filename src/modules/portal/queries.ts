@@ -3,7 +3,6 @@ import { getDb } from "@/db";
 import * as schema from "@/db/schema";
 import { leadWhere, leadChildWhere, tenantWhere, type ScopeContext } from "@/lib/scope";
 import { computeRunSummary, type RunSummary } from "../analytics/run-summary";
-import { recode } from "../pipeline/recode";
 import type { ExportLead, PartnerInfo } from "../export/render";
 import { currentStatus, SEED_LEAD_STATUSES } from "./statuses";
 
@@ -183,16 +182,12 @@ export interface PartnerExportData {
 /** All of the partner's kept leads assembled for the Excel export (PTL-04). Scoped. */
 export async function getPartnerExportData(scope: ScopeContext): Promise<PartnerExportData> {
   const db = getDb();
-  const [leadRows, partnerRows, recodeRows] = await Promise.all([
+  const [leadRows, partnerRows] = await Promise.all([
     db.select().from(schema.leads).where(and(leadWhere(scope), eq(schema.leads.mlsStatus, "kept"))),
     db
       .select({ id: schema.partners.id, name: schema.partners.name, refId: schema.partners.refId, color: schema.partners.color })
       .from(schema.partners)
       .where(tenantWhere(schema.partners, scope)),
-    db
-      .select({ matchPattern: schema.campaignRecodes.matchPattern, code: schema.campaignRecodes.code })
-      .from(schema.campaignRecodes)
-      .where(tenantWhere(schema.campaignRecodes, scope)),
   ]);
 
   const partners = new Map<string, PartnerInfo>(
@@ -203,7 +198,7 @@ export async function getPartnerExportData(scope: ScopeContext): Promise<Partner
   );
   const exportLeads: ExportLead[] = leadRows.map((l) => ({
     leadRefId: l.refId,
-    campaign: recode(l.campaign ?? "", recodeRows),
+    campaign: l.campaign ?? "",
     dateCreated: l.dateCreated ?? "",
     notes: l.notes ?? "",
     address: l.address ?? "",

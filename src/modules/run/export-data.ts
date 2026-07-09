@@ -3,7 +3,6 @@ import { getDb } from "@/db";
 import * as schema from "@/db/schema";
 import { tenantWhere, leadWhere, type ScopeContext } from "@/lib/scope";
 import { computeRunSummary } from "../analytics/run-summary";
-import { recode } from "../pipeline/recode";
 import type { ExportLead, PartnerInfo } from "../export/render";
 import type { RunSummary } from "../analytics/run-summary";
 
@@ -29,10 +28,9 @@ export async function getRunExportData(scope: ScopeContext, ref: string): Promis
     .where(and(tenantWhere(schema.uploads, scope), eq(schema.uploads.refId, ref)));
   if (!upload) return null;
 
-  const [leadRows, partnerRows, recodeRows] = await Promise.all([
+  const [leadRows, partnerRows] = await Promise.all([
     db.select().from(schema.leads).where(and(leadWhere(scope), eq(schema.leads.uploadId, upload.id))),
     db.select({ id: schema.partners.id, name: schema.partners.name, refId: schema.partners.refId, color: schema.partners.color }).from(schema.partners).where(tenantWhere(schema.partners, scope)),
-    db.select({ matchPattern: schema.campaignRecodes.matchPattern, code: schema.campaignRecodes.code }).from(schema.campaignRecodes).where(tenantWhere(schema.campaignRecodes, scope)),
   ]);
 
   const partners = new Map<string, PartnerInfo>(partnerRows.map((p) => [p.id, { id: p.id, name: p.name, refId: p.refId, color: p.color }]));
@@ -46,7 +44,7 @@ export async function getRunExportData(scope: ScopeContext, ref: string): Promis
     .filter((l) => l.mlsStatus === "kept")
     .map((l) => ({
       leadRefId: l.refId,
-      campaign: recode(l.campaign ?? "", recodeRows),
+      campaign: l.campaign ?? "",
       dateCreated: l.dateCreated ?? "",
       notes: l.notes ?? "",
       address: l.address ?? "",

@@ -7,10 +7,6 @@ const BASE: RulesSnapshotInput = {
     { id: "dq_yes", type: "disqualify", regex: "is it listed.*yes" },
     { id: "ko_no", type: "keep_override", regex: "is it listed.*no" },
   ],
-  recodes: [
-    { matchPattern: "Lead Zolo*", code: "Z" },
-    { matchPattern: "Real Estate Bees", code: "B" },
-  ],
   stateRules: [
     { state: "NJ", partnerId: "p-josh" },
     { state: "SC", partnerId: "p-randy" },
@@ -27,7 +23,6 @@ describe("DM-08: rules snapshot pins the rule set for determinism", () => {
     const reordered: RulesSnapshotInput = {
       ...BASE,
       mlsPatterns: [BASE.mlsPatterns[1], BASE.mlsPatterns[0]],
-      recodes: [BASE.recodes[1], BASE.recodes[0]],
       stateRules: [BASE.stateRules[1], BASE.stateRules[0]],
     };
     expect(buildRulesSnapshot(reordered).hash).toBe(buildRulesSnapshot(BASE).hash);
@@ -36,7 +31,7 @@ describe("DM-08: rules snapshot pins the rule set for determinism", () => {
   it("changes the hash when a rule actually changes", () => {
     const changed: RulesSnapshotInput = {
       ...BASE,
-      recodes: [{ matchPattern: "Lead Zolo*", code: "ZZ" }, BASE.recodes[1]],
+      stateRules: [{ state: "NJ", partnerId: "p-different" }, BASE.stateRules[1]],
     };
     expect(buildRulesSnapshot(changed).hash).not.toBe(buildRulesSnapshot(BASE).hash);
   });

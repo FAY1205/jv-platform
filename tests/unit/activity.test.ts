@@ -5,7 +5,7 @@ import { categorizeActivity } from "@/modules/activity/categorize";
 // voids, note edits) are highlighted; routine data edits are not.
 describe("categorizeActivity", () => {
   it("ACT-04: flags rules / profile / coverage / lifecycle changes as security", () => {
-    for (const a of ["recode.created", "mls_pattern.updated", "source_profile.saved", "partner.deactivated", "partner.coverage_updated", "upload.voided", "note.edited"]) {
+    for (const a of ["mls_pattern.updated", "source_profile.saved", "partner.deactivated", "partner.coverage_updated", "upload.voided", "note.edited"]) {
       expect(categorizeActivity(a)).toBe("security");
     }
   });

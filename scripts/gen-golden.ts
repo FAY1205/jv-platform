@@ -12,10 +12,6 @@ import { SAMPLE_STATE_RULES, SAMPLE_ZIP_COVERAGE } from "../tests/fixtures/sampl
 // against their manual output; the golden.test.ts then locks it so any drift fails CI.
 // Run: npx tsx scripts/gen-golden.ts   (pure — no DB).
 
-const RECODES = [
-  { matchPattern: "Lead Zolo*", code: "Z" },
-  { matchPattern: "Real Estate Bees", code: "B" },
-];
 // Fixed golden coverage: sample states (minus HI → one unmatched) + the two ZIP overrides.
 const STATE_RULES = SAMPLE_STATE_RULES.filter((s) => s.state !== "HI").map((s) => ({ state: s.state, partnerId: s.partnerId }));
 const ZIP_COVERAGE = SAMPLE_ZIP_COVERAGE.map((z) => ({ zip5: z.zip5, partnerId: z.partnerId }));
@@ -25,14 +21,13 @@ const rows = JSON.parse(readFileSync(join(process.cwd(), "tests", "fixtures", "i
 const { leads } = planRun(
   rows,
   INVESTORFUSE_PROFILE,
-  { mlsPatterns: DEFAULT_MLS_PATTERNS, recodes: RECODES, coverage: buildCoverage(ZIP_COVERAGE, STATE_RULES) },
+  { mlsPatterns: DEFAULT_MLS_PATTERNS, coverage: buildCoverage(ZIP_COVERAGE, STATE_RULES) },
   new Map(),
 );
 
 const { hash } = buildRulesSnapshot({
   sourceProfile: { id: INVESTORFUSE_PROFILE.id, version: INVESTORFUSE_PROFILE.version },
   mlsPatterns: DEFAULT_MLS_PATTERNS,
-  recodes: RECODES,
   stateRules: STATE_RULES,
   zipCoverage: ZIP_COVERAGE,
 });
@@ -41,7 +36,7 @@ const { hash } = buildRulesSnapshot({
 const outcomes = leads
   .map((l) => ({
     key: l.dedupeKey,
-    campaign: l.campaignCode,
+    campaign: l.campaign,
     mls: l.mlsStatus,
     match: l.matchMethod,
     partner: l.partnerId,

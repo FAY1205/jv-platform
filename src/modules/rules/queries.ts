@@ -5,11 +5,6 @@ import { tenantWhere, type ScopeContext } from "@/lib/scope";
 
 // CVG-02 read side for the Rules area. Admin-only surface; all reads scoped (PRN-08).
 
-export interface RecodeRow {
-  id: string;
-  matchPattern: string;
-  code: string;
-}
 export interface MlsPatternRow {
   id: string;
   patternKey: string;
@@ -22,14 +17,6 @@ export interface MlsPatternRow {
 export interface CoverageSummary {
   zipCount: number;
   stateRules: { state: string; partnerName: string; partnerRef: string; color: string }[];
-}
-
-export async function listRecodes(scope: ScopeContext): Promise<RecodeRow[]> {
-  return getDb()
-    .select({ id: schema.campaignRecodes.id, matchPattern: schema.campaignRecodes.matchPattern, code: schema.campaignRecodes.code })
-    .from(schema.campaignRecodes)
-    .where(tenantWhere(schema.campaignRecodes, scope))
-    .orderBy(schema.campaignRecodes.matchPattern);
 }
 
 export async function listMlsPatterns(scope: ScopeContext): Promise<MlsPatternRow[]> {
