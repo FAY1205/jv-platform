@@ -12,7 +12,7 @@ export interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElemen
 }
 
 const base =
-  "inline-flex items-center justify-center gap-2 font-semibold rounded-md border " +
+  "inline-flex items-center justify-center gap-2 font-semibold rounded-lg border " +
   "transition-[background-color,border-color,transform,opacity] duration-[120ms] " +
   "active:scale-[.98] disabled:opacity-50 disabled:pointer-events-none select-none";
 

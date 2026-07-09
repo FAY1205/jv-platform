@@ -5,10 +5,9 @@ import Link from "next/link";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiGet } from "@/lib/api";
 import { csrfHeaders } from "@/lib/csrf-client";
-import { TopBar } from "../runs/_shell";
 import {
   Card, CardBody, CardHeader, CardTitle, Table, THead, TBody, Th, Tr, Td,
-  Badge, Button, Modal, Input, Skeleton, EmptyState, PartnerTag, ToastProvider, useToast,
+  Badge, Button, Modal, Input, Skeleton, EmptyState, PartnerTag, ToastProvider, useToast, AppShell,
 } from "@/components";
 
 // CVG-02: the Rules area. Campaign recodes are fully editable; MLS phrases are
@@ -76,9 +75,8 @@ function RulesInner() {
   });
 
   return (
-    <div className="min-h-full">
-      <TopBar active="rules" />
-      <main className="mx-auto max-w-[1000px] px-6 py-8 flex flex-col gap-6">
+    <AppShell>
+        <div className="flex flex-col gap-6">
         <div>
           <h1 className="font-display text-2xl font-semibold tracking-tight text-text">Rules</h1>
           <p className="mt-1 text-sm text-text-2">The rules that shape each run. Changes apply to future runs and are logged.</p>
@@ -214,10 +212,10 @@ function RulesInner() {
             </Card>
           </>
         )}
-      </main>
+        </div>
 
       {recodeModal && <RecodeModal editing={recodeModal.editing} onClose={() => setRecodeModal(null)} />}
-    </div>
+    </AppShell>
   );
 }
 

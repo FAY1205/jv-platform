@@ -4,8 +4,8 @@ import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
 import { apiGet } from "@/lib/api";
 import type { RunListItem } from "@/modules/run/view-types";
-import { Card, Table, THead, TBody, Th, Tr, Td, Badge, EmptyState, Skeleton } from "@/components";
-import { TopBar, fmtDate } from "./_shell";
+import { Card, Table, THead, TBody, Th, Tr, Td, Badge, EmptyState, Skeleton, AppShell } from "@/components";
+import { fmtDate } from "./_shell";
 
 export default function RunsIndexPage() {
   const { data, isPending, error } = useQuery({
@@ -14,9 +14,7 @@ export default function RunsIndexPage() {
   });
 
   return (
-    <div className="min-h-full">
-      <TopBar />
-      <main className="mx-auto max-w-[1160px] px-6 py-8">
+    <AppShell>
         <div className="mb-6 flex items-end justify-between gap-3">
           <div>
             <h1 className="font-display text-2xl font-semibold tracking-tight text-text">Runs</h1>
@@ -78,7 +76,6 @@ export default function RunsIndexPage() {
             </Table>
           )}
         </Card>
-      </main>
-    </div>
+    </AppShell>
   );
 }

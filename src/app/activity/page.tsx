@@ -3,8 +3,7 @@
 import * as React from "react";
 import { useQuery } from "@tanstack/react-query";
 import { apiGet } from "@/lib/api";
-import { TopBar } from "../runs/_shell";
-import { Card, Table, THead, TBody, Th, Tr, Td, Badge, Button, EmptyState, Skeleton } from "@/components";
+import { Card, Table, THead, TBody, Th, Tr, Td, Badge, Button, EmptyState, Skeleton, AppShell } from "@/components";
 
 // ACT-01/04: the tenant's audit trail, newest first, with security events highlighted.
 interface Item {
@@ -30,9 +29,7 @@ export default function ActivityPage() {
   const totalPages = data ? Math.max(1, Math.ceil(data.total / data.pageSize)) : 1;
 
   return (
-    <div className="min-h-full">
-      <TopBar active="activity" />
-      <main className="mx-auto max-w-[1000px] px-6 py-8">
+    <AppShell>
         <div className="mb-6 flex items-end justify-between gap-3">
           <div>
             <h1 className="font-display text-2xl font-semibold tracking-tight text-text">Activity</h1>
@@ -80,7 +77,6 @@ export default function ActivityPage() {
             </div>
           </div>
         )}
-      </main>
-    </div>
+    </AppShell>
   );
 }

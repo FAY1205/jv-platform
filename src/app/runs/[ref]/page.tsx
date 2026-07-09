@@ -7,8 +7,8 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiGet } from "@/lib/api";
 import { csrfHeaders } from "@/lib/csrf-client";
 import type { RunDetail, RunLeadView, PartnerView } from "@/modules/run/view-types";
-import { Badge, Button, Modal, Card, CardHeader, CardTitle, CardBody, Stat, PartnerTag, Table, THead, TBody, Th, Tr, Td, EmptyState, Skeleton } from "@/components";
-import { TopBar, fmtDate } from "../_shell";
+import { Badge, Button, Modal, Card, CardHeader, CardTitle, CardBody, Stat, PartnerTag, Table, THead, TBody, Th, Tr, Td, EmptyState, Skeleton, AppShell } from "@/components";
+import { fmtDate } from "../_shell";
 
 export default function RunDetailPage() {
   const params = useParams<{ ref: string }>();
@@ -20,15 +20,12 @@ export default function RunDetailPage() {
   });
 
   return (
-    <div className="min-h-full">
-      <TopBar />
-      <main className="mx-auto max-w-[1160px] px-6 py-8">
+    <AppShell>
         <Link href="/runs" className="mb-4 inline-block text-sm text-text-3 transition-colors hover:text-text-2">
           ← Runs
         </Link>
         {isPending ? <LoadingState /> : error ? <ErrorState message={(error as Error).message} /> : <RunView detail={data} />}
-      </main>
-    </div>
+    </AppShell>
   );
 }
 

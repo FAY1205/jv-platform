@@ -11,7 +11,7 @@ export default async function Home() {
   let target = "/login";
   try {
     const scope = await getServerScope();
-    target = scope.role === "partner" ? "/portal" : "/runs";
+    target = scope.role === "partner" ? "/portal" : "/dashboard";
   } catch {
     target = "/login";
   }

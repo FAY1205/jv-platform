@@ -4,10 +4,9 @@ import * as React from "react";
 import { useRouter } from "next/navigation";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { parseWorkbookInWorker } from "@/lib/xlsx-client";
-import { Card, CardBody, Button, Badge, Input, Select } from "@/components";
+import { Card, CardBody, Button, Badge, Input, Select, AppShell } from "@/components";
 import { csrfHeaders } from "@/lib/csrf-client";
 import { validateUploadFile } from "@/lib/upload-guard";
-import { TopBar } from "../runs/_shell";
 
 interface Parsed {
   filename: string;
@@ -112,9 +111,8 @@ export default function UploadPage() {
   const headerOptions = (need?.uploadHeaders ?? []).map((h) => ({ value: h, label: h }));
 
   return (
-    <div className="min-h-full">
-      <TopBar />
-      <main className="mx-auto max-w-[720px] px-6 py-8">
+    <AppShell>
+        <div className="mx-auto max-w-[760px]">
         <div className="mb-6 flex items-end justify-between gap-3">
           <div>
             <h1 className="font-display text-2xl font-semibold tracking-tight text-text">New run</h1>
@@ -232,7 +230,7 @@ export default function UploadPage() {
             )}
           </CardBody>
         </Card>
-      </main>
-    </div>
+        </div>
+    </AppShell>
   );
 }

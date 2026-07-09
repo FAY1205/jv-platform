@@ -2,7 +2,7 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { getServerScope } from "@/lib/scope-context";
 import { getPartnerLeadDetail } from "@/modules/portal/queries";
-import { Card, CardBody, CardHeader, CardTitle, Badge, NotesPanel, ListingBadge } from "@/components";
+import { Card, CardBody, CardHeader, CardTitle, Badge, NotesPanel, ListingBadge, AppShell } from "@/components";
 
 // Admin lead detail — a per-lead view for the admin (the run tables only list them).
 // Reuses the scoped detail query (admin scope sees the whole tenant) and hosts the
@@ -28,7 +28,8 @@ export default async function AdminLeadPage({ params }: { params: Promise<{ ref:
   if (!detail) notFound();
 
   return (
-    <main className="mx-auto w-full max-w-2xl flex-1 p-6">
+    <AppShell>
+      <div className="mx-auto w-full max-w-2xl">
       <Link href="/runs" className="mb-4 inline-block text-sm text-text-3 hover:text-text-2">
         ← Back to runs
       </Link>
@@ -56,6 +57,7 @@ export default async function AdminLeadPage({ params }: { params: Promise<{ ref:
 
         <NotesPanel leadRef={ref} title="Admin notes" />
       </div>
-    </main>
+      </div>
+    </AppShell>
   );
 }

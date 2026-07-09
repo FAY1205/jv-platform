@@ -10,30 +10,30 @@
    ───────────────────────────────────────────────────────────────────────────── */
 :root {
   /* surfaces */
-  --bg: #f6f7f7;
+  --bg: #f8fafc;
   --surface: #ffffff;
-  --surface-2: #fafbfb;
-  --surface-3: #f2f4f4;
-  --border: #e4e8e7;
-  --border-soft: #edf0ef;
+  --surface-2: #f5f8fb;
+  --surface-3: #eef2f7;
+  --border: #e5eaf1;
+  --border-soft: #f0f4f8;
   /* text tiers */
-  --text: #0f1722;
-  --text-2: #445062;
-  --text-3: #8b95a5;
-  /* brand */
-  --brand: #0d7a6a;
-  --brand-strong: #0a5f53;
-  --brand-soft: #e8f3f0;
-  --brand-line: #cfe6e0;
+  --text: #1e2632;
+  --text-2: #5b6472;
+  --text-3: #97a1b0;
+  /* brand — friendly green */
+  --brand: #3f9d7d;
+  --brand-strong: #31896b;
+  --brand-soft: #e6f1eb;
+  --brand-line: #c7e4d8;
   /* status: info / danger / warn / success + previously-matched accent */
   --info: #4f5bd5;
   --info-soft: #edeffc;
-  --danger: #c2333b;
-  --danger-soft: #fbebec;
-  --warn: #b25107;
-  --warn-soft: #fdf2e2;
-  --success: #0d7a6a;
-  --success-soft: #e8f3f0;
+  --danger: #cb4d43;
+  --danger-soft: #f9e6e2;
+  --warn: #bf7d2a;
+  --warn-soft: #f6edd9;
+  --success: #3f9d7d;
+  --success-soft: #e6f1eb;
   --prev: #6d4a9e;
   --prev-soft: #f2ecfa;
   --scrim: rgba(15, 23, 34, 0.4);
@@ -50,37 +50,39 @@
   --t-fast: 120ms cubic-bezier(0.2, 0.8, 0.2, 1);
   --t-base: 200ms cubic-bezier(0.2, 0.8, 0.2, 1);
   --t-slow: 300ms cubic-bezier(0.2, 0.8, 0.2, 1);
-  /* type roles (families wired via next/font in layout.tsx) */
-  --font-display: var(--font-space-grotesk), "Space Grotesk", sans-serif;
-  --font-sans: var(--font-inter), "Inter", system-ui, sans-serif;
-  --font-mono: var(--font-ibm-plex-mono), "IBM Plex Mono", monospace;
+  /* Type roles — native system UI font (matches the approved mockup, which
+     rendered in the OS system font). Display and body share the stack; weight
+     and letter-spacing carry the heading hierarchy. */
+  --font-display: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-sans: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, "SF Mono", "Cascadia Code", "Segoe UI Mono", Consolas, "Liberation Mono", Menlo, monospace;
 }
 
 /* Dark palette applies via system preference (unless the user forced light)
    and via an explicit [data-theme="dark"] override, which always wins. */
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --bg: #0e1214;
-    --surface: #151a1d;
-    --surface-2: #181e21;
-    --surface-3: #1d2427;
-    --border: #242c30;
-    --border-soft: #1d2528;
-    --text: #eef2f1;
-    --text-2: #a9b4ba;
-    --text-3: #6c787f;
-    --brand: #2aa38e;
-    --brand-strong: #3cb9a2;
-    --brand-soft: #12312b;
-    --brand-line: #1c4a41;
+    --bg: #0d1117;
+    --surface: #151b23;
+    --surface-2: #1a212b;
+    --surface-3: #212a37;
+    --border: #273140;
+    --border-soft: #1c2431;
+    --text: #e8edf4;
+    --text-2: #a3adbb;
+    --text-3: #6b7688;
+    --brand: #4bb591;
+    --brand-strong: #5cc5a1;
+    --brand-soft: #123028;
+    --brand-line: #1e4a3d;
     --info: #8b95ec;
     --info-soft: #20244a;
-    --danger: #e06d74;
-    --danger-soft: #3a1d20;
-    --warn: #e0964c;
-    --warn-soft: #3a2a15;
-    --success: #2aa38e;
-    --success-soft: #12312b;
+    --danger: #e0776d;
+    --danger-soft: #3a201c;
+    --warn: #d99a4a;
+    --warn-soft: #3a2c15;
+    --success: #4bb591;
+    --success-soft: #123028;
     --prev: #ab8ad6;
     --prev-soft: #2c2140;
     --scrim: rgba(0, 0, 0, 0.55);
@@ -93,27 +95,27 @@
 
 /* Explicit user override always wins over system preference. */
 :root[data-theme="dark"] {
-  --bg: #0e1214;
-  --surface: #151a1d;
-  --surface-2: #181e21;
-  --surface-3: #1d2427;
-  --border: #242c30;
-  --border-soft: #1d2528;
-  --text: #eef2f1;
-  --text-2: #a9b4ba;
-  --text-3: #6c787f;
-  --brand: #2aa38e;
-  --brand-strong: #3cb9a2;
-  --brand-soft: #12312b;
-  --brand-line: #1c4a41;
+  --bg: #0d1117;
+  --surface: #151b23;
+  --surface-2: #1a212b;
+  --surface-3: #212a37;
+  --border: #273140;
+  --border-soft: #1c2431;
+  --text: #e8edf4;
+  --text-2: #a3adbb;
+  --text-3: #6b7688;
+  --brand: #4bb591;
+  --brand-strong: #5cc5a1;
+  --brand-soft: #123028;
+  --brand-line: #1e4a3d;
   --info: #8b95ec;
   --info-soft: #20244a;
-  --danger: #e06d74;
-  --danger-soft: #3a1d20;
-  --warn: #e0964c;
-  --warn-soft: #3a2a15;
-  --success: #2aa38e;
-  --success-soft: #12312b;
+  --danger: #e0776d;
+  --danger-soft: #3a201c;
+  --warn: #d99a4a;
+  --warn-soft: #3a2c15;
+  --success: #4bb591;
+  --success-soft: #123028;
   --prev: #ab8ad6;
   --prev-soft: #2c2140;
   --scrim: rgba(0, 0, 0, 0.55);
@@ -190,6 +192,66 @@ body {
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
 }
+
+/* Slimmer, theme-aware scrollbars so scroll containers read as designed, not OS-default. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+*::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border: 3px solid transparent;
+  background-clip: padding-box;
+  border-radius: 999px;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--text-3);
+  background-clip: padding-box;
+}
+
+/* ── Motion primitives ─────────────────────────────────────────────────────────
+   Purposeful entrance + interaction motion. Every animation is `both`-filled so
+   it holds its final frame; reduced-motion (below) collapses them to instant. */
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes fade-in-up {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes pop-in {
+  from { opacity: 0; transform: translateY(8px) scale(0.985); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes scrim-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes drawer-in {
+  from { transform: translateX(-100%); }
+  to { transform: none; }
+}
+
+.anim-fade { animation: fade-in var(--t-base) both; }
+.anim-fade-up { animation: fade-in-up var(--t-slow) both; }
+.anim-pop { animation: pop-in 180ms cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+.anim-scrim { animation: scrim-in var(--t-fast) both; }
+.anim-drawer { animation: drawer-in var(--t-base) both; }
+
+/* Staggered reveal for lists/grids: children fade-up in sequence. Cheap (six
+   steps) and capped so long lists don't cascade forever. */
+.stagger > * { animation: fade-in-up var(--t-slow) both; }
+.stagger > *:nth-child(1) { animation-delay: 0ms; }
+.stagger > *:nth-child(2) { animation-delay: 40ms; }
+.stagger > *:nth-child(3) { animation-delay: 80ms; }
+.stagger > *:nth-child(4) { animation-delay: 120ms; }
+.stagger > *:nth-child(5) { animation-delay: 160ms; }
+.stagger > *:nth-child(n + 6) { animation-delay: 200ms; }
 
 /* Visible keyboard focus on every interactive element (DSN-10, FRM-04). */
 :focus-visible {

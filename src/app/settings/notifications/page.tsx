@@ -4,8 +4,7 @@ import * as React from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiGet } from "@/lib/api";
 import { csrfHeaders } from "@/lib/csrf-client";
-import { TopBar } from "../../runs/_shell";
-import { Card, CardBody, CardHeader, CardTitle, Button, Skeleton, EmptyState, ToastProvider, useToast } from "@/components";
+import { Card, CardBody, CardHeader, CardTitle, Button, Skeleton, EmptyState, ToastProvider, useToast, AppShell } from "@/components";
 
 // SET-03 / NTF-05: the admin sets, per role + event, whether it emails, shows in-app,
 // or both. Transactional auth email is separate and always on.
@@ -62,9 +61,8 @@ function SettingsInner() {
   const events = data?.events ?? [];
 
   return (
-    <div className="min-h-full">
-      <TopBar active="settings" />
-      <main className="mx-auto max-w-[720px] px-6 py-8">
+    <AppShell>
+        <div className="mx-auto max-w-[760px]">
         <div className="mb-6">
           <h1 className="font-display text-2xl font-semibold tracking-tight text-text">Notification settings</h1>
           <p className="mt-1 text-sm text-text-2">Choose how each alert is delivered. Security emails (sign-in codes, resets) are always sent.</p>
@@ -115,8 +113,8 @@ function SettingsInner() {
             )}
           </CardBody>
         </Card>
-      </main>
-    </div>
+        </div>
+    </AppShell>
   );
 }
 

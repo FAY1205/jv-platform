@@ -40,7 +40,7 @@ export function Modal({ open, onClose, title, children, footer, ariaLabel }: Mod
 
   return createPortal(
     <div
-      className="fixed inset-0 z-[100] flex items-center justify-center p-4"
+      className="anim-scrim fixed inset-0 z-[100] flex items-center justify-center p-4"
       style={{ background: "var(--scrim)" }}
       onClick={(e) => {
         if (e.target === e.currentTarget) onClose();
@@ -53,7 +53,7 @@ export function Modal({ open, onClose, title, children, footer, ariaLabel }: Mod
         aria-label={typeof title === "string" ? title : ariaLabel}
         tabIndex={-1}
         className={cn(
-          "w-full max-w-md bg-surface border border-border rounded-lg shadow-lg outline-none",
+          "anim-pop w-full max-w-md bg-surface border border-border rounded-2xl shadow-lg outline-none",
           "max-h-[90vh] overflow-auto",
         )}
       >

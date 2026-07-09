@@ -4,8 +4,8 @@ import * as React from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiGet } from "@/lib/api";
 import { csrfHeaders } from "@/lib/csrf-client";
-import { TopBar } from "../runs/_shell";
 import {
+  AppShell,
   Card,
   Table,
   THead,
@@ -341,9 +341,7 @@ function PartnersInner() {
   const roster = data?.partners ?? [];
 
   return (
-    <div className="min-h-full">
-      <TopBar active="partners" />
-      <main className="mx-auto max-w-[1160px] px-6 py-8">
+    <AppShell>
         <div className="mb-6 flex items-end justify-between gap-3">
           <div>
             <h1 className="font-display text-2xl font-semibold tracking-tight text-text">Partners</h1>
@@ -412,12 +410,11 @@ function PartnersInner() {
             </Table>
           )}
         </Card>
-      </main>
 
       {creating && <PartnerForm editing={null} onClose={() => setCreating(false)} />}
       {editing && <PartnerForm editing={editing} onClose={() => setEditing(null)} />}
       {deactivating && <DeactivateModal partner={deactivating} roster={roster} onClose={() => setDeactivating(null)} />}
-    </div>
+    </AppShell>
   );
 }
 
