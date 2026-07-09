@@ -10,6 +10,15 @@ export { Select, type SelectProps, type SelectOption } from "./Select";
 export { NativeSelect, type NativeSelectProps } from "./NativeSelect";
 export { DatePicker, type DatePickerProps, isoToDate, dateToIso } from "./DatePicker";
 export { DateRangePicker, type DateRangePickerProps, type DateRangeValue } from "./DateRangePicker";
+export { Checkbox, type CheckboxProps } from "./Checkbox";
+export {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuLabel,
+} from "./DropdownMenu";
 export {
   Table,
   THead,

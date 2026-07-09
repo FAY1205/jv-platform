@@ -10,6 +10,7 @@ import {
   Tabs,
   Modal,
   Dialog,
+  Checkbox,
   Tooltip,
   EmptyState,
 } from "@/components";
@@ -139,6 +140,18 @@ describe("F-15: Dialog (Radix)", () => {
     expect(screen.getByRole("dialog")).toBeInTheDocument();
     expect(screen.getByText("Edit lead")).toBeInTheDocument();
     expect(screen.getByText("Lead body")).toBeInTheDocument();
+  });
+});
+
+describe("F-62: Checkbox (Radix)", () => {
+  it("is keyboard/mouse toggleable and reports the new state", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    render(<Checkbox checked={false} onCheckedChange={onChange} label="Email digest" />);
+    const box = screen.getByRole("checkbox", { name: "Email digest" });
+    expect(box).toHaveAttribute("data-state", "unchecked");
+    await user.click(box);
+    expect(onChange).toHaveBeenCalledWith(true);
   });
 });
 
