@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { parsePreferences, resolveDataTheme, DEFAULT_PREFERENCES } from "@/lib/preferences";
+import { parsePreferences, resolveDataTheme, nextTheme, DEFAULT_PREFERENCES } from "@/lib/preferences";
 
 // WS-7 Appearance: the single small UI-preferences store (theme + nav collapse), persisted
 // to localStorage. These are the pure, DOM-free parts — safe parsing (never throws on
@@ -37,5 +37,13 @@ describe("resolveDataTheme", () => {
   it("maps explicit prefs straight through", () => {
     expect(resolveDataTheme("light")).toBe("light");
     expect(resolveDataTheme("dark")).toBe("dark");
+  });
+});
+
+describe("nextTheme", () => {
+  it("cycles system → light → dark → system (for the profile-menu quick toggle)", () => {
+    expect(nextTheme("system")).toBe("light");
+    expect(nextTheme("light")).toBe("dark");
+    expect(nextTheme("dark")).toBe("system");
   });
 });

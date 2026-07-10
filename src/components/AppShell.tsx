@@ -7,6 +7,7 @@ import { useQuery } from "@tanstack/react-query";
 import { apiGet } from "@/lib/api";
 import { APP_NAME } from "@/lib/app";
 import { NotificationBell } from "./NotificationBell";
+import { ProfileMenu } from "./ProfileMenu";
 import { usePreferences, setPreferences, useApplyTheme } from "@/lib/preferences";
 
 // The admin app shell (DSN): a minimal sidebar + a clean top bar. Every admin page
@@ -222,11 +223,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </form>
           <div className="ml-auto flex items-center gap-2">
             <NotificationBell />
-            <button type="button" className="flex items-center gap-2 rounded-full border border-border bg-surface py-1 pl-1 pr-2.5 transition-colors hover:bg-surface-3">
-              <span className="grid h-7 w-7 place-items-center rounded-full bg-brand text-[.68rem] font-semibold text-white">A</span>
-              <span className="hidden text-[.78rem] font-semibold text-text-2 sm:inline">Admin</span>
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" className="text-text-3" aria-hidden="true"><path d="m6 9 6 6 6-6" /></svg>
-            </button>
+            <ProfileMenu />
           </div>
         </header>
 

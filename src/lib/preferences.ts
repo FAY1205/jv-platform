@@ -38,6 +38,11 @@ export function parsePreferences(raw: string | null): Preferences {
   }
 }
 
+/** The next theme in the system → light → dark → system cycle (profile-menu quick toggle). */
+export function nextTheme(theme: ThemePref): ThemePref {
+  return THEME_PREFS[(THEME_PREFS.indexOf(theme) + 1) % THEME_PREFS.length];
+}
+
 /** Theme → the `data-theme` attribute value. "system" ⇒ null: set no attribute so the
  *  CSS `prefers-color-scheme` default in globals.css decides (its `[data-theme]` override
  *  only wins when present). */
