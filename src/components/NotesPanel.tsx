@@ -85,7 +85,7 @@ export function NotesPanel({ leadRef, title }: { leadRef: string; title: string 
                 defaultValue={n.body}
                 rows={2}
                 aria-label="Edit note"
-                disabled={edit.isPending}
+                disabled={edit.isPending && edit.variables?.id === n.id}
                 onFocus={() => setSavedId(null)}
                 onBlur={(e) => {
                   const v = e.target.value.trim();

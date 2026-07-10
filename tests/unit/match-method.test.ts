@@ -10,9 +10,9 @@ describe("MATCH_METHOD_LABEL (F-57)", () => {
     expect(Object.keys(MATCH_METHOD_LABEL).sort()).toEqual([...matchMethodEnum.enumValues].sort());
   });
 
-  it("F-57: matchMethodLabel maps known values and folds unknowns to a neutral label", () => {
-    expect(matchMethodLabel("zip").label).toBe("ZIP match");
-    expect(matchMethodLabel("state_fallback").label).toBe("State fallback");
-    expect(matchMethodLabel("bogus")).toEqual({ label: "Unknown", tone: "neutral" });
+  it("F-57: matchMethodLabel maps known values (label + badge) and folds unknowns", () => {
+    expect(matchMethodLabel("zip")).toEqual({ label: "ZIP match", badge: "zip" });
+    expect(matchMethodLabel("state_fallback")).toEqual({ label: "State fallback", badge: "state" });
+    expect(matchMethodLabel("bogus")).toEqual({ label: "Unknown", badge: "neutral" });
   });
 });

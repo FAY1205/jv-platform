@@ -209,7 +209,7 @@ function ViewMode({ d, onEdit }: { d: LeadDetail; onEdit: () => void }) {
           {d.assignment.manual ? (
             <Badge variant="neutral">Manual assignment</Badge>
           ) : (
-            <Badge variant={d.assignment.matchMethod === "zip" ? "zip" : d.assignment.matchMethod === "state_fallback" ? "state" : "neutral"}>
+            <Badge variant={matchMethodLabel(d.assignment.matchMethod).badge}>
               {matchMethodLabel(d.assignment.matchMethod).label}
             </Badge>
           )}

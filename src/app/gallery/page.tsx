@@ -24,6 +24,7 @@ import {
   Dialog,
   Tooltip,
   Select,
+  StatusSelect,
   Checkbox,
   DatePicker,
   DateRangePicker,
@@ -361,6 +362,15 @@ function Gallery() {
                 <div className="max-w-xs">
                   <Select label="Disabled" value="new" onValueChange={() => {}} disabled options={[{ value: "new", label: "New" }]} />
                 </div>
+              </CardBody>
+            </Card>
+
+            <Card>
+              <CardHeader><CardTitle>StatusSelect (pill; kept vs removed)</CardTitle></CardHeader>
+              <CardBody className="flex flex-wrap items-center gap-4">
+                <StatusSelect refId="LD-26-00404" status="Contacted" mlsStatus="kept" />
+                <StatusSelect refId="LD-26-00405" status="Closed" mlsStatus="kept" />
+                <StatusSelect refId="LD-26-00406" status="New" mlsStatus="removed" />
               </CardBody>
             </Card>
 

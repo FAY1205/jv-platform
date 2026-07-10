@@ -26,6 +26,7 @@ export interface StatusSelectProps {
   refId: string;
   status: string;
   mlsStatus: "kept" | "removed";
+  /** Currently unconsumed — a forward-looking hook for WS-4/5 rows (unmatched/partner). */
   onChanged?: (status: string) => void;
 }
 

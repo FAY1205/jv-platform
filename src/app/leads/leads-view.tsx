@@ -37,11 +37,6 @@ const PARTNER_ALL = "__all__";
 const PARTNER_UNMATCHED = "unmatched";
 const SOURCE_ALL = "__all__";
 
-function useDebounced<T>(value: T, ms: number): T {
-  const [d, setD] = React.useState(value);
-  React.useEffect(() => { const t = setTimeout(() => setD(value), ms); return () => clearTimeout(t); }, [value, ms]);
-  return d;
-}
 function googleUrl(parts: (string | null)[]): string {
   return `https://www.google.com/search?q=${encodeURIComponent(parts.filter(Boolean).join(" "))}`;
 }
@@ -101,22 +96,34 @@ const LeadsFilterBar = React.memo(function LeadsFilterBar({ seedQ, onChange }: {
   const [statuses, setStatuses] = React.useState<string[]>([]);
   const [range, setRange] = React.useState<{ from: string | null; to: string | null }>({ from: null, to: null });
 
+  // Committed (debounced) text values, held as state so "Clear all" can reset them
+  // synchronously — otherwise the trailing debounce would re-commit stale search text
+  // after an immediate clear, briefly showing a wrong result set.
+  const [qCommitted, setQCommitted] = React.useState(seedQ.trim());
+  const [stateCommitted, setStateCommitted] = React.useState("");
+  React.useEffect(() => { const t = setTimeout(() => setQCommitted(qInput.trim()), 300); return () => clearTimeout(t); }, [qInput]);
+  React.useEffect(() => { const t = setTimeout(() => setStateCommitted(stateInput.trim().toUpperCase().slice(0, 2)), 300); return () => clearTimeout(t); }, [stateInput]);
+
   // Re-seed the search box ONLY when the topbar pushes a new ?q= — never from our own
   // upstream commits (which would clobber in-progress typing).
   const [seeded, setSeeded] = React.useState(seedQ);
-  if (seedQ !== seeded) { setSeeded(seedQ); setQInput(seedQ); }
-
-  const q = useDebounced(qInput.trim(), 300);
-  const stateVal = useDebounced(stateInput.trim().toUpperCase().slice(0, 2), 300);
+  if (seedQ !== seeded) { setSeeded(seedQ); setQInput(seedQ); setQCommitted(seedQ.trim()); }
 
   const roster = useQuery({ queryKey: ["partners"], queryFn: () => apiGet<{ partners: Partner[] }>("/api/admin/partners") });
   const sourcesQ = useQuery({ queryKey: ["lead-sources"], queryFn: () => apiGet<{ sources: string[] }>("/api/leads/sources") });
 
-  // Commit filters upward whenever a committed value changes.
+  const clearAll = () => {
+    setQInput(""); setQCommitted("");
+    setStateInput(""); setStateCommitted("");
+    setPartnerId(PARTNER_ALL); setSource(""); setStatuses([]); setRange({ from: null, to: null });
+  };
+
+  // Commit filters upward whenever a committed value changes. On "Clear all" the committed
+  // text is reset in the same batch, so this fires once with a fully-empty, correct set.
   React.useEffect(() => {
-    onChange({ q, state: stateVal, partnerId: partnerId === PARTNER_ALL ? "" : partnerId, source, statuses, dateFrom: range.from ?? "", dateTo: range.to ?? "" });
+    onChange({ q: qCommitted, state: stateCommitted, partnerId: partnerId === PARTNER_ALL ? "" : partnerId, source, statuses, dateFrom: range.from ?? "", dateTo: range.to ?? "" });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [q, stateVal, partnerId, source, statuses.join(","), range.from, range.to]);
+  }, [qCommitted, stateCommitted, partnerId, source, statuses.join(","), range.from, range.to]);
 
   const toggleStatus = (s: string) => setStatuses((prev) => (prev.includes(s) ? prev.filter((x) => x !== s) : [...prev, s]));
   const hasFilters = Boolean(qInput || stateInput || partnerId !== PARTNER_ALL || source || statuses.length || range.from);
@@ -154,7 +161,7 @@ const LeadsFilterBar = React.memo(function LeadsFilterBar({ seedQ, onChange }: {
           <DateRangePicker value={range} onChange={setRange} placeholder="Received range" />
         </div>
         {hasFilters && (
-          <button type="button" onClick={() => { setQInput(""); setStateInput(""); setPartnerId(PARTNER_ALL); setSource(""); setStatuses([]); setRange({ from: null, to: null }); }} className="text-xs text-text-3 underline-offset-2 hover:text-text hover:underline">
+          <button type="button" onClick={clearAll} className="text-xs text-text-3 underline-offset-2 hover:text-text hover:underline">
             Clear all
           </button>
         )}
