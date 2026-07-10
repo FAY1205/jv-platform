@@ -2,14 +2,18 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import dynamic from "next/dynamic";
 import { useParams } from "next/navigation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiGet } from "@/lib/api";
 import { csrfHeaders } from "@/lib/csrf-client";
 import type { RunDetail, RunLeadView, PartnerView } from "@/modules/run/view-types";
 import { buildAnalytics } from "@/modules/analytics/overview";
-import { Badge, Button, Modal, Card, CardHeader, CardTitle, CardBody, Stat, PartnerTag, Table, THead, TBody, Th, Tr, Td, EmptyState, Skeleton, AppShell } from "@/components";
+import { Badge, Button, Dialog, Textarea, Card, CardHeader, CardTitle, CardBody, Stat, PartnerTag, Table, THead, TBody, Th, Tr, Td, RowOpenButton, EmptyState, Skeleton, AppShell } from "@/components";
 import { fmtDate } from "../_shell";
+
+// F-55: leads open in the shared dialog, not the old read-only /leads/[ref] page.
+const LeadDialog = dynamic(() => import("../../leads/lead-dialog").then((m) => m.LeadDialog), { ssr: false });
 
 export default function ImportDetailPage() {
   const params = useParams<{ ref: string }>();
@@ -49,6 +53,7 @@ function RunView({ detail }: { detail: RunDetail }) {
   const qc = useQueryClient();
   const [modalOpen, setModalOpen] = useState(false);
   const [reason, setReason] = useState("");
+  const [openRef, setOpenRef] = useState<string | null>(null);
   const isVoided = upload.status === "voided";
 
   const voidMut = useMutation({
@@ -73,6 +78,9 @@ function RunView({ detail }: { detail: RunDetail }) {
   const delivered = leads.filter((l) => l.mlsStatus === "kept" && l.partnerId);
   const removed = leads.filter((l) => l.mlsStatus === "removed");
   const unmatched = leads.filter((l) => l.partnerId === null && l.mlsStatus === "kept");
+  // F-75: the Distributed headline reads the server-computed distribution (PRN-15),
+  // not a client re-derivation. `delivered` still drives the per-partner grouping below.
+  const distributed = distribution.reduce((sum, d) => sum + d.count, 0);
 
   // Per-import routing composition — computed by the analytics module (PRN-15),
   // never re-derived here. mlsReason isn't in the view payload; the removed table
@@ -142,7 +150,7 @@ function RunView({ detail }: { detail: RunDetail }) {
         <CardBody>
           <div className="grid grid-cols-2 gap-6 sm:grid-cols-3 lg:grid-cols-5">
             <Stat label="Total leads" value={summary.total} />
-            <Stat label="Distributed" value={delivered.length} foot={`to ${distribution.length} ${distribution.length === 1 ? "partner" : "partners"}`} />
+            <Stat label="Distributed" value={distributed} foot={`to ${distribution.length} ${distribution.length === 1 ? "partner" : "partners"}`} />
             <Stat label="Removed · MLS" value={summary.removed} />
             <Stat label="Unmatched" value={summary.unmatched} foot="coverage gaps" />
             <Stat label="Previously matched" value={summary.previouslyMatched} />
@@ -207,7 +215,7 @@ function RunView({ detail }: { detail: RunDetail }) {
             </THead>
             <TBody>
               {groups.map(([partnerId, rows]) => (
-                <GroupRows key={partnerId} info={partners[partnerId]} rows={rows} />
+                <GroupRows key={partnerId} info={partners[partnerId]} rows={rows} onOpen={setOpenRef} />
               ))}
             </TBody>
           </Table>
@@ -263,10 +271,10 @@ function RunView({ detail }: { detail: RunDetail }) {
         </Card>
       </div>
 
-      <Modal
+      <Dialog
         open={modalOpen}
         onClose={() => setModalOpen(false)}
-        title="Void this import?"
+        title={<span>Void <span className="num">{upload.refId}</span>?</span>}
         footer={
           <>
             <Button variant="ghost" onClick={() => setModalOpen(false)} disabled={voidMut.isPending}>
@@ -284,26 +292,26 @@ function RunView({ detail }: { detail: RunDetail }) {
         }
       >
         <p className="mb-3 text-sm text-text-2">
-          Voiding excludes this import&apos;s leads from future dedupe, analytics and exports. It stays in history as voided.
+          Voiding <span className="num font-semibold text-text">{upload.refId}</span> ({upload.filename}) excludes its
+          leads from future dedupe, analytics and exports. It stays in history as voided.
         </p>
-        <label htmlFor="void-reason" className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-text-3">
-          Reason
-        </label>
-        <textarea
-          id="void-reason"
+        <Textarea
+          label="Reason"
           value={reason}
           onChange={(e) => setReason(e.target.value)}
           rows={3}
           placeholder="e.g. wrong file uploaded"
-          className="w-full rounded-md border border-border bg-surface px-3 py-2 text-sm text-text outline-none transition-colors focus-visible:border-brand"
+          hint="Required — at least 3 characters. Recorded in the activity log as why this run was voided."
+          error={voidMut.isError ? (voidMut.error as Error).message : undefined}
         />
-        {voidMut.isError && <p className="mt-2 text-sm text-danger">{(voidMut.error as Error).message}</p>}
-      </Modal>
+      </Dialog>
+
+      {openRef && <LeadDialog refId={openRef} onClose={() => setOpenRef(null)} />}
     </>
   );
 }
 
-function GroupRows({ info, rows }: { info: PartnerView | undefined; rows: RunLeadView[] }) {
+function GroupRows({ info, rows, onOpen }: { info: PartnerView | undefined; rows: RunLeadView[]; onOpen: (ref: string) => void }) {
   const name = info?.name ?? "Unknown partner";
   const color = info?.color ?? "var(--text-3)";
   const refId = info?.refId ?? "";
@@ -319,7 +327,7 @@ function GroupRows({ info, rows }: { info: PartnerView | undefined; rows: RunLea
       </tr>
       {rows.map((l) => (
         <Tr key={l.refId} accent={color}>
-          <Td rail={color}><Link href={`/leads/${l.refId}`} className="num text-brand hover:underline">{l.refId}</Link></Td>
+          <Td rail={color}><RowOpenButton onClick={() => onOpen(l.refId)}>{l.refId}</RowOpenButton></Td>
           <Td><Badge variant="neutral">{l.campaign}</Badge></Td>
           <Td>{l.address}, {l.city}</Td>
           <Td><span className="num">{l.zip}</span></Td>
