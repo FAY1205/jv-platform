@@ -2,6 +2,7 @@ import { sql } from "drizzle-orm";
 import { getDb } from "@/db";
 import * as schema from "@/db/schema";
 import { tenantWhere, type ScopeContext } from "@/lib/scope";
+import { DEFAULT_STATUS } from "../portal/statuses";
 import { rangeWindow, type RangeKey } from "./ranges";
 
 // Per-partner performance (ANA-02/03) — the single home of these numbers (PRN-15). The
@@ -115,25 +116,32 @@ export async function partnerPerformanceDetail(scope: ScopeContext, partnerId: s
   const noteTenant = tenantWhere(schema.leadNotes, scope);
 
   const rows = await db.execute(sql`
-    with status_hist as (
+    with partner_leads as (
+      select id, created_at from leads
+      where ${leadTenant} and deleted_at is null and mls_status = 'kept'
+        and coalesce(manual_partner_id, partner_id) = ${partnerId}
+    ),
+    status_hist as (
       select lead_id,
-        min(created_at) filter (where status <> 'New') as status_touch,
+        min(created_at) filter (where status <> ${DEFAULT_STATUS}) as status_touch,
         max(created_at) filter (where status = 'Closed') as closed_at
-      from lead_status_history where ${histTenant} group by lead_id
+      from lead_status_history
+      where ${histTenant} and lead_id in (select id from partner_leads)
+      group by lead_id
     ),
     note_hist as (
       select lead_id, min(created_at) as note_touch
-      from lead_notes where ${noteTenant} and author_role = 'partner' group by lead_id
+      from lead_notes
+      where ${noteTenant} and author_role = 'partner' and lead_id in (select id from partner_leads)
+      group by lead_id
     )
     select
-      leads.created_at::text as received_at,
+      pl.created_at::text as received_at,
       least(sh.status_touch, nh.note_touch)::text as first_touch_at,
       sh.closed_at::text as closed_at
-    from leads
-    left join status_hist sh on sh.lead_id = leads.id
-    left join note_hist nh on nh.lead_id = leads.id
-    where ${leadTenant} and leads.deleted_at is null and leads.mls_status = 'kept'
-      and coalesce(leads.manual_partner_id, leads.partner_id) = ${partnerId}
+    from partner_leads pl
+    left join status_hist sh on sh.lead_id = pl.id
+    left join note_hist nh on nh.lead_id = pl.id
   `);
 
   const facts: PartnerLeadFact[] = (rows as unknown as { received_at: string; first_touch_at: string | null; closed_at: string | null }[]).map((r) => ({

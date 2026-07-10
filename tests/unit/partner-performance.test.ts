@@ -33,4 +33,28 @@ describe("buildPartnerPerformance (ANA-02/03)", () => {
     expect(r.history.reduce((s, b) => s + b.given, 0)).toBe(2);
     expect(r.history.some((b) => b.given === 0)).toBe(true);
   });
+
+  it("ANA-01: 12mo uses month buckets and counts across a year boundary", () => {
+    const r = buildPartnerPerformance("12mo", NOW, [f("2025-12-15T00:00:00Z", null, null), f("2026-01-15T00:00:00Z", null, null)]);
+    expect(r.range.bucket).toBe("month");
+    expect(r.history.length).toBeGreaterThanOrEqual(12);
+    expect(r.history.length).toBeLessThanOrEqual(14);
+    expect(r.history.find((b) => b.bucketStart.startsWith("2025-12"))?.given).toBe(1);
+    expect(r.history.find((b) => b.bucketStart.startsWith("2026-01"))?.given).toBe(1);
+    expect(r.history.reduce((s, b) => s + b.given, 0)).toBe(2);
+  });
+
+  it("ANA-01: all-time spans the actual data (not the epoch) with month buckets", () => {
+    const r = buildPartnerPerformance("all", NOW, [f("2026-01-01T00:00:00Z", null, null), f("2026-06-01T00:00:00Z", null, null)]);
+    expect(r.range.bucket).toBe("month");
+    expect(r.history.length).toBe(6); // Jan..Jun inclusive
+    expect(r.history[0].bucketStart.startsWith("2026-01")).toBe(true);
+    expect(r.history.reduce((s, b) => s + b.given, 0)).toBe(2);
+  });
+
+  it("all-time with no facts yields an empty history", () => {
+    const r = buildPartnerPerformance("all", NOW, []);
+    expect(r.history).toEqual([]);
+    expect(r.stats.given).toBe(0);
+  });
 });

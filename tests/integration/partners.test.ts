@@ -77,6 +77,10 @@ suite("WP-030: partners CRUD + deactivation → reassignment (ADM-03, PRN-05)", 
     const charlie = roster.find((p) => p.refId === "JV-003")!;
     expect(charlie.name).toBe("Charlie Capital");
     expect(charlie.status).toBe("not_invited");
+    // F-10: the roster is a pure management table — no per-partner health / lead-count scan.
+    expect(charlie).not.toHaveProperty("leadCount");
+    expect(charlie).not.toHaveProperty("untouched");
+    expect(charlie).toHaveProperty("zipCount");
 
     const audits = await db.select().from(schema.auditLog).where(and(eq(schema.auditLog.tenantId, scope.tenantId), eq(schema.auditLog.action, "partner.created")));
     expect(audits.some((a) => a.entityRef === "JV-003")).toBe(true);

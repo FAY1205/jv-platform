@@ -10,6 +10,7 @@ import type { ScopeContext } from "@/lib/scope";
 const url = process.env.DATABASE_URL;
 const suite = url ? describe : describe.skip;
 const SLUG = "test-partner-perf-ws5";
+const SLUG2 = "test-partner-perf-ws5-other";
 
 suite("WS-5: partnerPerformanceDetail (ANA-02/03, PRN-08/13)", () => {
   let client: ReturnType<typeof postgres>;
@@ -19,13 +20,15 @@ suite("WS-5: partnerPerformanceDetail (ANA-02/03, PRN-08/13)", () => {
   let partnerB: string;
   let uploadId: string;
   let partnerUserId: string;
+  let scopeB: ScopeContext;
+  let partnerOther: string;
 
   const DAY = 86_400_000;
   const now = Date.now();
   const daysAgo = (n: number) => new Date(now - n * DAY);
 
   async function cleanup() {
-    const t = await db.select({ id: schema.tenants.id }).from(schema.tenants).where(eq(schema.tenants.slug, SLUG));
+    const t = await db.select({ id: schema.tenants.id }).from(schema.tenants).where(inArray(schema.tenants.slug, [SLUG, SLUG2]));
     const tids = t.map((x) => x.id);
     if (tids.length === 0) return;
     for (const tbl of [schema.leadNotes, schema.leadStatusHistory, schema.leads, schema.uploads, schema.users, schema.partners]) {
@@ -61,6 +64,14 @@ suite("WS-5: partnerPerformanceDetail (ANA-02/03, PRN-08/13)", () => {
     await mkLead({ partnerId: partnerB, manualPartnerId: partnerA, createdAt: daysAgo(3) });
     // l4: owned by B only — excluded from A.
     await mkLead({ partnerId: partnerB, createdAt: daysAgo(2) });
+
+    // Second tenant — cross-tenant isolation guard for the raw-SQL path (PRN-08).
+    const [t2] = await db.insert(schema.tenants).values({ name: "Other", slug: SLUG2 }).returning({ id: schema.tenants.id });
+    scopeB = { tenantId: t2.id, role: "admin", userId: randomUUID() };
+    const [po] = await db.insert(schema.partners).values({ tenantId: t2.id, refId: "JV-001", name: "Other P", color: "#cccccc", status: "active" }).returning({ id: schema.partners.id });
+    partnerOther = po.id;
+    const [uo] = await db.insert(schema.uploads).values({ tenantId: t2.id, refId: "IM-26-001", status: "processed", filename: "y.csv" }).returning({ id: schema.uploads.id });
+    await db.insert(schema.leads).values({ tenantId: t2.id, refId: "LD-26-1", uploadId: uo.id, dedupeKey: randomUUID(), rawJson: {}, mlsStatus: "kept", matchMethod: "zip", partnerId: partnerOther, createdAt: daysAgo(1) });
   });
 
   afterAll(async () => { await cleanup(); await client.end(); });
@@ -79,5 +90,12 @@ suite("WS-5: partnerPerformanceDetail (ANA-02/03, PRN-08/13)", () => {
   it("ANA-02: the other partner sees only its own lead", async () => {
     const r = await partnerPerformanceDetail(scope, partnerB, "all");
     expect(r.stats.given).toBe(1); // l4 only (l3's effective owner is A)
+  });
+
+  it("PRN-08: never crosses tenants — tenant A's scope can't see tenant B's partner's leads", async () => {
+    const leaked = await partnerPerformanceDetail(scope, partnerOther, "all");
+    expect(leaked.stats.given).toBe(0);
+    const own = await partnerPerformanceDetail(scopeB, partnerOther, "all");
+    expect(own.stats.given).toBe(1);
   });
 });
