@@ -42,10 +42,14 @@ locally). Header/CSP/E2E behavior that needs a served build is CI/owner-verified
    `tos_required` envelope when the partner's latest acceptance ≠ `CURRENT_TOS_VERSION`.
    Integration-tested (accepted vs stale-version partner).
 
-5. **CI hardening (F-43–47) + dependency fix (F-46).** `.github/dependabot.yml`;
-   `gitleaks` + `codeql` workflows; SHA-pin the actions in `ci.yml`; `pnpm.overrides` (or
-   updates) to clear the 2 moderate transitive vulns (uuid ≥11.1.1 / postcss / exceljs).
-   Config-only; verified by `pnpm install` + lockfile.
+5. **CI hardening (F-43–47).** `.github/dependabot.yml` (npm + github-actions); `gitleaks`
+   + `codeql` workflows; SHA-pin the actions in `ci.yml` (verified via `git ls-remote`);
+   explicit least-privilege `permissions:` on every workflow. **F-46 note:** the audit's
+   named vulns (postcss, exceljs>uuid) were ALREADY resolved before WS-10 (`pnpm-lock.yaml`
+   carries `postcss@<8.5.10`/`uuid@<11.1.1` overrides on `phase-2/distribution`) — this WP
+   doesn't touch the lockfile. The one remaining moderate (dev-only `esbuild<0.24.3` under
+   drizzle-kit's deprecated `@esbuild-kit`) is left to a reviewable Dependabot PR rather
+   than a blind override that can't be verified locally and could break `db:migrate` in CI.
 
 6. **Outbox cron + heartbeat (F-07).** `vercel.json` `crons` calling the existing
    `POST /api/admin/outbox/drain` on a schedule + a lightweight heartbeat/health route.
@@ -67,6 +71,11 @@ locally). Header/CSP/E2E behavior that needs a served build is CI/owner-verified
 - Subprocessor list / security page.
 - `main` branch protection (required checks, no direct pushes).
 - Sentry DSN/account (then wire the SDK behind `logError`, ADR-0021).
+- **Vercel plan/env**: the `*/5` outbox cron needs sub-daily crons (Vercel **Pro**;
+  Hobby caps at once/day) — confirm the plan or run an external pinger against
+  `/api/cron/drain-outbox` with the bearer. Set `CRON_SECRET` (cron auth) and confirm the
+  function `maxDuration` ceiling for the plan. To activate TST-07 in CI, provide a dev
+  Supabase Auth project + dev-mailbox OTP + a seeded partner and set `E2E_AUTH_READY=1`.
 
 ## Invariants honored
 

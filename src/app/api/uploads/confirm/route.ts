@@ -7,7 +7,7 @@ import { buildConfirmedProfile, missingRequiredFor, type Mapping } from "@/modul
 import { runUpload } from "@/modules/run/run-upload";
 import { RequestInProgressError } from "@/lib/idempotency-db";
 import { MAX_UPLOAD_ROWS, exceedsBodyLimit, parseContentLength } from "@/lib/upload-guard";
-import { jsonOk, jsonError, newTraceId } from "@/lib/http";
+import { jsonOk, jsonError, jsonServerError, newTraceId } from "@/lib/http";
 import { NextResponse } from "next/server";
 
 // F-86: bound the serverless function's runtime for a large-run process.
@@ -82,6 +82,6 @@ export async function POST(req: Request) {
     const authResp = authErrorResponse(e);
     if (authResp) return authResp;
     if (e instanceof RequestInProgressError) return jsonError("in_progress", "This upload is already being processed.", 409);
-    return jsonError("confirm_failed", e instanceof Error ? e.message : "Could not process the mapping.", 500);
+    return jsonServerError("confirm_failed", "Could not process the mapping.", { message: e instanceof Error ? e.message : String(e) });
   }
 }

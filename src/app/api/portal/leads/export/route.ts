@@ -5,7 +5,7 @@ import { requireTosResponse } from "@/lib/auth/tos-guard";
 import { getPartnerExportData } from "@/modules/portal/queries";
 import { renderExport } from "@/modules/export/render";
 import { loadColorCoding } from "@/modules/settings/export-settings";
-import { jsonError } from "@/lib/http";
+import { jsonServerError } from "@/lib/http";
 
 // GET /api/portal/leads/export — the caller's own leads as a colored .xlsx (PTL-04).
 // Reuses the export renderer (SEC-06 cell sanitization). Scoped (PRN-08).
@@ -25,6 +25,6 @@ export async function GET() {
       },
     });
   } catch (e) {
-    return authErrorResponse(e) ?? jsonError("export_failed", e instanceof Error ? e.message : "Export failed.", 500);
+    return authErrorResponse(e) ?? jsonServerError("export_failed", "Export failed.", { message: e instanceof Error ? e.message : String(e) });
   }
 }

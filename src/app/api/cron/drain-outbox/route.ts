@@ -4,7 +4,7 @@ import { env } from "@/lib/env";
 import { isAuthorizedCron } from "@/lib/auth/cron-auth";
 import { drainOutbox } from "@/modules/notify/outbox";
 import { logError } from "@/lib/observability";
-import { jsonOk, jsonError } from "@/lib/http";
+import { jsonOk, jsonError, jsonServerError } from "@/lib/http";
 
 // F-07: bound the scheduled function's runtime.
 export const maxDuration = 60;
@@ -18,7 +18,13 @@ export async function GET(request: Request) {
     return jsonError("unauthorized", "Authentication required.", 401);
   }
   const db = getDb();
-  const tenants = await db.select({ id: schema.tenants.id }).from(schema.tenants);
+  let tenants: { id: string }[];
+  try {
+    tenants = await db.select({ id: schema.tenants.id }).from(schema.tenants);
+  } catch (e) {
+    // F-3: keep the uniform envelope + one traceId even if the tenant list itself fails.
+    return jsonServerError("cron_drain_failed", "Drain failed.", { message: e instanceof Error ? e.message : String(e) });
+  }
   let sent = 0;
   let failed = 0;
   let drained = 0;

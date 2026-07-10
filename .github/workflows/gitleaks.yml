@@ -7,6 +7,10 @@ on:
   push:
     branches: [main]
 
+# F-47 (OpenSSF Token-Permissions): least-privilege GITHUB_TOKEN.
+permissions:
+  contents: read
+
 jobs:
   gitleaks:
     runs-on: ubuntu-latest

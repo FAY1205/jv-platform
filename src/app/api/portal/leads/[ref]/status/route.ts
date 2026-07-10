@@ -6,7 +6,7 @@ import { requireTosResponse } from "@/lib/auth/tos-guard";
 import { updateLeadStatus, LeadNotFoundError, InvalidStatusError, LeadRemovedError } from "@/modules/portal/status-update";
 import { notifyStatusChange, drainOutbox } from "@/modules/notify/outbox";
 import { logError } from "@/lib/observability";
-import { jsonOk, jsonError } from "@/lib/http";
+import { jsonOk, jsonError, jsonServerError } from "@/lib/http";
 
 const RefSchema = z.string().regex(/^LD-\d{2}-\d{5,}$/);
 const Input = z.object({ status: z.string().min(1).max(50) });
@@ -48,6 +48,6 @@ export async function POST(request: Request, { params }: { params: Promise<{ ref
     if (e instanceof LeadNotFoundError) return jsonError("not_found", e.message, 404);
     if (e instanceof LeadRemovedError) return jsonError("lead_removed", e.message, 409);
     if (e instanceof InvalidStatusError) return jsonError("invalid_status", e.message, 422);
-    return jsonError("status_update_failed", e instanceof Error ? e.message : "Update failed.", 500);
+    return jsonServerError("status_update_failed", "Update failed.", { message: e instanceof Error ? e.message : String(e) });
   }
 }

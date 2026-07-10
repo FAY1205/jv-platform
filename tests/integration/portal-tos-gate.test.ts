@@ -7,7 +7,7 @@ import { recordTosAcceptance } from "@/lib/auth/tos-store";
 import { CURRENT_TOS_VERSION } from "@/lib/legal/tos";
 import type { ScopeContext } from "@/lib/scope";
 import type * as ScopeContextModule from "@/lib/scope-context";
-import { jsonRequest, scopeContextMock, setRouteScope } from "./_route-harness";
+import { jsonRequest, routeParams, scopeContextMock, setRouteScope } from "./_route-harness";
 
 // F-04 / TR-4: a portal DATA route must refuse a partner who hasn't accepted the
 // current ToS — not just the /portal landing page. getServerScope is injected at its
@@ -16,6 +16,7 @@ vi.mock("@/lib/scope-context", async (orig) => scopeContextMock(await orig<typeo
 
 // Imported after the mock is registered (Vitest hoists vi.mock above imports).
 import { GET } from "@/app/api/portal/leads/route";
+import { GET as notesGet } from "@/app/api/leads/[ref]/notes/route";
 
 const url = process.env.DATABASE_URL;
 const suite = url ? describe : describe.skip;
@@ -63,6 +64,12 @@ suite("F-04: portal data routes are ToS-gated", () => {
     const body = await res.json();
     expect(body.code).toBe("tos_required");
     expect(typeof body.traceId).toBe("string");
+  });
+
+  it("F-04: the shared lead-notes route is gated too (a partner reaches it via NotesPanel)", async () => {
+    const res = await notesGet(jsonRequest("GET", "/api/leads/LD-26-00001/notes"), routeParams({ ref: "LD-26-00001" }));
+    expect(res.status).toBe(403);
+    expect((await res.json()).code).toBe("tos_required");
   });
 
   it("F-04: after accepting the current ToS, the same route serves data", async () => {

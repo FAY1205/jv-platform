@@ -1,8 +1,10 @@
 import { z } from "zod";
+import { getDb } from "@/db";
 import { getServerScope } from "@/lib/scope-context";
 import { assertCsrf, authErrorResponse } from "@/lib/auth/guard";
+import { requireTosResponse } from "@/lib/auth/tos-guard";
 import { editLeadNote, NoteNotFoundError } from "@/modules/notes/notes";
-import { jsonOk, jsonError, newTraceId } from "@/lib/http";
+import { jsonOk, jsonError, jsonServerError, newTraceId } from "@/lib/http";
 
 // PATCH /api/leads/[ref]/notes/[noteId] — edit a note the caller authored (NTS-02,
 // audited). Scope + author check inside editLeadNote; CSRF-protected.
@@ -15,12 +17,15 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ re
   const parsed = Body.safeParse(await request.json().catch(() => null));
   if (!parsed.success) return jsonError("invalid_input", "A note body is required.", 400);
   try {
-    await editLeadNote(await getServerScope(), noteId, parsed.data.body, newTraceId());
+    const scope = await getServerScope();
+    const tos = await requireTosResponse(getDb(), scope); // F-04: partners must have accepted ToS
+    if (tos) return tos;
+    await editLeadNote(scope, noteId, parsed.data.body, newTraceId());
     return jsonOk({ code: "ok", message: "Note updated." });
   } catch (e) {
     const authResp = authErrorResponse(e);
     if (authResp) return authResp;
     if (e instanceof NoteNotFoundError) return jsonError("not_found", e.message, 404);
-    return jsonError("note_edit_failed", e instanceof Error ? e.message : "Failed to edit note.", 500);
+    return jsonServerError("note_edit_failed", "Failed to edit note.", { message: e instanceof Error ? e.message : String(e) });
   }
 }

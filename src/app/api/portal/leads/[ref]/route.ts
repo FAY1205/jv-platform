@@ -4,7 +4,7 @@ import { getServerScope } from "@/lib/scope-context";
 import { authErrorResponse } from "@/lib/auth/guard";
 import { requireTosResponse } from "@/lib/auth/tos-guard";
 import { getPartnerLeadDetail } from "@/modules/portal/queries";
-import { jsonOk, jsonError } from "@/lib/http";
+import { jsonOk, jsonError, jsonServerError } from "@/lib/http";
 
 const RefSchema = z.string().regex(/^LD-\d{2}-\d{5,}$/);
 
@@ -20,6 +20,6 @@ export async function GET(_req: Request, { params }: { params: Promise<{ ref: st
     if (!detail) return jsonError("not_found", `Lead ${ref} not found.`, 404);
     return jsonOk(detail);
   } catch (e) {
-    return authErrorResponse(e) ?? jsonError("lead_detail_failed", e instanceof Error ? e.message : "Failed to load lead.", 500);
+    return authErrorResponse(e) ?? jsonServerError("lead_detail_failed", "Failed to load lead.", { message: e instanceof Error ? e.message : String(e) });
   }
 }

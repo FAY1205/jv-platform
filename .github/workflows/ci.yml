@@ -9,6 +9,11 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+# F-47 (OpenSSF Token-Permissions): least-privilege default for GITHUB_TOKEN across
+# all jobs — these only read the checkout. Jobs that need more grant it explicitly.
+permissions:
+  contents: read
+
 jobs:
   # Fast gate on every PR and push: typecheck, lint, unit + integration tests.
   verify:
