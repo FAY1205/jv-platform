@@ -2,7 +2,6 @@ import { and, asc, desc, eq, gte, ilike, inArray, isNull, lte, or, sql, type SQL
 import { getDb } from "@/db";
 import * as schema from "@/db/schema";
 import { tenantWhere, partnerOwnsLead, leadWhere, type ScopeContext } from "@/lib/scope";
-import { groupUnmatchedByState, type UnmatchedGroup } from "./unmatched";
 import { SEED_LEAD_STATUSES, currentStatus } from "@/modules/portal/statuses";
 import type { LeadsQuery } from "./schema";
 
@@ -315,35 +314,25 @@ export async function unmatchedCount(scope: ScopeContext): Promise<number> {
   return Number(row?.n ?? 0);
 }
 
-/** The unmatched inbox: gap leads grouped by state (biggest gap first). */
-export async function listUnmatched(scope: ScopeContext): Promise<UnmatchedGroup[]> {
+export interface UnmatchedStateStats {
+  total: number;
+  byState: { state: string; count: number }[];
+}
+
+/** Bounded per-state unmatched aggregate (F-11) — feeds the stats row + state map.
+ *  Currently-unmatched only (kept, no pipeline partner, no manual overlay). The lead
+ *  rows themselves come from the paginated /api/leads?partnerId=unmatched (WS-3). */
+export async function unmatchedStateStats(scope: ScopeContext): Promise<UnmatchedStateStats> {
   const db = getDb();
   const rows = await db
     .select({
-      refId: schema.leads.refId,
-      sellerFirst: schema.leads.sellerFirst,
-      sellerLast: schema.leads.sellerLast,
-      address: schema.leads.address,
-      city: schema.leads.city,
-      state: schema.leads.state,
-      zip: schema.leads.zip,
-      campaign: schema.leads.campaign,
-      createdAt: schema.leads.createdAt,
+      state: sql<string>`coalesce(nullif(trim(${schema.leads.state}), ''), '—')`,
+      count: sql<number>`count(*)::int`,
     })
     .from(schema.leads)
     .where(unmatchedWhere(scope))
-    .orderBy(desc(schema.leads.createdAt));
-
-  return groupUnmatchedByState(
-    rows.map((r) => ({
-      refId: r.refId,
-      seller: `${r.sellerFirst ?? ""} ${r.sellerLast ?? ""}`.trim() || "—",
-      address: r.address ?? "—",
-      city: r.city,
-      state: r.state,
-      zip: r.zip,
-      campaign: r.campaign,
-      receivedAt: r.createdAt.toISOString(),
-    })),
-  );
+    .groupBy(sql`1`)
+    .orderBy(sql`count(*) desc`, sql`1`);
+  const byState = rows.map((r) => ({ state: r.state, count: Number(r.count) }));
+  return { total: byState.reduce((s, r) => s + r.count, 0), byState };
 }
