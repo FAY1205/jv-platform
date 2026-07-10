@@ -7,6 +7,7 @@ import { useQuery } from "@tanstack/react-query";
 import { apiGet } from "@/lib/api";
 import { APP_NAME } from "@/lib/app";
 import { NotificationBell } from "./NotificationBell";
+import { usePreferences, setPreferences, useApplyTheme } from "@/lib/preferences";
 
 // The admin app shell (DSN): a minimal sidebar + a clean top bar. Every admin page
 // renders its content inside <AppShell>; the active nav item is derived from the URL.
@@ -58,8 +59,6 @@ const NAV_SECTIONS: { label: string | null; items: NavItem[] }[] = [
   ]},
 ];
 
-const NAV_PREF_KEY = "jv.nav";
-
 export function AppShell({ children }: { children: React.ReactNode }) {
   const path = usePathname() ?? "";
   const router = useRouter();
@@ -85,23 +84,19 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     router.push(q ? `/leads?q=${encodeURIComponent(q)}` : "/leads");
   };
 
-  // Sidebar state. `navOpen` = desktop collapse (persisted; each page renders
-  // its own AppShell, so the choice must survive navigation). `mobileOpen` =
-  // the transient overlay drawer on small screens.
-  const [navOpen, setNavOpen] = React.useState(true);
+  // Sidebar state. Desktop collapse is a persisted UI preference (the one small prefs
+  // store — survives navigation since each page mounts its own AppShell). `mobileOpen`
+  // is the transient overlay drawer on small screens.
+  const { navCollapsed } = usePreferences();
+  const navOpen = !navCollapsed;
   const [mobileOpen, setMobileOpen] = React.useState(false);
-  React.useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- apply client-only persisted preference after mount
-    setNavOpen(localStorage.getItem(NAV_PREF_KEY) !== "closed");
-  }, []);
+  useApplyTheme(); // keep <html data-theme> in sync with the theme preference (WS-7 Appearance)
 
   // One viewport-aware menu button: collapses the rail on desktop, opens the
   // drawer on mobile.
   const toggleNav = () => {
     if (window.matchMedia("(min-width: 768px)").matches) {
-      const next = !navOpen;
-      setNavOpen(next);
-      localStorage.setItem(NAV_PREF_KEY, next ? "open" : "closed");
+      setPreferences({ navCollapsed: navOpen }); // currently open ⇒ collapse, and vice-versa
     } else {
       setMobileOpen((v) => !v);
     }
