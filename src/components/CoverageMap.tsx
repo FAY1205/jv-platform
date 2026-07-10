@@ -3,6 +3,7 @@
 import * as React from "react";
 import { US_HEX_STATES, HEX_VIEWBOX } from "@/lib/geo/us-hexgrid";
 import type { StateCoverage } from "@/modules/coverage/map";
+import { contrastText } from "@/lib/contrast";
 import { PartnerTag } from "./PartnerTag";
 
 export interface CoverageMapProps {
@@ -41,6 +42,10 @@ export function CoverageMap({ states, selectedPartnerId = null, onSelectPartner 
           const dimmed = selectedPartnerId != null && cov?.partnerId !== selectedPartnerId;
           const isHover = hover === hex.code;
           const fill = covered ? cov!.color! : "var(--surface-3)";
+          // F-19: label color follows the fill's luminance (dark text on light tints, white
+          // on dark) instead of always-white; the halo takes the opposite tone.
+          const labelFill = covered ? contrastText(cov!.color!) : "var(--text-2)";
+          const halo = labelFill === "#ffffff" ? "rgba(0,0,0,.3)" : "rgba(255,255,255,.6)";
           return (
             <g
               key={hex.code}
@@ -67,9 +72,9 @@ export function CoverageMap({ states, selectedPartnerId = null, onSelectPartner 
                 style={{
                   fontSize: 11,
                   fontWeight: 600,
-                  fill: covered ? "#fff" : "var(--text-2)",
+                  fill: labelFill,
                   paintOrder: "stroke",
-                  stroke: covered ? "rgba(0,0,0,.28)" : "transparent",
+                  stroke: covered ? halo : "transparent",
                   strokeWidth: covered ? 2.5 : 0,
                 }}
               >

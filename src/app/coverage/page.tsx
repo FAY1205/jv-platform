@@ -78,7 +78,7 @@ export default function CoveragePage() {
                 <span className="inline-flex items-center gap-1.5">
                   <span className="h-3 w-3 rounded-[3px] border border-border" style={{ background: "var(--surface-3)" }} /> Uncovered
                 </span>
-                <span className="text-text-3">Counties inherit their state&apos;s partner · scroll or use +/− to zoom, drag to pan · click to highlight a partner.</span>
+                <span className="text-text-3">Counties inherit their state&apos;s partner · scroll or use +/− to zoom, drag to pan · click to highlight a partner. Prefer the keyboard? Use the Partners list to highlight and open each territory.</span>
               </div>
             </section>
 
