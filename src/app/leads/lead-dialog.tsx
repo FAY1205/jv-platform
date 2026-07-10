@@ -5,18 +5,19 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiGet } from "@/lib/api";
 import { csrfHeaders } from "@/lib/csrf-client";
 import {
-  Modal,
+  Dialog,
   Button,
   Badge,
   Input,
   Textarea,
-  NativeSelect,
+  Select,
   PartnerTag,
   NotesPanel,
   Skeleton,
   EmptyState,
   useToast,
 } from "@/components";
+import { matchMethodLabel } from "@/lib/match-method";
 
 // ADM: the lead dialog — opened from the global Leads table (no page navigation).
 // Read-only by default; the Edit button unlocks every field (owner decision). The
@@ -73,6 +74,7 @@ interface Partner {
 }
 
 const REVERT = "__revert__";
+const UNASSIGNED = "__unassigned__";
 
 function googleUrl(parts: string[]): string {
   return `https://www.google.com/search?q=${encodeURIComponent(parts.filter(Boolean).join(" "))}`;
@@ -105,7 +107,7 @@ export function LeadDialog({ refId, onClose }: { refId: string; onClose: () => v
   const d = detailQ.data;
 
   return (
-    <Modal
+    <Dialog
       open
       onClose={onClose}
       size="xl"
@@ -140,7 +142,7 @@ export function LeadDialog({ refId, onClose }: { refId: string; onClose: () => v
       ) : (
         <ViewMode d={d} onEdit={() => setEditing(true)} />
       )}
-    </Modal>
+    </Dialog>
   );
 }
 
@@ -203,6 +205,15 @@ function ViewMode({ d, onEdit }: { d: LeadDetail; onEdit: () => void }) {
           </Field>
         </div>
         <Field label="Source">{d.campaign || "—"}</Field>
+        <Field label="Routed by">
+          {d.assignment.manual ? (
+            <Badge variant="neutral">Manual assignment</Badge>
+          ) : (
+            <Badge variant={d.assignment.matchMethod === "zip" ? "zip" : d.assignment.matchMethod === "state_fallback" ? "state" : "neutral"}>
+              {matchMethodLabel(d.assignment.matchMethod).label}
+            </Badge>
+          )}
+        </Field>
         <Field label="Received">{fmtWhen(d.receivedAt)}</Field>
         {d.assignment.manual && d.assignment.original && (
           <Field label="Original routing">
@@ -293,8 +304,9 @@ function EditForm({
     setF((prev) => ({ ...prev, [k]: e.target.value }));
 
   const [status, setStatus] = React.useState(d.status);
-  // Partner select: current effective owner, a partner id, or "revert to original".
-  const [partnerSel, setPartnerSel] = React.useState(d.partner?.id ?? "");
+  // Partner select: current effective owner, a partner id, "unassigned" sentinel, or
+  // "revert to original". Radix Select forbids an empty-string value, hence the sentinel.
+  const [partnerSel, setPartnerSel] = React.useState(d.partner?.id ?? UNASSIGNED);
 
   const save = useMutation({
     mutationFn: async () => {
@@ -309,9 +321,10 @@ function EditForm({
         if (!res.ok) throw new Error(b?.message ?? "Status update failed.");
       }
       // 2) Fields + partner overlay.
+      const sel = partnerSel === UNASSIGNED ? "" : partnerSel;
       let partner: { action: "keep" } | { action: "set"; partnerId: string } | { action: "revert" } = { action: "keep" };
-      if (partnerSel === REVERT) partner = { action: "revert" };
-      else if (partnerSel && partnerSel !== (d.partner?.id ?? "")) partner = { action: "set", partnerId: partnerSel };
+      if (sel === REVERT) partner = { action: "revert" };
+      else if (sel && sel !== (d.partner?.id ?? "")) partner = { action: "set", partnerId: sel };
       const res = await fetch(`/api/leads/${d.refId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json", ...csrfHeaders() },
@@ -351,30 +364,30 @@ function EditForm({
 
       <div className="grid grid-cols-2 gap-3">
         {d.editable ? (
-          <NativeSelect label="Status" value={status} onChange={(e) => setStatus(e.target.value)}>
-            {d.availableStatuses.map((s) => (
-              <option key={s} value={s}>
-                {s}
-              </option>
-            ))}
-          </NativeSelect>
+          <Select
+            label="Status"
+            value={status}
+            onValueChange={setStatus}
+            options={d.availableStatuses.map((s) => ({ value: s, label: s }))}
+          />
         ) : (
           <div className="flex flex-col gap-1.5">
             <span className="text-xs font-semibold text-text-2">Status</span>
             <Badge variant="removed">Removed · MLS (read-only)</Badge>
           </div>
         )}
-        <NativeSelect label="Assigned partner" value={partnerSel} onChange={(e) => setPartnerSel(e.target.value)}>
-          <option value="">Unassigned</option>
-          {partners.map((p) => (
-            <option key={p.id} value={p.id}>
-              {p.name} ({p.refId})
-            </option>
-          ))}
-          {d.assignment.manual && d.assignment.original && (
-            <option value={REVERT}>↩ Revert to original routing ({d.assignment.original.name})</option>
-          )}
-        </NativeSelect>
+        <Select
+          label="Assigned partner"
+          value={partnerSel}
+          onValueChange={setPartnerSel}
+          options={[
+            { value: UNASSIGNED, label: "Unassigned" },
+            ...partners.map((p) => ({ value: p.id, label: `${p.name} (${p.refId})` })),
+            ...(d.assignment.manual && d.assignment.original
+              ? [{ value: REVERT, label: `↩ Revert to original routing (${d.assignment.original.name})` }]
+              : []),
+          ]}
+        />
       </div>
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
