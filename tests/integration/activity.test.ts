@@ -5,6 +5,7 @@ import { eq, inArray } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import * as schema from "@/db/schema";
 import { listAdminActivity, listPartnerActivity } from "@/modules/activity/queries";
+import { ActivityQuerySchema } from "@/modules/activity/schema";
 import type { ScopeContext } from "@/lib/scope";
 
 const url = process.env.DATABASE_URL;
@@ -59,7 +60,7 @@ suite("WP-034: activity views (ACT-01/02/04)", () => {
   });
 
   it("ACT-01/04: admin sees the audit trail with actor + security categorization", async () => {
-    const p = await listAdminActivity(admin);
+    const p = await listAdminActivity(admin, ActivityQuerySchema.parse({}));
     expect(p.total).toBe(2);
     const ruleEvent = p.items.find((i) => i.action === "mls_pattern.updated")!;
     expect(ruleEvent.category).toBe("security");

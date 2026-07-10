@@ -1,8 +1,9 @@
-import { and, count, desc, eq } from "drizzle-orm";
+import { and, asc, count, desc, eq, gte, ilike, lte, not, or, type SQL } from "drizzle-orm";
 import { getDb } from "@/db";
 import * as schema from "@/db/schema";
 import { tenantWhere, partnerOwnsLead, requirePartner, type ScopeContext } from "@/lib/scope";
-import { categorizeActivity, type ActivityCategory } from "./categorize";
+import { categorizeActivity, SECURITY_PREFIXES, SECURITY_MARKERS, type ActivityCategory } from "./categorize";
+import type { ActivityQuery } from "./schema";
 
 // ACT-01/02/04 read side. Admin sees the tenant's audit trail (scoped, PRN-08),
 // security events highlighted. A partner sees ONLY their own actions on their leads.
@@ -25,13 +26,33 @@ export interface AdminActivityPage {
   total: number;
 }
 
-const PAGE_SIZE = 50;
+// ACT-04: the security/data split as a SQL predicate, built from the SAME prefixes/markers
+// categorizeActivity uses — so a server-side "security only" filter paginates correctly.
+// `ilike` is case-insensitive, matching categorizeActivity's lower-casing.
+function securityCondition(): SQL {
+  return or(
+    ...SECURITY_PREFIXES.map((p) => ilike(schema.auditLog.action, `${p}%`)),
+    ...SECURITY_MARKERS.map((m) => ilike(schema.auditLog.action, `%${m}%`)),
+  )!;
+}
 
-/** ACT-01: the tenant's audit trail, newest first, paginated. */
-export async function listAdminActivity(scope: ScopeContext, page = 1): Promise<AdminActivityPage> {
+/** ACT-01: the tenant's audit trail, filtered + paginated server-side. */
+export async function listAdminActivity(scope: ScopeContext, query: ActivityQuery): Promise<AdminActivityPage> {
   const db = getDb();
-  const current = Math.max(1, Math.floor(page) || 1);
-  const offset = (current - 1) * PAGE_SIZE;
+  const offset = (query.page - 1) * query.pageSize;
+
+  const conds: SQL[] = [tenantWhere(schema.auditLog, scope)];
+  if (query.category === "security") conds.push(securityCondition());
+  else if (query.category === "data") conds.push(not(securityCondition()));
+  if (query.actor) conds.push(eq(schema.auditLog.actorUserId, query.actor));
+  if (query.dateFrom) conds.push(gte(schema.auditLog.createdAt, new Date(`${query.dateFrom}T00:00:00Z`)));
+  if (query.dateTo) conds.push(lte(schema.auditLog.createdAt, new Date(`${query.dateTo}T23:59:59Z`)));
+  if (query.q) {
+    const like = `%${query.q}%`;
+    conds.push(or(ilike(schema.auditLog.action, like), ilike(schema.auditLog.entityRef, like))!);
+  }
+  const where = and(...conds);
+  const dirFn = query.dir === "asc" ? asc : desc;
 
   const [rows, totals] = await Promise.all([
     db
@@ -47,11 +68,11 @@ export async function listAdminActivity(scope: ScopeContext, page = 1): Promise<
       })
       .from(schema.auditLog)
       .leftJoin(schema.users, eq(schema.users.id, schema.auditLog.actorUserId))
-      .where(tenantWhere(schema.auditLog, scope))
-      .orderBy(desc(schema.auditLog.createdAt))
-      .limit(PAGE_SIZE)
+      .where(where)
+      .orderBy(dirFn(schema.auditLog.createdAt))
+      .limit(query.pageSize)
       .offset(offset),
-    db.select({ n: count() }).from(schema.auditLog).where(tenantWhere(schema.auditLog, scope)),
+    db.select({ n: count() }).from(schema.auditLog).where(where),
   ]);
 
   return {
@@ -66,10 +87,20 @@ export async function listAdminActivity(scope: ScopeContext, page = 1): Promise<
       before: r.before,
       after: r.after,
     })),
-    page: current,
-    pageSize: PAGE_SIZE,
+    page: query.page,
+    pageSize: query.pageSize,
     total: Number(totals[0]?.n ?? 0),
   };
+}
+
+/** Distinct actors present in this tenant's audit trail — powers the activity actor filter. */
+export async function listActivityActors(scope: ScopeContext): Promise<{ id: string; email: string }[]> {
+  return getDb()
+    .selectDistinct({ id: schema.users.id, email: schema.users.email })
+    .from(schema.auditLog)
+    .innerJoin(schema.users, eq(schema.users.id, schema.auditLog.actorUserId))
+    .where(tenantWhere(schema.auditLog, scope))
+    .orderBy(schema.users.email);
 }
 
 export interface PartnerActivityItem {
@@ -77,6 +108,8 @@ export interface PartnerActivityItem {
   kind: "status" | "note";
   detail: string;
 }
+
+const PAGE_SIZE = 50; // partner activity: bounded fetch merged + paged in memory
 
 /** ACT-02: a partner's own actions on their own leads (status updates + notes). */
 export async function listPartnerActivity(scope: ScopeContext, page = 1): Promise<{ items: PartnerActivityItem[]; page: number; pageSize: number }> {

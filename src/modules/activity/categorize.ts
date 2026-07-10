@@ -4,8 +4,10 @@
 
 export type ActivityCategory = "security" | "data";
 
-const SECURITY_PREFIXES = ["mls_pattern.", "source_profile.", "auth."];
-const SECURITY_MARKERS = ["deactivated", "coverage", "voided", "revoked", "note.edited"];
+// Exported so the activity query can build the SAME security/data split in SQL (ACT-04)
+// from one source of truth, instead of re-deriving it after fetch (which breaks pagination).
+export const SECURITY_PREFIXES = ["mls_pattern.", "source_profile.", "auth."];
+export const SECURITY_MARKERS = ["deactivated", "coverage", "voided", "revoked", "note.edited"];
 
 export function categorizeActivity(action: string): ActivityCategory {
   const a = action.toLowerCase();
