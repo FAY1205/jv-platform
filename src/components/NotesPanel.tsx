@@ -6,9 +6,11 @@ import { apiGet } from "@/lib/api";
 import { csrfHeaders } from "@/lib/csrf-client";
 import { Card, CardHeader, CardTitle, CardBody } from "./Card";
 import { Button } from "./Button";
+import { Textarea } from "./Textarea";
 
 // NTS/PRN-13: one lead-note stream (the caller's — admin OR partner; the API scopes
 // it). Append-with-edit: existing notes save on blur with a saved indicator (NTS-02).
+// Save failures surface inline (F-20) and status changes announce via aria-live (a11y F-6).
 interface Note {
   id: string;
   body: string;
@@ -17,9 +19,6 @@ interface Note {
   updatedAt: string;
   edited: boolean;
 }
-
-const box =
-  "w-full rounded-md border border-border bg-surface px-3 py-2 text-sm text-text placeholder:text-text-3 focus:border-brand focus:outline-none";
 
 export function NotesPanel({ leadRef, title }: { leadRef: string; title: string }) {
   const qc = useQueryClient();
@@ -30,6 +29,8 @@ export function NotesPanel({ leadRef, title }: { leadRef: string; title: string 
   });
   const [draft, setDraft] = React.useState("");
   const [savedId, setSavedId] = React.useState<string | null>(null);
+  const [addErr, setAddErr] = React.useState<string | null>(null);
+  const [editErr, setEditErr] = React.useState<string | null>(null);
 
   const add = useMutation({
     mutationFn: async (body: string) => {
@@ -40,10 +41,12 @@ export function NotesPanel({ leadRef, title }: { leadRef: string; title: string 
       });
       if (!res.ok) throw new Error("Could not add note.");
     },
+    onMutate: () => setAddErr(null),
     onSuccess: () => {
       setDraft("");
       qc.invalidateQueries({ queryKey: key });
     },
+    onError: (e: Error) => setAddErr(e.message),
   });
 
   const edit = useMutation({
@@ -55,10 +58,12 @@ export function NotesPanel({ leadRef, title }: { leadRef: string; title: string 
       });
       if (!res.ok) throw new Error("Could not save note.");
     },
+    onMutate: () => setEditErr(null),
     onSuccess: (_d, v) => {
       setSavedId(v.id);
       qc.invalidateQueries({ queryKey: key });
     },
+    onError: (e: Error) => setEditErr(e.message),
   });
 
   const notes = data?.notes ?? [];
@@ -76,18 +81,18 @@ export function NotesPanel({ leadRef, title }: { leadRef: string; title: string 
         ) : (
           notes.map((n) => (
             <div key={n.id} className="flex flex-col gap-1">
-              <textarea
+              <Textarea
                 defaultValue={n.body}
                 rows={2}
-                className={box}
                 aria-label="Edit note"
+                disabled={edit.isPending}
                 onFocus={() => setSavedId(null)}
                 onBlur={(e) => {
                   const v = e.target.value.trim();
                   if (v && v !== n.body) edit.mutate({ id: n.id, body: v });
                 }}
               />
-              <span className="text-xs text-text-3">
+              <span className="text-xs text-text-3" aria-live="polite">
                 {new Date(n.updatedAt).toLocaleString()}
                 {n.edited ? " · edited" : ""}
                 {savedId === n.id ? " · Saved ✓" : ""}
@@ -95,16 +100,26 @@ export function NotesPanel({ leadRef, title }: { leadRef: string; title: string 
             </div>
           ))
         )}
+        {editErr && (
+          <p className="text-xs text-danger" role="alert">
+            {editErr}
+          </p>
+        )}
 
         <div className="flex flex-col gap-2 border-t border-border pt-3">
-          <textarea
+          <Textarea
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
             placeholder="Add a note…"
             rows={2}
-            className={box}
             aria-label="Add a note"
+            disabled={add.isPending}
           />
+          {addErr && (
+            <p className="text-xs text-danger" role="alert">
+              {addErr}
+            </p>
+          )}
           <Button
             variant="secondary"
             size="sm"
