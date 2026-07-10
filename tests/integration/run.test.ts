@@ -154,4 +154,27 @@ suite("WP-017b: run persistence (DrizzleRunStore)", () => {
     expect(fresh).toHaveLength(1);
     expect(result.uploadRefId).toBe("IM-26-002");
   });
+
+  it("F-08a: multiple new leads in one batched run get ref-ids in input order", async () => {
+    // Three genuinely-new leads processed in one run. The batched persistRun reserves
+    // a contiguous ref block and zips it to the new leads in input order, so their ref
+    // numbers must strictly increase in the order the rows were submitted.
+    const keys = ["20 alpha st|08034", "21 bravo st|08034", "22 charlie st|08034"];
+    const rows = [
+      row({ Address: "20 Alpha St", State: "NJ", Zip: "08034" }),
+      row({ Address: "21 Bravo St", State: "NJ", Zip: "08034" }),
+      row({ Address: "22 Charlie St", State: "NJ", Zip: "08034" }),
+    ];
+    await processRun(
+      { tenantId, filename: "week3.xlsx", rows, profile: GENERIC_PROFILE, rules: rules(), snapshotInput: snapshotInput(), year: 2026, colorCoding: true },
+      { store, clock: () => "2026-07-22T00:00:00.000Z" },
+    );
+
+    const leads = await db.select({ dedupeKey: schema.leads.dedupeKey, refId: schema.leads.refId }).from(schema.leads).where(and(eq(schema.leads.tenantId, tenantId), inArray(schema.leads.dedupeKey, keys)));
+    const num = (ref: string) => Number(ref.split("-")[2]);
+    const byKey = new Map(leads.map((l) => [l.dedupeKey, num(l.refId)]));
+    expect(byKey.size).toBe(3);
+    expect(byKey.get(keys[0])!).toBeLessThan(byKey.get(keys[1])!);
+    expect(byKey.get(keys[1])!).toBeLessThan(byKey.get(keys[2])!);
+  });
 });

@@ -5,6 +5,7 @@ import { and, eq, inArray } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import * as schema from "@/db/schema";
 import { runListingChecks } from "@/modules/listing/run-checks";
+import type { ListingCheckProvider } from "@/modules/listing/provider";
 import type { ScopeContext } from "@/lib/scope";
 
 const url = process.env.DATABASE_URL;
@@ -66,5 +67,25 @@ suite("WP-033: LinkOnly listing check (LST-01/02/03)", () => {
     // ...and the removed lead was untouched (not checked).
     const [removed] = await db.select().from(schema.leads).where(eq(schema.leads.id, removedId));
     expect(removed.possibleMlsListing).toBe("pending");
+  });
+
+  it("F-08b: a multi-status run groups the flag updates per status (K>1)", async () => {
+    // Two kept leads under a fresh run; a stub provider returns a different status
+    // per lead, so idsByStatus has two partitions and each must land on its own lead.
+    const [up] = await db.insert(schema.uploads).values({ tenantId: scope.tenantId, refId: "IM-26-002", filename: "w2.xlsx", status: "processed" }).returning({ id: schema.uploads.id });
+    const [yes] = await db.insert(schema.leads).values({ tenantId: scope.tenantId, refId: "LD-26-00010", uploadId: up.id, dedupeKey: "10|76001", rawJson: {}, address: "1 Yes St", city: "Fort Worth", state: "TX", zip: "76001", mlsStatus: "kept" }).returning({ id: schema.leads.id });
+    const [no] = await db.insert(schema.leads).values({ tenantId: scope.tenantId, refId: "LD-26-00011", uploadId: up.id, dedupeKey: "11|76002", rawJson: {}, address: "2 No St", city: "Fort Worth", state: "TX", zip: "76002", mlsStatus: "kept" }).returning({ id: schema.leads.id });
+
+    const stub: ListingCheckProvider = {
+      name: "stub",
+      check: (lead) => ({ provider: "stub", status: lead.zip === "76001" ? "yes" : "no" }),
+    };
+    const n = await runListingChecks(db, scope, "IM-26-002", stub);
+    expect(n).toBe(2);
+
+    const [yRow] = await db.select().from(schema.leads).where(eq(schema.leads.id, yes.id));
+    const [nRow] = await db.select().from(schema.leads).where(eq(schema.leads.id, no.id));
+    expect(yRow.possibleMlsListing).toBe("yes");
+    expect(nRow.possibleMlsListing).toBe("no"); // grouped separately, not cross-contaminated
   });
 });

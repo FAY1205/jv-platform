@@ -60,9 +60,11 @@ Both run under the per-tenant advisory lock; today they do N round-trips.
   (`for (status, ids) → update(...).where(inArray(id, ids))`) — at most K updates
   for K distinct statuses (a small constant) instead of N.
 
-`allocateRefBlock` gets a focused unit assertion for the block math; batching
-behavior is covered by the existing `run.test.ts` / `listing.test.ts` integration
-suites (extended to assert unchanged ref sequence + flags).
+`allocateRefBlock` counter math has its own `tests/integration/ref-block.test.ts`
+(contiguity / no-overlap / zero-count). End-to-end batching behavior is covered by
+extending the existing suites: `run.test.ts` (F-08a — multiple new leads in one run
+get refs in input order) and `listing.test.ts` (F-08b — a multi-status run groups
+the flag updates correctly).
 
 ## Deliverable 4 — Schema verdict (answers the owner's DB question)
 

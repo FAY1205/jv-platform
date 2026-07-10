@@ -71,8 +71,8 @@ Nothing is lost for the documented future-proofing: the **member-role** seam is
   BEFORE UPDATE and BEFORE DELETE triggers). No new columns/indexes/RLS policies
   (existing `audit_tenant_created_idx` and RLS stand); the trigger is the whole
   change. A `purgeAuditLog()` test helper wraps deletes in a tx that sets
-  `app.audit_log_purge`; the six integration suites that clean up `audit_log`
-  switch to it.
+  `app.audit_log_purge`; the eleven integration suites that clean up `audit_log`
+  (six direct deletes + five cleanup-loop arrays) switch to it.
 - Migration **0015** drops `events` (`DROP TABLE "events" CASCADE`) and the
   Drizzle `events` model + snapshot are removed. `portal/status-update.ts` drops
   the `events` insert; `portal-scope.test.ts` drops its `events` isolation
