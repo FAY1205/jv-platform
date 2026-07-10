@@ -156,7 +156,10 @@ const EDITABLE_COLUMNS = [
   "notes",
 ] as const;
 
-export async function editLead(scope: ScopeContext, input: EditLeadInput): Promise<{ refId: string }> {
+export async function editLead(
+  scope: ScopeContext,
+  input: EditLeadInput,
+): Promise<{ refId: string; assignedPartnerId: string | null }> {
   const db = getDb();
   return db.transaction(async (tx) => {
     const [lead] = await tx
@@ -195,6 +198,9 @@ export async function editLead(scope: ScopeContext, input: EditLeadInput): Promi
     // Effective owner today = manual overlay if present, else the pipeline snapshot.
     const currentEffective = lead.manualPartnerId ?? lead.partnerId;
     let partnerAudit: Record<string, unknown> | null = null;
+    // F-40: the partner a "set" re-route newly hands the lead to (null otherwise) —
+    // the route uses it to notify the receiving partner. Only a real change qualifies.
+    let assignedPartnerId: string | null = null;
 
     if (input.partner.action === "set") {
       const [partner] = await tx
@@ -215,6 +221,7 @@ export async function editLead(scope: ScopeContext, input: EditLeadInput): Promi
         patch.manualAssignedAt = new Date() as unknown as string;
         patch.manualAssignedBy = scope.userId;
         partnerAudit = { from: currentEffective, to: partner.id, partnerRefId: partner.refId };
+        assignedPartnerId = partner.id;
       }
     } else if (input.partner.action === "revert" && lead.manualPartnerId !== null) {
       patch.manualPartnerId = null;
@@ -238,7 +245,7 @@ export async function editLead(scope: ScopeContext, input: EditLeadInput): Promi
       // else: partnerId and manualPartnerId both null → already owner-less; no-op.
     }
 
-    if (Object.keys(patch).length === 0) return { refId: lead.refId };
+    if (Object.keys(patch).length === 0) return { refId: lead.refId, assignedPartnerId };
 
     await tx.update(schema.leads).set(patch).where(eq(schema.leads.id, lead.id));
 
@@ -253,6 +260,6 @@ export async function editLead(scope: ScopeContext, input: EditLeadInput): Promi
       traceId: globalThis.crypto.randomUUID(),
     });
 
-    return { refId: lead.refId };
+    return { refId: lead.refId, assignedPartnerId };
   });
 }

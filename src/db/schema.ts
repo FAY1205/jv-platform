@@ -329,7 +329,7 @@ export const listingChecks = pgTable(
   (t) => [index("listing_checks_lead_idx").on(t.leadId)],
 );
 
-// ── Notifications, events, audit ──
+// ── Notifications, audit ──
 export const notifications = pgTable(
   "notifications",
   {
@@ -350,19 +350,10 @@ export const notifications = pgTable(
   (t) => [index("notifications_user_idx").on(t.userId)],
 );
 
-export const events = pgTable(
-  "events",
-  {
-    id: uuid("id").primaryKey().defaultRandom(),
-    tenantId: uuid("tenant_id")
-      .notNull()
-      .references(() => tenants.id),
-    type: text("type").notNull(), // lead.assigned, upload.processed, status.changed, note.added (SEAM-04)
-    payload: jsonb("payload").notNull(),
-    createdAt: createdAt(),
-  },
-  (t) => [index("events_tenant_created_idx").on(t.tenantId, t.createdAt)],
-);
+// The `events` table was removed in WS-9 / migration 0015 (ADR-0020): it had a
+// single writer and no reader, redundant with lead_status_history. The lead
+// lifecycle stream role stays with lead_status_history + audit_log; a future
+// webhooks/member-feed phase can reintroduce a purpose-built stream (SEAM-04).
 
 export const auditLog = pgTable(
   "audit_log",

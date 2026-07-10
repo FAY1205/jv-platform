@@ -26,7 +26,6 @@ suite("TST-08: partner portal scoping", () => {
     const tenants = await db.select({ id: schema.tenants.id }).from(schema.tenants).where(inArray(schema.tenants.slug, [SLUG]));
     const tids = tenants.map((t) => t.id);
     if (tids.length === 0) return;
-    await db.delete(schema.events).where(inArray(schema.events.tenantId, tids));
     await db.delete(schema.leadStatusHistory).where(inArray(schema.leadStatusHistory.tenantId, tids));
     await db.delete(schema.leads).where(inArray(schema.leads.tenantId, tids));
     await db.delete(schema.uploads).where(inArray(schema.uploads.tenantId, tids));
@@ -96,18 +95,15 @@ suite("TST-08: partner portal scoping", () => {
     await expect(updateLeadStatus(adminA(), "LD-26-00003", "Contacted")).rejects.toBeInstanceOf(LeadRemovedError);
   });
 
-  it("F-12: re-setting the current status is a no-op (changed:false, no new history/event, so the route skips notify)", async () => {
+  it("F-12: re-setting the current status is a no-op (changed:false, no new history, so the route skips notify)", async () => {
     const [lead] = await db.select({ id: schema.leads.id }).from(schema.leads).where(eq(schema.leads.refId, "LD-26-00001"));
     const first = await updateLeadStatus(adminA(), "LD-26-00001", "Appointment"); // a real change
     expect(first.changed).toBe(true);
     const h1 = await db.select({ id: schema.leadStatusHistory.id }).from(schema.leadStatusHistory).where(eq(schema.leadStatusHistory.leadId, lead.id));
-    const e1 = await db.select({ id: schema.events.id }).from(schema.events).where(eq(schema.events.tenantId, id.tenant));
     const second = await updateLeadStatus(adminA(), "LD-26-00001", "Appointment"); // same status again → no-op
     // changed:false is the seam the portal route gates its admin notification on (F-1).
     expect(second.changed).toBe(false);
     const h2 = await db.select({ id: schema.leadStatusHistory.id }).from(schema.leadStatusHistory).where(eq(schema.leadStatusHistory.leadId, lead.id));
-    const e2 = await db.select({ id: schema.events.id }).from(schema.events).where(eq(schema.events.tenantId, id.tenant));
     expect(h2.length).toBe(h1.length);
-    expect(e2.length).toBe(e1.length);
   });
 });

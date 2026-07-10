@@ -4,9 +4,11 @@ import * as schema from "@/db/schema";
 import { leadWhere, type ScopeContext } from "@/lib/scope";
 import { isValidStatus, DEFAULT_STATUS } from "./statuses";
 
-// PTL-03: a status update on an owned lead → lead_status_history + event (visible to
-// admin). Scoped (a partner can only update their own leads). PRN-05: historical
-// assignments are untouched — this only appends status history.
+// PTL-03: a status update on an owned lead → lead_status_history (surfaced to the
+// admin via the Activity feed + the status-change notification the route enqueues).
+// Scoped (a partner can only update their own leads). PRN-05: historical assignments
+// are untouched — this only appends status history. (WS-9/ADR-0020: the redundant
+// `events` write was removed with the events table.)
 
 export class LeadNotFoundError extends Error {
   constructor(refId: string) {
@@ -44,8 +46,8 @@ export async function updateLeadStatus(
     if (lead.mlsStatus === "removed") throw new LeadRemovedError(refId);
 
     // F-12: idempotent — if the lead is already at this status, do nothing (no dup
-    // history row, no dup event) and signal `changed:false` so the route skips the
-    // admin notification too. PRN-05 safe. Deterministic tie-break on id.
+    // history row) and signal `changed:false` so the route skips the admin
+    // notification too. PRN-05 safe. Deterministic tie-break on id.
     const [latest] = await tx
       .select({ status: schema.leadStatusHistory.status })
       .from(schema.leadStatusHistory)
@@ -60,11 +62,6 @@ export async function updateLeadStatus(
       leadId: lead.id,
       status,
       changedByUserId: scope.userId,
-    });
-    await tx.insert(schema.events).values({
-      tenantId: lead.tenantId,
-      type: "status.changed",
-      payload: { leadRefId: refId, status, byRole: scope.role },
     });
     return { refId, status, changed: true };
   });

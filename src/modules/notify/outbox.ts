@@ -255,6 +255,34 @@ export async function notifyStatusChange(
   }
 }
 
+/**
+ * F-40 / NTF-04 / ADR-0020: tell a partner they've just been given a lead by an admin
+ * (manual assign of an unmatched lead, or an edit re-route). In-app for the partner's
+ * user, gated on their `new_leads` in-app channel (same signal as distribution).
+ * Best-effort — call sites swallow errors. Skipped when the partner has no onboarded
+ * user. `scope` is the acting admin's; prefs are per-tenant so this resolves correctly.
+ */
+export async function notifyLeadAssigned(
+  db: DB,
+  scope: ScopeContext,
+  input: { leadRef: string; partnerId: string },
+): Promise<void> {
+  if (!resolvePref(await loadNotificationPrefs(db, scope), "partner", "new_leads").inApp) return;
+  const [user] = await db
+    .select({ id: schema.users.id })
+    .from(schema.users)
+    .where(and(tenantWhere(schema.users, scope), eq(schema.users.partnerId, input.partnerId)));
+  if (!user) return;
+  await createNotification(db, {
+    tenantId: scope.tenantId,
+    userId: user.id,
+    type: "assigned_lead",
+    title: `Lead ${input.leadRef} was assigned to you`,
+    body: "An admin routed this lead to you.",
+    deepLink: `/portal/leads/${input.leadRef}`,
+  });
+}
+
 export interface DrainResult {
   sent: number;
   failed: number;
