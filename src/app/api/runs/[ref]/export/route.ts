@@ -7,6 +7,7 @@ import { getServerScope } from "@/lib/scope-context";
 import { authErrorResponse, requireAdminResponse } from "@/lib/auth/guard";
 import { getRunExportData } from "@/modules/run/export-data";
 import { renderExport } from "@/modules/export/render";
+import { loadColorCoding } from "@/modules/settings/export-settings";
 import { signedExportUrl } from "@/modules/export/storage";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { logError } from "@/lib/observability";
@@ -47,7 +48,8 @@ export async function GET(_req: Request, { params }: { params: Promise<{ ref: st
     const data = await getRunExportData(scope, parsed.data);
     if (!data) return jsonError("not_found", `Run ${parsed.data} not found.`, 404);
 
-    const bytes = await renderExport(data.exportLeads, data.partners, data.summary, { colorCoding: true });
+    const colorCoding = await loadColorCoding(scope); // F-39: honor the tenant setting (SET-01)
+    const bytes = await renderExport(data.exportLeads, data.partners, data.summary, { colorCoding });
     return new Response(new Uint8Array(bytes), {
       headers: {
         "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",

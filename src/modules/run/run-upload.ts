@@ -14,6 +14,7 @@ import { loadNotificationPrefs } from "@/modules/notify/prefs";
 import { runListingChecks } from "@/modules/listing/run-checks";
 import { adminAllowlist } from "@/lib/env";
 import { logError } from "@/lib/observability";
+import { loadColorCoding } from "@/modules/settings/export-settings";
 import { newTraceId } from "@/lib/http";
 import type { RunSummary } from "@/modules/analytics/run-summary";
 
@@ -43,6 +44,7 @@ export async function runUpload(scope: ScopeContext, input: RunUploadInput): Pro
   const key = input.idempotencyKey ?? newTraceId();
   const year = new Date().getUTCFullYear();
 
+  const colorCoding = await loadColorCoding(scope); // F-39: honor the tenant setting (SET-01)
   const { response } = await withDbIdempotency(db, scope.tenantId, key, async () => {
     const store = new DrizzleRunStore(db);
     const result = await processRun(
@@ -54,7 +56,7 @@ export async function runUpload(scope: ScopeContext, input: RunUploadInput): Pro
         rules,
         snapshotInput: { sourceProfile: { id: input.profile.id, version: input.profile.version }, ...snapshotParts },
         year,
-        colorCoding: true,
+        colorCoding,
       },
       { store, clock: () => new Date().toISOString() },
     );

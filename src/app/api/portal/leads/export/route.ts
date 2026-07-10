@@ -2,6 +2,7 @@ import { getServerScope } from "@/lib/scope-context";
 import { authErrorResponse } from "@/lib/auth/guard";
 import { getPartnerExportData } from "@/modules/portal/queries";
 import { renderExport } from "@/modules/export/render";
+import { loadColorCoding } from "@/modules/settings/export-settings";
 import { jsonError } from "@/lib/http";
 
 // GET /api/portal/leads/export — the caller's own leads as a colored .xlsx (PTL-04).
@@ -10,7 +11,8 @@ export async function GET() {
   try {
     const scope = await getServerScope();
     const data = await getPartnerExportData(scope);
-    const bytes = await renderExport(data.exportLeads, data.partners, data.summary, { colorCoding: true });
+    const colorCoding = await loadColorCoding(scope); // F-39: honor the tenant setting (SET-01)
+    const bytes = await renderExport(data.exportLeads, data.partners, data.summary, { colorCoding });
     return new Response(new Uint8Array(bytes), {
       headers: {
         "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",

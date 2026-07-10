@@ -17,8 +17,7 @@ import { groupMlsPatterns, type MlsEffect } from "@/lib/mls-groups";
 // Every change is audited and picked up by the next run (DM-08).
 
 interface MlsPattern { id: string; patternKey: string; type: MlsEffect; regex: string; flags: string; label: string; enabled: boolean }
-interface Format { id: string; name: string; version: number; columns: number; strictness: "flexible" | "strict"; source: "saved" | "builtin" }
-interface RulesData { mlsPatterns: MlsPattern[]; formats: Format[] }
+interface RulesData { mlsPatterns: MlsPattern[] }
 
 // Per-effect copy. The effect is always conveyed by group title + badge TEXT, never
 // color alone (PRN-14).
@@ -120,32 +119,6 @@ function RulesInner() {
                     })}
                   </div>
                 )}
-              </CardBody>
-            </Card>
-
-            {/* File formats (Source Profiles) + templates — relocates to Settings in WS-7 (SET-12) */}
-            <Card>
-              <CardHeader><CardTitle>File formats</CardTitle></CardHeader>
-              <CardBody>
-                <p className="mb-3 text-xs text-text-3">The upload formats the app recognizes. Download a template to prepare a file with the right columns (ING-05).</p>
-                <Table>
-                  <THead><Tr><Th>Format</Th><Th align="right">Columns</Th><Th>Match</Th><Th align="right">Template</Th></Tr></THead>
-                  <TBody>
-                    {data.formats.map((fmt) => (
-                      <Tr key={fmt.id}>
-                        <Td>
-                          <span className="text-sm text-text">{fmt.name}</span> <span className="num text-xs text-text-3">v{fmt.version}</span>
-                          {fmt.source === "saved" && <Badge variant="success" className="ml-2">saved</Badge>}
-                        </Td>
-                        <Td align="right"><span className="num text-sm text-text-2">{fmt.columns}</span></Td>
-                        <Td><Badge variant={fmt.strictness === "strict" ? "warn" : "neutral"}>{fmt.strictness}</Badge></Td>
-                        <Td align="right">
-                          <a href={`/api/templates/${fmt.id}`} className="text-xs text-brand hover:underline">↓ Download</a>
-                        </Td>
-                      </Tr>
-                    ))}
-                  </TBody>
-                </Table>
               </CardBody>
             </Card>
           </>
