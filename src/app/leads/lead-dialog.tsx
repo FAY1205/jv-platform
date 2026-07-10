@@ -322,8 +322,9 @@ function EditForm({
       }
       // 2) Fields + partner overlay.
       const sel = partnerSel === UNASSIGNED ? "" : partnerSel;
-      let partner: { action: "keep" } | { action: "set"; partnerId: string } | { action: "revert" } = { action: "keep" };
+      let partner: { action: "keep" } | { action: "set"; partnerId: string } | { action: "revert" } | { action: "unassign" } = { action: "keep" };
       if (sel === REVERT) partner = { action: "revert" };
+      else if (sel === "" && d.partner) partner = { action: "unassign" }; // clearing a currently-assigned lead
       else if (sel && sel !== (d.partner?.id ?? "")) partner = { action: "set", partnerId: sel };
       const res = await fetch(`/api/leads/${d.refId}`, {
         method: "PATCH",

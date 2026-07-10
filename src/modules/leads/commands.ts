@@ -26,6 +26,12 @@ export class InvalidAssignTargetError extends Error {
     this.name = "InvalidAssignTargetError";
   }
 }
+export class CannotUnassignRoutedLeadError extends Error {
+  constructor() {
+    super("A pipeline-routed lead can't be unassigned; revert to original routing instead.");
+    this.name = "CannotUnassignRoutedLeadError";
+  }
+}
 
 export interface ManualAssignInput {
   leadRef: string;
@@ -119,11 +125,14 @@ export interface EditLeadFields {
 
 /** Partner re-routing intent for an edit. "keep" leaves ownership untouched;
  *  "set" writes the manual overlay to a partner; "revert" clears the overlay so
- *  the lead falls back to its pipeline routing. */
+ *  the lead falls back to its pipeline routing; "unassign" clears the overlay to
+ *  leave the lead owner-less — valid only when there is no pipeline snapshot to
+ *  fall back to (PRN-05: the snapshot is immutable and can never be nulled). */
 export type PartnerEdit =
   | { action: "keep" }
   | { action: "set"; partnerId: string }
-  | { action: "revert" };
+  | { action: "revert" }
+  | { action: "unassign" };
 
 export interface EditLeadInput {
   ref: string;
@@ -213,6 +222,20 @@ export async function editLead(scope: ScopeContext, input: EditLeadInput): Promi
       patch.manualAssignedBy = null;
       patch.manualReason = null;
       partnerAudit = { from: lead.manualPartnerId, to: lead.partnerId, reverted: true };
+    } else if (input.partner.action === "unassign") {
+      // PRN-05: only the additive manual overlay can be cleared — the pipeline snapshot
+      // (partnerId) is immutable. A lead whose snapshot routed it to a partner can never
+      // be made owner-less; the admin must Revert to original routing instead. This
+      // mirrors manuallyAssignLead's guard (only an unmatched-base lead is in play).
+      if (lead.partnerId !== null) throw new CannotUnassignRoutedLeadError();
+      if (lead.manualPartnerId !== null) {
+        patch.manualPartnerId = null;
+        patch.manualAssignedAt = null;
+        patch.manualAssignedBy = null;
+        patch.manualReason = null;
+        partnerAudit = { from: currentEffective, to: null, unassigned: true };
+      }
+      // else: partnerId and manualPartnerId both null → already owner-less; no-op.
     }
 
     if (Object.keys(patch).length === 0) return { refId: lead.refId };

@@ -2,7 +2,7 @@ import { z } from "zod";
 import { getServerScope } from "@/lib/scope-context";
 import { assertCsrf, authErrorResponse, requireAdminResponse } from "@/lib/auth/guard";
 import { getAdminLeadDetail } from "@/modules/leads/queries";
-import { editLead, LeadNotFoundError, InvalidAssignTargetError } from "@/modules/leads/commands";
+import { editLead, LeadNotFoundError, InvalidAssignTargetError, CannotUnassignRoutedLeadError } from "@/modules/leads/commands";
 import { jsonOk, jsonError } from "@/lib/http";
 
 // Lead ref format (v2, ADR-0019). Sibling routes validate this before touching the DB (F-13).
@@ -52,6 +52,7 @@ const EditSchema = z.object({
       z.object({ action: z.literal("keep") }),
       z.object({ action: z.literal("set"), partnerId: z.string().uuid() }),
       z.object({ action: z.literal("revert") }),
+      z.object({ action: z.literal("unassign") }),
     ])
     .default({ action: "keep" }),
 });
@@ -76,6 +77,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ re
   } catch (e) {
     if (e instanceof LeadNotFoundError) return jsonError("not_found", e.message, 404);
     if (e instanceof InvalidAssignTargetError) return jsonError("invalid_target", e.message, 400);
+    if (e instanceof CannotUnassignRoutedLeadError) return jsonError("cannot_unassign", e.message, 409);
     return authErrorResponse(e) ?? jsonError("lead_edit_failed", e instanceof Error ? e.message : "Edit failed.", 500);
   }
 }

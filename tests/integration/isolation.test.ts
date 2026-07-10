@@ -175,6 +175,55 @@ suite("TST-01: tenant & partner isolation", () => {
     expect(row.manualPartnerId).toBe(id.partnerY); // overlay moved
   });
 
+  it("ADM/PRN-05: unassign clears the manual overlay of an unmatched-base lead, leaving no effective owner (snapshot untouched)", async () => {
+    const { editLead } = await import("@/modules/leads/commands");
+    // Unmatched-base lead manually assigned to X (partnerId=null, overlay=X). Effective owner is X.
+    const [seed] = await db
+      .insert(schema.leads)
+      .values({ tenantId: id.tenantA, refId: "LD-26-00013", uploadId: id.uploadA, dedupeKey: "un|00013", rawJson: {}, partnerId: null, matchMethod: "none", mlsStatus: "kept", manualPartnerId: id.partnerX, manualAssignedAt: new Date(), manualAssignedBy: id.adminUser, manualReason: "gap fill" })
+      .returning({ id: schema.leads.id });
+
+    await editLead(adminA(), { ref: "LD-26-00013", fields: {}, partner: { action: "unassign" } });
+
+    const [row] = await db
+      .select({ partnerId: schema.leads.partnerId, matchMethod: schema.leads.matchMethod, manualPartnerId: schema.leads.manualPartnerId, manualAssignedAt: schema.leads.manualAssignedAt, manualReason: schema.leads.manualReason })
+      .from(schema.leads)
+      .where(eq(schema.leads.id, seed.id));
+    expect(row.manualPartnerId).toBeNull(); // overlay cleared → no effective owner
+    expect(row.manualAssignedAt).toBeNull();
+    expect(row.manualReason).toBeNull();
+    expect(row.partnerId).toBeNull(); // PRN-05: import snapshot untouched (was null)
+    expect(row.matchMethod).toBe("none"); // PRN-05: import snapshot untouched
+
+    // The read model now reports the lead as unowned.
+    const { getAdminLeadDetail } = await import("@/modules/leads/queries");
+    const detail = await getAdminLeadDetail(adminA(), "LD-26-00013");
+    expect(detail?.partner).toBeNull();
+    expect(detail?.assignment.manual).toBe(false);
+  });
+
+  it("ADM/PRN-05: unassign is REJECTED for a pipeline-routed lead — the immutable snapshot is never rewritten", async () => {
+    const { editLead, CannotUnassignRoutedLeadError } = await import("@/modules/leads/commands");
+    // Pure pipeline routing to X (partnerId=X, no overlay). Its owner comes from the immutable
+    // import snapshot, which PRN-05 forbids rewriting — so it cannot be unassigned.
+    const [seed] = await db
+      .insert(schema.leads)
+      .values({ tenantId: id.tenantA, refId: "LD-26-00014", uploadId: id.uploadA, dedupeKey: "pl|00014", rawJson: {}, partnerId: id.partnerX, matchMethod: "zip", mlsStatus: "kept" })
+      .returning({ id: schema.leads.id });
+
+    await expect(
+      editLead(adminA(), { ref: "LD-26-00014", fields: {}, partner: { action: "unassign" } }),
+    ).rejects.toBeInstanceOf(CannotUnassignRoutedLeadError);
+
+    const [row] = await db
+      .select({ partnerId: schema.leads.partnerId, matchMethod: schema.leads.matchMethod, manualPartnerId: schema.leads.manualPartnerId })
+      .from(schema.leads)
+      .where(eq(schema.leads.id, seed.id));
+    expect(row.partnerId).toBe(id.partnerX); // PRN-05: snapshot untouched
+    expect(row.matchMethod).toBe("zip"); // PRN-05: snapshot untouched
+    expect(row.manualPartnerId).toBeNull(); // no overlay written
+  });
+
   it("F-01: the leads RLS policy uses the effective-owner coalesce form (DB backstop matches scope.ts)", async () => {
     const rows = (await db.execute<{ qual: string }>(sql`
       select qual from pg_policies where tablename = 'leads' and policyname = 'leads_scope'
