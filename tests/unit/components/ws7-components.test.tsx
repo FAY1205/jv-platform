@@ -44,7 +44,7 @@ describe("ProfileMenu", () => {
     const user = userEvent.setup();
     const assign = vi.fn();
     Object.defineProperty(window, "location", { value: { assign }, writable: true, configurable: true });
-    const fetchMock = vi.fn(async (url: string) => {
+    const fetchMock = vi.fn(async (url: string, _init?: RequestInit) => {
       if (String(url).includes("/api/me")) {
         return { ok: true, status: 200, json: async () => ({ email: "a@b.test", role: "admin", workspace: { name: "W" } }) } as Response;
       }
@@ -59,7 +59,7 @@ describe("ProfileMenu", () => {
     await waitFor(() => {
       const logout = fetchMock.mock.calls.find((c) => String(c[0]).includes("/api/auth/logout"));
       expect(logout).toBeTruthy();
-      expect(String((logout![1] as RequestInit).body)).toContain("local");
+      expect(String(logout?.[1]?.body)).toContain("local");
     });
   });
 });
