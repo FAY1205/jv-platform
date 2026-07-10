@@ -4,7 +4,7 @@ import * as React from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiGet } from "@/lib/api";
 import { csrfHeaders } from "@/lib/csrf-client";
-import { Card, CardBody, CardHeader, CardTitle, Button, Skeleton, EmptyState, useToast } from "@/components";
+import { Card, CardBody, CardHeader, CardTitle, Button, Checkbox, Skeleton, EmptyState, useToast } from "@/components";
 import { SettingsSection } from "../settings-section";
 
 // SET-03 / NTF-05: the admin sets, per role + event, whether it emails, shows in-app,
@@ -96,12 +96,12 @@ export default function NotificationSettingsPage() {
                         <p className="text-sm text-text">{ev.label}</p>
                         <p className="text-xs text-text-3 capitalize">{ev.role}</p>
                       </div>
-                      <label className="flex w-16 justify-center">
-                        <input type="checkbox" checked={ch.email} onChange={() => toggle(ev.role, ev.key, "email")} className="h-4 w-4 accent-brand" aria-label={`Email ${ev.label}`} />
-                      </label>
-                      <label className="flex w-16 justify-center">
-                        <input type="checkbox" checked={ch.inApp} onChange={() => toggle(ev.role, ev.key, "inApp")} className="h-4 w-4 accent-brand" aria-label={`In-app ${ev.label}`} />
-                      </label>
+                      <div className="flex w-16 justify-center">
+                        <Checkbox checked={ch.email} onCheckedChange={() => toggle(ev.role, ev.key, "email")} ariaLabel={`Email ${ev.label}`} />
+                      </div>
+                      <div className="flex w-16 justify-center">
+                        <Checkbox checked={ch.inApp} onCheckedChange={() => toggle(ev.role, ev.key, "inApp")} ariaLabel={`In-app ${ev.label}`} />
+                      </div>
                     </div>
                   );
                 })}
