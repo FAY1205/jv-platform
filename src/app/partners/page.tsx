@@ -16,10 +16,10 @@ import {
   Td,
   Badge,
   Button,
-  Modal,
+  Dialog,
   Input,
   Textarea,
-  NativeSelect,
+  Select,
   PartnerTag,
   EmptyState,
   Skeleton,
@@ -41,12 +41,8 @@ interface Partner {
   dealTerms: string | null;
   adminNotes: string | null;
   status: "not_invited" | "invited" | "active" | "revoked";
-  leadCount: number;
   zipCount: number;
   stateCount: number;
-  untouched: number;
-  oldestUntouchedDays: number;
-  avgFirstTouchHours: number | null;
 }
 interface Territory {
   states: string[];
@@ -136,7 +132,7 @@ function PartnerForm({
   });
 
   return (
-    <Modal
+    <Dialog
       open
       onClose={onClose}
       title={editing ? `Edit ${editing.refId}` : "New partner"}
@@ -182,7 +178,7 @@ function PartnerForm({
         <Textarea label="Admin notes" value={f.adminNotes} onChange={set("adminNotes")} rows={2} hint="Private to admins." />
         {!editing && <p className="text-xs text-text-3">A locked color and JV-### reference are assigned automatically.</p>}
       </div>
-    </Modal>
+    </Dialog>
   );
 }
 
@@ -222,7 +218,7 @@ function DeactivateModal({
   });
 
   return (
-    <Modal
+    <Dialog
       open
       onClose={onClose}
       title={`Deactivate ${partner.name}`}
@@ -275,10 +271,11 @@ function DeactivateModal({
                   {others.length === 0 ? (
                     <p className="text-danger">No other partner to reassign to — route to Unmatched instead.</p>
                   ) : (
-                    <NativeSelect
+                    <Select
                       value={toPartnerId}
-                      onChange={(e) => setToPartnerId(e.target.value)}
+                      onValueChange={setToPartnerId}
                       options={others.map((p) => ({ value: p.id, label: `${p.name} (${p.refId})` }))}
+                      ariaLabel="Reassign to partner"
                     />
                   )}
                 </div>
@@ -293,7 +290,7 @@ function DeactivateModal({
           )}
         </div>
       )}
-    </Modal>
+    </Dialog>
   );
 }
 
@@ -384,8 +381,6 @@ function PartnersInner() {
                   <Th>Contact</Th>
                   <Th>Status</Th>
                   <Th>Coverage</Th>
-                  <Th align="right">Leads</Th>
-                  <Th>Untouched</Th>
                   <Th align="right">Actions</Th>
                 </Tr>
               </THead>
@@ -413,23 +408,6 @@ function PartnersInner() {
                         {p.zipCount} ZIP{p.zipCount === 1 ? "" : "s"}
                         {p.stateCount > 0 && ` · ${p.stateCount} state${p.stateCount === 1 ? "" : "s"}`}
                       </span>
-                    </Td>
-                    <Td align="right">
-                      <span className="num text-sm text-text-2">{p.leadCount}</span>
-                    </Td>
-                    <Td>
-                      {p.untouched === 0 ? (
-                        <span className="text-xs text-text-3">—</span>
-                      ) : (
-                        <span className="inline-flex items-center gap-1.5">
-                          <span className={`num rounded-md px-1.5 py-0.5 text-xs font-semibold ${p.oldestUntouchedDays >= 7 ? "bg-danger-soft text-danger" : "bg-warn-soft text-warn"}`}>
-                            {p.untouched}
-                          </span>
-                          {p.oldestUntouchedDays >= 7 && (
-                            <span className="num text-[.66rem] text-text-3">{p.oldestUntouchedDays}d old</span>
-                          )}
-                        </span>
-                      )}
                     </Td>
                     <Td align="right">
                       <RowActions p={p} onEdit={() => setEditing(p)} onDeactivate={() => setDeactivating(p)} />

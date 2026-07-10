@@ -1,9 +1,7 @@
-import { and, count, desc, eq, isNull, sql } from "drizzle-orm";
+import { and, count, desc, eq, isNull } from "drizzle-orm";
 import { getDb } from "@/db";
 import * as schema from "@/db/schema";
 import { tenantWhere, partnerOwnsLead, type ScopeContext } from "@/lib/scope";
-import { currentStatus, DEFAULT_STATUS } from "../portal/statuses";
-import { computePartnerHealth, type PartnerHealth } from "./health";
 
 // ADM-03 read side. Every query is tenant-scoped through the guard (PRN-08).
 // Admin-only surface (the routes enforce role); partners never reach these.
@@ -21,61 +19,9 @@ export interface PartnerRow {
   invitedAt: string | null;
   activatedAt: string | null;
   lastPortalLoginAt: string | null;
-  /** Kept leads assigned to this partner (simple count; full stats → WP-029). */
-  leadCount: number;
   /** Current coverage: ZIPs + whole states this partner owns (CVG-01). */
   zipCount: number;
   stateCount: number;
-  /** Accountability (ANA-02): untouched backlog + responsiveness. */
-  untouched: number;
-  oldestUntouchedDays: number;
-  avgFirstTouchHours: number | null;
-}
-
-/** Per-partner health, keyed by partner id. Reads each owned kept lead's status
- *  history to derive current status + first-touch time (ANA-02). */
-async function healthByPartner(scope: ScopeContext): Promise<Map<string, PartnerHealth>> {
-  const db = getDb();
-  const effectivePartner = sql<string>`coalesce(${schema.leads.manualPartnerId}, ${schema.leads.partnerId})`;
-  const owned = await db
-    .select({ id: schema.leads.id, partnerId: effectivePartner, createdAt: schema.leads.createdAt })
-    .from(schema.leads)
-    .where(
-      and(
-        tenantWhere(schema.leads, scope),
-        eq(schema.leads.mlsStatus, "kept"),
-        isNull(schema.leads.deletedAt),
-        sql`coalesce(${schema.leads.manualPartnerId}, ${schema.leads.partnerId}) is not null`,
-      ),
-    );
-  if (owned.length === 0) return new Map();
-
-  const history = await db
-    .select({ leadId: schema.leadStatusHistory.leadId, status: schema.leadStatusHistory.status, createdAt: schema.leadStatusHistory.createdAt })
-    .from(schema.leadStatusHistory)
-    .where(tenantWhere(schema.leadStatusHistory, scope));
-  const byLead = new Map<string, { status: string; createdAt: string }[]>();
-  for (const h of history) {
-    const list = byLead.get(h.leadId) ?? [];
-    list.push({ status: h.status, createdAt: h.createdAt.toISOString() });
-    byLead.set(h.leadId, list);
-  }
-
-  return computePartnerHealth(
-    new Date(),
-    owned.map((l) => {
-      const h = byLead.get(l.id) ?? [];
-      const firstOff = [...h]
-        .filter((e) => e.status !== DEFAULT_STATUS)
-        .sort((a, b) => a.createdAt.localeCompare(b.createdAt))[0];
-      return {
-        partnerId: l.partnerId,
-        receivedAt: l.createdAt.toISOString(),
-        currentStatus: currentStatus(h),
-        firstTouchAt: firstOff?.createdAt ?? null,
-      };
-    }),
-  );
 }
 
 export interface Territory {
@@ -85,7 +31,9 @@ export interface Territory {
 
 const iso = (d: Date | null): string | null => (d ? d.toISOString() : null);
 
-/** The active roster (deactivated partners are excluded), each with a lead count. */
+/** The active roster (deactivated partners are excluded) — a pure management table.
+ *  Lead-count / responsiveness stats live on the per-partner profile now (F-10: the
+ *  full-history health scan is off the roster path). */
 export async function listPartners(scope: ScopeContext): Promise<PartnerRow[]> {
   const db = getDb();
   const rows = await db
@@ -93,15 +41,6 @@ export async function listPartners(scope: ScopeContext): Promise<PartnerRow[]> {
     .from(schema.partners)
     .where(and(tenantWhere(schema.partners, scope), isNull(schema.partners.deletedAt)))
     .orderBy(schema.partners.refId);
-
-  // Effective delivered count per partner: pipeline routing OR manual assignment.
-  const effectivePartner = sql<string>`coalesce(${schema.leads.manualPartnerId}, ${schema.leads.partnerId})`;
-  const counts = await db
-    .select({ partnerId: effectivePartner, n: sql<number>`count(*)::int` })
-    .from(schema.leads)
-    .where(and(tenantWhere(schema.leads, scope), eq(schema.leads.mlsStatus, "kept")))
-    .groupBy(effectivePartner);
-  const countBy = new Map(counts.map((c) => [c.partnerId, Number(c.n)]));
 
   const zipCounts = await db
     .select({ partnerId: schema.coverageZips.partnerId, n: count() })
@@ -117,8 +56,6 @@ export async function listPartners(scope: ScopeContext): Promise<PartnerRow[]> {
     .groupBy(schema.stateRules.partnerId);
   const stateBy = new Map(stateCounts.map((c) => [c.partnerId, Number(c.n)]));
 
-  const health = await healthByPartner(scope);
-
   return rows.map((p) => ({
     id: p.id,
     refId: p.refId,
@@ -132,12 +69,8 @@ export async function listPartners(scope: ScopeContext): Promise<PartnerRow[]> {
     invitedAt: iso(p.invitedAt),
     activatedAt: iso(p.activatedAt),
     lastPortalLoginAt: iso(p.lastPortalLoginAt),
-    leadCount: countBy.get(p.id) ?? 0,
     zipCount: zipBy.get(p.id) ?? 0,
     stateCount: stateBy.get(p.id) ?? 0,
-    untouched: health.get(p.id)?.untouched ?? 0,
-    oldestUntouchedDays: health.get(p.id)?.oldestUntouchedDays ?? 0,
-    avgFirstTouchHours: health.get(p.id)?.avgFirstTouchHours ?? null,
   }));
 }
 
@@ -219,14 +152,41 @@ export async function recentLeadsForPartner(
   }));
 }
 
-/** A single partner (active roster) with its current territory, or null. */
+/** A single partner (active roster) with its current territory, or null. Fetches the
+ *  one row directly — no roster recompute (F-10). */
 export async function getPartner(
   scope: ScopeContext,
   partnerId: string,
 ): Promise<(PartnerRow & { territory: Territory }) | null> {
-  const list = await listPartners(scope);
-  const partner = list.find((p) => p.id === partnerId);
-  if (!partner) return null;
-  const territory = await territoryOf(scope, partnerId);
-  return { ...partner, territory };
+  const db = getDb();
+  const [p] = await db
+    .select()
+    .from(schema.partners)
+    .where(and(tenantWhere(schema.partners, scope), eq(schema.partners.id, partnerId), isNull(schema.partners.deletedAt)))
+    .limit(1);
+  if (!p) return null;
+
+  const [zips, states, territory] = await Promise.all([
+    db.select({ n: count() }).from(schema.coverageZips).where(and(tenantWhere(schema.coverageZips, scope), eq(schema.coverageZips.partnerId, partnerId), isNull(schema.coverageZips.effectiveTo))),
+    db.select({ n: count() }).from(schema.stateRules).where(and(tenantWhere(schema.stateRules, scope), eq(schema.stateRules.partnerId, partnerId))),
+    territoryOf(scope, partnerId),
+  ]);
+
+  return {
+    id: p.id,
+    refId: p.refId,
+    name: p.name,
+    email: p.email,
+    phone: p.phone,
+    color: p.color,
+    dealTerms: p.dealTerms,
+    adminNotes: p.adminNotes,
+    status: p.status,
+    invitedAt: iso(p.invitedAt),
+    activatedAt: iso(p.activatedAt),
+    lastPortalLoginAt: iso(p.lastPortalLoginAt),
+    zipCount: Number(zips[0]?.n ?? 0),
+    stateCount: Number(states[0]?.n ?? 0),
+    territory,
+  };
 }
