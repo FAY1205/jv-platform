@@ -4,13 +4,6 @@
 export { timingSafeEqualStr } from "./constant-time";
 export { sha256Hex } from "./hash";
 export {
-  SESSION_COOKIE_NAME,
-  buildSessionCookie,
-  clearSessionCookie,
-  serializeCookie,
-  type CookieAttributes,
-} from "./cookies";
-export {
   UNIFORM_AUTH_MESSAGE,
   uniformAuthResponse,
   withUniformTiming,

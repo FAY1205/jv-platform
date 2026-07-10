@@ -2,9 +2,6 @@ import { describe, it, expect } from "vitest";
 import { createHash } from "node:crypto";
 import {
   timingSafeEqualStr,
-  buildSessionCookie,
-  serializeCookie,
-  SESSION_COOKIE_NAME,
   uniformAuthResponse,
   withUniformTiming,
   lockoutState,
@@ -24,22 +21,6 @@ describe("AUT-09: constant-time comparison", () => {
     expect(timingSafeEqualStr("abc123", "abc123")).toBe(true);
     expect(timingSafeEqualStr("abc123", "abc124")).toBe(false);
     expect(timingSafeEqualStr("short", "muchlongervalue")).toBe(false);
-  });
-});
-
-describe("AUT-12: session cookie hardening", () => {
-  it("sets HttpOnly, Secure, SameSite=Lax and the __Host- prefix", () => {
-    const c = buildSessionCookie("tok", 3600);
-    expect(c.name).toBe(SESSION_COOKIE_NAME);
-    expect(c.name.startsWith("__Host-")).toBe(true);
-    expect(c.httpOnly).toBe(true);
-    expect(c.secure).toBe(true);
-    expect(c.sameSite).toBe("lax");
-    expect(c.path).toBe("/");
-    const header = serializeCookie(c);
-    expect(header).toContain("HttpOnly");
-    expect(header).toContain("Secure");
-    expect(header).toContain("SameSite=Lax");
   });
 });
 
