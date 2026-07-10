@@ -43,3 +43,41 @@ export const LeadsQuerySchema = z.object({
 });
 
 export type LeadsQuery = z.infer<typeof LeadsQuerySchema>;
+
+// ── Admin lead edit (ADM) — PATCH /api/leads/[ref] input contract ──────────────
+// Canonical field corrections + an optional partner re-routing intent. The partner
+// discriminated union mirrors PartnerEdit in modules/leads/commands: "unassign"
+// clears the manual overlay (PRN-05-safe; the command rejects it for pipeline-routed
+// leads). Lives here (not in the route) so it is unit-testable without Next server deps.
+
+const editStr = (max: number) => z.string().trim().max(max).optional();
+
+export const EditLeadSchema = z.object({
+  fields: z
+    .object({
+      sellerFirst: editStr(120),
+      sellerLast: editStr(120),
+      phone: editStr(40),
+      email: editStr(160),
+      address: editStr(200),
+      city: editStr(120),
+      state: z.string().trim().regex(/^[A-Za-z]{0,2}$/).transform((s) => s.toUpperCase()).optional(),
+      zip: editStr(12),
+      campaign: editStr(80),
+      reasonForSelling: editStr(400),
+      motivation: editStr(400),
+      timeToSell: editStr(120),
+      notes: editStr(4000),
+    })
+    .default({}),
+  partner: z
+    .discriminatedUnion("action", [
+      z.object({ action: z.literal("keep") }),
+      z.object({ action: z.literal("set"), partnerId: z.string().uuid() }),
+      z.object({ action: z.literal("revert") }),
+      z.object({ action: z.literal("unassign") }),
+    ])
+    .default({ action: "keep" }),
+});
+
+export type EditLeadInputShape = z.infer<typeof EditLeadSchema>;

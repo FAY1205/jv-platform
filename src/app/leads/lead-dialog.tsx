@@ -18,6 +18,7 @@ import {
   useToast,
 } from "@/components";
 import { matchMethodLabel } from "@/lib/match-method";
+import { offersUnassign } from "@/lib/unassign";
 
 // ADM: the lead dialog — opened from the global Leads table (no page navigation).
 // Read-only by default; the Edit button unlocks every field (owner decision). The
@@ -382,7 +383,11 @@ function EditForm({
           value={partnerSel}
           onValueChange={setPartnerSel}
           options={[
-            { value: UNASSIGNED, label: "Unassigned" },
+            // Offer "Unassigned" only when clearing the overlay would actually succeed —
+            // a pipeline-routed lead can't be made owner-less (PRN-05); see offersUnassign.
+            ...(offersUnassign({ hasEffectiveOwner: Boolean(d.partner), manual: d.assignment.manual, hasOriginal: Boolean(d.assignment.original) })
+              ? [{ value: UNASSIGNED, label: "Unassigned" }]
+              : []),
             ...partners.map((p) => ({ value: p.id, label: `${p.name} (${p.refId})` })),
             ...(d.assignment.manual && d.assignment.original
               ? [{ value: REVERT, label: `↩ Revert to original routing (${d.assignment.original.name})` }]

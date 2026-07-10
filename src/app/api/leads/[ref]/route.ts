@@ -3,6 +3,7 @@ import { getServerScope } from "@/lib/scope-context";
 import { assertCsrf, authErrorResponse, requireAdminResponse } from "@/lib/auth/guard";
 import { getAdminLeadDetail } from "@/modules/leads/queries";
 import { editLead, LeadNotFoundError, InvalidAssignTargetError, CannotUnassignRoutedLeadError } from "@/modules/leads/commands";
+import { EditLeadSchema } from "@/modules/leads/schema";
 import { jsonOk, jsonError } from "@/lib/http";
 
 // Lead ref format (v2, ADR-0019). Sibling routes validate this before touching the DB (F-13).
@@ -28,35 +29,6 @@ export async function GET(_request: Request, { params }: { params: Promise<{ ref
   }
 }
 
-const str = (max: number) => z.string().trim().max(max).optional();
-const EditSchema = z.object({
-  fields: z
-    .object({
-      sellerFirst: str(120),
-      sellerLast: str(120),
-      phone: str(40),
-      email: str(160),
-      address: str(200),
-      city: str(120),
-      state: z.string().trim().regex(/^[A-Za-z]{0,2}$/).transform((s) => s.toUpperCase()).optional(),
-      zip: str(12),
-      campaign: str(80),
-      reasonForSelling: str(400),
-      motivation: str(400),
-      timeToSell: str(120),
-      notes: str(4000),
-    })
-    .default({}),
-  partner: z
-    .discriminatedUnion("action", [
-      z.object({ action: z.literal("keep") }),
-      z.object({ action: z.literal("set"), partnerId: z.string().uuid() }),
-      z.object({ action: z.literal("revert") }),
-      z.object({ action: z.literal("unassign") }),
-    ])
-    .default({ action: "keep" }),
-});
-
 // PATCH /api/leads/[ref] — edit a lead's canonical fields + optionally re-route the
 // effective owner (PRN-05-safe overlay). Admin-only; CSRF-guarded; audited.
 export async function PATCH(request: Request, { params }: { params: Promise<{ ref: string }> }) {
@@ -69,7 +41,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ re
     if (adminOnly) return adminOnly;
     const { ref } = await params;
     if (!RefSchema.safeParse(ref).success) return jsonError("invalid_ref", "Invalid lead reference.", 400);
-    const parsed = EditSchema.safeParse(await request.json().catch(() => null));
+    const parsed = EditLeadSchema.safeParse(await request.json().catch(() => null));
     if (!parsed.success) return jsonError("invalid_input", parsed.error.issues[0]?.message ?? "Invalid input.", 400);
 
     const result = await editLead(scope, { ref, fields: parsed.data.fields, partner: parsed.data.partner });
