@@ -78,9 +78,11 @@ function RunView({ detail }: { detail: RunDetail }) {
   const delivered = leads.filter((l) => l.mlsStatus === "kept" && l.partnerId);
   const removed = leads.filter((l) => l.mlsStatus === "removed");
   const unmatched = leads.filter((l) => l.partnerId === null && l.mlsStatus === "kept");
-  // F-75: the Distributed headline reads the server-computed distribution (PRN-15),
-  // not a client re-derivation. `delivered` still drives the per-partner grouping below.
-  const distributed = distribution.reduce((sum, d) => sum + d.count, 0);
+  // F-75: the Distributed headline reads the server run summary's per-partner counts
+  // (PRN-15), not a client re-derivation. Sourced from `summary.perPartner` (all kept +
+  // assigned leads) rather than `distribution` — the latter drops soft-deleted partners,
+  // which would undercount vs. the "Distributed leads" table on older runs.
+  const distributed = summary.perPartner.reduce((sum, pp) => sum + pp.count, 0);
 
   // Per-import routing composition — computed by the analytics module (PRN-15),
   // never re-derived here. mlsReason isn't in the view payload; the removed table

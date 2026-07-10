@@ -38,6 +38,7 @@ suite("WS-4: unmatchedStateStats (ASN-03, F-11)", () => {
       db.insert(schema.leads).values({ tenantId: t.id, refId: `LD-26-${Math.floor(Math.random() * 100000)}`, uploadId: u.id, dedupeKey: randomUUID(), rawJson: {}, mlsStatus: "kept", matchMethod: "none", ...v });
     await mk({ state: "TX" });
     await mk({ state: "TX" });
+    await mk({ state: "tx" }); // lowercase — must fold into "TX" (defensive upper(), F-2)
     await mk({ state: "FL" });
     await mk({ state: "GA", partnerId: p.id, matchMethod: "zip" }); // routed → excluded
     await mk({ state: "GA", mlsStatus: "removed" });                // removed → excluded
@@ -46,9 +47,9 @@ suite("WS-4: unmatchedStateStats (ASN-03, F-11)", () => {
 
   afterAll(async () => { await cleanup(); await client.end(); });
 
-  it("ASN-03/F-11: counts only currently-unmatched leads, grouped by state, biggest first", async () => {
+  it("ASN-03/F-11: counts only currently-unmatched leads, grouped (case-folded) by state, biggest first", async () => {
     const s = await unmatchedStateStats(scope);
-    expect(s.total).toBe(3);
-    expect(s.byState).toEqual([{ state: "TX", count: 2 }, { state: "FL", count: 1 }]);
+    expect(s.total).toBe(4);
+    expect(s.byState).toEqual([{ state: "TX", count: 3 }, { state: "FL", count: 1 }]);
   });
 });

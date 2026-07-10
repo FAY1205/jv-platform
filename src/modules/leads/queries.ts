@@ -326,7 +326,7 @@ export async function unmatchedStateStats(scope: ScopeContext): Promise<Unmatche
   const db = getDb();
   const rows = await db
     .select({
-      state: sql<string>`coalesce(nullif(trim(${schema.leads.state}), ''), '—')`,
+      state: sql<string>`coalesce(nullif(trim(upper(${schema.leads.state})), ''), '—')`,
       count: sql<number>`count(*)::int`,
     })
     .from(schema.leads)
