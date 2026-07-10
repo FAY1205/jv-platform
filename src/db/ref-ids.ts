@@ -29,6 +29,18 @@ export function formatImportRef(year: number, n: number): string {
   return `IM-${yy(year)}-${String(n).padStart(3, "0")}`;
 }
 
+/** Render counter `n` for an entity (single formatting home for both allocators). */
+function formatRef(entity: RefEntity, year: number, n: number): string {
+  switch (entity) {
+    case "partner":
+      return formatPartnerRef(n);
+    case "lead":
+      return formatLeadRef(year, n);
+    case "upload":
+      return formatImportRef(year, n);
+  }
+}
+
 /**
  * Atomically allocate the next counter for (tenant, entity, year) and return the
  * formatted reference ID. Uses an upsert-increment so concurrent callers never
@@ -40,20 +52,36 @@ export async function allocateRef(
   entity: RefEntity,
   year: number,
 ): Promise<string> {
+  const [ref] = await allocateRefBlock(db, tenantId, entity, year, 1);
+  return ref;
+}
+
+/**
+ * Atomically reserve a CONTIGUOUS block of `count` counters for (tenant, entity,
+ * year) in ONE upsert (F-08 — replaces N per-row increments under the run's
+ * advisory lock) and return the `count` formatted refs in ascending order. The
+ * single `counter + count` bump means concurrent callers still never collide; a
+ * caller that later burns a number (e.g. an ON CONFLICT skip) just leaves a gap,
+ * exactly as the single allocator does. `count = 0` reserves nothing.
+ */
+export async function allocateRefBlock(
+  db: PostgresJsDatabase<Record<string, unknown>>,
+  tenantId: string,
+  entity: RefEntity,
+  year: number,
+  count: number,
+): Promise<string[]> {
+  if (count <= 0) return [];
   const rows = await db.execute<{ counter: number }>(sql`
     INSERT INTO ref_counters (tenant_id, entity, year, counter)
-    VALUES (${tenantId}, ${entity}, ${year}, 1)
+    VALUES (${tenantId}, ${entity}, ${year}, ${count})
     ON CONFLICT (tenant_id, entity, year)
-    DO UPDATE SET counter = ref_counters.counter + 1
+    DO UPDATE SET counter = ref_counters.counter + ${count}
     RETURNING counter
   `);
-  const n = Number((rows as unknown as { counter: number }[])[0].counter);
-  switch (entity) {
-    case "partner":
-      return formatPartnerRef(n);
-    case "lead":
-      return formatLeadRef(year, n);
-    case "upload":
-      return formatImportRef(year, n);
-  }
+  // The upsert returns the NEW high-water counter; the block is the `count`
+  // numbers ending there, i.e. [last - count + 1, last].
+  const last = Number((rows as unknown as { counter: number }[])[0].counter);
+  const first = last - count + 1;
+  return Array.from({ length: count }, (_, i) => formatRef(entity, year, first + i));
 }
