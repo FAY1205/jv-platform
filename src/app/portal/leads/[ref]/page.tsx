@@ -110,6 +110,7 @@ export default function PortalLeadDetailPage() {
               <div className="max-w-xs">
                 <NativeSelect
                   label="Status"
+                  className="min-h-11" // ≥44px touch target on the portal (F-66)
                   value={data.status}
                   disabled={update.isPending}
                   error={update.isError ? (update.error as Error).message : undefined}

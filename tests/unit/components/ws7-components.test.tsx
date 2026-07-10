@@ -44,7 +44,7 @@ describe("ProfileMenu", () => {
     const user = userEvent.setup();
     const assign = vi.fn();
     Object.defineProperty(window, "location", { value: { assign }, writable: true, configurable: true });
-    const fetchMock = vi.fn(async (url: string, _init?: RequestInit) => {
+    const fetchMock = vi.fn<(url: string, init?: RequestInit) => Promise<Response>>(async (url) => {
       if (String(url).includes("/api/me")) {
         return { ok: true, status: 200, json: async () => ({ email: "a@b.test", role: "admin", workspace: { name: "W" } }) } as Response;
       }

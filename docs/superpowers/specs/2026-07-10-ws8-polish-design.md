@@ -14,7 +14,11 @@ direct reads of the real base (2173509). Confirmed present: `src/app/coverage/pa
   `src/components/Table.tsx` (callers can still override via `...rest`).
 - **F-70**: the AppShell mobile drawer has no Escape-to-close, no focus move-in, no focus
   return, no `role="dialog"`/`aria-modal`. Add Esc handler (while `mobileOpen`), `role="dialog"`
-  + `aria-modal`, focus the drawer on open, and return focus to the menu toggle on close.
+  + `aria-modal`, focus the drawer on open, return focus to the menu toggle on close, and make
+  the rest of the app `inert` while open so Tab is trapped in the drawer (pr-review F-3). The
+  interaction test (Escape/focus) is left to the portal E2E (TST-07) — a full-AppShell RTL
+  render (matchMedia + next router + bell/profile queries) is disproportionate; `Th scope` is
+  unit-tested.
 - **F-63 — DEFERRED (decision)**: AppShell uses deliberate 10/11/5px radii + 17/18px icons that
   don't map to the 8/12/16 radius token scale. Tokenizing 1:1 adds noise; snapping to the scale
   shifts the visual design the owner already signed off. Left for an owner design call, not
@@ -26,9 +30,10 @@ direct reads of the real base (2173509). Confirmed present: `src/app/coverage/pa
   it, and use it for the label fill in `CoverageMap` + `CountyCoverageMap` (halo kept as a belt).
 - **F-69 — satisfied via companion list**: the Coverage page already renders a keyboard-operable
   "Partners" companion list (aside, `aria-pressed` buttons) that provides the same select action
-  as the map — the spec's sanctioned alternative to map-keyboard. Strengthen the map's
-  `aria-label`/`aria-describedby` to point at the list and document the pattern. (No 50-hex tab
-  trap added.)
+  as the map — the spec's sanctioned alternative to map-keyboard. Made the pattern explicit in
+  the map's visible helper caption. (No 50-hex tab trap; no cross-component `aria-describedby`
+  wiring into CountyCoverageMap — the visible caption + the existing keyboard list are the
+  delivered pattern.)
 
 ### 8c — Activity (ACT-01 filterable audit surface)
 - Server-side filtering replaces the current client-only "Security only" checkbox: extend

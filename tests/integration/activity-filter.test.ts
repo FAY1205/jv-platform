@@ -56,6 +56,7 @@ suite("WS-8c: activity filtering (ACT-01/04)", () => {
       row("partner.deactivated", id.u1), // security (marker)
       row("upload.voided", id.u2), // security (marker)
       row("note.edited", id.u1), // security (marker)
+      row("mlsxpattern.updated", id.u2), // DATA — the "_" is literal, not a LIKE wildcard (F-1)
     ]);
   });
 
@@ -71,14 +72,20 @@ suite("WS-8c: activity filtering (ACT-01/04)", () => {
     expect(res.items.every((i) => i.category === "security")).toBe(true);
   });
 
-  it("ACT-04: category=data excludes every security action", async () => {
+  it("ACT-04: category=data excludes security actions but keeps look-alikes ('_' is literal, F-1)", async () => {
     const res = await listAdminActivity(scope, q({ category: "data" }));
-    expect(res.items.map((i) => i.action)).toEqual(["partner.created"]);
+    expect(res.items.map((i) => i.action).sort()).toEqual(["mlsxpattern.updated", "partner.created"].sort());
+  });
+
+  it("F-1: category=security matches the underscore literally (not 'mlsxpattern.updated')", async () => {
+    const res = await listAdminActivity(scope, q({ category: "security" }));
+    expect(res.items.map((i) => i.action)).not.toContain("mlsxpattern.updated");
+    expect(res.items.map((i) => i.action)).toContain("mls_pattern.updated");
   });
 
   it("ACT-01: actor filter returns only that actor's rows", async () => {
     const res = await listAdminActivity(scope, q({ actor: id.u2 }));
-    expect(res.items.map((i) => i.action).sort()).toEqual(["partner.created", "upload.voided"].sort());
+    expect(res.items.map((i) => i.action).sort()).toEqual(["mlsxpattern.updated", "partner.created", "upload.voided"].sort());
   });
 
   it("ACT-01: search matches on the action string (case-insensitive)", async () => {
@@ -88,7 +95,7 @@ suite("WS-8c: activity filtering (ACT-01/04)", () => {
 
   it("ACT-01: pageSize + total drive pagination", async () => {
     const res = await listAdminActivity(scope, q({ pageSize: "10" }));
-    expect(res.total).toBe(5);
+    expect(res.total).toBe(6);
     expect(res.pageSize).toBe(10);
   });
 

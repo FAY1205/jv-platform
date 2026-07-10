@@ -28,11 +28,16 @@ export interface AdminActivityPage {
 
 // ACT-04: the security/data split as a SQL predicate, built from the SAME prefixes/markers
 // categorizeActivity uses — so a server-side "security only" filter paginates correctly.
-// `ilike` is case-insensitive, matching categorizeActivity's lower-casing.
+// `ilike` is case-insensitive (matches categorizeActivity's lower-casing); LIKE wildcards
+// in the tokens (the `_` in "mls_pattern."/"source_profile.") are escaped so the match is
+// literal, keeping exact parity with the pure categorizer's startsWith/includes.
+function escapeLike(s: string): string {
+  return s.replace(/[\\%_]/g, (c) => `\\${c}`);
+}
 function securityCondition(): SQL {
   return or(
-    ...SECURITY_PREFIXES.map((p) => ilike(schema.auditLog.action, `${p}%`)),
-    ...SECURITY_MARKERS.map((m) => ilike(schema.auditLog.action, `%${m}%`)),
+    ...SECURITY_PREFIXES.map((p) => ilike(schema.auditLog.action, `${escapeLike(p)}%`)),
+    ...SECURITY_MARKERS.map((m) => ilike(schema.auditLog.action, `%${escapeLike(m)}%`)),
   )!;
 }
 

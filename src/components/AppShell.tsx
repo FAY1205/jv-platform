@@ -223,7 +223,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </div>
       )}
 
-      <div className="flex min-w-0 flex-col">
+      {/* F-70: while the mobile drawer is open, the rest of the app is inert — Tab can't
+          leave the drawer and screen readers skip the covered content (true modal). */}
+      <div className="flex min-w-0 flex-col" inert={mobileOpen}>
         <header className="sticky top-0 z-20 flex items-center gap-3 border-b border-border-soft bg-bg/80 px-6 py-3 backdrop-blur-md md:px-7">
           <button
             ref={menuBtnRef}
