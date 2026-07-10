@@ -29,8 +29,8 @@ describe("parsePreferences", () => {
   });
 });
 
-describe("resolveDataTheme", () => {
-  it("maps 'system' to null so no data-theme attribute is set (CSS prefers-color-scheme wins)", () => {
+describe("resolveDataTheme (DSN-01)", () => {
+  it("DSN-01: maps 'system' to null so no data-theme attribute is set (CSS prefers-color-scheme wins)", () => {
     expect(resolveDataTheme("system")).toBeNull();
   });
 
@@ -40,8 +40,8 @@ describe("resolveDataTheme", () => {
   });
 });
 
-describe("nextTheme", () => {
-  it("cycles system → light → dark → system (for the profile-menu quick toggle)", () => {
+describe("nextTheme (DSN-01)", () => {
+  it("DSN-01: cycles system → light → dark → system (for the profile-menu quick toggle)", () => {
     expect(nextTheme("system")).toBe("light");
     expect(nextTheme("light")).toBe("dark");
     expect(nextTheme("dark")).toBe("system");

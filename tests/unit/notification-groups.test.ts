@@ -9,8 +9,8 @@ const now = new Date(2026, 6, 10, 12, 0, 0); // Jul 10 2026, local
 const iso = (y: number, m: number, d: number, h = 10) => new Date(y, m, d, h).toISOString();
 const n = (id: string, at: string) => ({ id, createdAt: at });
 
-describe("groupByDay", () => {
-  it("buckets into Today / Yesterday / older, preserving item order", () => {
+describe("groupByDay (NTF-04)", () => {
+  it("NTF-04: buckets into Today / Yesterday / older, preserving item order", () => {
     const groups = groupByDay(
       [n("a", iso(2026, 6, 10, 9)), n("b", iso(2026, 6, 10, 8)), n("c", iso(2026, 6, 9, 20)), n("d", iso(2026, 6, 1))],
       now,
@@ -23,7 +23,7 @@ describe("groupByDay", () => {
     expect(groups[2].label).not.toBe("Yesterday");
   });
 
-  it("returns a single Today group when everything is from today", () => {
+  it("NTF-04: returns a single Today group when everything is from today", () => {
     const groups = groupByDay([n("a", iso(2026, 6, 10, 9)), n("b", iso(2026, 6, 10, 1))], now);
     expect(groups).toHaveLength(1);
     expect(groups[0].label).toBe("Today");
