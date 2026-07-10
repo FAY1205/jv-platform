@@ -32,6 +32,9 @@ const EnvSchema = z.object({
   EMAIL_SINK_ADDRESS: z.email().default("dev-sink@example.test"),
   SENTRY_DSN: optionalString,
   ADMIN_ALLOWLIST: optionalString,
+  // F-07: shared secret Vercel Cron presents as `Authorization: Bearer <CRON_SECRET>`.
+  // The scheduled outbox drain refuses to run without it (a cron route must never be open).
+  CRON_SECRET: optionalString,
 });
 
 export type Env = z.infer<typeof EnvSchema>;
@@ -55,6 +58,7 @@ export function readEnv(source: Record<string, string | undefined> = process.env
     EMAIL_SINK_ADDRESS: source.EMAIL_SINK_ADDRESS,
     SENTRY_DSN: source.SENTRY_DSN,
     ADMIN_ALLOWLIST: source.ADMIN_ALLOWLIST,
+    CRON_SECRET: source.CRON_SECRET,
   });
 }
 
