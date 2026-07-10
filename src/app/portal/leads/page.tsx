@@ -46,7 +46,7 @@ function fmtDate(iso: string): string {
 
 export default function PortalLeadsPage() {
   const [page, setPage] = React.useState(1);
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, error } = useQuery({
     queryKey: ["portal-leads", page],
     queryFn: () => apiGet<LeadsPage>(`/api/portal/leads?page=${page}`),
   });
@@ -62,13 +62,15 @@ export default function PortalLeadsPage() {
         <CardHeader className="flex items-center justify-between">
           <CardTitle>Your leads</CardTitle>
           <a href="/api/portal/leads/export" download>
-            <Button variant="secondary" size="sm">
+            <Button variant="secondary" size="lg">
               Export .xlsx
             </Button>
           </a>
         </CardHeader>
         <CardBody>
-          {isLoading ? (
+          {error ? (
+            <EmptyState title="Couldn't load your leads" description={(error as Error).message} />
+          ) : isLoading ? (
             <div className="flex flex-col gap-2">
               <Skeleton className="h-10" />
               <Skeleton className="h-10" />
@@ -118,10 +120,10 @@ export default function PortalLeadsPage() {
                     <span className="font-mono">{total}</span> leads
                   </span>
                   <div className="flex gap-2">
-                    <Button variant="secondary" size="sm" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>
+                    <Button variant="secondary" size="lg" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>
                       Previous
                     </Button>
-                    <Button variant="secondary" size="sm" disabled={page >= totalPages} onClick={() => setPage((p) => p + 1)}>
+                    <Button variant="secondary" size="lg" disabled={page >= totalPages} onClick={() => setPage((p) => p + 1)}>
                       Next
                     </Button>
                   </div>

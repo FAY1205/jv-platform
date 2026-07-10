@@ -22,7 +22,7 @@ function fmt(iso: string | null): string {
 
 export default function PortalDevicesPage() {
   const qc = useQueryClient();
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, error } = useQuery({
     queryKey: ["sessions"],
     queryFn: () => apiGet<{ devices: Device[] }>("/api/sessions"),
   });
@@ -48,7 +48,9 @@ export default function PortalDevicesPage() {
           <CardTitle>Your devices</CardTitle>
         </CardHeader>
         <CardBody>
-          {isLoading ? (
+          {error ? (
+            <EmptyState title="Couldn't load your devices" description={(error as Error).message} />
+          ) : isLoading ? (
             <div className="flex flex-col gap-2">
               <Skeleton className="h-14" />
               <Skeleton className="h-14" />
@@ -67,7 +69,7 @@ export default function PortalDevicesPage() {
                   </div>
                   <Button
                     variant="secondary"
-                    size="sm"
+                    size="lg"
                     loading={revoke.isPending && revoke.variables === d.familyId}
                     onClick={() => revoke.mutate(d.familyId)}
                   >
@@ -76,6 +78,11 @@ export default function PortalDevicesPage() {
                 </li>
               ))}
             </ul>
+          )}
+          {revoke.isError && (
+            <p role="alert" className="mt-3 text-sm text-danger">
+              {(revoke.error as Error).message}
+            </p>
           )}
         </CardBody>
       </Card>

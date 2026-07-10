@@ -2,7 +2,7 @@ import * as React from "react";
 import { cn } from "@/lib/cn";
 
 type ButtonVariant = "primary" | "secondary" | "ghost" | "danger";
-type ButtonSize = "sm" | "md";
+type ButtonSize = "sm" | "md" | "lg";
 
 export interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
   variant?: ButtonVariant;
@@ -28,6 +28,8 @@ const variants: Record<ButtonVariant, string> = {
 const sizes: Record<ButtonSize, string> = {
   sm: "text-xs px-2.5 py-1.5 min-h-8",
   md: "text-sm px-3.5 py-2 min-h-9",
+  // ≥44px touch target for the mobile-first portal (SCP-04 / DSN-10, F-66).
+  lg: "text-sm px-4 py-2.5 min-h-11",
 };
 
 function Spinner() {

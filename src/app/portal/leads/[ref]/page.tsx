@@ -6,7 +6,7 @@ import { useParams } from "next/navigation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiGet } from "@/lib/api";
 import { csrfHeaders } from "@/lib/csrf-client";
-import { Card, CardBody, CardHeader, CardTitle, NativeSelect, Badge, Skeleton, NotesPanel, ListingBadge } from "@/components";
+import { Card, CardBody, CardHeader, CardTitle, NativeSelect, Badge, Skeleton, EmptyState, NotesPanel, ListingBadge } from "@/components";
 
 interface LeadDetail {
   refId: string;
@@ -41,7 +41,7 @@ export default function PortalLeadDetailPage() {
   const ref = String(params.ref);
   const qc = useQueryClient();
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, error } = useQuery({
     queryKey: ["portal-lead", ref],
     queryFn: () => apiGet<LeadDetail>(`/api/portal/leads/${ref}`),
   });
@@ -63,11 +63,13 @@ export default function PortalLeadDetailPage() {
 
   return (
     <main className="mx-auto w-full max-w-2xl flex-1 p-6">
-      <Link href="/portal/leads" className="mb-4 inline-block text-sm text-text-3 hover:text-text-2">
+      <Link href="/portal/leads" className="mb-4 inline-flex min-h-11 items-center text-sm text-text-3 hover:text-text-2">
         ← Back to your leads
       </Link>
 
-      {isLoading || !data ? (
+      {error ? (
+        <EmptyState title="Couldn't load this lead" description={(error as Error).message} />
+      ) : isLoading || !data ? (
         <Skeleton className="h-64" />
       ) : (
         <div className="flex flex-col gap-4">

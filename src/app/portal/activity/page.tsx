@@ -43,8 +43,8 @@ export default function PortalActivityPage() {
           )}
           {(page > 1 || items.length === (data?.pageSize ?? 50)) && (
             <div className="mt-4 flex justify-between">
-              <Button variant="secondary" size="sm" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>Previous</Button>
-              <Button variant="secondary" size="sm" disabled={items.length < (data?.pageSize ?? 50)} onClick={() => setPage((p) => p + 1)}>Next</Button>
+              <Button variant="secondary" size="lg" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>Previous</Button>
+              <Button variant="secondary" size="lg" disabled={items.length < (data?.pageSize ?? 50)} onClick={() => setPage((p) => p + 1)}>Next</Button>
             </div>
           )}
         </CardBody>
