@@ -10,7 +10,7 @@ import {
 } from "@/modules/leads/commands";
 import { notifyLeadAssigned } from "@/modules/notify/outbox";
 import { logError } from "@/lib/observability";
-import { jsonOk, jsonError } from "@/lib/http";
+import { jsonOk, jsonError, jsonServerError } from "@/lib/http";
 
 const RefSchema = z.string().regex(/^LD-\d{2}-\d{5,}$/);
 const BodySchema = z.object({
@@ -45,6 +45,6 @@ export async function POST(request: Request, { params }: { params: Promise<{ ref
     if (e instanceof LeadNotFoundError) return jsonError("not_found", e.message, 404);
     if (e instanceof LeadNotUnmatchedError) return jsonError("not_unmatched", e.message, 409);
     if (e instanceof InvalidAssignTargetError) return jsonError("invalid_target", e.message, 400);
-    return authErrorResponse(e) ?? jsonError("assign_failed", "Could not assign the lead.", 500);
+    return authErrorResponse(e) ?? jsonServerError("assign_failed", "Could not assign the lead.", { message: e instanceof Error ? e.message : String(e) });
   }
 }

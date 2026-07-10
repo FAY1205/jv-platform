@@ -9,7 +9,7 @@ import { runUpload } from "@/modules/run/run-upload";
 import { RequestInProgressError } from "@/lib/idempotency-db";
 import { assertCsrf, authErrorResponse, requireAdminResponse } from "@/lib/auth/guard";
 import { MAX_UPLOAD_ROWS, exceedsBodyLimit, parseContentLength } from "@/lib/upload-guard";
-import { jsonOk, jsonError, newTraceId } from "@/lib/http";
+import { jsonOk, jsonError, jsonServerError, newTraceId } from "@/lib/http";
 import { NextResponse } from "next/server";
 
 // F-86: bound the serverless function's runtime for a large-run process.
@@ -93,6 +93,6 @@ export async function POST(req: Request) {
     const authResp = authErrorResponse(e);
     if (authResp) return authResp;
     if (e instanceof RequestInProgressError) return jsonError("in_progress", "This upload is already being processed.", 409);
-    return jsonError("process_failed", e instanceof Error ? e.message : "Processing failed.", 500);
+    return jsonServerError("process_failed", "Processing failed.", { message: e instanceof Error ? e.message : String(e) });
   }
 }

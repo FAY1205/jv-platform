@@ -7,7 +7,7 @@ import { editLead, LeadNotFoundError, InvalidAssignTargetError, CannotUnassignRo
 import { notifyLeadAssigned } from "@/modules/notify/outbox";
 import { EditLeadSchema } from "@/modules/leads/schema";
 import { logError } from "@/lib/observability";
-import { jsonOk, jsonError } from "@/lib/http";
+import { jsonOk, jsonError, jsonServerError } from "@/lib/http";
 
 // Lead ref format (v2, ADR-0019). Sibling routes validate this before touching the DB (F-13).
 const RefSchema = z.string().regex(/^LD-\d{2}-\d{5,}$/);
@@ -61,6 +61,6 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ re
     if (e instanceof LeadNotFoundError) return jsonError("not_found", e.message, 404);
     if (e instanceof InvalidAssignTargetError) return jsonError("invalid_target", e.message, 400);
     if (e instanceof CannotUnassignRoutedLeadError) return jsonError("cannot_unassign", e.message, 409);
-    return authErrorResponse(e) ?? jsonError("lead_edit_failed", e instanceof Error ? e.message : "Edit failed.", 500);
+    return authErrorResponse(e) ?? jsonServerError("lead_edit_failed", "Edit failed.", { message: e instanceof Error ? e.message : String(e) });
   }
 }
