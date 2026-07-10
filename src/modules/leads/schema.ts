@@ -25,6 +25,11 @@ export const LeadsQuerySchema = z.object({
     const n = Math.floor(Number(v));
     return Number.isFinite(n) && n >= 1 ? n : 1;
   }),
+  /** Rows per page — whitelisted to {10,20,50} (mirrors Pagination.PAGE_SIZES), default 20. */
+  pageSize: z.unknown().optional().transform((v) => {
+    const n = Math.floor(Number(v));
+    return n === 10 || n === 50 ? n : 20;
+  }),
   partnerId: z.unknown().optional().transform((v) => (typeof v === "string" && UUID_RE.test(v) ? v : v === "unmatched" ? "unmatched" : null)),
   state: z.unknown().optional().transform((v) => (typeof v === "string" && /^[a-z]{2}$/i.test(v.trim()) ? v.trim().toUpperCase() : "")),
   /** Multi-select workflow-status + "Removed MLS" filter (comma-separated). */

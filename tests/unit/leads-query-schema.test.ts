@@ -7,8 +7,16 @@ import { LeadsQuerySchema } from "@/modules/leads/schema";
 const parse = (input: Record<string, unknown>) => LeadsQuerySchema.parse(input);
 
 describe("LeadsQuerySchema", () => {
-  it("applies defaults: page 1, received-desc sort, empty filters", () => {
-    expect(parse({})).toEqual({ q: "", page: 1, partnerId: null, state: "", statuses: [], source: "", dateFrom: "", dateTo: "", sort: "received", dir: "desc" });
+  it("applies defaults: page 1, pageSize 20, received-desc sort, empty filters", () => {
+    expect(parse({})).toEqual({ q: "", page: 1, pageSize: 20, partnerId: null, state: "", statuses: [], source: "", dateFrom: "", dateTo: "", sort: "received", dir: "desc" });
+  });
+
+  it("FEP-03: whitelists pageSize to {10,20,50}, else 20", () => {
+    expect(parse({ pageSize: "10" }).pageSize).toBe(10);
+    expect(parse({ pageSize: "50" }).pageSize).toBe(50);
+    expect(parse({ pageSize: "20" }).pageSize).toBe(20);
+    expect(parse({ pageSize: "37" }).pageSize).toBe(20);
+    expect(parse({ pageSize: "abc" }).pageSize).toBe(20);
   });
 
   it("coerces page from string and floors invalid values to 1", () => {

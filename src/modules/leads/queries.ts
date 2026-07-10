@@ -21,8 +21,6 @@ function unmatchedWhere(scope: ScopeContext): SQL {
 // server-side paginated (FEP-03), filterable. Admin-only — the route enforces
 // role; partners have their own scoped portal list.
 
-export const LEADS_PAGE_SIZE = 50;
-
 export interface GlobalLeadRow {
   refId: string;
   seller: string;
@@ -58,7 +56,7 @@ const STATUS_ORDER = sql`case ${STATUS_EXPR} when 'New' then 0 when 'Contacted' 
 
 export async function listLeads(scope: ScopeContext, query: LeadsQuery): Promise<GlobalLeadsPage> {
   const db = getDb();
-  const offset = (query.page - 1) * LEADS_PAGE_SIZE;
+  const offset = (query.page - 1) * query.pageSize;
 
   const conds: SQL[] = [tenantWhere(schema.leads, scope), isNull(schema.leads.deletedAt) as unknown as SQL];
   if (query.partnerId === "unmatched") {
@@ -117,7 +115,7 @@ export async function listLeads(scope: ScopeContext, query: LeadsQuery): Promise
       .leftJoin(schema.partners, eq(schema.partners.id, sql`coalesce(${schema.leads.manualPartnerId}, ${schema.leads.partnerId})`))
       .where(where)
       .orderBy(dirFn(sortCol), desc(schema.leads.createdAt))
-      .limit(LEADS_PAGE_SIZE)
+      .limit(query.pageSize)
       .offset(offset),
     db.select({ n: sql<number>`count(*)::int` }).from(schema.leads).where(where),
   ]);
@@ -138,7 +136,7 @@ export async function listLeads(scope: ScopeContext, query: LeadsQuery): Promise
       modifiedAt: r.modifiedAt ? new Date(r.modifiedAt).toISOString() : null,
     })),
     page: query.page,
-    pageSize: LEADS_PAGE_SIZE,
+    pageSize: query.pageSize,
     total: Number(totalRows[0]?.n ?? 0),
   };
 }
