@@ -93,6 +93,24 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const [mobileOpen, setMobileOpen] = React.useState(false);
   useApplyTheme(); // keep <html data-theme> in sync with the theme preference (WS-7 Appearance)
 
+  // F-70: the mobile drawer behaves as a modal — Escape closes it, focus moves into the
+  // drawer on open and returns to the menu button on close.
+  const menuBtnRef = React.useRef<HTMLButtonElement>(null);
+  const drawerRef = React.useRef<HTMLElement>(null);
+  React.useEffect(() => {
+    if (!mobileOpen) return;
+    const opener = menuBtnRef.current;
+    drawerRef.current?.focus();
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setMobileOpen(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      opener?.focus();
+    };
+  }, [mobileOpen]);
+
   // One viewport-aware menu button: collapses the rail on desktop, opens the
   // drawer on mobile.
   const toggleNav = () => {
@@ -192,7 +210,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             className="anim-scrim absolute inset-0"
             style={{ background: "var(--scrim)" }}
           />
-          <aside className="anim-drawer absolute inset-y-0 left-0 flex w-[264px] flex-col border-r border-border bg-surface px-4 py-5 shadow-lg">
+          <aside
+            ref={drawerRef}
+            role="dialog"
+            aria-modal="true"
+            aria-label="Navigation"
+            tabIndex={-1}
+            className="anim-drawer absolute inset-y-0 left-0 flex w-[264px] flex-col border-r border-border bg-surface px-4 py-5 shadow-lg outline-none"
+          >
             {rail(() => setMobileOpen(false))}
           </aside>
         </div>
@@ -201,6 +226,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       <div className="flex min-w-0 flex-col">
         <header className="sticky top-0 z-20 flex items-center gap-3 border-b border-border-soft bg-bg/80 px-6 py-3 backdrop-blur-md md:px-7">
           <button
+            ref={menuBtnRef}
             type="button"
             onClick={toggleNav}
             aria-label="Toggle navigation"

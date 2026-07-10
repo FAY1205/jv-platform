@@ -44,6 +44,7 @@ export function Th({ sortable, sortDir = null, onSort, align = "left", className
   );
   return (
     <th
+      scope="col"
       className={base}
       aria-sort={sortDir === "asc" ? "ascending" : sortDir === "desc" ? "descending" : undefined}
       {...rest}
