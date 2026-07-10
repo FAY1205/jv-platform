@@ -6,9 +6,12 @@ import { findProfileById, saveProfileVersion } from "@/modules/sources/profile-s
 import { buildConfirmedProfile, missingRequiredFor, type Mapping } from "@/modules/sources/mapping";
 import { runUpload } from "@/modules/run/run-upload";
 import { RequestInProgressError } from "@/lib/idempotency-db";
-import { MAX_UPLOAD_ROWS } from "@/lib/upload-guard";
+import { MAX_UPLOAD_ROWS, exceedsBodyLimit, parseContentLength } from "@/lib/upload-guard";
 import { jsonOk, jsonError, newTraceId } from "@/lib/http";
 import { NextResponse } from "next/server";
+
+// F-86: bound the serverless function's runtime for a large-run process.
+export const maxDuration = 60;
 
 // POST /api/uploads/confirm — apply an admin-confirmed mapping (ING-02/08): save it
 // as a new/next Source Profile version (DM-08), then process the run with it. A
@@ -26,6 +29,9 @@ const BodySchema = z.object({
 
 export async function POST(req: Request) {
   if (!assertCsrf(req, { requireToken: true })) return jsonError("csrf_rejected", "CSRF check failed.", 403);
+  if (exceedsBodyLimit(parseContentLength(req.headers.get("content-length")))) {
+    return jsonError("payload_too_large", "That upload is too large to process.", 413);
+  }
   let body: z.infer<typeof BodySchema>;
   try {
     body = BodySchema.parse(await req.json());

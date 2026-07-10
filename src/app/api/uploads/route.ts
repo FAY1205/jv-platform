@@ -8,9 +8,12 @@ import { CANONICAL_FIELDS } from "@/modules/sources/types";
 import { runUpload } from "@/modules/run/run-upload";
 import { RequestInProgressError } from "@/lib/idempotency-db";
 import { assertCsrf, authErrorResponse, requireAdminResponse } from "@/lib/auth/guard";
-import { MAX_UPLOAD_ROWS } from "@/lib/upload-guard";
+import { MAX_UPLOAD_ROWS, exceedsBodyLimit, parseContentLength } from "@/lib/upload-guard";
 import { jsonOk, jsonError, newTraceId } from "@/lib/http";
 import { NextResponse } from "next/server";
+
+// F-86: bound the serverless function's runtime for a large-run process.
+export const maxDuration = 60;
 
 // POST /api/uploads — detect the file's Source Profile (ING-02/08) and either process
 // it (exact match) or return the drift/unknown mapping payload so the client can show
@@ -25,6 +28,10 @@ const BodySchema = z.object({
 export async function POST(req: Request) {
   if (!assertCsrf(req, { requireToken: true })) {
     return jsonError("csrf_rejected", "CSRF check failed.", 403);
+  }
+  // F-86: reject an oversize body from its Content-Length before parsing it into memory.
+  if (exceedsBodyLimit(parseContentLength(req.headers.get("content-length")))) {
+    return jsonError("payload_too_large", "That upload is too large to process.", 413);
   }
   let body: z.infer<typeof BodySchema>;
   try {
