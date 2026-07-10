@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import Link from "next/link";
+import dynamic from "next/dynamic";
 import { useParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { apiGet } from "@/lib/api";
@@ -10,25 +11,32 @@ import {
   CoverageMap,
   PartnerTag,
   Badge,
+  Select,
+  Tooltip,
+  LineChart,
   Table,
   THead,
   TBody,
   Th,
   Tr,
   Td,
+  RowOpenButton,
   EmptyState,
   Skeleton,
 } from "@/components";
 import { US_HEX_STATES } from "@/lib/geo/us-hexgrid";
 import type { StateCoverage } from "@/modules/coverage/map";
+import { formatContactTime, AVG_CONTACT_DEFINITION, type RangeKey } from "@/modules/analytics/ranges";
+import { matchMethodLabel } from "@/lib/match-method";
 
-// ADM-03: a single partner's home — profile, territory (their states on the hex
-// map), lead history, and private admin notes (PRN-13). Read + link out to the
-// Partners roster for edits. Admin-only (the API enforces role).
-interface Territory {
-  states: string[];
-  zips: string[];
-}
+// ADM-03: a single partner's home — profile, territory, per-partner performance
+// (given / contacted / closed over a rolling range + Avg Contact), lead history, and
+// private admin notes (PRN-13). All numbers come from the analytics module (PRN-15);
+// leads open in the shared dialog (F-55). Admin-only (the API enforces role).
+
+const LeadDialog = dynamic(() => import("../../leads/lead-dialog").then((m) => m.LeadDialog), { ssr: false });
+
+interface Territory { states: string[]; zips: string[] }
 interface Partner {
   id: string;
   refId: string;
@@ -39,12 +47,8 @@ interface Partner {
   dealTerms: string | null;
   adminNotes: string | null;
   status: "not_invited" | "invited" | "active" | "revoked";
-  leadCount: number;
   zipCount: number;
   stateCount: number;
-  untouched: number;
-  oldestUntouchedDays: number;
-  avgFirstTouchHours: number | null;
   territory: Territory;
 }
 interface PartnerLead {
@@ -56,6 +60,11 @@ interface PartnerLead {
   matchMethod: "zip" | "state_fallback" | "none" | "manual";
   receivedAt: string;
 }
+interface Performance {
+  range: { key: RangeKey; start: string; end: string; bucket: "day" | "month" };
+  stats: { given: number; contacted: number; closed: number; avgContactHours: number | null };
+  history: { bucketStart: string; given: number; contacted: number; closed: number }[];
+}
 
 const STATUS: Record<Partner["status"], { label: string; variant: "neutral" | "warn" | "success" }> = {
   not_invited: { label: "Not invited", variant: "neutral" },
@@ -64,30 +73,53 @@ const STATUS: Record<Partner["status"], { label: string; variant: "neutral" | "w
   revoked: { label: "Deactivated", variant: "neutral" },
 };
 
+const RANGES: { value: RangeKey; label: string }[] = [
+  { value: "7d", label: "Last 7 days" },
+  { value: "30d", label: "Last 30 days" },
+  { value: "12mo", label: "Last 12 months" },
+  { value: "all", label: "All time" },
+];
+
 const panel = "rounded-2xl border border-border-soft bg-surface p-5 shadow-sm";
 
-function Stat({ label, value, sub, tone }: { label: string; value: React.ReactNode; sub?: string; tone?: "warn" | "danger" }) {
-  const color = tone === "danger" ? "text-danger" : tone === "warn" ? "text-warn" : "text-text";
+const fmtBucket = (iso: string, bucket: "day" | "month") => {
+  const dt = new Date(`${iso.slice(0, 10)}T00:00:00Z`);
+  return bucket === "month"
+    ? dt.toLocaleDateString("en-US", { month: "short", year: "numeric", timeZone: "UTC" })
+    : dt.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
+};
+
+function Stat({ label, value, sub, tip }: { label: React.ReactNode; value: React.ReactNode; sub?: string; tip?: string }) {
+  const header = <div className="inline-flex items-center gap-1 text-xs font-medium text-text-2">{label}{tip && <span className="cursor-help text-text-3" aria-hidden="true">ⓘ</span>}</div>;
   return (
     <div className={panel}>
-      <div className="text-xs font-medium text-text-2">{label}</div>
-      <div className={`mt-1.5 font-display text-2xl font-semibold leading-none tracking-tight tabular-nums ${color}`}>{value}</div>
+      {tip ? <Tooltip content={tip}>{header}</Tooltip> : header}
+      <div className="mt-1.5 font-display text-2xl font-semibold leading-none tracking-tight tabular-nums text-text">{value}</div>
       {sub && <div className="mt-1 text-[.66rem] text-text-3">{sub}</div>}
     </div>
   );
 }
 
-function matchLabel(m: PartnerLead["matchMethod"]): string {
-  return m === "zip" ? "ZIP" : m === "state_fallback" ? "State" : m === "manual" ? "Manual" : "—";
+function matchBadge(m: PartnerLead["matchMethod"]) {
+  if (m === "manual") return <Badge variant="prev">Manual</Badge>;
+  const meta = matchMethodLabel(m);
+  return <Badge variant={meta.badge}>{meta.label}</Badge>;
 }
 
 export default function PartnerDetailPage() {
   const params = useParams<{ id: string }>();
   const id = params.id;
+  const [range, setRange] = React.useState<RangeKey>("12mo");
+  const [openRef, setOpenRef] = React.useState<string | null>(null);
 
   const partnerQ = useQuery({
     queryKey: ["partner", id],
     queryFn: () => apiGet<{ partner: Partner }>(`/api/admin/partners/${id}`),
+    enabled: Boolean(id),
+  });
+  const perfQ = useQuery({
+    queryKey: ["partner", id, "perf", range],
+    queryFn: () => apiGet<Performance>(`/api/admin/partners/${id}/performance?range=${range}`),
     enabled: Boolean(id),
   });
   const leadsQ = useQuery({
@@ -97,8 +129,8 @@ export default function PartnerDetailPage() {
   });
 
   const partner = partnerQ.data?.partner;
+  const perf = perfQ.data;
 
-  // Build the hex-map view model locally: only this partner's states are lit.
   const mapStates: StateCoverage[] = React.useMemo(() => {
     if (!partner) return [];
     const owned = new Set(partner.territory.states);
@@ -147,32 +179,49 @@ export default function PartnerDetailPage() {
                 {partner.email ? <span>{partner.email}</span> : <span className="text-text-3">No email</span>}
                 {partner.phone && <span className="num">{partner.phone}</span>}
                 {partner.dealTerms && <span className="text-text-3">· {partner.dealTerms}</span>}
+                <span className="text-text-3">· {partner.stateCount} state{partner.stateCount === 1 ? "" : "s"} · {partner.zipCount} ZIP{partner.zipCount === 1 ? "" : "s"}</span>
               </div>
             </div>
-            <Link
-              href="/partners"
-              className="shrink-0 rounded-lg border border-border bg-surface px-3.5 py-2 text-sm font-semibold text-text-2 shadow-xs transition-colors hover:border-text-3 hover:bg-surface-2"
-            >
-              Edit on Partners →
-            </Link>
+            <div className="flex items-center gap-3">
+              <div className="w-40"><Select ariaLabel="Performance range" value={range} onValueChange={(v) => setRange(v as RangeKey)} options={RANGES} /></div>
+              <Link
+                href="/partners"
+                className="shrink-0 rounded-lg border border-border bg-surface px-3.5 py-2 text-sm font-semibold text-text-2 shadow-xs transition-colors hover:border-text-3 hover:bg-surface-2"
+              >
+                Edit on Partners →
+              </Link>
+            </div>
           </div>
 
-          {/* Stats */}
+          {/* Performance stat cards */}
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-            <Stat label="Leads distributed" value={partner.leadCount} />
-            <Stat
-              label="Untouched"
-              value={partner.untouched}
-              tone={partner.untouched > 0 && partner.oldestUntouchedDays >= 7 ? "danger" : partner.untouched > 0 ? "warn" : undefined}
-              sub={partner.untouched > 0 && partner.oldestUntouchedDays > 0 ? `oldest ${partner.oldestUntouchedDays}d` : "still at New"}
-            />
-            <Stat
-              label="Avg first touch"
-              value={partner.avgFirstTouchHours === null ? "—" : `${partner.avgFirstTouchHours}h`}
-              sub="received → first action"
-            />
-            <Stat label="Coverage" value={`${partner.stateCount} · ${partner.zipCount}`} sub="states · ZIPs" />
+            <Stat label="Given" value={perf ? perf.stats.given : "—"} sub="leads received in range" />
+            <Stat label="Contacted" value={perf ? perf.stats.contacted : "—"} sub="first action in range" tip="Leads whose first partner action (status change or note) fell in the selected range." />
+            <Stat label="Closed" value={perf ? perf.stats.closed : "—"} sub="closed in range" />
+            <Stat label="Avg contact" value={perf ? formatContactTime(perf.stats.avgContactHours) : "—"} sub="received → first action" tip={AVG_CONTACT_DEFINITION} />
           </div>
+
+          {/* Performance history */}
+          <section className={panel}>
+            <h2 className="mb-4 font-display text-[.95rem] font-semibold tracking-tight">Performance over time</h2>
+            {perfQ.isPending ? (
+              <Skeleton className="h-64 w-full" />
+            ) : perfQ.error ? (
+              <EmptyState title="Couldn't load performance" description={(perfQ.error as Error).message} />
+            ) : !perf || perf.history.length === 0 ? (
+              <p className="py-8 text-center text-sm text-text-3">No activity in this range.</p>
+            ) : (
+              <LineChart
+                data={perf.history.map((b) => ({ x: fmtBucket(b.bucketStart, perf.range.bucket), Given: b.given, Contacted: b.contacted, Closed: b.closed }))}
+                xKey="x"
+                series={[
+                  { key: "Given", name: "Given", color: "var(--text-2)" },
+                  { key: "Contacted", name: "Contacted", color: "var(--brand)" },
+                  { key: "Closed", name: "Closed", color: "var(--success)" },
+                ]}
+              />
+            )}
+          </section>
 
           <div className="grid grid-cols-1 items-start gap-5 lg:grid-cols-[1fr_320px]">
             {/* Territory */}
@@ -197,7 +246,7 @@ export default function PartnerDetailPage() {
               )}
             </section>
 
-            {/* Admin notes */}
+            {/* Admin notes (PRN-13) */}
             <aside className={panel}>
               <h2 className="mb-3 font-display text-[.95rem] font-semibold tracking-tight">Admin notes</h2>
               {partner.adminNotes ? (
@@ -225,20 +274,16 @@ export default function PartnerDetailPage() {
                 </THead>
                 <TBody>
                   {leadsQ.data!.leads.map((l) => (
-                    <Tr key={l.refId}>
-                      <Td>
-                        <Link href={`/leads/${l.refId}`} className="num text-xs font-medium text-brand hover:underline">
-                          {l.refId}
-                        </Link>
-                      </Td>
+                    <Tr key={l.refId} className="hover:bg-surface-2">
+                      <Td><RowOpenButton className="text-xs" onClick={() => setOpenRef(l.refId)}>{l.refId}</RowOpenButton></Td>
                       <Td><span className="text-sm text-text-2">{l.seller}</span></Td>
                       <Td>
                         <span className="text-xs text-text-3">
                           {[l.city, l.state].filter(Boolean).join(", ")} <span className="num">{l.zip}</span>
                         </span>
                       </Td>
-                      <Td><Badge variant={l.matchMethod === "zip" ? "zip" : l.matchMethod === "manual" ? "prev" : "state"}>{matchLabel(l.matchMethod)}</Badge></Td>
-                      <Td align="right"><span className="num text-xs text-text-3">{new Date(l.receivedAt).toLocaleDateString()}</span></Td>
+                      <Td>{matchBadge(l.matchMethod)}</Td>
+                      <Td align="right"><span className="num text-xs text-text-3 tabular-nums">{new Date(l.receivedAt).toLocaleDateString()}</span></Td>
                     </Tr>
                   ))}
                 </TBody>
@@ -247,6 +292,8 @@ export default function PartnerDetailPage() {
           </section>
         </div>
       )}
+
+      {openRef && <LeadDialog refId={openRef} onClose={() => setOpenRef(null)} />}
     </AppShell>
   );
 }
