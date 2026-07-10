@@ -1,6 +1,8 @@
 import { z } from "zod";
+import { getDb } from "@/db";
 import { getServerScope } from "@/lib/scope-context";
 import { authErrorResponse } from "@/lib/auth/guard";
+import { requireTosResponse } from "@/lib/auth/tos-guard";
 import { getPartnerLeadDetail } from "@/modules/portal/queries";
 import { jsonOk, jsonError } from "@/lib/http";
 
@@ -12,6 +14,8 @@ export async function GET(_req: Request, { params }: { params: Promise<{ ref: st
   if (!RefSchema.safeParse(ref).success) return jsonError("invalid_ref", "Invalid lead reference.", 400);
   try {
     const scope = await getServerScope();
+    const tos = await requireTosResponse(getDb(), scope); // F-04: gate data on ToS acceptance
+    if (tos) return tos;
     const detail = await getPartnerLeadDetail(scope, ref);
     if (!detail) return jsonError("not_found", `Lead ${ref} not found.`, 404);
     return jsonOk(detail);

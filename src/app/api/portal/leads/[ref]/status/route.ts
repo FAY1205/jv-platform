@@ -2,6 +2,7 @@ import { z } from "zod";
 import { getDb } from "@/db";
 import { getServerScope } from "@/lib/scope-context";
 import { assertCsrf, authErrorResponse } from "@/lib/auth/guard";
+import { requireTosResponse } from "@/lib/auth/tos-guard";
 import { updateLeadStatus, LeadNotFoundError, InvalidStatusError, LeadRemovedError } from "@/modules/portal/status-update";
 import { notifyStatusChange, drainOutbox } from "@/modules/notify/outbox";
 import { logError } from "@/lib/observability";
@@ -23,6 +24,8 @@ export async function POST(request: Request, { params }: { params: Promise<{ ref
 
   try {
     const scope = await getServerScope();
+    const tos = await requireTosResponse(getDb(), scope); // F-04: gate data writes on ToS acceptance
+    if (tos) return tos;
     const result = await updateLeadStatus(scope, ref, parsed.data.status);
 
     // NTF-02/04: alert admins (in-app always; email per SET-03, default off). Best-effort.
