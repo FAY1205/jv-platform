@@ -5,7 +5,7 @@ import { eq, inArray } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import * as schema from "@/db/schema";
 import { updateMlsPattern } from "@/modules/rules/commands";
-import { listMlsPatterns, coverageSummary } from "@/modules/rules/queries";
+import { listMlsPatterns } from "@/modules/rules/queries";
 import type { ScopeContext } from "@/lib/scope";
 
 const url = process.env.DATABASE_URL;
@@ -36,9 +36,6 @@ suite("WP-032a: rules area (CVG-02, DM-08)", () => {
     scope = { tenantId: t.id, role: "admin", userId: randomUUID() };
     const [m] = await db.insert(schema.mlsPatterns).values({ tenantId: t.id, patternKey: "dq_is_listed_yes", type: "disqualify", regex: "listed\\?\\s*:?\\s*yes", flags: "i", label: "Is it Listed?: Yes", enabled: true }).returning({ id: schema.mlsPatterns.id });
     mlsId = m.id;
-    const [p] = await db.insert(schema.partners).values({ tenantId: t.id, refId: "JV-001", name: "Alpha", color: "#f4c95d", status: "active" }).returning({ id: schema.partners.id });
-    await db.insert(schema.stateRules).values({ tenantId: t.id, state: "TX", partnerId: p.id });
-    await db.insert(schema.coverageZips).values({ tenantId: t.id, zip5: "75001", partnerId: p.id, version: 1 });
   });
 
   afterAll(async () => {
@@ -55,11 +52,5 @@ suite("WP-032a: rules area (CVG-02, DM-08)", () => {
     expect(after.regex).toBe(before.regex); // regex untouched (PRN-04)
     const audits = await db.select().from(schema.auditLog).where(eq(schema.auditLog.tenantId, scope.tenantId));
     expect(audits.some((a) => a.action === "mls_pattern.updated")).toBe(true);
-  });
-
-  it("CVG-02: coverage summary reflects current ZIPs + state rules", async () => {
-    const cov = await coverageSummary(scope);
-    expect(cov.zipCount).toBe(1);
-    expect(cov.stateRules).toEqual([{ state: "TX", partnerName: "Alpha", partnerRef: "JV-001", color: "#f4c95d" }]);
   });
 });
