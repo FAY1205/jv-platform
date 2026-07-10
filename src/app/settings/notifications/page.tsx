@@ -4,10 +4,12 @@ import * as React from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiGet } from "@/lib/api";
 import { csrfHeaders } from "@/lib/csrf-client";
-import { Card, CardBody, CardHeader, CardTitle, Button, Skeleton, EmptyState, ToastProvider, useToast, AppShell } from "@/components";
+import { Card, CardBody, CardHeader, CardTitle, Button, Skeleton, EmptyState, useToast } from "@/components";
+import { SettingsSection } from "../settings-section";
 
 // SET-03 / NTF-05: the admin sets, per role + event, whether it emails, shows in-app,
-// or both. Transactional auth email is separate and always on.
+// or both. Transactional auth email is separate and always on. Hosted under the Settings
+// hub (WS-7b); the checkbox UI is rebuilt on the Checkbox primitive in WS-7f.
 
 interface Channel {
   email: boolean;
@@ -20,7 +22,7 @@ interface EventDef {
 }
 type Prefs = Record<string, Record<string, Channel>>;
 
-function SettingsInner() {
+export default function NotificationSettingsPage() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const { data, isPending, error } = useQuery({
@@ -66,13 +68,7 @@ function SettingsInner() {
   const events = data?.events ?? [];
 
   return (
-    <AppShell>
-        <div className="mx-auto max-w-[760px]">
-        <div className="mb-6">
-          <h1 className="font-display text-2xl font-semibold tracking-tight text-text">Notification settings</h1>
-          <p className="mt-1 text-sm text-text-2">Choose how each alert is delivered. Security emails (sign-in codes, resets) are always sent.</p>
-        </div>
-
+    <SettingsSection title="Notifications" description="Choose how each alert is delivered. Security emails (sign-in codes, resets) are always sent.">
         <Card>
           <CardHeader>
             <CardTitle>Per-event delivery</CardTitle>
@@ -118,15 +114,6 @@ function SettingsInner() {
             )}
           </CardBody>
         </Card>
-        </div>
-    </AppShell>
-  );
-}
-
-export default function NotificationSettingsPage() {
-  return (
-    <ToastProvider>
-      <SettingsInner />
-    </ToastProvider>
+    </SettingsSection>
   );
 }

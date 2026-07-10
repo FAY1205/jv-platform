@@ -55,7 +55,7 @@ const NAV_SECTIONS: { label: string | null; items: NavItem[] }[] = [
   { label: "Admin", items: [
     { href: "/rules", label: "Rules", icon: "rules" },
     { href: "/activity", label: "Activity", icon: "activity" },
-    { href: "/settings/notifications", label: "Settings", icon: "settings" },
+    { href: "/settings", label: "Settings", icon: "settings" },
   ]},
 ];
 
