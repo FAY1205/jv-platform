@@ -4,6 +4,7 @@ import postgres from "postgres";
 import { inArray } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import * as schema from "@/db/schema";
+import { purgeAuditLog } from "../helpers/audit";
 import type { ScopeContext } from "@/lib/scope";
 import { listAdminActivity, listActivityActors } from "@/modules/activity/queries";
 import { ActivityQuerySchema } from "@/modules/activity/schema";
@@ -23,7 +24,7 @@ suite("WS-8c: activity filtering (ACT-01/04)", () => {
     const rows = await db.select({ id: schema.tenants.id }).from(schema.tenants).where(inArray(schema.tenants.slug, [SLUG]));
     const tids = rows.map((t) => t.id);
     if (tids.length === 0) return;
-    await db.delete(schema.auditLog).where(inArray(schema.auditLog.tenantId, tids));
+    await purgeAuditLog(db, inArray(schema.auditLog.tenantId, tids));
     await db.delete(schema.users).where(inArray(schema.users.tenantId, tids));
     await db.delete(schema.tenants).where(inArray(schema.tenants.id, tids));
   }

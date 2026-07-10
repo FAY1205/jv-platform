@@ -4,6 +4,7 @@ import postgres from "postgres";
 import { eq, inArray, sql } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import * as schema from "@/db/schema";
+import { purgeAuditLog } from "../helpers/audit";
 import { tenantWhere, leadWhere, noteWhere, type ScopeContext } from "@/lib/scope";
 import { listPartnerActivity } from "@/modules/activity/queries";
 import { findProfileById } from "@/modules/sources/profile-store";
@@ -31,7 +32,7 @@ suite("TST-01: tenant & partner isolation", () => {
     await db.delete(schema.leadNotes).where(inArray(schema.leadNotes.tenantId, tids));
     await db.delete(schema.leadStatusHistory).where(inArray(schema.leadStatusHistory.tenantId, tids));
     // editLead writes an audit_log row (action "lead.edited"); clear it before tenants.
-    await db.delete(schema.auditLog).where(inArray(schema.auditLog.tenantId, tids));
+    await purgeAuditLog(db, inArray(schema.auditLog.tenantId, tids));
     await db.delete(schema.leads).where(inArray(schema.leads.tenantId, tids));
     await db.delete(schema.uploads).where(inArray(schema.uploads.tenantId, tids));
     await db.delete(schema.sourceProfiles).where(inArray(schema.sourceProfiles.tenantId, tids));

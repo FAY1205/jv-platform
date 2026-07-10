@@ -4,6 +4,7 @@ import postgres from "postgres";
 import { and, eq, inArray } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import * as schema from "@/db/schema";
+import { purgeAuditLog } from "../helpers/audit";
 import { DrizzleRunStore } from "@/modules/run/store";
 import { processRun } from "@/modules/run/process";
 import { voidUpload, AlreadyVoidedError } from "@/modules/run/void";
@@ -27,7 +28,7 @@ suite("WP-018: void-run (ING-09)", () => {
     const t = await db.select({ id: schema.tenants.id }).from(schema.tenants).where(eq(schema.tenants.slug, SLUG));
     const tids = t.map((x) => x.id);
     if (tids.length === 0) return;
-    await db.delete(schema.auditLog).where(inArray(schema.auditLog.tenantId, tids));
+    await purgeAuditLog(db, inArray(schema.auditLog.tenantId, tids));
     await db.delete(schema.leads).where(inArray(schema.leads.tenantId, tids));
     await db.delete(schema.uploads).where(inArray(schema.uploads.tenantId, tids));
     await db.delete(schema.refCounters).where(inArray(schema.refCounters.tenantId, tids));

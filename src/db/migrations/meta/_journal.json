@@ -99,6 +99,13 @@
       "when": 1783625049423,
       "tag": "0013_leads_indexes",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1783700000000,
+      "tag": "0014_audit_log_immutable",
+      "breakpoints": true
     }
   ]
 }

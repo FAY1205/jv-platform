@@ -4,6 +4,7 @@ import postgres from "postgres";
 import { eq, inArray } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import * as schema from "@/db/schema";
+import { purgeAuditLog } from "../helpers/audit";
 import { updateMlsPattern } from "@/modules/rules/commands";
 import { listMlsPatterns } from "@/modules/rules/queries";
 import type { ScopeContext } from "@/lib/scope";
@@ -22,7 +23,8 @@ suite("WP-032a: rules area (CVG-02, DM-08)", () => {
     const t = await db.select({ id: schema.tenants.id }).from(schema.tenants).where(eq(schema.tenants.slug, SLUG));
     const tids = t.map((x) => x.id);
     if (tids.length === 0) return;
-    for (const tbl of [schema.auditLog, schema.mlsPatterns, schema.stateRules, schema.coverageZips, schema.partners]) {
+    await purgeAuditLog(db, inArray(schema.auditLog.tenantId, tids));
+    for (const tbl of [schema.mlsPatterns, schema.stateRules, schema.coverageZips, schema.partners]) {
       await db.delete(tbl).where(inArray(tbl.tenantId, tids));
     }
     await db.delete(schema.tenants).where(inArray(schema.tenants.id, tids));

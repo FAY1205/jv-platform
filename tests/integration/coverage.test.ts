@@ -4,6 +4,7 @@ import postgres from "postgres";
 import { and, eq, inArray, isNull } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import * as schema from "@/db/schema";
+import { purgeAuditLog } from "../helpers/audit";
 import { setPartnerCoverage } from "@/modules/coverage/commands";
 import type { ScopeContext } from "@/lib/scope";
 
@@ -22,7 +23,8 @@ suite("WP-031a: per-partner coverage entry (CVG-01, DM-06)", () => {
     const t = await db.select({ id: schema.tenants.id }).from(schema.tenants).where(eq(schema.tenants.slug, SLUG));
     const tids = t.map((x) => x.id);
     if (tids.length === 0) return;
-    for (const tbl of [schema.auditLog, schema.coverageZips, schema.stateRules, schema.partners]) {
+    await purgeAuditLog(db, inArray(schema.auditLog.tenantId, tids));
+    for (const tbl of [schema.coverageZips, schema.stateRules, schema.partners]) {
       await db.delete(tbl).where(inArray(tbl.tenantId, tids));
     }
     await db.delete(schema.tenants).where(inArray(schema.tenants.id, tids));

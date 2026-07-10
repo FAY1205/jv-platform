@@ -4,6 +4,7 @@ import postgres from "postgres";
 import { eq, inArray } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import * as schema from "@/db/schema";
+import { purgeAuditLog } from "../helpers/audit";
 import { detectProfile } from "@/modules/sources";
 import { INVESTORFUSE_PROFILE } from "@/modules/sources/seed-profiles";
 import { suggestMapping, buildConfirmedProfile } from "@/modules/sources/mapping";
@@ -23,7 +24,8 @@ suite("WP-032b-2: format drift + versioned profiles (ING-02/08, DM-08)", () => {
     const t = await db.select({ id: schema.tenants.id }).from(schema.tenants).where(eq(schema.tenants.slug, SLUG));
     const tids = t.map((x) => x.id);
     if (tids.length === 0) return;
-    for (const tbl of [schema.auditLog, schema.sourceProfiles]) await db.delete(tbl).where(inArray(tbl.tenantId, tids));
+    await purgeAuditLog(db, inArray(schema.auditLog.tenantId, tids));
+    for (const tbl of [schema.sourceProfiles]) await db.delete(tbl).where(inArray(tbl.tenantId, tids));
     await db.delete(schema.tenants).where(inArray(schema.tenants.id, tids));
   }
 

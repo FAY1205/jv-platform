@@ -4,6 +4,7 @@ import postgres from "postgres";
 import { inArray } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import * as schema from "@/db/schema";
+import { purgeAuditLog } from "../helpers/audit";
 import { dashboardData } from "@/modules/analytics/queries";
 import type { ScopeContext } from "@/lib/scope";
 
@@ -31,7 +32,8 @@ suite("WS-2: dashboard SQL aggregation (ANA-01/02/03, F-10)", () => {
     const t = await db.select({ id: schema.tenants.id }).from(schema.tenants).where(inArray(schema.tenants.slug, [SLUG, SLUG2]));
     const tids = t.map((x) => x.id);
     if (tids.length === 0) return;
-    for (const tbl of [schema.leadNotes, schema.leadStatusHistory, schema.leads, schema.uploads, schema.users, schema.partners, schema.auditLog]) {
+    await purgeAuditLog(db, inArray(schema.auditLog.tenantId, tids));
+    for (const tbl of [schema.leadNotes, schema.leadStatusHistory, schema.leads, schema.uploads, schema.users, schema.partners]) {
       await db.delete(tbl).where(inArray(tbl.tenantId, tids));
     }
     await db.delete(schema.tenants).where(inArray(schema.tenants.id, tids));

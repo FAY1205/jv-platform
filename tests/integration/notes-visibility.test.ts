@@ -4,6 +4,7 @@ import postgres from "postgres";
 import { inArray } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import * as schema from "@/db/schema";
+import { purgeAuditLog } from "../helpers/audit";
 import type { ScopeContext } from "@/lib/scope";
 import { listLeadNotes, addLeadNote, editLeadNote, LeadNotFoundError } from "@/modules/notes/notes";
 
@@ -23,7 +24,7 @@ suite("PRN-13/NTS: two-stream note visibility", () => {
     const tenants = await db.select({ id: schema.tenants.id }).from(schema.tenants).where(inArray(schema.tenants.slug, [SLUG]));
     const tids = tenants.map((t) => t.id);
     if (tids.length === 0) return;
-    await db.delete(schema.auditLog).where(inArray(schema.auditLog.tenantId, tids));
+    await purgeAuditLog(db, inArray(schema.auditLog.tenantId, tids));
     await db.delete(schema.leadNotes).where(inArray(schema.leadNotes.tenantId, tids));
     await db.delete(schema.leads).where(inArray(schema.leads.tenantId, tids));
     await db.delete(schema.uploads).where(inArray(schema.uploads.tenantId, tids));

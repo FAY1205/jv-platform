@@ -4,6 +4,7 @@ import postgres from "postgres";
 import { and, eq, inArray, isNull } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import * as schema from "@/db/schema";
+import { purgeAuditLog } from "../helpers/audit";
 import {
   createPartner,
   updatePartner,
@@ -29,7 +30,7 @@ suite("WP-030: partners CRUD + deactivation → reassignment (ADM-03, PRN-05)", 
     const t = await db.select({ id: schema.tenants.id }).from(schema.tenants).where(eq(schema.tenants.slug, SLUG));
     const tids = t.map((x) => x.id);
     if (tids.length === 0) return;
-    await db.delete(schema.auditLog).where(inArray(schema.auditLog.tenantId, tids));
+    await purgeAuditLog(db, inArray(schema.auditLog.tenantId, tids));
     await db.delete(schema.leads).where(inArray(schema.leads.tenantId, tids));
     await db.delete(schema.uploads).where(inArray(schema.uploads.tenantId, tids));
     await db.delete(schema.coverageZips).where(inArray(schema.coverageZips.tenantId, tids));

@@ -3,6 +3,7 @@ import { and, eq, inArray } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import { getDb } from "@/db";
 import * as schema from "@/db/schema";
+import { purgeAuditLog } from "../helpers/audit";
 import type * as ScopeContextModule from "@/lib/scope-context";
 import { adminScope, jsonRequest, routeParams, scopeContextMock, setRouteScope } from "./_route-harness";
 
@@ -33,7 +34,7 @@ suite("PATCH /api/leads/[ref] — route error mapping (ADM)", () => {
     const tids = t.map((x) => x.id);
     if (tids.length === 0) return;
     // FK-safe order: audit + leads reference partners/uploads/tenant.
-    await db.delete(schema.auditLog).where(inArray(schema.auditLog.tenantId, tids));
+    await purgeAuditLog(db, inArray(schema.auditLog.tenantId, tids));
     await db.delete(schema.leads).where(inArray(schema.leads.tenantId, tids));
     await db.delete(schema.uploads).where(inArray(schema.uploads.tenantId, tids));
     await db.delete(schema.partners).where(inArray(schema.partners.tenantId, tids));
