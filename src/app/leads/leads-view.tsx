@@ -8,7 +8,7 @@ import { LEAD_STATUS_FILTERS, type LeadSortField } from "@/modules/leads/schema"
 import {
   AppShell, Card, Table, THead, TBody, Th, Tr, Td, PartnerTag, EmptyState, Skeleton,
   ToastProvider, Input, Select, DateRangePicker, Pagination, RowOpenButton, StatusSelect,
-  DEFAULT_PAGE_SIZE,
+  DEFAULT_PAGE_SIZE, usePageHeader,
 } from "@/components";
 
 const LeadDialog = dynamic(() => import("./lead-dialog").then((m) => m.LeadDialog), { ssr: false });
@@ -42,6 +42,20 @@ function googleUrl(parts: (string | null)[]): string {
 }
 
 export function LeadsView({ initialQ }: { initialQ: string }) {
+  return (
+    <ToastProvider>
+      <AppShell>
+        <LeadsBody initialQ={initialQ} />
+      </AppShell>
+    </ToastProvider>
+  );
+}
+
+// Rendered inside AppShell's PageHeaderProvider so usePageHeader resolves — the "Leads"
+// title lives in the topbar (WP-E shell pattern), so no in-body <h1>.
+function LeadsBody({ initialQ }: { initialQ: string }) {
+  usePageHeader({ title: "Leads" });
+
   const [filters, setFilters] = React.useState<Filters>({ ...EMPTY, q: initialQ });
   const [sort, setSort] = React.useState<LeadSortField>("received");
   const [dir, setDir] = React.useState<"asc" | "desc">("desc");
@@ -59,31 +73,24 @@ export function LeadsView({ initialQ }: { initialQ: string }) {
   };
 
   return (
-    <ToastProvider>
-      <AppShell>
-        <div className="mb-6">
-          <h1 className="font-display text-2xl font-semibold tracking-tight text-text">Leads</h1>
-          <p className="mt-1 text-sm text-text-2">Every lead you&apos;ve processed. Open a lead to view or edit it; set status inline.</p>
-        </div>
+    <>
+      <LeadsFilterBar seedQ={initialQ} onChange={setFilters} />
 
-        <LeadsFilterBar seedQ={initialQ} onChange={setFilters} />
+      <LeadsTable
+        filterKey={filterKey}
+        filters={filters}
+        sort={sort}
+        dir={dir}
+        page={page}
+        pageSize={pageSize}
+        onSort={onSort}
+        onOpen={setOpenRef}
+        onPageChange={setPage}
+        onPageSizeChange={(n) => { setPageSize(n); setPage(1); }}
+      />
 
-        <LeadsTable
-          filterKey={filterKey}
-          filters={filters}
-          sort={sort}
-          dir={dir}
-          page={page}
-          pageSize={pageSize}
-          onSort={onSort}
-          onOpen={setOpenRef}
-          onPageChange={setPage}
-          onPageSizeChange={(n) => { setPageSize(n); setPage(1); }}
-        />
-
-        {openRef && <LeadDialog refId={openRef} onClose={() => setOpenRef(null)} />}
-      </AppShell>
-    </ToastProvider>
+      {openRef && <LeadDialog refId={openRef} onClose={() => setOpenRef(null)} />}
+    </>
   );
 }
 

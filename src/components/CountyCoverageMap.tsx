@@ -20,6 +20,10 @@ export interface CountyCoverageMapProps {
   onSelectPartner?: (partnerId: string | null) => void;
   /** Optional blurred title plate; WP-E pages supply the content. */
   caption?: MapCaptionProps;
+  /** When false, render a static role="img" territory illustration — no zoom controls,
+   *  wheel-zoom, drag-pan, or hover (used inside the lead dialog matchcard, where the
+   *  mouse-only pan would be a keyboard trap; SC 2.1.1). Defaults to true. */
+  interactive?: boolean;
 }
 
 // Module-level cache so the ~0.9 MB geometry is fetched once per session.
@@ -32,7 +36,7 @@ let geoCache: CountyGeo | null = null;
  * demand. 3,142 county paths render once; hover/click use event delegation and a
  * single highlight overlay so mouse-move never re-renders the whole map.
  */
-export function CountyCoverageMap({ states, selectedPartnerId = null, onSelectPartner, caption }: CountyCoverageMapProps) {
+export function CountyCoverageMap({ states, selectedPartnerId = null, onSelectPartner, caption, interactive = true }: CountyCoverageMapProps) {
   const [geo, setGeo] = React.useState<CountyGeo | null>(geoCache);
   const [failed, setFailed] = React.useState(false);
   const wrapRef = React.useRef<HTMLDivElement>(null);
@@ -119,7 +123,7 @@ export function CountyCoverageMap({ states, selectedPartnerId = null, onSelectPa
   // Non-passive wheel listener so zooming the map doesn't also scroll the page.
   React.useEffect(() => {
     const el = wrapRef.current;
-    if (!el) return;
+    if (!el || !interactive) return;
     const handler = (e: WheelEvent) => {
       e.preventDefault();
       const rect = el.getBoundingClientRect();
@@ -128,7 +132,7 @@ export function CountyCoverageMap({ states, selectedPartnerId = null, onSelectPa
     el.addEventListener("wheel", handler, { passive: false });
     return () => el.removeEventListener("wheel", handler);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- rebind when geometry (vw/vh) is ready
-  }, [geo, vw, vh]);
+  }, [geo, vw, vh, interactive]);
 
   const onPointerDown = (e: React.PointerEvent) => {
     drag.current = { x: e.clientX, y: e.clientY, moved: false };
@@ -183,14 +187,14 @@ export function CountyCoverageMap({ states, selectedPartnerId = null, onSelectPa
     <div ref={wrapRef} className="relative w-full">
       <svg
         viewBox={geo.viewBox}
-        className="w-full touch-none"
+        className={`w-full${interactive ? " touch-none" : ""}`}
         role="img"
         aria-label="United States county coverage map, colored by partner"
-        style={{ cursor: view.s > 1 ? (dragging ? "grabbing" : "grab") : "default" }}
-        onPointerDown={onPointerDown}
-        onPointerMove={onMove}
-        onPointerUp={onPointerUp}
-        onPointerLeave={() => { drag.current = null; setDragging(false); setHover(null); }}
+        style={{ cursor: interactive && view.s > 1 ? (dragging ? "grabbing" : "grab") : "default" }}
+        onPointerDown={interactive ? onPointerDown : undefined}
+        onPointerMove={interactive ? onMove : undefined}
+        onPointerUp={interactive ? onPointerUp : undefined}
+        onPointerLeave={interactive ? () => { drag.current = null; setDragging(false); setHover(null); } : undefined}
       >
         <MapHatch id={hatchId} />
         <g transform={transform}>
@@ -205,7 +209,8 @@ export function CountyCoverageMap({ states, selectedPartnerId = null, onSelectPa
 
       {caption && <MapCaption {...caption} />}
 
-      {/* Zoom controls */}
+      {/* Zoom controls — omitted in static (non-interactive) mode */}
+      {interactive && (
       <div className="absolute right-2 top-2 flex flex-col gap-1.5">
         <button type="button" aria-label="Zoom in" className={zoomBtn} onClick={() => zoomAt(1.4, (wrapRef.current?.clientWidth ?? 0) / 2, (wrapRef.current?.clientHeight ?? 0) / 2)}>
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
@@ -219,6 +224,7 @@ export function CountyCoverageMap({ states, selectedPartnerId = null, onSelectPa
           </button>
         )}
       </div>
+      )}
 
       {hover && hoverCov && (
         <div

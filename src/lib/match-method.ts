@@ -17,3 +17,18 @@ export const MATCH_METHOD_LABEL: Record<MatchMethod, { label: string; badge: Mat
 export function matchMethodLabel(m: string): { label: string; badge: MatchMethodBadge } {
   return MATCH_METHOD_LABEL[m as MatchMethod] ?? { label: "Unknown", badge: "neutral" };
 }
+
+/** ADM-02 "matching moment": the plain-language reason a lead landed with its partner.
+ *  Manual assignment (a separate overlay) overrides the pipeline match method; never throws. */
+export function routingExplanation(o: {
+  partnerName: string;
+  manual: boolean;
+  matchMethod: string;
+  zip: string;
+  state: string;
+}): string {
+  if (o.manual) return `Manually assigned to ${o.partnerName}.`;
+  if (o.matchMethod === "zip") return `Routed to ${o.partnerName} because ZIP ${o.zip} falls inside their territory.`;
+  if (o.matchMethod === "state_fallback") return `Routed to ${o.partnerName} by state coverage — ${o.state} falls back to them.`;
+  return `Assigned to ${o.partnerName}.`;
+}

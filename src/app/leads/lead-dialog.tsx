@@ -19,6 +19,7 @@ import {
 } from "@/components";
 import { matchMethodLabel } from "@/lib/match-method";
 import { offersUnassign } from "@/lib/unassign";
+import { LeadTerritory } from "./lead-territory";
 
 // ADM: the lead dialog — opened from the global Leads table (no page navigation).
 // Read-only by default; the Edit button unlocks every field (owner decision). The
@@ -137,6 +138,10 @@ export function LeadDialog({ refId, onClose }: { refId: string; onClose: () => v
             qc.invalidateQueries({ queryKey: ["lead", refId] });
             qc.invalidateQueries({ queryKey: ["leads"] });
             qc.invalidateQueries({ queryKey: ["dashboard"] });
+            // A partner reassign/unassign/revert changes the coverage payload
+            // (unmatchedLeadCount, coveredVolumePct) that the dashboard hero map,
+            // attention banner, and the LeadTerritory matchcard all consume (F-1).
+            qc.invalidateQueries({ queryKey: ["coverage"] });
             toast.toast("Lead updated.", "success");
           }}
         />
@@ -152,7 +157,7 @@ export function LeadDialog({ refId, onClose }: { refId: string; onClose: () => v
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="flex flex-col gap-0.5">
-      <span className="text-[.65rem] font-semibold uppercase tracking-wide text-text-3">{label}</span>
+      <span className="text-[.8125rem] font-semibold uppercase tracking-wide text-text-3">{label}</span>
       <span className="text-sm text-text">{children}</span>
     </div>
   );
@@ -181,6 +186,17 @@ function ViewMode({ d, onEdit }: { d: LeadDetail; onEdit: () => void }) {
           Edit
         </Button>
       </div>
+
+      {/* Matchcard (mockup 02) — the matching moment: partner territory + why routed. */}
+      {d.partner && (
+        <LeadTerritory
+          partner={d.partner}
+          manual={d.assignment.manual}
+          matchMethod={d.assignment.matchMethod}
+          zip={d.zip}
+          state={d.state}
+        />
+      )}
 
       <div className="grid grid-cols-2 gap-x-5 gap-y-4 sm:grid-cols-3">
         <Field label="Seller">{`${d.seller.first} ${d.seller.last}`.trim() || "—"}</Field>
@@ -250,7 +266,7 @@ function ViewMode({ d, onEdit }: { d: LeadDetail; onEdit: () => void }) {
 function ActivityLog({ activity }: { activity: Activity[] }) {
   return (
     <div className="rounded-xl border border-border-soft bg-surface-2 p-4">
-      <h3 className="mb-3 text-[.65rem] font-semibold uppercase tracking-wide text-text-3">Activity</h3>
+      <h3 className="mb-3 text-[.8125rem] font-semibold uppercase tracking-wide text-text-3">Activity</h3>
       {activity.length === 0 ? (
         <p className="text-sm text-text-3">No activity yet.</p>
       ) : (
