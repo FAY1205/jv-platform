@@ -1,0 +1,79 @@
+<title>TerritoryDesk — Export</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root{--paper:#F1F4F3;--surface:#FFFFFF;--surface-2:#E9EEEC;--surface-3:#DDE5E2;--ink:#16242B;--ink-2:#46565D;--ink-3:#566268;--line:#D3DCD9;--line-strong:#B8C4C0;--route:#E0912B;--route-strong:#C67D1E;--route-tint:#FAEFDA;--route-ink:#8F5416;--matched:#2C7A57;--info:#2E6E93;--shadow:0 1px 2px rgba(22,36,43,.06),0 16px 44px -20px rgba(22,36,43,.32);--r-sm:8px;--r-md:12px;--r-lg:16px;--font-display:ui-serif,"Iowan Old Style","Palatino Linotype",Georgia,serif;--font-sans:system-ui,-apple-system,"Segoe UI",sans-serif;--font-mono:"SF Mono","Cascadia Code",ui-monospace,"Roboto Mono",monospace;}
+  @media (prefers-color-scheme:dark){:root:not([data-theme]){--paper:#10181C;--surface:#17232A;--surface-2:#1E2C33;--surface-3:#26363E;--ink:#EAF0EE;--ink-2:#A9B8BC;--ink-3:#85969B;--line:#2A3A41;--line-strong:#3A4D55;--route:#F0A63E;--route-strong:#F6B856;--route-ink:#F0A63E;--route-tint:#2A2417;--matched:#4FB183;--info:#5FA0C8;--shadow:0 1px 2px rgba(0,0,0,.3),0 16px 44px -20px rgba(0,0,0,.6);}}
+  :root[data-theme="dark"]{--paper:#10181C;--surface:#17232A;--surface-2:#1E2C33;--surface-3:#26363E;--ink:#EAF0EE;--ink-2:#A9B8BC;--ink-3:#85969B;--line:#2A3A41;--line-strong:#3A4D55;--route:#F0A63E;--route-strong:#F6B856;--route-ink:#F0A63E;--route-tint:#2A2417;--matched:#4FB183;--info:#5FA0C8;--shadow:0 1px 2px rgba(0,0,0,.3),0 16px 44px -20px rgba(0,0,0,.6);}
+  :root[data-theme="light"]{--paper:#F1F4F3;--surface:#FFFFFF;--surface-2:#E9EEEC;--surface-3:#DDE5E2;--ink:#16242B;--ink-2:#46565D;--ink-3:#566268;--line:#D3DCD9;--line-strong:#B8C4C0;--route:#E0912B;--route-ink:#8F5416;--route-tint:#FAEFDA;}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--font-sans);font-size:15px;line-height:1.5;-webkit-font-smoothing:antialiased;padding:28px 20px 70px}
+  .num{font-family:var(--font-mono);font-variant-numeric:tabular-nums}
+  h1,h2,h3{font-family:var(--font-display);font-weight:500;margin:0;line-height:1.2;text-wrap:balance}
+  :focus-visible{outline:2px solid var(--route-strong);outline-offset:2px}
+  .wrap{max-width:960px;margin:0 auto}
+  .head{display:flex;align-items:center;gap:12px;margin-bottom:6px}
+  .head .brand{display:flex;align-items:center;gap:9px;font-weight:600}
+  .head .tg{margin-left:auto;width:36px;height:36px;border-radius:999px;border:1px solid var(--line-strong);background:var(--surface);color:var(--ink-2);cursor:pointer}
+  .lede{color:var(--ink-2);margin:0 0 20px;max-width:60ch}
+  .book{background:var(--surface);border:1px solid var(--line-strong);border-radius:var(--r-md);overflow:hidden;box-shadow:var(--shadow)}
+  .xbar{display:flex;align-items:center;gap:10px;padding:10px 14px;background:var(--surface-2);border-bottom:1px solid var(--line)}
+  .xbar .fn{font-family:var(--font-mono);font-size:.78rem;color:var(--ink-2)}
+  .xbar .badge{margin-left:auto;font-size:.68rem;font-family:var(--font-mono);color:var(--matched);background:color-mix(in srgb,var(--matched) 12%,transparent);padding:2px 8px;border-radius:999px;border:1px solid color-mix(in srgb,var(--matched) 26%,transparent)}
+  .grid{overflow-x:auto}
+  table{border-collapse:collapse;width:100%;font-size:.82rem;min-width:640px}
+  td,th{border:1px solid var(--line);padding:7px 12px;white-space:nowrap}
+  .rowhdr{width:34px;background:var(--surface-2);color:var(--ink-3);text-align:center;font-family:var(--font-mono);font-size:.7rem}
+  thead th{background:var(--surface-2);color:var(--ink-3);font-family:var(--font-mono);font-size:.68rem;font-weight:600;text-transform:uppercase;letter-spacing:.04em;text-align:left}
+  .grouphdr td{font-weight:700;color:#20160A;font-size:.86rem;border-color:rgba(0,0,0,.12)}
+  .num-c{font-family:var(--font-mono);text-align:right}
+  .tabs{display:flex;gap:2px;padding:8px 10px 0;background:var(--surface-2);border-top:1px solid var(--line)}
+  .tab{font-size:.76rem;padding:7px 14px;border-radius:6px 6px 0 0;background:var(--surface-3);color:var(--ink-2);border:1px solid var(--line);border-bottom:0}
+  .tab.on{background:var(--surface);color:var(--ink);font-weight:600}
+  .tab .d{display:inline-block;width:9px;height:9px;border-radius:2px;margin-right:6px;vertical-align:middle}
+  .legend{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:20px}
+  @media (max-width:680px){.legend{grid-template-columns:1fr}}
+  .lrow{display:flex;align-items:center;gap:11px;background:var(--surface);border:1px solid var(--line);border-radius:var(--r-sm);padding:10px 12px}
+  .lrow .sw{width:16px;height:16px;border-radius:4px;border:1px solid rgba(0,0,0,.18);flex:none}
+  .lrow .nm{font-weight:600;font-size:.9rem}.lrow .ref{font-family:var(--font-mono);font-size:.72rem;color:var(--ink-3)}
+  .lrow .c{margin-left:auto;font-family:var(--font-mono);color:var(--ink-2)}
+  .note{display:flex;gap:10px;margin-top:18px;padding:12px 14px;border:1px solid var(--line);border-radius:var(--r-sm);background:var(--surface-2);font-size:.84rem;color:var(--ink-2)}
+</style>
+<div class="wrap">
+  <div class="head">
+    <span class="brand"><svg width="26" height="26" viewBox="0 0 34 34" fill="none" aria-hidden="true"><rect x="1.5" y="1.5" width="31" height="31" rx="7" stroke="var(--ink)" stroke-width="1.6"/><path d="M7 24 L14 12 L21 19 L27 9" stroke="var(--route)" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/><circle cx="27" cy="9" r="2.8" fill="var(--route)"/></svg>TerritoryDesk</span>
+    <button class="tg" id="tg" aria-label="Toggle theme">◐</button>
+  </div>
+  <h1 style="font-size:1.6rem">Export — the routing ledger, on paper</h1>
+  <p class="lede">The distribution export is a real brand surface. Each partner gets a colored group; the color always sits beside the partner's name and JV-ref, so it reads even in grayscale or for colorblind users.</p>
+
+  <div class="book">
+    <div class="xbar"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--matched)" stroke-width="2"><path d="M4 4h16v16H4zM4 10h16M10 4v16"/></svg><span class="fn">TerritoryDesk_IM-26-044_2026-07-10.xlsx</span><span class="badge">✓ cells sanitized</span></div>
+    <div class="grid">
+      <table>
+        <thead><tr><th class="rowhdr"></th><th>Ref</th><th>Address</th><th>City</th><th>ZIP</th><th>Source</th><th>Status</th></tr></thead>
+        <tbody>
+          <tr class="grouphdr" style="background:#C79A3E"><td class="rowhdr" style="background:#C79A3E"></td><td colspan="6">Summit Partners · JV-091 · 3 leads</td></tr>
+          <tr><td class="rowhdr">2</td><td class="num-c">LD-26-04127</td><td>18420 SE 42nd St</td><td>Sammamish</td><td class="num-c">98075</td><td>Seller</td><td>Distributed</td></tr>
+          <tr><td class="rowhdr">3</td><td class="num-c">LD-26-04119</td><td>2207 NE Park Dr</td><td>Issaquah</td><td class="num-c">98029</td><td>MLS</td><td>Distributed</td></tr>
+          <tr><td class="rowhdr">4</td><td class="num-c">LD-26-04098</td><td>515 Front St N</td><td>Issaquah</td><td class="num-c">98027</td><td>Seller</td><td>Contacted</td></tr>
+          <tr class="grouphdr" style="background:#5B7A9E"><td class="rowhdr" style="background:#5B7A9E"></td><td colspan="6" style="color:#fff">Northshore Realty · JV-204 · 2 leads</td></tr>
+          <tr><td class="rowhdr">6</td><td class="num-c">LD-26-04126</td><td>310 Bellevue Way NE</td><td>Bellevue</td><td class="num-c">98004</td><td>MLS</td><td>Contacted</td></tr>
+          <tr><td class="rowhdr">7</td><td class="num-c">LD-26-04120</td><td>88 Lake St</td><td>Kirkland</td><td class="num-c">98033</td><td>Seller</td><td>Distributed</td></tr>
+          <tr class="grouphdr" style="background:#6E8B5E"><td class="rowhdr" style="background:#6E8B5E"></td><td colspan="6">Cascade Group · JV-118 · 2 leads</td></tr>
+          <tr><td class="rowhdr">9</td><td class="num-c">LD-26-04125</td><td>77 Central Way</td><td>Kirkland</td><td class="num-c">98033</td><td>MLS</td><td>Distributed</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="tabs"><span class="tab on"><span class="d" style="background:var(--route)"></span>All leads</span><span class="tab"><span class="d" style="background:#C79A3E"></span>Summit</span><span class="tab"><span class="d" style="background:#5B7A9E"></span>Northshore</span><span class="tab">Legend</span></div>
+  </div>
+
+  <div class="legend">
+    <div class="lrow"><span class="sw" style="background:#C79A3E"></span><div><div class="nm">Summit Partners</div><div class="ref">JV-091</div></div><span class="c">3</span></div>
+    <div class="lrow"><span class="sw" style="background:#5B7A9E"></span><div><div class="nm">Northshore Realty</div><div class="ref">JV-204</div></div><span class="c">2</span></div>
+    <div class="lrow"><span class="sw" style="background:#6E8B5E"></span><div><div class="nm">Cascade Group</div><div class="ref">JV-118</div></div><span class="c">2</span></div>
+    <div class="lrow"><span class="sw" style="background:#B4623F"></span><div><div class="nm">Harbor &amp; Vine</div><div class="ref">JV-060</div></div><span class="c">1</span></div>
+  </div>
+
+  <div class="note"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--info)" stroke-width="2" style="flex:none"><circle cx="12" cy="12" r="9"/><path d="M12 8v5M12 16h.01"/></svg>Every user-entered cell is escaped against formula injection (a leading <span class="num">=</span>, <span class="num">+</span>, <span class="num">-</span>, or <span class="num">@</span>) before it's written to the file.</div>
+</div>
+<script>(function(){var r=document.documentElement;function c(){return r.getAttribute('data-theme')||(matchMedia('(prefers-color-scheme:dark)').matches?'dark':'light');}document.getElementById('tg').addEventListener('click',function(){r.setAttribute('data-theme',c()==='dark'?'light':'dark');});})();</script>
