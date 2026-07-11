@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import Link from "next/link";
 import dynamic from "next/dynamic";
 import { useParams } from "next/navigation";
@@ -9,7 +9,7 @@ import { apiGet } from "@/lib/api";
 import { csrfHeaders } from "@/lib/csrf-client";
 import type { RunDetail, RunLeadView, PartnerView } from "@/modules/run/view-types";
 import { buildAnalytics } from "@/modules/analytics/overview";
-import { Badge, Button, Dialog, Textarea, Card, CardHeader, CardTitle, CardBody, Stat, PartnerTag, Table, THead, TBody, Th, Tr, Td, RowOpenButton, EmptyState, Skeleton, AppShell } from "@/components";
+import { Badge, Button, Dialog, Textarea, Card, CardHeader, CardTitle, CardBody, PartnerTag, Table, THead, TBody, Th, Tr, Td, RowOpenButton, EmptyState, Skeleton, AppShell } from "@/components";
 import { fmtDate } from "../_shell";
 
 // F-55: leads open in the shared dialog, not the old read-only /leads/[ref] page.
@@ -38,7 +38,7 @@ function LoadingState() {
   return (
     <div className="flex flex-col gap-6">
       <Skeleton className="h-8 w-56" />
-      <Card><CardBody><div className="grid grid-cols-2 gap-6 sm:grid-cols-5">{Array.from({ length: 5 }).map((_, i) => <Skeleton key={i} className="h-14" />)}</div></CardBody></Card>
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">{Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-20 rounded-2xl" />)}</div>
       <Card><CardBody><Skeleton className="h-64 w-full" /></CardBody></Card>
     </div>
   );
@@ -46,6 +46,26 @@ function LoadingState() {
 
 function ErrorState({ message }: { message: string }) {
   return <Card><CardBody><EmptyState title="Couldn't load this import" description={message} /></CardBody></Card>;
+}
+
+// Import pipeline funnel (mockup 14): Imported → Removed → Distributed → Unmatched.
+// A stage view (not strict arithmetic — dedupe drops + previously-matched overlap).
+function Funnel({ steps }: { steps: { v: number; label: string; desc: string; tone: "neutral" | "warn" | "brand" }[] }) {
+  const toneCls = { neutral: "text-text", warn: "text-warn", brand: "text-brand-ink" } as const;
+  return (
+    <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
+      {steps.map((s, i) => (
+        <div key={s.label} className="relative rounded-2xl border border-border-soft bg-surface p-4 shadow-sm">
+          <div className={`font-display text-2xl font-semibold leading-none tabular-nums ${toneCls[s.tone]}`}>{s.v.toLocaleString()}</div>
+          <div className="mt-1.5 text-[.8125rem] font-semibold uppercase tracking-[.05em] text-text-3">{s.label}</div>
+          <div className="mt-0.5 text-[.8125rem] text-text-3">{s.desc}</div>
+          {i < steps.length - 1 && (
+            <span aria-hidden="true" className="absolute -right-2.5 top-1/2 hidden -translate-y-1/2 text-lg text-text-3 sm:block">→</span>
+          )}
+        </div>
+      ))}
+    </div>
+  );
 }
 
 function RunView({ detail }: { detail: RunDetail }) {
@@ -70,47 +90,52 @@ function RunView({ detail }: { detail: RunDetail }) {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["run", upload.refId] });
       qc.invalidateQueries({ queryKey: ["runs"] });
+      // Voiding recalls this import's distributed leads and excludes them from analytics
+      // — invalidate every aggregate that counted them (F-1), mirroring the assign flow.
+      qc.invalidateQueries({ queryKey: ["leads"] });
+      qc.invalidateQueries({ queryKey: ["dashboard"] });
+      qc.invalidateQueries({ queryKey: ["coverage"] });
+      qc.invalidateQueries({ queryKey: ["unmatched"] });
+      qc.invalidateQueries({ queryKey: ["unmatched-stats"] });
       setModalOpen(false);
       setReason("");
     },
   });
 
-  const delivered = leads.filter((l) => l.mlsStatus === "kept" && l.partnerId);
-  const removed = leads.filter((l) => l.mlsStatus === "removed");
-  const unmatched = leads.filter((l) => l.partnerId === null && l.mlsStatus === "kept");
-  // F-75: the Distributed headline reads the server run summary's per-partner counts
-  // (PRN-15), not a client re-derivation. Sourced from `summary.perPartner` (all kept +
-  // assigned leads) rather than `distribution` — the latter drops soft-deleted partners,
-  // which would undercount vs. the "Distributed leads" table on older runs.
-  const distributed = summary.perPartner.reduce((sum, pp) => sum + pp.count, 0);
-
-  // Per-import routing composition — computed by the analytics module (PRN-15),
-  // never re-derived here. mlsReason isn't in the view payload; the removed table
-  // below already shows each lead's matched pattern.
-  const composition = buildAnalytics(
-    leads.map((l) => ({
-      uploadId: upload.refId,
-      mlsStatus: l.mlsStatus,
-      matchMethod: l.matchMethod,
-      partnerId: l.partnerId,
-      mlsReason: null,
-      previouslyMatched: l.previouslyMatched,
-    })),
-    [],
-  ).matchBreakdown;
-  const keptTotal = composition.zip + composition.stateFallback + composition.unmatched;
-
-  const byPartner = new Map<string, RunLeadView[]>();
-  for (const l of delivered) {
-    const bucket = byPartner.get(l.partnerId!);
-    if (bucket) bucket.push(l);
-    else byPartner.set(l.partnerId!, [l]);
-  }
-  const groups = [...byPartner.entries()].sort((a, b) => {
-    const ra = partners[a[0]]?.refId ?? a[0];
-    const rb = partners[b[0]]?.refId ?? b[0];
-    return ra < rb ? -1 : ra > rb ? 1 : 0;
-  });
+  // All lead-derived views are memoized on the query data so typing a void reason (or
+  // any unrelated state change) doesn't re-filter/re-analyze the whole import (F-2/FEP-06).
+  // F-75: Distributed reads the server run summary's per-partner counts (PRN-15), not a
+  // client re-derivation; the routing composition comes from the analytics module.
+  const { delivered, removed, unmatched, distributed, composition, keptTotal, groups } = useMemo(() => {
+    const delivered = leads.filter((l) => l.mlsStatus === "kept" && l.partnerId);
+    const removed = leads.filter((l) => l.mlsStatus === "removed");
+    const unmatched = leads.filter((l) => l.partnerId === null && l.mlsStatus === "kept");
+    const distributed = summary.perPartner.reduce((sum, pp) => sum + pp.count, 0);
+    const composition = buildAnalytics(
+      leads.map((l) => ({
+        uploadId: upload.refId,
+        mlsStatus: l.mlsStatus,
+        matchMethod: l.matchMethod,
+        partnerId: l.partnerId,
+        mlsReason: null,
+        previouslyMatched: l.previouslyMatched,
+      })),
+      [],
+    ).matchBreakdown;
+    const keptTotal = composition.zip + composition.stateFallback + composition.unmatched;
+    const byPartner = new Map<string, RunLeadView[]>();
+    for (const l of delivered) {
+      const bucket = byPartner.get(l.partnerId!);
+      if (bucket) bucket.push(l);
+      else byPartner.set(l.partnerId!, [l]);
+    }
+    const groups = [...byPartner.entries()].sort((a, b) => {
+      const ra = partners[a[0]]?.refId ?? a[0];
+      const rb = partners[b[0]]?.refId ?? b[0];
+      return ra < rb ? -1 : ra > rb ? 1 : 0;
+    });
+    return { delivered, removed, unmatched, distributed, composition, keptTotal, groups };
+  }, [leads, partners, summary, upload.refId]);
 
   return (
     <>
@@ -148,19 +173,26 @@ function RunView({ detail }: { detail: RunDetail }) {
         </div>
       )}
 
+      <Funnel
+        steps={[
+          { v: upload.rowCount ?? leads.length, label: "Imported", desc: "rows read", tone: "neutral" },
+          { v: summary.removed, label: "Removed", desc: "by MLS rules", tone: "warn" },
+          { v: distributed, label: "Distributed", desc: `to ${distribution.length} ${distribution.length === 1 ? "partner" : "partners"}`, tone: "brand" },
+          { v: summary.unmatched, label: "Unmatched", desc: "no coverage", tone: "warn" },
+        ]}
+      />
+      {summary.previouslyMatched > 0 && (
+        <p className="-mt-3 mb-6 text-[.8125rem] text-text-3">
+          <span className="num font-semibold text-text-2">{summary.previouslyMatched}</span> previously matched (excluded from distribution).
+        </p>
+      )}
+
+      {(distribution.length > 0 || keptTotal > 0) && (
       <Card className="mb-6">
         <CardBody>
-          <div className="grid grid-cols-2 gap-6 sm:grid-cols-3 lg:grid-cols-5">
-            <Stat label="Total leads" value={summary.total} />
-            <Stat label="Distributed" value={distributed} foot={`to ${distribution.length} ${distribution.length === 1 ? "partner" : "partners"}`} />
-            <Stat label="Removed · MLS" value={summary.removed} />
-            <Stat label="Unmatched" value={summary.unmatched} foot="coverage gaps" />
-            <Stat label="Previously matched" value={summary.previouslyMatched} />
-          </div>
-
           {distribution.length > 0 && (
-            <div className="mt-7">
-              <div className="mb-2 text-[.68rem] font-semibold uppercase tracking-wider text-text-3">Distribution</div>
+            <div>
+              <div className="mb-2 text-[.8125rem] font-semibold uppercase tracking-wider text-text-3">Distribution</div>
               <div className="flex h-2.5 overflow-hidden rounded-full">
                 {distribution.map((d) => (
                   <div key={d.partnerId} style={{ flexGrow: d.count, background: d.color }} title={`${d.name}: ${d.count}`} />
@@ -179,7 +211,7 @@ function RunView({ detail }: { detail: RunDetail }) {
 
           {keptTotal > 0 && (
             <div className="mt-6">
-              <div className="mb-2 text-[.68rem] font-semibold uppercase tracking-wider text-text-3">How leads routed</div>
+              <div className="mb-2 text-[.8125rem] font-semibold uppercase tracking-wider text-text-3">How leads routed</div>
               <div className="flex h-2.5 overflow-hidden rounded-full">
                 {composition.zip > 0 && <div style={{ flexGrow: composition.zip, background: "var(--brand)" }} title={`ZIP match: ${composition.zip}`} />}
                 {composition.stateFallback > 0 && <div style={{ flexGrow: composition.stateFallback, background: "var(--info)" }} title={`State fallback: ${composition.stateFallback}`} />}
@@ -194,6 +226,7 @@ function RunView({ detail }: { detail: RunDetail }) {
           )}
         </CardBody>
       </Card>
+      )}
 
       <Card className="mb-6">
         <CardHeader>
@@ -294,9 +327,17 @@ function RunView({ detail }: { detail: RunDetail }) {
         }
       >
         <p className="mb-3 text-sm text-text-2">
-          Voiding <span className="num font-semibold text-text">{upload.refId}</span> ({upload.filename}) excludes its
-          leads from future dedupe, analytics and exports. It stays in history as voided.
+          Voiding <span className="num font-semibold text-text">{upload.refId}</span> ({upload.filename}) excludes every lead in
+          this import from future dedupe, analytics and exports, and marks the run voided in history. This can&apos;t be undone.
         </p>
+        {distributed > 0 && (
+          <p className="mb-3 text-sm text-text-2">
+            It does <span className="font-semibold text-text">not</span> recall leads already delivered:{" "}
+            <span className="num font-semibold text-text">{distributed}</span> distributed lead{distributed === 1 ? "" : "s"}{" "}
+            {distributed === 1 ? "keeps its" : "keep their"} assignment and {distributed === 1 ? "stays" : "stay"} visible to the
+            partner{distributed === 1 ? "" : "s"} — reassign or notify them separately if needed.
+          </p>
+        )}
         <Textarea
           label="Reason"
           value={reason}
@@ -337,7 +378,7 @@ function GroupRows({ info, rows, onOpen }: { info: PartnerView | undefined; rows
           <Td><PartnerTag size="sm" name={name} color={color} refId={refId} /></Td>
           <Td align="right">
             {l.previouslyMatched && (
-              <span className="inline-flex items-center gap-1 rounded-full bg-prev-soft px-2 py-0.5 text-[.7rem] font-semibold text-prev">
+              <span className="inline-flex items-center gap-1 rounded-full bg-prev-soft px-2 py-0.5 text-[.8125rem] font-semibold text-prev">
                 prev. matched
               </span>
             )}

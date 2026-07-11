@@ -8,10 +8,11 @@ import { csrfHeaders } from "@/lib/csrf-client";
 import {
   AppShell, Card, Badge, Button, Dialog, Select, Input, EmptyState, Skeleton,
   ToastProvider, useToast, CoverageMap, Table, THead, TBody, Th, Tr, Td, Pagination,
-  RowOpenButton, DEFAULT_PAGE_SIZE,
+  RowOpenButton, DEFAULT_PAGE_SIZE, usePageHeader,
 } from "@/components";
 import type { StateCoverage } from "@/modules/coverage/map";
 import { US_HEX_STATES } from "@/lib/geo/us-hexgrid";
+import { formatWaiting } from "@/lib/waiting";
 
 // ASN-03: the unmatched inbox. Per-state gap stats + a state map up top; a server-
 // paginated leads table below (reuses /api/leads?partnerId=unmatched — no unbounded
@@ -84,13 +85,25 @@ function AssignModal({ refId, onClose }: { refId: string; onClose: () => void })
           ]}
         />
         <Input label="Reason (optional)" value={reason} onChange={(e) => setReason(e.target.value)} placeholder="e.g. covers this metro off-book" />
-        <p className="text-xs text-text-3">Recorded in the activity log. The lead&apos;s original &ldquo;unmatched&rdquo; record is kept — history isn&apos;t rewritten (PRN-05).</p>
+        <p className="text-[.8125rem] text-text-3">Recorded in the activity log. The lead&apos;s original &ldquo;unmatched&rdquo; record is kept — history isn&apos;t rewritten (PRN-05).</p>
       </div>
     </Dialog>
   );
 }
 
 function UnmatchedInner() {
+  return (
+    <AppShell>
+      <UnmatchedBody />
+    </AppShell>
+  );
+}
+
+function UnmatchedBody() {
+  usePageHeader({ title: "Unmatched" });
+  // Snapshot "now" at mount (waiting times are a snapshot, not a live ticker) — keeps
+  // Date.now() out of the render body (react-hooks/purity).
+  const [now] = React.useState(() => Date.now());
   const statsQ = useQuery({ queryKey: ["unmatched-stats"], queryFn: () => apiGet<StateStats>("/api/leads/unmatched") });
   const [page, setPage] = React.useState(1);
   const [pageSize, setPageSize] = React.useState<number>(DEFAULT_PAGE_SIZE);
@@ -114,12 +127,7 @@ function UnmatchedInner() {
   }, [stats]);
 
   return (
-    <AppShell>
-      <div className="mb-6">
-        <h1 className="font-display text-2xl font-semibold tracking-tight text-text">Unmatched</h1>
-        <p className="mt-1 text-sm text-text-2">Leads no partner covers yet — hand each to a partner, or recruit one for the gap.</p>
-      </div>
-
+    <>
       {statsQ.isPending ? (
         <div className="flex flex-col gap-3">{Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-24 rounded-2xl" />)}</div>
       ) : statsQ.error ? (
@@ -142,7 +150,7 @@ function UnmatchedInner() {
           <section className="rounded-2xl border border-border-soft bg-surface p-5 shadow-sm">
             <h2 className="mb-4 font-display text-[.95rem] font-semibold tracking-tight">Where the gaps are</h2>
             <CoverageMap states={gapMapStates} />
-            <p className="mt-3 text-[.7rem] text-text-3">States with unmatched leads carry a warn ring. Recruiting a partner (or adding a state rule) there closes the gap.</p>
+            <p className="mt-3 text-[.8125rem] text-text-3">States with unmatched leads carry a warn ring. Recruiting a partner (or adding a state rule) there closes the gap.</p>
           </section>
 
           {/* Paginated table (reuses the leads list; F-11) */}
@@ -156,7 +164,7 @@ function UnmatchedInner() {
                 <THead>
                   <Tr>
                     <Th>Lead</Th><Th>Seller</Th><Th>Property</Th><Th>Source</Th>
-                    <Th align="right">Received</Th><Th align="right">Assign</Th>
+                    <Th align="right">Waiting</Th><Th align="right">Assign</Th>
                   </Tr>
                 </THead>
                 <TBody>
@@ -166,7 +174,7 @@ function UnmatchedInner() {
                       <Td><span className="text-sm text-text">{l.seller}</span></Td>
                       <Td><span className="text-sm text-text-2">{l.address}</span> <span className="text-xs text-text-3">{[l.city, l.state].filter(Boolean).join(", ")} <span className="num">{l.zip}</span></span></Td>
                       <Td>{l.campaign ? <Badge variant="neutral">{l.campaign}</Badge> : <span className="text-xs text-text-3">—</span>}</Td>
-                      <Td align="right"><span className="num text-xs text-text-3 tabular-nums">{new Date(l.receivedAt).toLocaleDateString()}</span></Td>
+                      <Td align="right"><span className="num tabular-nums text-text-2" title={new Date(l.receivedAt).toLocaleString()}>{formatWaiting(l.receivedAt, now)}</span></Td>
                       <Td align="right"><Button size="sm" variant="primary" onClick={() => setAssigningRef(l.refId)}>Assign →</Button></Td>
                     </Tr>
                   ))}
@@ -182,7 +190,7 @@ function UnmatchedInner() {
 
       {assigningRef && <AssignModal refId={assigningRef} onClose={() => setAssigningRef(null)} />}
       {openRef && <LeadDialog refId={openRef} onClose={() => setOpenRef(null)} />}
-    </AppShell>
+    </>
   );
 }
 

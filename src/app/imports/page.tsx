@@ -1,35 +1,45 @@
 "use client";
 
+import { useMemo } from "react";
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
 import { apiGet } from "@/lib/api";
 import type { RunListItem } from "@/modules/run/view-types";
-import { Card, Table, THead, TBody, Th, Tr, Td, Badge, EmptyState, Skeleton, AppShell } from "@/components";
+import { Card, Table, THead, TBody, Th, Tr, Td, Badge, EmptyState, Skeleton, AppShell, usePageHeader } from "@/components";
 import { fmtDate } from "./_shell";
 
 // The Imports list ("run" stays the internal engine term; the owner-facing word
 // is "import" — one processed weekly file).
 export default function ImportsIndexPage() {
+  return (
+    <AppShell>
+      <ImportsBody />
+    </AppShell>
+  );
+}
+
+function ImportsBody() {
+  // Static topbar action (memoized so the header effect doesn't re-fire on data load).
+  const actions = useMemo(
+    () => (
+      <Link
+        href="/upload"
+        className="inline-flex items-center gap-1.5 rounded-lg border border-brand bg-brand px-3.5 py-2 text-sm font-semibold text-brand-contrast shadow-xs transition-colors hover:bg-brand-strong active:scale-[.98]"
+      >
+        <span aria-hidden="true" className="text-base leading-none">+</span> New import
+      </Link>
+    ),
+    [],
+  );
+  usePageHeader({ title: "Imports", actions });
+
   const { data, isPending, error } = useQuery({
     queryKey: ["runs"],
     queryFn: () => apiGet<{ runs: RunListItem[] }>("/api/runs"),
   });
 
   return (
-    <AppShell>
-        <div className="mb-6 flex items-end justify-between gap-3">
-          <div>
-            <h1 className="font-display text-2xl font-semibold tracking-tight text-text">Imports</h1>
-            <p className="mt-1 text-sm text-text-2">Every weekly file processed through the pipeline.</p>
-          </div>
-          <Link
-            href="/upload"
-            className="inline-flex items-center gap-1.5 rounded-md border border-brand bg-brand px-3.5 py-2 text-sm font-semibold text-white transition-colors hover:bg-brand-strong"
-          >
-            + New import
-          </Link>
-        </div>
-
+    <>
         <Card>
           {isPending ? (
             <div className="flex flex-col gap-3 p-5">
@@ -78,6 +88,6 @@ export default function ImportsIndexPage() {
             </Table>
           )}
         </Card>
-    </AppShell>
+    </>
   );
 }
