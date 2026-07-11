@@ -2,22 +2,13 @@ import { and, count, eq, isNull, sql } from "drizzle-orm";
 import { getDb } from "@/db";
 import * as schema from "@/db/schema";
 import { tenantWhere, type ScopeContext } from "@/lib/scope";
-import { buildStateCoverage, type CoverageMapModel } from "./map";
+import { buildStateCoverage, type CoverageMapResponse } from "./map";
 
 // MAP-01 read side. Admin-only surface (the route enforces role); every query is
 // tenant-scoped through the guard (PRN-08). Statistics come from here, never
-// re-derived in the UI (PRN-15).
-
-export interface CoverageMapResponse extends CoverageMapModel {
-  /** Current ZIP-level coverage rows (overrides that beat the state fallback). */
-  zipCoverageCount: number;
-  /** Kept leads that matched no partner — the routing gaps, in raw count (ASN-03). */
-  unmatchedLeadCount: number;
-  /** Volume-weighted coverage: share of kept leads that reached a partner. The
-   *  metric that matters — not "states covered" but "how much of MY volume is". */
-  coveredVolumePct: number;
-  keptLeadCount: number;
-}
+// re-derived in the UI (PRN-15). The payload shape lives in the pure `./map`
+// module (the one canonical type); re-exported here for existing importers.
+export type { CoverageMapResponse } from "./map";
 
 /** The whole coverage-map payload: per-state ownership, gaps, legend, aggregates. */
 export async function coverageMapData(scope: ScopeContext): Promise<CoverageMapResponse> {

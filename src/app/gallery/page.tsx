@@ -25,6 +25,7 @@ import {
   Tooltip,
   Select,
   StatusSelect,
+  SegmentedControl,
   Checkbox,
   DatePicker,
   DateRangePicker,
@@ -130,6 +131,7 @@ function Gallery() {
   const [range, setRange] = React.useState<DateRangeValue>({ from: "2026-07-01", to: "2026-07-10" });
   const [page, setPage] = React.useState(1);
   const [pageSize, setPageSize] = React.useState(DEFAULT_PAGE_SIZE);
+  const [seg, setSeg] = React.useState("30d");
 
   React.useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -253,6 +255,32 @@ function Gallery() {
               <NativeSelect label="Match type" defaultValue="zip" options={[{ value: "zip", label: "ZIP match" }, { value: "state", label: "State fallback" }, { value: "none", label: "Unmatched" }]} />
             </CardBody>
           </Card>
+        </Section>
+
+        <Section title="Segmented control — all states">
+          <div className="flex flex-wrap items-center gap-6">
+            <SegmentedControl
+              ariaLabel="Time range"
+              value={seg}
+              onValueChange={setSeg}
+              options={[
+                { value: "7d", label: "7 days" },
+                { value: "30d", label: "30 days" },
+                { value: "12mo", label: "12 months" },
+                { value: "all", label: "All" },
+              ]}
+            />
+            <SegmentedControl
+              ariaLabel="Disabled example"
+              value="30d"
+              onValueChange={() => {}}
+              disabled
+              options={[
+                { value: "7d", label: "7 days" },
+                { value: "30d", label: "30 days" },
+              ]}
+            />
+          </div>
         </Section>
 
         <Section title="Tabs & overlays">

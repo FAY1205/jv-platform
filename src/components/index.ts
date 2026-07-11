@@ -8,6 +8,7 @@ export { Input, type InputProps } from "./Input";
 export { Textarea, type TextareaProps } from "./Textarea";
 export { Select, type SelectProps, type SelectOption } from "./Select";
 export { StatusSelect, STATUS_PILL, type StatusSelectProps } from "./StatusSelect";
+export { SegmentedControl, type SegmentedControlProps, type SegmentOption } from "./SegmentedControl";
 export { NativeSelect, type NativeSelectProps } from "./NativeSelect";
 export { DatePicker, type DatePickerProps, isoToDate, dateToIso } from "./DatePicker";
 export { DateRangePicker, type DateRangePickerProps, type DateRangeValue } from "./DateRangePicker";

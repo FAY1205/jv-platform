@@ -41,6 +41,10 @@ export interface DashboardData {
     removed: DashboardStat;
     unmatched: DashboardStat;
     closed: DashboardStat;
+    /** Distinct partners that received a lead in the window (hero partner tier). */
+    partners: DashboardStat;
+    /** Leads first acted on by a partner in the window, across all partners. */
+    contacted: DashboardStat;
   };
   trend: { bucketStart: string; leadsIn: number; distributed: number; unmatched: number }[];
   partners: DashboardPartnerRow[];
@@ -83,7 +87,9 @@ export async function dashboardData(scope: ScopeContext, range: RangeKey): Promi
         count(*) filter (where created_at >= ${pStart} and created_at < ${pEnd})::int as pli,
         count(*) filter (where created_at >= ${pStart} and created_at < ${pEnd} and mls_status='kept' and coalesce(manual_partner_id, partner_id) is not null)::int as pdi,
         count(*) filter (where created_at >= ${pStart} and created_at < ${pEnd} and mls_status='removed')::int as prm,
-        count(*) filter (where created_at >= ${pStart} and created_at < ${pEnd} and mls_status='kept' and coalesce(manual_partner_id, partner_id) is null)::int as pun
+        count(*) filter (where created_at >= ${pStart} and created_at < ${pEnd} and mls_status='kept' and coalesce(manual_partner_id, partner_id) is null)::int as pun,
+        count(distinct coalesce(manual_partner_id, partner_id)) filter (where created_at >= ${start} and created_at < ${end} and mls_status='kept' and coalesce(manual_partner_id, partner_id) is not null)::int as ap,
+        count(distinct coalesce(manual_partner_id, partner_id)) filter (where created_at >= ${pStart} and created_at < ${pEnd} and mls_status='kept' and coalesce(manual_partner_id, partner_id) is not null)::int as pap
       from leads where ${leadTenant} and deleted_at is null
     `),
     // ── Closed = leads whose LATEST Closed status event lands in the window ──
@@ -153,6 +159,7 @@ export async function dashboardData(scope: ScopeContext, range: RangeKey): Promi
         count(*) filter (where received_at >= ${start} and received_at < ${end})::int as given,
         count(*) filter (where received_at >= ${start} and received_at < ${end} and first_touch_at is null)::int as untouched,
         count(*) filter (where first_touch_at >= ${start} and first_touch_at < ${end})::int as contacted,
+        count(*) filter (where first_touch_at >= ${pStart} and first_touch_at < ${pEnd})::int as prior_contacted,
         count(*) filter (where closed_at >= ${start} and closed_at < ${end})::int as closed,
         avg(extract(epoch from (first_touch_at - received_at)) / 3600.0)
           filter (where first_touch_at >= ${start} and first_touch_at < ${end}) as avg_contact_hours
@@ -190,9 +197,14 @@ export async function dashboardData(scope: ScopeContext, range: RangeKey): Promi
   const metaById = new Map(
     (partnerMeta as { id: string; name: string; refId: string; color: string }[]).map((p) => [p.id, p]),
   );
-  const partners: DashboardPartnerRow[] = (
-    partnerRes as unknown as { pid: string; given: number; untouched: number; contacted: number; closed: number; avg_contact_hours: number | null }[]
-  ).map((r) => {
+  const partnerRaw = partnerRes as unknown as {
+    pid: string; given: number; untouched: number; contacted: number; prior_contacted: number; closed: number; avg_contact_hours: number | null;
+  }[];
+  // Hero "Contacted" tier = the per-partner rows summed (ONE first-touch definition, no
+  // duplicate CTE — F-1); the delta uses the same rows' prior-window counts.
+  const contactedTotal = partnerRaw.reduce((n, r) => n + Number(r.contacted), 0);
+  const priorContacted = partnerRaw.reduce((n, r) => n + Number(r.prior_contacted), 0);
+  const partners: DashboardPartnerRow[] = partnerRaw.map((r) => {
     const meta = metaById.get(r.pid);
     return {
       partnerId: r.pid,
@@ -234,6 +246,8 @@ export async function dashboardData(scope: ScopeContext, range: RangeKey): Promi
       removed: stat(s.rm, s.prm),
       unmatched: stat(s.un, s.pun),
       closed: stat(cl.c, cl.pc),
+      partners: stat(s.ap, s.pap),
+      contacted: stat(contactedTotal, priorContacted),
     },
     trend,
     partners,

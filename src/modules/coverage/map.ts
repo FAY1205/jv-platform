@@ -51,6 +51,19 @@ export interface CoverageMapModel {
   partners: CoveragePartner[];
 }
 
+/** The full `/api/coverage` payload: the map model plus its aggregate counts. Lives
+ *  in this PURE module so client pages import the one canonical shape (not a hand-
+ *  copied duplicate); the server builder in `queries.ts` returns it. */
+export interface CoverageMapResponse extends CoverageMapModel {
+  /** Current ZIP-level coverage rows (overrides that beat the state fallback). */
+  zipCoverageCount: number;
+  /** Kept leads that matched no partner — the routing gaps, in raw count (ASN-03). */
+  unmatchedLeadCount: number;
+  /** Volume-weighted coverage: share of kept leads that reached a partner. */
+  coveredVolumePct: number;
+  keptLeadCount: number;
+}
+
 export function buildStateCoverage(
   stateRules: readonly StateRuleInput[],
   partners: readonly PartnerInput[],

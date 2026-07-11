@@ -113,6 +113,15 @@ suite("WS-2: dashboard SQL aggregation (ANA-01/02/03, F-10)", () => {
     expect(d.stats.unmatched.value).toBe(1);
     expect(d.stats.removed.value).toBe(1);
     expect(d.stats.closed.value).toBe(1);
+    // Partner tier (with prior windows): distinct partners that received a kept+owned
+    // lead in 30d = Alpha (l1, note-lead) + Bravo (re-routed) = 2. Contacted = leads
+    // first acted on in 30d = l1 (status) + note-lead (partner note) = 2; Bravo's
+    // re-routed lead has only an admin note, so it is not contacted (PRN-13).
+    expect(d.stats.partners.value).toBe(2);
+    expect(d.stats.contacted.value).toBe(2);
+    // Invariant (F-1): the hero Contacted total is the sum of per-partner contacted —
+    // one first-touch definition, so the two can never silently diverge.
+    expect(d.stats.contacted.value).toBe(d.partners.reduce((sum, p) => sum + p.contacted, 0));
   });
 
   it("F-01/ASN-04: Distributed uses the effective owner — re-routed lead counts for the manual partner", async () => {
@@ -165,8 +174,15 @@ suite("WS-2: dashboard SQL aggregation (ANA-01/02/03, F-10)", () => {
     // Tenant A owns exactly six leads; tenant B's lead must not leak in.
     expect(a.stats.leadsIn.value).toBe(6);
     expect(a.partners.some((p) => p.partnerId === scopeB.tenantId)).toBe(false);
-    // Tenant B sees only its single lead.
+    // The new partner-tier stats (partners/contacted) stay tenant-bounded too (F-3):
+    // A has 2 active partners and 2 contacted leads across all time.
+    expect(a.stats.partners.value).toBe(2);
+    expect(a.stats.contacted.value).toBe(2);
+    // Tenant B sees only its single lead — its own partner, and no contact activity;
+    // A's partner/contacted counts must not bleed across.
     const b = await dashboardData(scopeB, "all");
     expect(b.stats.leadsIn.value).toBe(1);
+    expect(b.stats.partners.value).toBe(1);
+    expect(b.stats.contacted.value).toBe(0);
   });
 });

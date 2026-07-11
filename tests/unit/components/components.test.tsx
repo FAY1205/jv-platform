@@ -13,6 +13,7 @@ import {
   Checkbox,
   Pagination,
   Select,
+  SegmentedControl,
   Tooltip,
   EmptyState,
 } from "@/components";
@@ -218,5 +219,38 @@ describe("DSN-06: EmptyState", () => {
     );
     expect(screen.getByText("No uploads yet")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "New upload" })).toBeInTheDocument();
+  });
+});
+
+describe("DSN-03: SegmentedControl", () => {
+  const OPTS = [
+    { value: "7d", label: "7 days" },
+    { value: "30d", label: "30 days" },
+    { value: "all", label: "All" },
+  ] as const;
+
+  it("DSN-03: exposes a labeled group and marks the selected segment pressed", () => {
+    render(<SegmentedControl ariaLabel="Time range" value="30d" onValueChange={() => {}} options={OPTS} />);
+    expect(screen.getByRole("group", { name: "Time range" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "30 days" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: "7 days" })).toHaveAttribute("aria-pressed", "false");
+  });
+
+  it("DSN-03: reports the clicked segment's value", async () => {
+    const user = userEvent.setup();
+    const onValueChange = vi.fn();
+    render(<SegmentedControl ariaLabel="Time range" value="30d" onValueChange={onValueChange} options={OPTS} />);
+    await user.click(screen.getByRole("button", { name: "All" }));
+    expect(onValueChange).toHaveBeenCalledWith("all");
+  });
+
+  it("DSN-03: disabled group blocks selection", async () => {
+    const user = userEvent.setup();
+    const onValueChange = vi.fn();
+    render(<SegmentedControl ariaLabel="Time range" value="30d" onValueChange={onValueChange} options={OPTS} disabled />);
+    const btn = screen.getByRole("button", { name: "7 days" });
+    expect(btn).toBeDisabled();
+    await user.click(btn);
+    expect(onValueChange).not.toHaveBeenCalled();
   });
 });
