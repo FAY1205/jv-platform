@@ -387,6 +387,7 @@ export const emailOutbox = pgTable(
     toAddress: text("to_address").notNull(), // intended recipient (real email, even in dev)
     subject: text("subject").notNull(),
     body: text("body").notNull(),
+    html: text("html"), // rendered HTML alternative (NTF-03/WP-G); null → text-only send
     kind: text("kind").notNull(), // partner_digest | admin_run_summary | ...
     status: outboxStatusEnum("status").notNull().default("pending"),
     attempts: integer("attempts").notNull().default(0),

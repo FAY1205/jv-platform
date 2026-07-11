@@ -1,10 +1,40 @@
 import { sendEmail, type EmailMessage, type EmailTransport } from "@/modules/notify/email";
 import { DevMailboxTransport } from "@/modules/notify/dev-mailbox";
+import { escapeHtml, emailButton, renderEmailDocument, EMAIL_COLORS, EMAIL_FONTS } from "@/modules/notify/email-template";
 import { adminAllowlist } from "@/lib/env";
 import { APP_NAME } from "@/lib/app";
 import { logError } from "@/lib/observability";
 
 const errMessage = (e: unknown): string => (e instanceof Error ? e.message : String(e));
+
+/**
+ * WP-G: branded HTML for a transactional/security notice. Composes the shared Survey
+ * email shell (SEAM-08). Content stays terse — the plain-text `text` on each message
+ * remains the source for the dev mailbox (code/link extraction) and text-only clients.
+ */
+function authNotice(opts: {
+  title: string;
+  paragraphs: string[];
+  cta?: { href: string; label: string };
+  code?: string;
+}): string {
+  const C = EMAIL_COLORS;
+  const F = EMAIL_FONTS;
+  const body = opts.paragraphs
+    .map((p) => `<p style="font-family:${F.body};color:${C.text2};font-size:15px">${escapeHtml(p)}</p>`)
+    .join("");
+  const codeBlock = opts.code
+    ? `<div style="font-family:${F.mono};font-size:34px;letter-spacing:8px;font-weight:700;color:${C.text};` +
+      `background:${C.surface2};border:1px solid ${C.border};border-radius:8px;text-align:center;padding:18px 0;margin:6px 0 14px">${escapeHtml(opts.code)}</div>`
+    : "";
+  const cta = opts.cta ? `<div style="margin-top:20px">${emailButton(opts.cta)}</div>` : "";
+  return renderEmailDocument({
+    title: opts.title,
+    preheader: opts.title,
+    heading: opts.title,
+    contentHtml: body + codeBlock + cta,
+  });
+}
 
 // AUT-03/04 transactional security email. Routed through the SEC-07 sink guard in
 // non-production. The dev stand-in records every captured message into the dev
@@ -18,19 +48,24 @@ function transport(): EmailTransport {
 }
 
 export function buildLockoutEmail(identifier: string): EmailMessage {
+  const copy =
+    "We detected repeated failed sign-in attempts and temporarily locked your account for safety. It unlocks automatically after a short delay. If this wasn't you, reset your password.";
   return {
     to: identifier,
     subject: "Your account was temporarily locked",
-    text: "We detected repeated failed sign-in attempts and temporarily locked your account for safety. It unlocks automatically after a short delay. If this wasn't you, reset your password.",
+    text: copy,
+    html: authNotice({ title: "Your account was temporarily locked", paragraphs: [copy] }),
     meta: { kind: "lockout" },
   };
 }
 
 export function buildAnomalyEmail(recipients: string[], detail: string): EmailMessage {
+  const copy = `Automated security alert: ${detail}. Review the activity log.`;
   return {
     to: recipients,
     subject: "Security alert: sustained failed sign-in attempts",
-    text: `Automated security alert: ${detail}. Review the activity log.`,
+    text: copy,
+    html: authNotice({ title: "Security alert: sustained failed sign-in attempts", paragraphs: [copy] }),
     meta: { kind: "auth_anomaly" },
   };
 }
@@ -40,6 +75,13 @@ export function buildResetEmail(email: string, link: string): EmailMessage {
     to: email,
     subject: "Reset your password",
     text: `We received a request to reset your password. Use this link within 30 minutes:\n\n${link}\n\nIf you didn't request this, you can ignore this email.`,
+    html: authNotice({
+      title: "Reset your password",
+      paragraphs: [
+        "We received a request to reset your password. Use the button below within 30 minutes. If you didn't request this, you can ignore this email.",
+      ],
+      cta: { href: link, label: "Reset your password" },
+    }),
     meta: { kind: "password_reset" },
   };
 }
@@ -50,10 +92,12 @@ export function buildPasswordChangedEmail(email: string, sessionsRevoked: boolea
   const revocationLine = sessionsRevoked
     ? "All other sessions were signed out."
     : "If you were signed in on other devices, sign out everywhere to be safe.";
+  const copy = `Your password was just changed. ${revocationLine} If this wasn't you, reset your password immediately and contact your administrator.`;
   return {
     to: email,
     subject: "Your password was changed",
-    text: `Your password was just changed. ${revocationLine} If this wasn't you, reset your password immediately and contact your administrator.`,
+    text: copy,
+    html: authNotice({ title: "Your password was changed", paragraphs: [copy] }),
     meta: { kind: "password_changed" },
   };
 }
@@ -81,6 +125,13 @@ export function buildInviteEmail(email: string, link: string): EmailMessage {
     to: email,
     subject: `You've been invited to ${APP_NAME}`,
     text: `You've been invited to the ${APP_NAME} partner portal. Open this link and enter your email to receive a 6-digit sign-in code:\n\n${link}`,
+    html: authNotice({
+      title: `You've been invited to ${APP_NAME}`,
+      paragraphs: [
+        `You've been invited to the ${APP_NAME} partner portal. Open the link below and enter your email to receive a 6-digit sign-in code.`,
+      ],
+      cta: { href: link, label: "Accept your invite →" },
+    }),
     meta: { kind: "partner_invite" },
   };
 }
@@ -90,15 +141,23 @@ export function buildOtpEmail(email: string, code: string): EmailMessage {
     to: email,
     subject: "Your sign-in code",
     text: `Your ${APP_NAME} sign-in code is ${code}. It expires in 10 minutes. If you didn't request this, you can ignore this email.`,
+    html: authNotice({
+      title: "Your sign-in code",
+      paragraphs: [`Your ${APP_NAME} sign-in code (expires in 10 minutes):`],
+      code,
+    }),
     meta: { kind: "otp" },
   };
 }
 
 export function buildTrustReuseEmail(email: string): EmailMessage {
+  const copy =
+    "We detected reuse of an old 'remember this device' token on your account and signed that device family out as a precaution. If this wasn't you, sign in and review your devices.";
   return {
     to: email,
     subject: "Security alert: a saved device was signed out",
-    text: "We detected reuse of an old 'remember this device' token on your account and signed that device family out as a precaution. If this wasn't you, sign in and review your devices.",
+    text: copy,
+    html: authNotice({ title: "Security alert: a saved device was signed out", paragraphs: [copy] }),
     meta: { kind: "trust_reuse" },
   };
 }

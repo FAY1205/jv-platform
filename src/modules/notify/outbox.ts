@@ -8,6 +8,7 @@ import { logError } from "@/lib/observability";
 import { sendEmail, type EmailTransport } from "./email";
 import { DevMailboxTransport } from "./dev-mailbox";
 import { ResendTransport } from "./resend";
+import { renderEmailDocument, escapeHtml, EMAIL_COLORS, EMAIL_FONTS } from "./email-template";
 import { buildPartnerDigest, buildAdminRunSummary, type PartnerDigestLead } from "./digests";
 import { createNotification } from "./notifications";
 import { resolvePref, loadNotificationPrefs, type NotificationPrefs } from "./prefs";
@@ -45,6 +46,7 @@ export interface EnqueueEmailInput {
   to: string;
   subject: string;
   body: string;
+  html?: string;
   kind: string;
   meta?: Record<string, string>;
 }
@@ -56,10 +58,28 @@ export async function enqueueEmail(db: DB, input: EnqueueEmailInput): Promise<vo
     toAddress: input.to,
     subject: input.subject,
     body: input.body,
+    html: input.html ?? null,
     kind: input.kind,
     status: "pending",
     meta: input.meta ?? null,
   });
+}
+
+/** Map a stored outbox row to the email seam (NTF-03). Pure. Sends multipart when html is present. */
+export function rowToEmailMessage(row: {
+  toAddress: string;
+  subject: string;
+  body: string;
+  html: string | null;
+  kind: string;
+}) {
+  return {
+    to: row.toAddress,
+    subject: row.subject,
+    text: row.body,
+    ...(row.html ? { html: row.html } : {}),
+    meta: { kind: row.kind },
+  };
 }
 
 export interface EnqueueRunDigestsInput {
@@ -103,6 +123,7 @@ export async function enqueueRunDigests(
       pName: schema.partners.name,
       pEmail: schema.partners.email,
       pRef: schema.partners.refId,
+      pColor: schema.partners.color,
     })
     .from(schema.leads)
     .innerJoin(schema.partners, eq(schema.partners.id, schema.leads.partnerId))
@@ -114,12 +135,15 @@ export async function enqueueRunDigests(
     name: string;
     email: string | null;
     ref: string;
+    color: string;
     leads: PartnerDigestLead[];
   }
   const byPartner = new Map<string, Group>();
   for (const r of rows) {
     if (!r.partnerId) continue;
-    const g = byPartner.get(r.partnerId) ?? { partnerId: r.partnerId, name: r.pName, email: r.pEmail, ref: r.pRef, leads: [] };
+    const g =
+      byPartner.get(r.partnerId) ??
+      { partnerId: r.partnerId, name: r.pName, email: r.pEmail, ref: r.pRef, color: r.pColor, leads: [] };
     g.leads.push({ refId: r.refId, city: r.city, state: r.state });
     byPartner.set(r.partnerId, g);
   }
@@ -146,9 +170,11 @@ export async function enqueueRunDigests(
     const c = buildPartnerDigest({
       appName: APP_NAME,
       partnerName: g.name,
+      partnerRef: g.ref,
       portalUrl: `${input.portalBaseUrl}/portal`,
       uploadRef: input.uploadRef,
       leads: g.leads,
+      partnerColor: g.color,
     });
     // NTF-01: email a partner with an address, when their digest email is on.
     if (g.email && emailOn("partner", "new_leads")) {
@@ -157,6 +183,7 @@ export async function enqueueRunDigests(
         to: g.email,
         subject: c.subject,
         body: c.body,
+        html: c.html,
         kind: "partner_digest",
         meta: { uploadRef: input.uploadRef, partnerRef: g.ref },
       });
@@ -177,7 +204,12 @@ export async function enqueueRunDigests(
   }
 
   // NTF-02/04: admin run summary — email (default on) + in-app for the acting admin.
-  const summary = buildAdminRunSummary({ appName: APP_NAME, uploadRef: input.uploadRef, summary: input.summary });
+  const summary = buildAdminRunSummary({
+    appName: APP_NAME,
+    uploadRef: input.uploadRef,
+    summary: input.summary,
+    importUrl: `${input.portalBaseUrl}/imports/${input.uploadRef}`,
+  });
   if (emailOn("admin", "run_summary")) {
     for (const email of dedupe(input.adminEmails)) {
       await enqueueEmail(db, {
@@ -185,6 +217,7 @@ export async function enqueueRunDigests(
         to: email,
         subject: summary.subject,
         body: summary.body,
+        html: summary.html,
         kind: "admin_run_summary",
         meta: { uploadRef: input.uploadRef },
       });
@@ -248,6 +281,15 @@ export async function notifyStatusChange(
         to: email,
         subject: title,
         body: `A partner updated lead ${input.leadRef} to "${input.status}".`,
+        html: renderEmailDocument({
+          title,
+          preheader: title,
+          heading: title,
+          contentHtml:
+            `<p style="font-family:${EMAIL_FONTS.body};color:${EMAIL_COLORS.text2};font-size:15px">` +
+            `A partner updated lead <strong style="color:${EMAIL_COLORS.text}">${escapeHtml(input.leadRef)}</strong> ` +
+            `to "${escapeHtml(input.status)}".</p>`,
+        }),
         kind: "status_change",
         meta: { leadRef: input.leadRef },
       });
@@ -311,10 +353,7 @@ export async function drainOutbox(
   const result: DrainResult = { sent: 0, failed: 0, retried: 0 };
   for (const row of rows) {
     try {
-      const { id } = await sendEmail(
-        { to: row.toAddress, subject: row.subject, text: row.body, meta: { kind: row.kind } },
-        transport,
-      );
+      const { id } = await sendEmail(rowToEmailMessage(row), transport);
       await db
         .update(schema.emailOutbox)
         .set({ status: "sent", sentAt: now, providerId: id, attempts: row.attempts + 1, lastError: null })

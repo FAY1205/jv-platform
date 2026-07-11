@@ -172,6 +172,19 @@ export const typography = {
 } as const;
 
 /**
+ * Raw email-safe font stacks (SEAM-08, PRN-12). Emails cannot load the app's
+ * next/font faces (Fraunces/Hanken/IBM Plex Mono) and cannot read CSS variables,
+ * so the email shell (src/modules/notify/email-template.ts) inlines these literal
+ * fallbacks. This is the single source for the email typeface intent — same role
+ * as `typography` for CSS, so a rebrand/white-label (SET-09) updates one file.
+ */
+export const emailFonts = {
+  display: "Georgia, 'Times New Roman', serif",
+  body: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
+  mono: "'SF Mono', ui-monospace, 'Roboto Mono', Menlo, Consolas, monospace",
+} as const;
+
+/**
  * Seeded partner palette (SET-02) — colors are assigned once and locked (PRN-06).
  * Every partner is identified by color AND a human-readable reference ID / name
  * (PRN-14); color is never the sole signal. This roster mirrors the demo seed.

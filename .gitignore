@@ -41,6 +41,7 @@ yarn-error.log*
 /test-results
 /playwright-report
 /playwright/.cache
+/.playwright-mcp
 
 # real sample lead files — contain seller PII, NEVER commit (SEC-05/LGL)
 /.samples/

@@ -79,7 +79,12 @@ suite("WP-028a: email outbox + digests (NTF-01/02/03)", () => {
     expect(partnerDigest.toAddress).toBe("alpha@partner.test");
     expect(partnerDigest.body).toContain("LD-26-00001");
     expect(partnerDigest.body).toContain("LD-26-00002");
-    expect(rows.some((r) => r.kind === "admin_run_summary" && r.toAddress === "admin@dev.test")).toBe(true);
+    // WP-G/NTF-03: the branded HTML alternative is persisted in the new html column.
+    expect(partnerDigest.html).toContain("<!DOCTYPE html>");
+    expect(partnerDigest.html).toContain("Alpha (JV-001)");
+    const adminSummary = rows.find((r) => r.kind === "admin_run_summary" && r.toAddress === "admin@dev.test")!;
+    expect(adminSummary).toBeDefined();
+    expect(adminSummary.html).toContain("<!DOCTYPE html>");
     // NTF-01: the partner with no email got nothing.
     expect(rows.some((r) => r.body.includes("LD-26-00003"))).toBe(false);
   });
@@ -89,6 +94,8 @@ suite("WP-028a: email outbox + digests (NTF-01/02/03)", () => {
     const res = await drainOutbox(db, { tenantId: scope.tenantId, transport });
     expect(res.sent).toBe(2);
     expect(transport.sent).toHaveLength(2);
+    // WP-G/NTF-03: html travels multipart through the drain (not text-only).
+    expect(transport.sent.some((e) => e.html?.includes("<!DOCTYPE html>"))).toBe(true);
     const rows = await db.select().from(schema.emailOutbox).where(eq(schema.emailOutbox.tenantId, scope.tenantId));
     expect(rows.every((r) => r.status === "sent" && r.providerId)).toBe(true);
   });

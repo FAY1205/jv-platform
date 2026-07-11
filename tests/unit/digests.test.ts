@@ -9,6 +9,8 @@ describe("buildPartnerDigest", () => {
   const input = {
     appName: "JV Platform",
     partnerName: "Randy Wolfe",
+    partnerRef: "JV-001",
+    partnerColor: "#B4623F",
     portalUrl: "https://app.test/portal",
     uploadRef: "IM-26-014",
     leads: [
@@ -53,6 +55,63 @@ describe("buildAdminRunSummary", () => {
     // D5: the run-summary vocabulary is "Distributed", never "Delivered".
     expect(out.body).toContain("Distributed (kept):");
     expect(out.body).not.toContain("Delivered");
+  });
+});
+
+describe("buildPartnerDigest — HTML (WP-G, mockup 11)", () => {
+  const base = {
+    appName: "JV Platform",
+    partnerName: "Randy Wolfe",
+    partnerRef: "JV-001",
+    partnerColor: "#B4623F",
+    portalUrl: "https://app.test/portal",
+    uploadRef: "IM-26-014",
+    leads: [{ refId: "LD-26-00007", city: "Austin", state: "TX" }],
+  };
+
+  it("NTF-01: html carries an HTML document with refId + location + portal CTA", () => {
+    const { html } = buildPartnerDigest(base);
+    expect(html).toMatch(/^<!DOCTYPE html>/i);
+    expect(html).toContain("LD-26-00007");
+    expect(html).toContain("Austin, TX");
+    expect(html).toContain("https://app.test/portal");
+  });
+
+  it("PRN-14: html names the partner + JV-### (color never alone)", () => {
+    expect(buildPartnerDigest(base).html).toContain("Randy Wolfe (JV-001)");
+  });
+
+  it("PRN-14: the locked partner color renders as the intro swatch fill", () => {
+    expect(buildPartnerDigest({ ...base, partnerColor: "#5B7A9E" }).html).toContain("background:#5B7A9E");
+  });
+
+  it("PRN-14: an invalid partner color is dropped, not injected into CSS", () => {
+    const html = buildPartnerDigest({ ...base, partnerColor: "red;content:url(x)" }).html;
+    expect(html).not.toContain("content:url(x)");
+  });
+
+  it("SEC-05: html never leaks seller PII", () => {
+    expect(buildPartnerDigest(base).html).not.toMatch(/@/);
+  });
+
+  it("escapes an injected partner name (no raw markup)", () => {
+    const { html } = buildPartnerDigest({ ...base, partnerName: "<b>x</b>" });
+    expect(html).not.toContain("<b>x</b>");
+    expect(html).toContain("&lt;b&gt;x&lt;/b&gt;");
+  });
+});
+
+describe("buildAdminRunSummary — HTML (WP-G)", () => {
+  it("NTF-02: html carries the totals + a View-import CTA when importUrl is given", () => {
+    const { html } = buildAdminRunSummary({
+      appName: "JV Platform",
+      uploadRef: "IM-26-014",
+      importUrl: "https://app.test/imports/IM-26-014",
+      summary: { total: 50, kept: 24, removed: 26, unmatched: 1, previouslyMatched: 3, perPartner: [{ partnerId: "p1", count: 24 }] },
+    });
+    expect(html).toMatch(/^<!DOCTYPE html>/i);
+    expect(html).toContain("24");
+    expect(html).toContain("https://app.test/imports/IM-26-014");
   });
 });
 
