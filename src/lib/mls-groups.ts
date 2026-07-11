@@ -1,7 +1,7 @@
 // WS-6 Rules: group MLS filter patterns by effect for the admin phrases card. Pure
 // partition + order — keep-override phrases are presented BEFORE disqualifiers because
 // they win (MLS-02: the pipeline engine checks overrides before disqualifiers). Copy
-// (titles/hints) lives in the page; this module owns only the precedence-bearing order.
+// (titles/hints) lives in mls-phrases.tsx; this module owns only the precedence-bearing order.
 
 export type MlsEffect = "keep_override" | "disqualify";
 

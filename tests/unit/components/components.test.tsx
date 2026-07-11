@@ -14,6 +14,7 @@ import {
   Pagination,
   Select,
   SegmentedControl,
+  Switch,
   Tooltip,
   EmptyState,
 } from "@/components";
@@ -252,5 +253,57 @@ describe("DSN-03: SegmentedControl", () => {
     expect(btn).toBeDisabled();
     await user.click(btn);
     expect(onValueChange).not.toHaveBeenCalled();
+  });
+});
+
+describe("DSN-03: Switch", () => {
+  it("DSN-03: exposes role=switch with aria-checked reflecting state", () => {
+    const { rerender } = render(
+      <Switch checked={false} onCheckedChange={() => {}} ariaLabel="Sold or pending listings" />,
+    );
+    const sw = screen.getByRole("switch", { name: "Sold or pending listings" });
+    expect(sw).toHaveAttribute("aria-checked", "false");
+    rerender(<Switch checked onCheckedChange={() => {}} ariaLabel="Sold or pending listings" />);
+    expect(screen.getByRole("switch")).toHaveAttribute("aria-checked", "true");
+  });
+
+  it("DSN-03: click reports the toggled value", async () => {
+    const user = userEvent.setup();
+    const onCheckedChange = vi.fn();
+    render(<Switch checked={false} onCheckedChange={onCheckedChange} ariaLabel="Auction and short sale" />);
+    await user.click(screen.getByRole("switch"));
+    expect(onCheckedChange).toHaveBeenCalledWith(true);
+  });
+
+  it("DSN-03: keyboard (Space) toggles", async () => {
+    const user = userEvent.setup();
+    const onCheckedChange = vi.fn();
+    render(<Switch checked onCheckedChange={onCheckedChange} ariaLabel="No-contact instructions" />);
+    screen.getByRole("switch").focus();
+    await user.keyboard(" ");
+    expect(onCheckedChange).toHaveBeenCalledWith(false);
+  });
+
+  it("DSN-03: disabled blocks toggle", async () => {
+    const user = userEvent.setup();
+    const onCheckedChange = vi.fn();
+    render(<Switch checked={false} onCheckedChange={onCheckedChange} ariaLabel="Off-market or withdrawn" disabled />);
+    const sw = screen.getByRole("switch");
+    expect(sw).toBeDisabled();
+    await user.click(sw);
+    expect(onCheckedChange).not.toHaveBeenCalled();
+  });
+
+  it("exposes an accessible name from its visible label", () => {
+    render(<Switch checked onCheckedChange={() => {}} label="In-app alerts" />);
+    expect(screen.getByRole("switch", { name: "In-app alerts" })).toBeInTheDocument();
+  });
+
+  it("DSN-03: clicking the visible label toggles the switch", async () => {
+    const user = userEvent.setup();
+    const onCheckedChange = vi.fn();
+    render(<Switch checked={false} onCheckedChange={onCheckedChange} label="In-app alerts" />);
+    await user.click(screen.getByText("In-app alerts"));
+    expect(onCheckedChange).toHaveBeenCalledWith(true);
   });
 });

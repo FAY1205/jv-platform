@@ -27,6 +27,7 @@ import {
   StatusSelect,
   SegmentedControl,
   Checkbox,
+  Switch,
   DatePicker,
   DateRangePicker,
   type DateRangeValue,
@@ -127,6 +128,8 @@ function Gallery() {
   const [selectVal, setSelectVal] = React.useState("new");
   const [checkA, setCheckA] = React.useState(true);
   const [checkB, setCheckB] = React.useState(false);
+  const [switchA, setSwitchA] = React.useState(true);
+  const [switchB, setSwitchB] = React.useState(false);
   const [date, setDate] = React.useState<string | null>("2026-07-10");
   const [range, setRange] = React.useState<DateRangeValue>({ from: "2026-07-01", to: "2026-07-10" });
   const [page, setPage] = React.useState(1);
@@ -410,6 +413,16 @@ function Gallery() {
                 <Checkbox checked={checkA} onCheckedChange={setCheckA} label="Email digest" />
                 <Checkbox checked={checkB} onCheckedChange={setCheckB} label="In-app alerts" />
                 <Checkbox checked={false} onCheckedChange={() => {}} label="Disabled" disabled />
+              </CardBody>
+            </Card>
+
+            <Card>
+              <CardHeader><CardTitle>Switch (on-state = route)</CardTitle></CardHeader>
+              <CardBody className="flex flex-col gap-3">
+                <Switch checked={switchA} onCheckedChange={setSwitchA} label="Sold or pending listings" />
+                <Switch checked={switchB} onCheckedChange={setSwitchB} label="Auction & short-sale" />
+                <Switch checked disabled onCheckedChange={() => {}} label="Disabled — on" />
+                <Switch checked={false} disabled onCheckedChange={() => {}} label="Disabled — off" />
               </CardBody>
             </Card>
 
