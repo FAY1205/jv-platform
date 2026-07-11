@@ -53,6 +53,7 @@ export { NotificationTypeIcon, type NotificationTypeIconProps } from "./Notifica
 export { ProfileMenu } from "./ProfileMenu";
 export { ListingBadge, type ListingStatus } from "./ListingBadge";
 export { AppShell } from "./AppShell";
+export { PortalShell } from "./PortalShell";
 export { PageHeaderProvider, PageHeaderSlot, usePageHeader } from "./PageHeader";
 export { SearchExpand } from "./SearchExpand";
 export { ThemeToggle } from "./ThemeToggle";
