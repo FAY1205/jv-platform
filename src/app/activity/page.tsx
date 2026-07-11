@@ -3,7 +3,7 @@
 import * as React from "react";
 import { useQuery } from "@tanstack/react-query";
 import { apiGet } from "@/lib/api";
-import { AppShell, Card, Table, THead, TBody, Th, Tr, Td, Badge, Input, Select, DateRangePicker, Pagination, EmptyState, Skeleton } from "@/components";
+import { AppShell, Card, Table, THead, TBody, Th, Tr, Td, Badge, Input, Select, DateRangePicker, Pagination, EmptyState, Skeleton, usePageHeader } from "@/components";
 import type { DateRangeValue } from "@/components/DateRangePicker";
 
 // ACT-01/04: the tenant's audit trail, server-side filtered (category, actor, date range,
@@ -28,6 +28,15 @@ interface Resp {
 const ACTOR_ALL = "__all__"; // Radix Select forbids an empty value
 
 export default function ActivityPage() {
+  return (
+    <AppShell>
+      <ActivityBody />
+    </AppShell>
+  );
+}
+
+function ActivityBody() {
+  usePageHeader({ title: "Activity" });
   const [page, setPage] = React.useState(1);
   const [pageSize, setPageSize] = React.useState(20);
   const [category, setCategory] = React.useState("all");
@@ -58,12 +67,7 @@ export default function ActivityPage() {
   const actors = data?.actors ?? [];
 
   return (
-    <AppShell>
-      <div className="mb-6">
-        <h1 className="font-display text-2xl font-semibold tracking-tight text-text">Activity</h1>
-        <p className="mt-1 text-sm text-text-2">Everything that changed — who did what, and when.</p>
-      </div>
-
+    <>
       <div className="mb-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
         <Input label="Search" placeholder="Action or reference…" value={q} onChange={(e) => { setQ(e.target.value); reset(); }} />
         <Select
@@ -102,10 +106,10 @@ export default function ActivityPage() {
             <TBody>
               {rows.map((i) => (
                 <Tr key={i.id}>
-                  <Td><span className="num text-xs text-text-3">{new Date(i.when).toLocaleString()}</span></Td>
+                  <Td><span className="num text-[13px] text-text-3">{new Date(i.when).toLocaleString()}</span></Td>
                   <Td><span className="text-sm text-text-2">{i.actor ?? "system"}</span></Td>
-                  <Td><span className="num text-xs text-text-2">{i.action}</span></Td>
-                  <Td><span className="num text-xs text-text-3">{i.entityRef ?? "—"}</span></Td>
+                  <Td><span className="num text-[13px] text-text-2">{i.action}</span></Td>
+                  <Td><span className="num text-[13px] text-text-3">{i.entityRef ?? "—"}</span></Td>
                   <Td><Badge variant={i.category === "security" ? "warn" : "neutral"}>{i.category}</Badge></Td>
                 </Tr>
               ))}
@@ -125,6 +129,6 @@ export default function ActivityPage() {
           />
         </div>
       )}
-    </AppShell>
+    </>
   );
 }
