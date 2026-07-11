@@ -8,10 +8,9 @@ import { useQuery } from "@tanstack/react-query";
 import { apiGet } from "@/lib/api";
 import {
   AppShell,
-  CoverageMap,
   PartnerTag,
   Badge,
-  Select,
+  SegmentedControl,
   Tooltip,
   LineChart,
   Table,
@@ -24,10 +23,17 @@ import {
   EmptyState,
   Skeleton,
 } from "@/components";
-import { US_HEX_STATES } from "@/lib/geo/us-hexgrid";
-import type { StateCoverage } from "@/modules/coverage/map";
+import type { CoverageMapResponse } from "@/modules/coverage/map";
 import { formatContactTime, AVG_CONTACT_DEFINITION, type RangeKey } from "@/modules/analytics/ranges";
 import { matchMethodLabel } from "@/lib/match-method";
+
+// Partner territory = the real coverage map with THIS partner highlighted (other partners
+// dimmed, true gaps hatched) — same pattern as the WS-3 matchcard. Static (no zoom/pan);
+// code-split so the ~0.9MB geometry doesn't block the profile.
+const CountyCoverageMap = dynamic(() => import("@/components/CountyCoverageMap").then((m) => m.CountyCoverageMap), {
+  ssr: false,
+  loading: () => <Skeleton className="aspect-[960/600] w-full rounded-lg" />,
+});
 
 // ADM-03: a single partner's home — profile, territory, per-partner performance
 // (given / contacted / closed over a rolling range + Avg Contact), lead history, and
@@ -74,10 +80,10 @@ const STATUS: Record<Partner["status"], { label: string; variant: "neutral" | "w
 };
 
 const RANGES: { value: RangeKey; label: string }[] = [
-  { value: "7d", label: "Last 7 days" },
-  { value: "30d", label: "Last 30 days" },
-  { value: "12mo", label: "Last 12 months" },
-  { value: "all", label: "All time" },
+  { value: "7d", label: "7 days" },
+  { value: "30d", label: "30 days" },
+  { value: "12mo", label: "12 months" },
+  { value: "all", label: "All" },
 ];
 
 const panel = "rounded-2xl border border-border-soft bg-surface p-5 shadow-sm";
@@ -90,12 +96,18 @@ const fmtBucket = (iso: string, bucket: "day" | "month") => {
 };
 
 function Stat({ label, value, sub, tip }: { label: React.ReactNode; value: React.ReactNode; sub?: string; tip?: string }) {
-  const header = <div className="inline-flex items-center gap-1 text-xs font-medium text-text-2">{label}{tip && <span className="cursor-help text-text-3" aria-hidden="true">ⓘ</span>}</div>;
+  const header = tip ? (
+    <Tooltip content={tip}>
+      <span tabIndex={0} className="inline-flex cursor-help rounded text-xs font-medium text-text-2 underline decoration-dotted underline-offset-2 outline-none focus-visible:ring-1 focus-visible:ring-brand-ink">{label}</span>
+    </Tooltip>
+  ) : (
+    <span className="text-xs font-medium text-text-2">{label}</span>
+  );
   return (
     <div className={panel}>
-      {tip ? <Tooltip content={tip}>{header}</Tooltip> : header}
+      {header}
       <div className="mt-1.5 font-display text-2xl font-semibold leading-none tracking-tight tabular-nums text-text">{value}</div>
-      {sub && <div className="mt-1 text-[.66rem] text-text-3">{sub}</div>}
+      {sub && <div className="mt-1 text-[.8125rem] text-text-3">{sub}</div>}
     </div>
   );
 }
@@ -127,27 +139,16 @@ export default function PartnerDetailPage() {
     queryFn: () => apiGet<{ leads: PartnerLead[] }>(`/api/admin/partners/${id}/leads`),
     enabled: Boolean(id),
   });
+  // Full coverage so the territory map shows this partner highlighted in the context of
+  // the whole network (other partners dimmed, true gaps hatched). Shared cached query.
+  const coverageQ = useQuery({
+    queryKey: ["coverage"],
+    queryFn: () => apiGet<CoverageMapResponse>("/api/coverage"),
+    enabled: Boolean(id),
+  });
 
   const partner = partnerQ.data?.partner;
   const perf = perfQ.data;
-
-  const mapStates: StateCoverage[] = React.useMemo(() => {
-    if (!partner) return [];
-    const owned = new Set(partner.territory.states);
-    return US_HEX_STATES.map((h) => {
-      const mine = owned.has(h.code);
-      return {
-        code: h.code,
-        name: h.name,
-        partnerId: mine ? partner.id : null,
-        partnerName: mine ? partner.name : null,
-        refId: mine ? partner.refId : null,
-        color: mine ? partner.color : null,
-        leadCount: 0,
-        gap: false,
-      };
-    });
-  }, [partner]);
 
   return (
     <AppShell>
@@ -183,7 +184,7 @@ export default function PartnerDetailPage() {
               </div>
             </div>
             <div className="flex items-center gap-3">
-              <div className="w-40"><Select ariaLabel="Performance range" value={range} onValueChange={(v) => setRange(v as RangeKey)} options={RANGES} /></div>
+              <SegmentedControl<RangeKey> ariaLabel="Performance range" value={range} onValueChange={setRange} options={RANGES} />
               <Link
                 href="/partners"
                 className="shrink-0 rounded-lg border border-border bg-surface px-3.5 py-2 text-sm font-semibold text-text-2 shadow-xs transition-colors hover:border-text-3 hover:bg-surface-2"
@@ -229,10 +230,23 @@ export default function PartnerDetailPage() {
               <h2 className="mb-3 font-display text-[.95rem] font-semibold tracking-tight">Territory</h2>
               {partner.stateCount > 0 ? (
                 <>
-                  <CoverageMap states={mapStates} selectedPartnerId={partner.id} />
+                  <div className="relative aspect-[960/600] w-full overflow-hidden rounded-lg">
+                    {coverageQ.data ? (
+                      <CountyCoverageMap
+                        states={coverageQ.data.states}
+                        selectedPartnerId={partner.id}
+                        interactive={false}
+                        caption={{ title: partner.name, subtitle: `${partner.stateCount} state${partner.stateCount === 1 ? "" : "s"}` }}
+                      />
+                    ) : coverageQ.isError ? (
+                      <div role="status" className="grid h-full place-items-center px-4 text-center text-sm text-text-3">Territory map unavailable.</div>
+                    ) : (
+                      <Skeleton className="h-full w-full rounded-lg" />
+                    )}
+                  </div>
                   <div className="mt-3 flex flex-wrap gap-1.5">
                     {partner.territory.states.map((s) => (
-                      <span key={s} className="num rounded-md bg-surface-3 px-1.5 py-0.5 text-[.68rem] font-semibold text-text-2">
+                      <span key={s} className="num rounded-md bg-surface-3 px-1.5 py-0.5 text-[.8125rem] font-semibold text-text-2">
                         {s}
                       </span>
                     ))}

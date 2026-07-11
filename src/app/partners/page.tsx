@@ -25,6 +25,7 @@ import {
   Skeleton,
   ToastProvider,
   useToast,
+  usePageHeader,
 } from "@/components";
 
 // ADM-03: the admin partner roster — create, edit, invite, deactivate. Partners are
@@ -122,6 +123,10 @@ function PartnerForm({
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["partners"] });
+      // Contact/coverage edits change the territory the coverage map shows (profile,
+      // dashboard, matchcard all read ["coverage"]) and this partner's detail (F-1).
+      qc.invalidateQueries({ queryKey: ["coverage"] });
+      if (editing) qc.invalidateQueries({ queryKey: ["partner", editing.id] });
       toast(editing ? "Partner updated." : "Partner created.", "success");
       onClose();
     },
@@ -211,6 +216,9 @@ function DeactivateModal({
       send(`/api/admin/partners/${partner.id}/deactivate`, "POST", owns ? (mode === "reassign" ? { mode, toPartnerId } : { mode }) : undefined),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["partners"] });
+      qc.invalidateQueries({ queryKey: ["partner", partner.id] });
+      // Deactivating a coverage-owning partner reassigns/releases its territory (F-1).
+      if (owns) qc.invalidateQueries({ queryKey: ["coverage"] });
       toast(`${partner.refId} deactivated.`, "success");
       onClose();
     },
@@ -302,6 +310,7 @@ function RowActions({ p, onEdit, onDeactivate }: { p: Partner; onEdit: () => voi
     mutationFn: () => send(`/api/admin/partners/${p.id}/invite`, "POST"),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["partners"] });
+      qc.invalidateQueries({ queryKey: ["partner", p.id] });
       toast("Invitation sent — open “Sent emails” to get the sign-in link.", "success");
     },
     onError: (e: Error) => toast(e.message, "danger"),
@@ -337,6 +346,14 @@ function RowActions({ p, onEdit, onDeactivate }: { p: Partner; onEdit: () => voi
 }
 
 function PartnersInner() {
+  return (
+    <AppShell>
+      <PartnersBody />
+    </AppShell>
+  );
+}
+
+function PartnersBody() {
   const { data, isPending, error } = useQuery({
     queryKey: ["partners"],
     queryFn: () => apiGet<{ partners: Partner[] }>("/api/admin/partners"),
@@ -346,18 +363,18 @@ function PartnersInner() {
   const [deactivating, setDeactivating] = React.useState<Partner | null>(null);
   const roster = data?.partners ?? [];
 
-  return (
-    <AppShell>
-        <div className="mb-6 flex items-end justify-between gap-3">
-          <div>
-            <h1 className="font-display text-2xl font-semibold tracking-tight text-text">Partners</h1>
-            <p className="mt-1 text-sm text-text-2">Your JV roster — add, invite, and manage coverage owners.</p>
-          </div>
-          <Button variant="primary" onClick={() => setCreating(true)}>
-            + New partner
-          </Button>
-        </div>
+  const actions = React.useMemo(
+    () => (
+      <Button variant="primary" onClick={() => setCreating(true)}>
+        + New partner
+      </Button>
+    ),
+    [],
+  );
+  usePageHeader({ title: "Partners", actions });
 
+  return (
+    <>
         <Card>
           {isPending ? (
             <div className="flex flex-col gap-3 p-5">
@@ -422,7 +439,7 @@ function PartnersInner() {
       {creating && <PartnerForm editing={null} onClose={() => setCreating(false)} />}
       {editing && <PartnerForm editing={editing} onClose={() => setEditing(null)} />}
       {deactivating && <DeactivateModal partner={deactivating} roster={roster} onClose={() => setDeactivating(null)} />}
-    </AppShell>
+    </>
   );
 }
 
