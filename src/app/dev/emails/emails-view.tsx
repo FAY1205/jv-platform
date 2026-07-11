@@ -135,7 +135,7 @@ export function EmailsView() {
                         <div key={link} className="flex items-center gap-2">
                           <a
                             href={link}
-                            className="min-w-0 truncate font-mono text-xs text-brand underline"
+                            className="min-w-0 truncate font-mono text-xs text-brand-ink underline"
                           >
                             {link}
                           </a>

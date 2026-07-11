@@ -14,7 +14,7 @@ export default function ChangePasswordPage() {
         <CardBody>
           <PasswordChangeForm />
           <div className="mt-4">
-            <Link href="/dashboard" className="text-sm text-brand hover:underline">
+            <Link href="/dashboard" className="text-sm text-brand-ink hover:underline">
               ← Back to dashboard
             </Link>
           </div>

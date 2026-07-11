@@ -63,14 +63,14 @@ function ResetForm() {
           {done ? (
             <div className="flex flex-col gap-4">
               <p className="text-sm text-success">Your password was updated and all sessions were signed out.</p>
-              <Link href="/login" className="text-sm font-semibold text-brand hover:underline">
+              <Link href="/login" className="text-sm font-semibold text-brand-ink hover:underline">
                 Sign in
               </Link>
             </div>
           ) : !token ? (
             <div className="flex flex-col gap-3">
               <p className="text-sm text-danger">This reset link is missing its token.</p>
-              <Link href="/forgot" className="text-sm font-semibold text-brand hover:underline">
+              <Link href="/forgot" className="text-sm font-semibold text-brand-ink hover:underline">
                 Request a new reset link
               </Link>
             </div>

@@ -94,7 +94,7 @@ export default function DataSettingsPage() {
                         <Td align="right"><span className="num text-sm text-text-2">{fmt.columns}</span></Td>
                         <Td><Badge variant={fmt.strictness === "strict" ? "warn" : "neutral"}>{fmt.strictness}</Badge></Td>
                         <Td align="right">
-                          <a href={`/api/templates/${fmt.id}`} className="text-xs text-brand hover:underline">↓ Download</a>
+                          <a href={`/api/templates/${fmt.id}`} className="text-xs text-brand-ink hover:underline">↓ Download</a>
                         </Td>
                       </Tr>
                     ))}

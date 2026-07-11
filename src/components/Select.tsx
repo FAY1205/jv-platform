@@ -87,11 +87,11 @@ export function Select({
                   value={o.value}
                   className={cn(
                     "relative flex cursor-pointer select-none items-center rounded px-2 py-1.5 pr-7 text-sm text-text outline-none",
-                    "data-[highlighted]:bg-brand-soft data-[highlighted]:text-brand-strong",
+                    "data-[highlighted]:bg-brand-soft data-[highlighted]:text-brand-ink",
                   )}
                 >
                   <RadixSelect.ItemText>{o.label}</RadixSelect.ItemText>
-                  <RadixSelect.ItemIndicator className="absolute right-2 text-brand">
+                  <RadixSelect.ItemIndicator className="absolute right-2 text-brand-ink">
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                       <path d="M20 6 9 17l-5-5" />
                     </svg>

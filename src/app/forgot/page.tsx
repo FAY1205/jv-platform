@@ -49,7 +49,7 @@ export default function ForgotPasswordPage() {
               <p className="text-sm text-text-2">
                 If an account exists for that email, we&apos;ve sent a reset link. It expires in 30 minutes.
               </p>
-              <Link href="/login" className="text-sm font-semibold text-brand hover:underline">
+              <Link href="/login" className="text-sm font-semibold text-brand-ink hover:underline">
                 Back to sign in
               </Link>
             </div>

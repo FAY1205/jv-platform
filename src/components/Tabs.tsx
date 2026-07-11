@@ -39,7 +39,7 @@ export function Tabs({ items, value, onValueChange, className }: TabsProps) {
             className={cn(
               "px-3.5 py-2.5 text-sm font-semibold -mb-px border-b-2 transition-colors",
               active
-                ? "text-brand border-brand"
+                ? "text-brand-ink border-brand"
                 : "text-text-3 border-transparent hover:text-text",
             )}
           >

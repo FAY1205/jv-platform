@@ -18,7 +18,7 @@ export interface BadgeProps extends React.HTMLAttributes<HTMLSpanElement> {
 }
 
 const variants: Record<BadgeVariant, string> = {
-  zip: "bg-brand-soft text-brand",
+  zip: "bg-brand-soft text-brand-ink",
   state: "bg-info-soft text-info",
   removed: "bg-danger-soft text-danger",
   warn: "bg-warn-soft text-warn",

@@ -120,7 +120,7 @@ export default function UploadPage() {
           </div>
           {/* File-download endpoint (not a page) — a plain anchor is correct; the href
               is a variable so the pages-link lint rule doesn't misfire. */}
-          <a href={TEMPLATE_HREF} download className="shrink-0 text-xs text-brand hover:underline" title="Download a template with the expected columns">
+          <a href={TEMPLATE_HREF} download className="shrink-0 text-xs text-brand-ink hover:underline" title="Download a template with the expected columns">
             ↓ Download template
           </a>
         </div>

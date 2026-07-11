@@ -42,7 +42,7 @@ export function SettingsNav() {
                 aria-current={on ? "page" : undefined}
                 className={
                   "rounded-[10px] px-3 py-2 text-sm font-medium transition-colors " +
-                  (on ? "bg-brand-soft font-semibold text-brand-strong" : "text-text-2 hover:bg-surface-3 hover:text-text")
+                  (on ? "bg-brand-soft font-semibold text-brand-ink" : "text-text-2 hover:bg-surface-3 hover:text-text")
                 }
               >
                 {item.label}

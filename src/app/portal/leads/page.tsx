@@ -94,7 +94,7 @@ export default function PortalLeadsPage() {
                   {leads.map((l) => (
                     <Tr key={l.refId}>
                       <Td>
-                        <Link href={`/portal/leads/${l.refId}`} className="font-mono text-sm text-brand hover:underline">
+                        <Link href={`/portal/leads/${l.refId}`} className="font-mono text-sm text-brand-ink hover:underline">
                           {l.refId}
                         </Link>
                       </Td>

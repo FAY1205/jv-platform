@@ -60,7 +60,7 @@ export default function ImportsIndexPage() {
                 {data.runs.map((run) => (
                   <Tr key={run.refId} className="hover:bg-surface-2">
                     <Td>
-                      <Link href={`/imports/${run.refId}`} className="num font-semibold text-brand hover:underline">
+                      <Link href={`/imports/${run.refId}`} className="num font-semibold text-brand-ink hover:underline">
                         {run.refId}
                       </Link>
                     </Td>

@@ -86,7 +86,7 @@ export default function CoveragePage() {
               <div className="mb-3 flex items-center justify-between gap-2">
                 <h2 className="font-display text-[.95rem] font-semibold tracking-tight">Partners</h2>
                 {selected && (
-                  <Link href={`/partners/${selected}`} className="text-xs font-semibold text-brand hover:underline">
+                  <Link href={`/partners/${selected}`} className="text-xs font-semibold text-brand-ink hover:underline">
                     Open →
                   </Link>
                 )}

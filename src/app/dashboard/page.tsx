@@ -44,7 +44,7 @@ function Delta({ delta }: { delta: number | null }) {
 }
 
 function Stat({ label, value, delta, tone, tip }: { label: string; value: React.ReactNode; delta: number | null; tone?: "brand" | "danger" | "warn"; tip?: string }) {
-  const color = tone === "brand" ? "text-brand" : tone === "danger" ? "text-danger" : tone === "warn" ? "text-warn" : "text-text";
+  const color = tone === "brand" ? "text-brand-ink" : tone === "danger" ? "text-danger" : tone === "warn" ? "text-warn" : "text-text";
   const header = (
     <span className="inline-flex items-center gap-1 text-xs font-medium text-text-2">
       {label}
@@ -187,7 +187,7 @@ export default function DashboardPage() {
                         <td className="px-2 py-2.5 text-right"><span className={`num tabular-nums ${p.untouched > 0 ? "font-semibold text-warn" : "text-text-3"}`}>{p.untouched || "—"}</span></td>
                         <td className="px-2 py-2.5 text-right"><span className="num tabular-nums text-text-2">{p.contacted || "—"}</span></td>
                         <td className="px-2 py-2.5 text-right"><span className="num tabular-nums text-text-2">{formatContactTime(p.avgContactHours)}</span></td>
-                        <td className="px-2 py-2.5 text-right"><span className={`num tabular-nums ${p.closed > 0 ? "font-semibold text-brand" : "text-text-3"}`}>{p.closed || "—"}</span></td>
+                        <td className="px-2 py-2.5 text-right"><span className={`num tabular-nums ${p.closed > 0 ? "font-semibold text-brand-ink" : "text-text-3"}`}>{p.closed || "—"}</span></td>
                       </tr>
                     ))}
                   </tbody>

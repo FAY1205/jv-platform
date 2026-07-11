@@ -18,13 +18,18 @@ export interface ColorTokens {
   surface3: string;
   border: string;
   borderSoft: string;
+  /** stronger hairline for table rules / dividers (Survey line-strong) */
+  borderStrong: string;
   text: string;
   text2: string;
   text3: string;
+  /** marigold — the signature FILL (buttons, focal fills, active states) */
   brand: string;
   brandStrong: string;
   brandSoft: string;
   brandLine: string;
+  /** amber ink — the accent as TEXT/links (AA on paper); marigold is too light to read */
+  brandInk: string;
   /** status: info */
   info: string;
   infoSoft: string;
@@ -43,63 +48,71 @@ export interface ColorTokens {
   scrim: string;
 }
 
-// Minimal-slate identity (2026-07): cool slate neutrals on a #f8fafc canvas, a
-// friendly green brand, semantic status colors kept distinct. Rebrand = swap here.
+// "Survey" identity v2 (2026-07, ADR-0022): cool petrol-paper neutrals, one marigold
+// signal (route), petrol ink, status colors kept separate from the accent. Neutrals are
+// biased toward the ink's petrol hue (chosen, not default grey). Var *names* are kept
+// (keep-names decision); only values change, + two additive roles (borderStrong,
+// brandInk). All pairs AA-verified in both themes by tests/unit/tokens.test.ts.
 export const lightColors: ColorTokens = {
-  bg: "#f8fafc",
-  surface: "#ffffff",
-  surface2: "#f5f8fb",
-  surface3: "#eef2f7",
-  border: "#e5eaf1",
-  borderSoft: "#f0f4f8",
-  text: "#1e2632",
-  text2: "#5b6472",
-  // Contrast pass (F-18): text3 darkened to ≥4.5:1 on both surface (#fff) and bg.
-  text3: "#66707d",
-  // Contrast pass (F-17): the brand teal darkened so text-brand/text-success on the
-  // *-soft fills (zip/success badges, links) clears AA, keeping white-on-brand ≥4.5.
-  brand: "#2c785d",
-  brandStrong: "#276b54",
-  brandSoft: "#e6f1eb",
-  brandLine: "#c7e4d8",
-  info: "#4f5bd5",
-  infoSoft: "#edeffc",
-  danger: "#b23a30",
-  dangerSoft: "#f9e6e2",
-  warn: "#8a5a12",
-  warnSoft: "#f6edd9",
-  success: "#2c785d",
-  successSoft: "#e6f1eb",
-  prev: "#6d4a9e",
-  prevSoft: "#f2ecfa",
-  scrim: "rgba(15,23,34,.4)",
+  bg: "#F1F4F3",
+  surface: "#FFFFFF",
+  surface2: "#E9EEEC",
+  surface3: "#DDE5E2",
+  border: "#D3DCD9",
+  borderSoft: "#E4E9E7",
+  borderStrong: "#B8C4C0",
+  text: "#16242B",
+  text2: "#46565D",
+  // ink-3: AA (≥4.5:1) on both surface (#fff) and paper.
+  text3: "#566268",
+  // brand = the marigold FILL only (buttons/focal fills). It is deliberately too light
+  // to read as text; amber TEXT/links use brandInk (route-ink) instead.
+  brand: "#E0912B",
+  brandStrong: "#C67D1E",
+  brandSoft: "#FAEFDA",
+  brandLine: "#EAD8AE",
+  brandInk: "#8F5416",
+  info: "#2E6E93",
+  infoSoft: "#E7EFF4",
+  danger: "#B23A2E",
+  dangerSoft: "#F7E4E1",
+  // warn darkened from DIRECTION's #B9741C (3.76:1) to clear the ≥4.5 body-text gate.
+  warn: "#985E15",
+  warnSoft: "#F7EEDA",
+  success: "#2C7A57",
+  successSoft: "#E8F2EC",
+  // previously-matched: warm stone/taupe (Survey bans purple) — a pencil-annotation read.
+  prev: "#6E5C46",
+  prevSoft: "#EFE8DE",
+  scrim: "rgba(22,36,43,.4)",
 };
 
 export const darkColors: ColorTokens = {
-  bg: "#0d1117",
-  surface: "#151b23",
-  surface2: "#1a212b",
-  surface3: "#212a37",
-  border: "#273140",
-  borderSoft: "#1c2431",
-  text: "#e8edf4",
-  text2: "#a3adbb",
-  // Contrast pass (F-18): text3 lightened to ≥4.5:1 on the dark surface + bg.
-  text3: "#8a94a4",
-  brand: "#4bb591",
-  brandStrong: "#5cc5a1",
-  brandSoft: "#123028",
-  brandLine: "#1e4a3d",
-  info: "#8b95ec",
-  infoSoft: "#20244a",
-  danger: "#e0776d",
-  dangerSoft: "#3a201c",
-  warn: "#d99a4a",
-  warnSoft: "#3a2c15",
-  success: "#4bb591",
-  successSoft: "#123028",
-  prev: "#ab8ad6",
-  prevSoft: "#2c2140",
+  bg: "#10181C",
+  surface: "#17232A",
+  surface2: "#1E2C33",
+  surface3: "#26363E",
+  border: "#2A3A41",
+  borderSoft: "#223038",
+  borderStrong: "#3A4D55",
+  text: "#EAF0EE",
+  text2: "#A9B8BC",
+  text3: "#85969B",
+  brand: "#F0A63E",
+  brandStrong: "#F6B856",
+  brandSoft: "#2A2417",
+  brandLine: "#4A3A1E",
+  brandInk: "#F0A63E",
+  info: "#5FA0C8",
+  infoSoft: "#1A2A33",
+  danger: "#E06555",
+  dangerSoft: "#301E1B",
+  warn: "#E0973A",
+  warnSoft: "#33291A",
+  success: "#4FB183",
+  successSoft: "#173529",
+  prev: "#CBB89C",
+  prevSoft: "#2A251E",
   scrim: "rgba(0,0,0,.55)",
 };
 
@@ -164,37 +177,39 @@ export interface PartnerColor {
 }
 
 export const PARTNER_PALETTE: readonly PartnerColor[] = [
-  { name: "Michael Pinter", hex: "#f4c95d" },
-  { name: "Blake McCreight", hex: "#b9c4d6" },
-  { name: "Josh Ax", hex: "#8fbfe8" },
-  { name: "Jeff Lister", hex: "#f2a0b6" },
-  { name: "Dylan Tanaka", hex: "#e5c07b" },
-  { name: "Randy Wolfe", hex: "#e8927c" },
-  { name: "Joe Lieber", hex: "#7fd1c8" },
-  { name: "Forrest McGhee", hex: "#9cc69b" },
-  { name: "Jason Beery", hex: "#c9a0dc" },
+  { name: "Michael Pinter", hex: "#B4623F" }, // clay
+  { name: "Blake McCreight", hex: "#6E8B5E" }, // sage
+  { name: "Josh Ax", hex: "#5B7A9E" }, // slate-blue
+  { name: "Jeff Lister", hex: "#8A5A78" }, // plum
+  { name: "Dylan Tanaka", hex: "#3E8C8A" }, // teal
+  { name: "Randy Wolfe", hex: "#A65A34" }, // rust
+  { name: "Joe Lieber", hex: "#57794C" }, // moss
+  { name: "Forrest McGhee", hex: "#47688E" }, // denim
+  { name: "Jason Beery", hex: "#9E4B45" }, // brick
 ] as const;
 
 /**
- * The partner swatch pool (SET-02). New partners created in-app (ADM-03) are
- * assigned the first unused color from this ordered, locked pool (PRN-06). Every
- * hue is a soft tint chosen to keep AA text contrast when used as a row/legend
- * fill (PRN-14) — color is never the sole signal (always paired with name +
- * JV-### ref-id). Starts with the seeded 9, then extends with more vetted tints.
+ * The partner swatch pool (SET-02, ADR-0022) — the Survey "printed-map region"
+ * palette: muted, distinguishable tints that stay AA as row/legend fills (the
+ * export picks black/white text per fill via contrastText). New partners created
+ * in-app (ADM-03) get the first unused color from this ordered, locked pool
+ * (PRN-06); color is never the sole signal (always paired with name + JV-###).
+ * Roster 9 first, then ochre (held back from the seed so it doesn't read as the
+ * route marigold), then further vetted map tints for headroom.
  */
 export const PARTNER_SWATCHES: readonly string[] = [
   ...PARTNER_PALETTE.map((p) => p.hex),
-  "#a3c4a0", // sage
-  "#e0b0d5", // orchid
-  "#c7b299", // taupe
-  "#8fc6d1", // aqua
-  "#e8b98a", // apricot
-  "#b6bce0", // periwinkle
-  "#d9b8a0", // clay
-  "#a8d0b9", // mint
-  "#e3a9a9", // rose
-  "#bcd08a", // pear
-  "#9fb8e8", // cornflower
+  "#C79A3E", // ochre
+  "#3E6B52", // pine
+  "#7A3B45", // wine
+  "#2F6E7A", // harbor
+  "#8A7B57", // dust
+  "#6B4A66", // fig
+  "#6E7A3E", // olive
+  "#B08A52", // sand
+  "#3E5A7A", // indigo-slate
+  "#B5764C", // terracotta
+  "#5E9E8E", // seafoam
 ] as const;
 
 export const themes = { light: lightColors, dark: darkColors } as const;

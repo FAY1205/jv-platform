@@ -23,7 +23,7 @@ export function ListingBadge({ status, link }: { status: ListingStatus; link: st
     <span className="inline-flex items-center gap-2">
       <Badge variant={VARIANT[status]}>{LABEL[status]}</Badge>
       {link && (
-        <a href={link} target="_blank" rel="noopener noreferrer" className="text-xs text-brand hover:underline">
+        <a href={link} target="_blank" rel="noopener noreferrer" className="text-xs text-brand-ink hover:underline">
           Check listing ↗
         </a>
       )}

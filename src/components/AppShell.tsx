@@ -155,14 +155,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                   className={
                     "group flex items-center gap-3 rounded-[11px] px-3 py-2.5 text-sm font-medium transition-all duration-150 " +
                     (on
-                      ? "bg-brand-soft font-semibold text-brand-strong"
+                      ? "bg-brand-soft font-semibold text-brand-ink"
                       : "text-text-2 hover:translate-x-0.5 hover:bg-surface-3 hover:text-text")
                   }
                 >
                   <span
                     className={
                       "h-[18px] w-[18px] transition-transform duration-150 group-hover:scale-110 " +
-                      (on ? "text-brand" : "text-text-3")
+                      (on ? "text-brand-ink" : "text-text-3")
                     }
                   >
                     <Icon name={item.icon} />

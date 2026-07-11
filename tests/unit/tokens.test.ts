@@ -5,6 +5,7 @@ import {
   lightColors,
   darkColors,
   PARTNER_PALETTE,
+  PARTNER_SWATCHES,
   type ColorTokens,
 } from "@/lib/tokens/tokens";
 
@@ -42,6 +43,13 @@ describe("DSN-01/SEAM-08: design tokens", () => {
     expect(globalsCss).toContain('prefers-color-scheme: dark');
     expect(globalsCss).toContain(':root[data-theme="dark"]');
   });
+
+  it("DSN-02: root is 16px and the three next/font faces are wired", () => {
+    expect(globalsCss).toContain("font-size: 16px");
+    expect(globalsCss).toContain("--font-fraunces");
+    expect(globalsCss).toContain("--font-hanken");
+    expect(globalsCss).toContain("--font-plex-mono");
+  });
 });
 
 // F-17/F-18 (WCAG SC 1.4.3): text/status tokens meet AA against their background.
@@ -67,15 +75,19 @@ describe("F-17/F-18: token contrast meets WCAG AA (4.5:1)", () => {
       expect(contrastRatio(t.text2, t.surface)).toBeGreaterThanOrEqual(4.5);
       expect(contrastRatio(t.text3, t.surface)).toBeGreaterThanOrEqual(4.5);
       expect(contrastRatio(t.text3, t.bg)).toBeGreaterThanOrEqual(4.5);
+      // Survey: `brand` is the marigold FILL; amber text/links use `brandInk`.
+      expect(contrastRatio(t.brandInk, t.bg)).toBeGreaterThanOrEqual(4.5);
+      expect(contrastRatio(t.brandInk, t.surface)).toBeGreaterThanOrEqual(4.5);
     });
     it(`${theme}: every Badge variant's text reads on its fill`, () => {
+      // Survey badge semantics: the text token reads on its soft fill.
       const pairs: [string, string][] = [
-        [t.brand, t.brandSoft], // zip
-        [t.info, t.infoSoft], // state
-        [t.danger, t.dangerSoft], // removed
-        [t.warn, t.warnSoft], // warn
-        [t.prev, t.prevSoft], // prev
-        [t.success, t.successSoft], // success
+        [t.brandInk, t.brandSoft], // ZIP-match / Contacted pill (marigold wash, amber-ink text)
+        [t.info, t.infoSoft], // New
+        [t.warn, t.warnSoft], // Unmatched
+        [t.danger, t.dangerSoft], // Removed
+        [t.success, t.successSoft], // Matched
+        [t.prev, t.prevSoft], // Previously matched (taupe)
         [t.text2, t.surface3], // neutral
       ];
       for (const [fg, bg] of pairs) {
@@ -98,5 +110,12 @@ describe("SET-02: partner palette", () => {
   it("assigns a unique color per partner", () => {
     const hexes = PARTNER_PALETTE.map((p) => p.hex.toLowerCase());
     expect(new Set(hexes).size).toBe(hexes.length);
+  });
+
+  it("SET-02: the swatch pool is a unique superset of the roster with headroom", () => {
+    const pool = PARTNER_SWATCHES.map((c) => c.toLowerCase());
+    for (const p of PARTNER_PALETTE) expect(pool).toContain(p.hex.toLowerCase());
+    expect(new Set(pool).size).toBe(pool.length);
+    expect(PARTNER_SWATCHES.length).toBeGreaterThanOrEqual(18);
   });
 });

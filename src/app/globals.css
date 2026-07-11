@@ -9,36 +9,38 @@
    forced light; an explicit [data-theme] on <html> always wins (theme toggle).
    ───────────────────────────────────────────────────────────────────────────── */
 :root {
-  /* surfaces */
-  --bg: #f8fafc;
+  /* surfaces — Survey: cool petrol survey-paper */
+  --bg: #f1f4f3;
   --surface: #ffffff;
-  --surface-2: #f5f8fb;
-  --surface-3: #eef2f7;
-  --border: #e5eaf1;
-  --border-soft: #f0f4f8;
-  /* text tiers */
-  --text: #1e2632;
-  --text-2: #5b6472;
-  /* contrast pass (F-18): AA on surface + bg */
-  --text-3: #66707d;
-  /* brand — friendly green (F-17: darkened for AA text-on-soft + links) */
-  --brand: #2c785d;
-  --brand-strong: #276b54;
-  --brand-soft: #e6f1eb;
-  --brand-line: #c7e4d8;
-  /* status: info / danger / warn / success + previously-matched accent */
-  --info: #4f5bd5;
-  --info-soft: #edeffc;
-  --danger: #b23a30;
-  --danger-soft: #f9e6e2;
-  --warn: #8a5a12;
-  --warn-soft: #f6edd9;
-  --success: #2c785d;
-  --success-soft: #e6f1eb;
-  --prev: #6d4a9e;
-  --prev-soft: #f2ecfa;
-  --scrim: rgba(15, 23, 34, 0.4);
-  /* radii */
+  --surface-2: #e9eeec;
+  --surface-3: #dde5e2;
+  --border: #d3dcd9;
+  --border-soft: #e4e9e7;
+  --border-strong: #b8c4c0;
+  /* text tiers — petrol ink (ink-3 is AA on surface + paper) */
+  --text: #16242b;
+  --text-2: #46565d;
+  --text-3: #566268;
+  /* brand — marigold FILL (route); --brand-ink is the amber TEXT/link tone (AA on paper) */
+  --brand: #e0912b;
+  --brand-strong: #c67d1e;
+  --brand-soft: #faefda;
+  --brand-line: #ead8ae;
+  --brand-ink: #8f5416;
+  /* status: info / danger / warn (darkened) / success (matched) + prev (taupe) */
+  --info: #2e6e93;
+  --info-soft: #e7eff4;
+  --danger: #b23a2e;
+  --danger-soft: #f7e4e1;
+  --warn: #985e15;
+  --warn-soft: #f7eeda;
+  --success: #2c7a57;
+  --success-soft: #e8f2ec;
+  --prev: #6e5c46;
+  --prev-soft: #efe8de;
+  --scrim: rgba(22, 36, 43, 0.4);
+  /* radii (Survey: modest, slightly engineered 4–16px) */
+  --r-xs: 4px;
   --r-sm: 8px;
   --r-md: 12px;
   --r-lg: 16px;
@@ -51,41 +53,51 @@
   --t-fast: 120ms cubic-bezier(0.2, 0.8, 0.2, 1);
   --t-base: 200ms cubic-bezier(0.2, 0.8, 0.2, 1);
   --t-slow: 300ms cubic-bezier(0.2, 0.8, 0.2, 1);
-  /* Type roles — native system UI font (matches the approved mockup, which
-     rendered in the OS system font). Display and body share the stack; weight
-     and letter-spacing carry the heading hierarchy. */
-  --font-display: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-  --font-sans: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-  --font-mono: ui-monospace, SFMono-Regular, "SF Mono", "Cascadia Code", "Segoe UI Mono", Consolas, "Liberation Mono", Menlo, monospace;
+  /* Type roles (DSN-02, ADR-0022) — three real faces loaded via next/font
+     (layout.tsx), each with a robust fallback stack. Fraunces=display,
+     Hanken Grotesk=body/UI, IBM Plex Mono=data/numerics. */
+  --font-display: var(--font-fraunces), ui-serif, "Iowan Old Style", "Palatino Linotype", Georgia, serif;
+  --font-sans: var(--font-hanken), system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: var(--font-plex-mono), "SF Mono", "Cascadia Code", ui-monospace, "Roboto Mono", monospace;
+  /* Type scale — 1.2 ratio (adopted per-heading as pages are reworked in WP-E). */
+  --step--1: 0.813rem;
+  --step-0: 1rem;
+  --step-1: 1.2rem;
+  --step-2: 1.44rem;
+  --step-3: 1.728rem;
+  --step-4: 2.074rem;
+  --step-5: 2.488rem;
 }
 
 /* Dark palette applies via system preference (unless the user forced light)
    and via an explicit [data-theme="dark"] override, which always wins. */
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --bg: #0d1117;
-    --surface: #151b23;
-    --surface-2: #1a212b;
-    --surface-3: #212a37;
-    --border: #273140;
-    --border-soft: #1c2431;
-    --text: #e8edf4;
-    --text-2: #a3adbb;
-    --text-3: #8a94a4;
-    --brand: #4bb591;
-    --brand-strong: #5cc5a1;
-    --brand-soft: #123028;
-    --brand-line: #1e4a3d;
-    --info: #8b95ec;
-    --info-soft: #20244a;
-    --danger: #e0776d;
-    --danger-soft: #3a201c;
-    --warn: #d99a4a;
-    --warn-soft: #3a2c15;
-    --success: #4bb591;
-    --success-soft: #123028;
-    --prev: #ab8ad6;
-    --prev-soft: #2c2140;
+    --bg: #10181c;
+    --surface: #17232a;
+    --surface-2: #1e2c33;
+    --surface-3: #26363e;
+    --border: #2a3a41;
+    --border-soft: #223038;
+    --border-strong: #3a4d55;
+    --text: #eaf0ee;
+    --text-2: #a9b8bc;
+    --text-3: #85969b;
+    --brand: #f0a63e;
+    --brand-strong: #f6b856;
+    --brand-soft: #2a2417;
+    --brand-line: #4a3a1e;
+    --brand-ink: #f0a63e;
+    --info: #5fa0c8;
+    --info-soft: #1a2a33;
+    --danger: #e06555;
+    --danger-soft: #301e1b;
+    --warn: #e0973a;
+    --warn-soft: #33291a;
+    --success: #4fb183;
+    --success-soft: #173529;
+    --prev: #cbb89c;
+    --prev-soft: #2a251e;
     --scrim: rgba(0, 0, 0, 0.55);
     --sh-xs: 0 1px 2px rgba(0, 0, 0, 0.3);
     --sh-sm: 0 1px 3px rgba(0, 0, 0, 0.35);
@@ -96,29 +108,31 @@
 
 /* Explicit user override always wins over system preference. */
 :root[data-theme="dark"] {
-  --bg: #0d1117;
-  --surface: #151b23;
-  --surface-2: #1a212b;
-  --surface-3: #212a37;
-  --border: #273140;
-  --border-soft: #1c2431;
-  --text: #e8edf4;
-  --text-2: #a3adbb;
-  --text-3: #8a94a4;
-  --brand: #4bb591;
-  --brand-strong: #5cc5a1;
-  --brand-soft: #123028;
-  --brand-line: #1e4a3d;
-  --info: #8b95ec;
-  --info-soft: #20244a;
-  --danger: #e0776d;
-  --danger-soft: #3a201c;
-  --warn: #d99a4a;
-  --warn-soft: #3a2c15;
-  --success: #4bb591;
-  --success-soft: #123028;
-  --prev: #ab8ad6;
-  --prev-soft: #2c2140;
+  --bg: #10181c;
+  --surface: #17232a;
+  --surface-2: #1e2c33;
+  --surface-3: #26363e;
+  --border: #2a3a41;
+  --border-soft: #223038;
+  --border-strong: #3a4d55;
+  --text: #eaf0ee;
+  --text-2: #a9b8bc;
+  --text-3: #85969b;
+  --brand: #f0a63e;
+  --brand-strong: #f6b856;
+  --brand-soft: #2a2417;
+  --brand-line: #4a3a1e;
+  --brand-ink: #f0a63e;
+  --info: #5fa0c8;
+  --info-soft: #1a2a33;
+  --danger: #e06555;
+  --danger-soft: #301e1b;
+  --warn: #e0973a;
+  --warn-soft: #33291a;
+  --success: #4fb183;
+  --success-soft: #173529;
+  --prev: #cbb89c;
+  --prev-soft: #2a251e;
   --scrim: rgba(0, 0, 0, 0.55);
   --sh-xs: 0 1px 2px rgba(0, 0, 0, 0.3);
   --sh-sm: 0 1px 3px rgba(0, 0, 0, 0.35);
@@ -136,6 +150,7 @@
   --color-surface-3: var(--surface-3);
   --color-border: var(--border);
   --color-border-soft: var(--border-soft);
+  --color-border-strong: var(--border-strong);
   --color-text: var(--text);
   --color-text-2: var(--text-2);
   --color-text-3: var(--text-3);
@@ -143,6 +158,7 @@
   --color-brand-strong: var(--brand-strong);
   --color-brand-soft: var(--brand-soft);
   --color-brand-line: var(--brand-line);
+  --color-brand-ink: var(--brand-ink);
   --color-info: var(--info);
   --color-info-soft: var(--info-soft);
   --color-danger: var(--danger);
@@ -154,6 +170,7 @@
   --color-prev: var(--prev);
   --color-prev-soft: var(--prev-soft);
 
+  --radius-xs: var(--r-xs);
   --radius-sm: var(--r-sm);
   --radius-md: var(--r-md);
   --radius-lg: var(--r-lg);
@@ -174,18 +191,29 @@
 }
 
 html {
-  font-size: 14px;
+  font-size: 16px;
 }
 
 body {
   background: var(--bg);
   color: var(--text);
   font-family: var(--font-sans);
-  line-height: 1.5;
+  line-height: 1.55;
   -webkit-font-smoothing: antialiased;
   transition:
     background var(--t-base),
     color var(--t-base);
+}
+
+/* Heading base: tight leading + balanced wrap (DSN-02). The Fraunces display
+   face is loaded and available as var(--font-display) / the `font-display`
+   utility; pages promote specific titles/headline numbers to it in WP-E. */
+h1,
+h2,
+h3,
+h4 {
+  line-height: 1.15;
+  text-wrap: balance;
 }
 
 /* Ledger identity: every number is tabular monospace (DSN-02). */
@@ -256,7 +284,7 @@ body {
 
 /* Visible keyboard focus on every interactive element (DSN-10, FRM-04). */
 :focus-visible {
-  outline: 2px solid var(--brand);
+  outline: 2px solid var(--brand-strong);
   outline-offset: 2px;
   border-radius: 4px;
 }

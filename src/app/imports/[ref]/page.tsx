@@ -333,7 +333,7 @@ function GroupRows({ info, rows, onOpen }: { info: PartnerView | undefined; rows
           <Td><Badge variant="neutral">{l.campaign}</Badge></Td>
           <Td>{l.address}, {l.city}</Td>
           <Td><span className="num">{l.zip}</span></Td>
-          <Td>{l.matchMethod === "zip" ? <span className="text-xs font-medium text-brand">ZIP</span> : <span className="text-xs text-text-3">state</span>}</Td>
+          <Td>{l.matchMethod === "zip" ? <span className="text-xs font-medium text-brand-ink">ZIP</span> : <span className="text-xs text-text-3">state</span>}</Td>
           <Td><PartnerTag size="sm" name={name} color={color} refId={refId} /></Td>
           <Td align="right">
             {l.previouslyMatched && (

@@ -174,7 +174,7 @@ const LeadsFilterBar = React.memo(function LeadsFilterBar({ seedQ, onChange }: {
           return (
             <button key={s} type="button" onClick={() => toggleStatus(s)} aria-pressed={active}
               className={active
-                ? "rounded-full border border-brand bg-brand-soft px-2.5 py-0.5 text-xs font-semibold text-brand"
+                ? "rounded-full border border-brand bg-brand-soft px-2.5 py-0.5 text-xs font-semibold text-brand-ink"
                 : "rounded-full border border-border bg-surface px-2.5 py-0.5 text-xs font-medium text-text-2 transition-colors hover:border-brand-line hover:text-text"}>
               {s}
             </button>
@@ -238,7 +238,7 @@ function LeadsTable({
                   <Td><span className="text-sm text-text">{l.seller}</span></Td>
                   <Td>
                     <a href={googleUrl([l.address, l.city, l.state, l.zip])} target="_blank" rel="noopener noreferrer" className="group inline-flex items-baseline gap-1 hover:underline" title="Search this property on Google">
-                      <span className="text-sm text-text-2 group-hover:text-brand">{l.address}</span>
+                      <span className="text-sm text-text-2 group-hover:text-brand-ink">{l.address}</span>
                       <span className="text-xs text-text-3">{[l.city, l.state].filter(Boolean).join(", ")} <span className="num">{l.zip}</span></span>
                     </a>
                   </Td>

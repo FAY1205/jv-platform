@@ -193,7 +193,7 @@ function ViewMode({ d, onEdit }: { d: LeadDetail; onEdit: () => void }) {
                 href={googleUrl([d.address, d.city, d.state, d.zip])}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="inline-flex items-center gap-1 text-brand hover:underline"
+                className="inline-flex items-center gap-1 text-brand-ink hover:underline"
               >
                 {property}
                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">

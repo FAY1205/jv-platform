@@ -30,11 +30,11 @@ function formatHuman(iso: string | null): string {
 /** Shared token styling for react-day-picker (both single + range pickers). */
 export const dayPickerClassNames = {
   selected: "!bg-brand !text-white !rounded-md",
-  today: "font-bold text-brand",
+  today: "font-bold text-brand-ink",
   chevron: "fill-text-2",
   range_start: "!bg-brand !text-white !rounded-l-md",
   range_end: "!bg-brand !text-white !rounded-r-md",
-  range_middle: "!bg-brand-soft !text-brand-strong",
+  range_middle: "!bg-brand-soft !text-brand-ink",
 } as const;
 
 const triggerClass = cn(

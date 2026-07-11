@@ -15,7 +15,7 @@ import { cn } from "@/lib/cn";
 
 export const STATUS_PILL: Record<string, string> = {
   New: "bg-surface-3 text-text-2",
-  Contacted: "bg-brand-soft text-brand",
+  Contacted: "bg-brand-soft text-brand-ink",
   Appointment: "bg-warn-soft text-warn",
   "Under contract": "bg-prev-soft text-prev",
   Closed: "bg-success-soft text-success",
@@ -92,9 +92,9 @@ export function StatusSelect({ refId, status, mlsStatus, onChanged }: StatusSele
         <RadixSelect.Content position="popper" sideOffset={4} className="anim-pop z-[130] overflow-hidden rounded-md border border-border bg-surface shadow-md">
           <RadixSelect.Viewport className="p-1">
             {SEED_LEAD_STATUSES.map((s) => (
-              <RadixSelect.Item key={s} value={s} className="relative flex cursor-pointer select-none items-center rounded px-2 py-1.5 pr-7 text-sm text-text outline-none data-[highlighted]:bg-brand-soft data-[highlighted]:text-brand-strong">
+              <RadixSelect.Item key={s} value={s} className="relative flex cursor-pointer select-none items-center rounded px-2 py-1.5 pr-7 text-sm text-text outline-none data-[highlighted]:bg-brand-soft data-[highlighted]:text-brand-ink">
                 <RadixSelect.ItemText>{s}</RadixSelect.ItemText>
-                <RadixSelect.ItemIndicator className="absolute right-2 text-brand">
+                <RadixSelect.ItemIndicator className="absolute right-2 text-brand-ink">
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5" /></svg>
                 </RadixSelect.ItemIndicator>
               </RadixSelect.Item>
