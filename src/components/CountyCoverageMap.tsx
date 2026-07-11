@@ -5,6 +5,7 @@ import type { StateCoverage } from "@/modules/coverage/map";
 import { stateCodeForCounty } from "@/lib/geo/us-state-fips";
 import { PartnerTag } from "./PartnerTag";
 import { Skeleton } from "./Skeleton";
+import { MapHatch, MapCaption, PARTNER_FILL_OPACITY, DIMMED_FILL_OPACITY, type MapCaptionProps } from "./map";
 
 interface CountyGeo {
   viewBox: string;
@@ -17,6 +18,8 @@ export interface CountyCoverageMapProps {
   states: readonly StateCoverage[];
   selectedPartnerId?: string | null;
   onSelectPartner?: (partnerId: string | null) => void;
+  /** Optional blurred title plate; WP-E pages supply the content. */
+  caption?: MapCaptionProps;
 }
 
 // Module-level cache so the ~0.9 MB geometry is fetched once per session.
@@ -29,11 +32,12 @@ let geoCache: CountyGeo | null = null;
  * demand. 3,142 county paths render once; hover/click use event delegation and a
  * single highlight overlay so mouse-move never re-renders the whole map.
  */
-export function CountyCoverageMap({ states, selectedPartnerId = null, onSelectPartner }: CountyCoverageMapProps) {
+export function CountyCoverageMap({ states, selectedPartnerId = null, onSelectPartner, caption }: CountyCoverageMapProps) {
   const [geo, setGeo] = React.useState<CountyGeo | null>(geoCache);
   const [failed, setFailed] = React.useState(false);
   const wrapRef = React.useRef<HTMLDivElement>(null);
   const [hover, setHover] = React.useState<{ fips: string; name: string; x: number; y: number } | null>(null);
+  const hatchId = React.useId();
 
   React.useEffect(() => {
     if (geoCache) return;
@@ -73,13 +77,13 @@ export function CountyCoverageMap({ states, selectedPartnerId = null, onSelectPa
           key={c.f}
           d={c.d}
           data-fips={c.f}
-          fill={covered ? cov!.color! : "var(--surface-3)"}
-          fillOpacity={dimmed ? 0.25 : 1}
+          fill={covered ? cov!.color! : `url(#${hatchId})`}
+          fillOpacity={dimmed ? DIMMED_FILL_OPACITY : covered ? PARTNER_FILL_OPACITY : 1}
           className={covered ? "cursor-pointer" : "cursor-default"}
         />
       );
     });
-  }, [geo, covOfCounty, selectedPartnerId]);
+  }, [geo, covOfCounty, selectedPartnerId, hatchId]);
 
   // ── Zoom & pan (SVG transform on a group; strokes stay crisp via
   //    non-scaling-stroke). Drag to pan, wheel/buttons to zoom toward the cursor.
@@ -188,6 +192,7 @@ export function CountyCoverageMap({ states, selectedPartnerId = null, onSelectPa
         onPointerUp={onPointerUp}
         onPointerLeave={() => { drag.current = null; setDragging(false); setHover(null); }}
       >
+        <MapHatch id={hatchId} />
         <g transform={transform}>
           {countyPaths}
           {/* State borders — non-scaling so they stay crisp when zoomed */}
@@ -197,6 +202,8 @@ export function CountyCoverageMap({ states, selectedPartnerId = null, onSelectPa
           )}
         </g>
       </svg>
+
+      {caption && <MapCaption {...caption} />}
 
       {/* Zoom controls */}
       <div className="absolute right-2 top-2 flex flex-col gap-1.5">

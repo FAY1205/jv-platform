@@ -65,7 +65,10 @@ Canonicalizes the frontend patterns this codebase follows. Authority order:
 
 - Color never carries meaning alone: partner name + `JV-###` accompany every color —
   bars, rails, legends, exports (SC 1.4.1). Fills keep AA text contrast (SC 1.4.3) in
-  both themes.
+  both themes. **Carve-out (ADR-0024):** small (≤~12px) 2-letter labels drawn on
+  partner-tint *map* fills may fall below 4.5:1 **only** when they carry a contrasting
+  halo AND every label is redundantly identified at solid AA on the same surface (the
+  map tooltip + the companion list). No other fill+text is exempt.
 - Keyboard: modals trap focus, Esc closes, focus returns to the opener; menus/selects
   operable without a pointer (SC 2.1.1); `focus-visible` styling on every interactive
   element (SC 2.4.7).

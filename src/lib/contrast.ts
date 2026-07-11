@@ -23,3 +23,12 @@ export function contrastText(hex: string): "#111111" | "#ffffff" {
   if (!rgb) return "#111111";
   return relativeLuminance(rgb) > 0.179 ? "#111111" : "#ffffff";
 }
+
+/**
+ * Translucent halo tone that lifts an on-fill label off a busy partner fill.
+ * Opposite tonal family to the label (WCAG-picked by contrastText): white label
+ * (dark fill) → dark halo; dark label (light fill) → light halo. Pure; never throws.
+ */
+export function contrastHalo(hex: string): string {
+  return contrastText(hex) === "#ffffff" ? "rgba(0,0,0,0.3)" : "rgba(255,255,255,0.6)";
+}

@@ -3,26 +3,32 @@
 import * as React from "react";
 import { US_HEX_STATES, HEX_VIEWBOX } from "@/lib/geo/us-hexgrid";
 import type { StateCoverage } from "@/modules/coverage/map";
-import { contrastText } from "@/lib/contrast";
+import { contrastText, contrastHalo } from "@/lib/contrast";
 import { PartnerTag } from "./PartnerTag";
+import { MapHatch, MapCaption, PARTNER_FILL_OPACITY, DIMMED_FILL_OPACITY, type MapCaptionProps } from "./map";
 
 export interface CoverageMapProps {
   states: readonly StateCoverage[];
   /** When set, that partner's states stay lit and the rest dim (explore mode). */
   selectedPartnerId?: string | null;
   onSelectPartner?: (partnerId: string | null) => void;
+  /** Optional blurred title plate; WP-E pages supply the content. */
+  caption?: MapCaptionProps;
 }
 
 /**
- * CoverageMap (MAP-01) — a US states hex cartogram. Each state is colored by its
- * state-fallback partner; uncovered states are neutral, and coverage gaps (leads
- * from an unowned state) carry a dashed warn ring + marker so they read without
- * relying on color (PRN-14). Every hex is labeled with its 2-letter code; the
- * hover card and the page legend add partner name + JV ref.
+ * CoverageMap (MAP-01) — a US states hex cartogram, Survey-skinned. Each state is
+ * filled by its state-fallback partner at ~0.9 opacity; uncovered states carry the
+ * amber survey hatch, and coverage gaps (leads from an unowned state) add a dashed
+ * --warn ring + marker so they read without relying on color (PRN-14). Every hex is
+ * labeled with its 2-letter code (on-fill color + halo via the shared contrast
+ * picker, F-19); the hover card and page legend add partner name + JV ref. Keyboard
+ * access is the page's companion list (R3 WS-8) — the map is role="img".
  */
-export function CoverageMap({ states, selectedPartnerId = null, onSelectPartner }: CoverageMapProps) {
+export function CoverageMap({ states, selectedPartnerId = null, onSelectPartner, caption }: CoverageMapProps) {
   const byCode = React.useMemo(() => new Map(states.map((s) => [s.code, s])), [states]);
   const [hover, setHover] = React.useState<string | null>(null);
+  const hatchId = React.useId();
 
   const hoveredHex = hover ? US_HEX_STATES.find((h) => h.code === hover) ?? null : null;
   const hoveredCov = hover ? byCode.get(hover) ?? null : null;
@@ -35,17 +41,18 @@ export function CoverageMap({ states, selectedPartnerId = null, onSelectPartner 
         role="img"
         aria-label="United States coverage map, colored by partner"
       >
+        <MapHatch id={hatchId} />
         {US_HEX_STATES.map((hex) => {
           const cov = byCode.get(hex.code);
           const covered = Boolean(cov?.partnerId);
           const gap = Boolean(cov?.gap);
           const dimmed = selectedPartnerId != null && cov?.partnerId !== selectedPartnerId;
           const isHover = hover === hex.code;
-          const fill = covered ? cov!.color! : "var(--surface-3)";
-          // F-19: label color follows the fill's luminance (dark text on light tints, white
-          // on dark) instead of always-white; the halo takes the opposite tone.
+          const fill = covered ? cov!.color! : `url(#${hatchId})`;
+          // F-19: on-fill label + halo follow the fill's luminance (shared picker),
+          // not always-white; uncovered gets a neutral label and no halo.
           const labelFill = covered ? contrastText(cov!.color!) : "var(--text-2)";
-          const halo = labelFill === "#ffffff" ? "rgba(0,0,0,.3)" : "rgba(255,255,255,.6)";
+          const halo = covered ? contrastHalo(cov!.color!) : "transparent";
           return (
             <g
               key={hex.code}
@@ -53,11 +60,12 @@ export function CoverageMap({ states, selectedPartnerId = null, onSelectPartner 
               onMouseLeave={() => setHover((h) => (h === hex.code ? null : h))}
               onClick={() => onSelectPartner?.(cov?.partnerId ?? null)}
               className={covered ? "cursor-pointer" : "cursor-default"}
-              style={{ opacity: dimmed ? 0.28 : 1, transition: "opacity 150ms" }}
+              style={{ opacity: dimmed ? DIMMED_FILL_OPACITY : 1, transition: "opacity 150ms" }}
             >
               <polygon
                 points={hex.points}
                 fill={fill}
+                fillOpacity={covered ? PARTNER_FILL_OPACITY : 1}
                 stroke={gap ? "var(--warn)" : isHover ? "var(--text)" : "var(--surface)"}
                 strokeWidth={gap || isHover ? 2 : 1.5}
                 strokeDasharray={gap ? "3 2" : undefined}
@@ -74,7 +82,7 @@ export function CoverageMap({ states, selectedPartnerId = null, onSelectPartner 
                   fontWeight: 600,
                   fill: labelFill,
                   paintOrder: "stroke",
-                  stroke: covered ? halo : "transparent",
+                  stroke: halo,
                   strokeWidth: covered ? 2.5 : 0,
                 }}
               >
@@ -85,6 +93,8 @@ export function CoverageMap({ states, selectedPartnerId = null, onSelectPartner 
           );
         })}
       </svg>
+
+      {caption && <MapCaption {...caption} />}
 
       {hoveredHex && hoveredCov && (
         <div
