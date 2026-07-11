@@ -54,6 +54,9 @@ describe("ProfileMenu", () => {
 
     wrap(<ProfileMenu />);
     await user.click(await screen.findByRole("button", { name: /Account menu/ }));
+    // WP-B: Help & guides moved into the menu; the Theme item moved to the topbar toggle.
+    expect(await screen.findByText("Help & guides")).toBeInTheDocument();
+    expect(screen.queryByText(/^Theme:/)).toBeNull();
     await user.click(await screen.findByText("Sign out"));
 
     await waitFor(() => {

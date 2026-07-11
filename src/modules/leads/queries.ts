@@ -314,6 +314,17 @@ export async function unmatchedCount(scope: ScopeContext): Promise<number> {
   return Number(row?.n ?? 0);
 }
 
+/** Total lead count for the workspace — drives the Leads nav badge. Tenant-scoped (PRN-08),
+ *  excluding soft-deleted rows to match the /leads list total (every sibling read does). */
+export async function leadsCount(scope: ScopeContext): Promise<number> {
+  const db = getDb();
+  const [row] = await db
+    .select({ n: sql<number>`count(*)::int` })
+    .from(schema.leads)
+    .where(and(tenantWhere(schema.leads, scope), isNull(schema.leads.deletedAt)));
+  return Number(row?.n ?? 0);
+}
+
 export interface UnmatchedStateStats {
   total: number;
   byState: { state: string; count: number }[];

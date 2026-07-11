@@ -50,5 +50,8 @@ export { NotificationBell } from "./NotificationBell";
 export { ProfileMenu } from "./ProfileMenu";
 export { ListingBadge, type ListingStatus } from "./ListingBadge";
 export { AppShell } from "./AppShell";
+export { PageHeaderProvider, PageHeaderSlot, usePageHeader } from "./PageHeader";
+export { SearchExpand } from "./SearchExpand";
+export { ThemeToggle } from "./ThemeToggle";
 export { CoverageMap, type CoverageMapProps } from "./CoverageMap";
 export { CountyCoverageMap, type CountyCoverageMapProps } from "./CountyCoverageMap";

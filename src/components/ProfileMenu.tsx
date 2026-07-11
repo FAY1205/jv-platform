@@ -14,12 +14,11 @@ import {
   DropdownMenuLabel,
 } from "./DropdownMenu";
 import { initialsFromEmail } from "@/lib/identity";
-import { usePreferences, setPreferences, nextTheme, type ThemePref } from "@/lib/preferences";
 
-// WS-7d: the top-right account menu (first production use of DropdownMenu). Identity from
-// /api/me; an inline theme quick-toggle; a link to Settings + (dev) the gallery; and sign
-// out (AUT-14 — server-side revoke via /api/auth/logout, then a full navigation that drops
-// the client cache so the back button reveals no authed data).
+// WS-7d / WP-B: the account menu, now a user block at the sidebar foot (theme moved to the
+// topbar ThemeToggle). Identity from /api/me; links to Settings + (dev) the gallery + Help;
+// and sign out (AUT-14 — server-side revoke via /api/auth/logout, then a full navigation
+// that drops the client cache so the back button reveals no authed data).
 
 interface Me {
   email: string;
@@ -27,13 +26,11 @@ interface Me {
   workspace: { name: string };
 }
 
-const THEME_LABEL: Record<ThemePref, string> = { system: "System", light: "Light", dark: "Dark" };
 const isDev = process.env.NODE_ENV !== "production";
 
 export function ProfileMenu() {
   const qc = useQueryClient();
   const { data } = useQuery({ queryKey: ["me"], queryFn: () => apiGet<Me>("/api/me") });
-  const { theme } = usePreferences();
   const email = data?.email ?? "";
 
   async function signOut() {
@@ -56,18 +53,21 @@ export function ProfileMenu() {
         <button
           type="button"
           aria-label="Account menu"
-          className="flex items-center gap-2 rounded-full border border-border bg-surface py-1 pl-1 pr-2.5 transition-colors hover:bg-surface-3"
+          className="flex w-full items-center gap-2.5 rounded-md px-2 py-2 text-left transition-[background-color,transform] hover:bg-surface-3 active:scale-[0.99]"
         >
-          <span className="grid h-7 w-7 place-items-center rounded-full bg-brand text-[.68rem] font-semibold text-white">
+          <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-surface-3 text-[0.8125rem] font-semibold text-text-2">
             {email ? initialsFromEmail(email) : "…"}
           </span>
-          <span className="hidden max-w-[130px] truncate text-[.78rem] font-semibold text-text-2 sm:inline">{email || "Account"}</span>
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" className="text-text-3" aria-hidden="true">
+          <span className="min-w-0 flex-1">
+            <span className="block truncate text-sm font-semibold text-text">{email || "Account"}</span>
+            {data && <span className="block truncate text-[0.8125rem] capitalize text-text-3">{data.role}</span>}
+          </span>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" className="shrink-0 text-text-3" aria-hidden="true">
             <path d="m6 9 6 6 6-6" />
           </svg>
         </button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="min-w-[224px]">
+      <DropdownMenuContent side="top" align="start" className="min-w-[224px]">
         <DropdownMenuLabel>
           <div className="flex flex-col">
             <span className="truncate text-sm font-semibold text-text">{email || "Signed in"}</span>
@@ -78,19 +78,14 @@ export function ProfileMenu() {
         <DropdownMenuItem asChild>
           <Link href="/settings">Settings</Link>
         </DropdownMenuItem>
-        <DropdownMenuItem
-          onSelect={(e) => {
-            e.preventDefault(); // keep the menu open while cycling
-            setPreferences({ theme: nextTheme(theme) });
-          }}
-        >
-          Theme: {THEME_LABEL[theme]}
-        </DropdownMenuItem>
         {isDev && (
           <DropdownMenuItem asChild>
             <Link href="/gallery">Component gallery</Link>
           </DropdownMenuItem>
         )}
+        <DropdownMenuItem asChild>
+          <Link href="/dev/emails">Help &amp; guides</Link>
+        </DropdownMenuItem>
         <DropdownMenuSeparator />
         <DropdownMenuItem destructive onSelect={() => signOut()}>
           Sign out

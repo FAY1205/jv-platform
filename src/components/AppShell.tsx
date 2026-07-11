@@ -2,19 +2,22 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { apiGet } from "@/lib/api";
 import { APP_NAME } from "@/lib/app";
 import { NotificationBell } from "./NotificationBell";
 import { ProfileMenu } from "./ProfileMenu";
+import { PageHeaderProvider, PageHeaderSlot } from "./PageHeader";
+import { SearchExpand } from "./SearchExpand";
+import { ThemeToggle } from "./ThemeToggle";
 import { usePreferences, setPreferences, useApplyTheme } from "@/lib/preferences";
 
 // The admin app shell (DSN): a minimal sidebar + a clean top bar. Every admin page
 // renders its content inside <AppShell>; the active nav item is derived from the URL.
 // All color/spacing comes from semantic tokens (PRN-12).
 
-type IconName = "dashboard" | "leads" | "unmatched" | "runs" | "partners" | "coverage" | "analytics" | "rules" | "activity" | "settings" | "help" | "search" | "menu";
+type IconName = "dashboard" | "leads" | "unmatched" | "runs" | "partners" | "coverage" | "analytics" | "rules" | "activity" | "settings" | "menu";
 
 function Icon({ name }: { name: IconName }) {
   const p: Record<IconName, React.ReactNode> = {
@@ -28,8 +31,6 @@ function Icon({ name }: { name: IconName }) {
     rules: (<><path d="M4 5h16M4 12h16M4 19h16" /><circle cx="8" cy="5" r="1.6" fill="currentColor" stroke="none" /><circle cx="15" cy="12" r="1.6" fill="currentColor" stroke="none" /><circle cx="10" cy="19" r="1.6" fill="currentColor" stroke="none" /></>),
     activity: (<><circle cx="12" cy="12" r="8.5" /><path d="M12 8v4l3 2" /></>),
     settings: (<><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.6 1.6 0 0 0 .3 1.8 2 2 0 1 1-2.8 2.8 1.6 1.6 0 0 0-2.7 1.1V21a2 2 0 1 1-4 0 1.6 1.6 0 0 0-2.4-1.4 1.6 1.6 0 0 0-1.8.3 2 2 0 1 1-2.8-2.8A1.6 1.6 0 0 0 3.7 15a2 2 0 1 1 0-4A1.6 1.6 0 0 0 5 8.6" /></>),
-    help: (<><circle cx="12" cy="12" r="9" /><path d="M9.6 9a2.4 2.4 0 1 1 3.4 2.2c-.8.4-1 .8-1 1.6" /><path d="M12 17h.01" /></>),
-    search: (<><circle cx="11" cy="11" r="7" /><path d="m21 21-4.3-4.3" /></>),
     menu: (<><path d="M4 6h16M4 12h16M4 18h16" /></>),
   };
   return (
@@ -41,11 +42,15 @@ function Icon({ name }: { name: IconName }) {
 
 // Grouped navigation: sections keep the rail scannable and give future pages an
 // obvious home (Leads and Unmatched join the "Leads" section in later phases).
-interface NavItem { href: string; label: string; icon: IconName; badge?: "unmatched" }
-const NAV_SECTIONS: { label: string | null; items: NavItem[] }[] = [
-  { label: null, items: [{ href: "/dashboard", label: "Dashboard", icon: "dashboard" }] },
-  { label: "Leads", items: [
-    { href: "/leads", label: "Leads", icon: "leads" },
+interface NavItem { href: string; label: string; icon: IconName; badge?: "leads" | "unmatched" }
+// Grouped by the weekly job (audit F-63): Route = today's work, Review = the queue,
+// Network = who/where, Admin = configuration. Exported for the shell nav test.
+export const NAV_SECTIONS: { label: string; items: NavItem[] }[] = [
+  { label: "Route", items: [
+    { href: "/dashboard", label: "Dashboard", icon: "dashboard" },
+    { href: "/leads", label: "Leads", icon: "leads", badge: "leads" },
+  ]},
+  { label: "Review", items: [
     { href: "/unmatched", label: "Unmatched", icon: "unmatched", badge: "unmatched" },
     { href: "/imports", label: "Imports", icon: "runs" },
   ]},
@@ -62,28 +67,8 @@ const NAV_SECTIONS: { label: string | null; items: NavItem[] }[] = [
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const path = usePathname() ?? "";
-  const router = useRouter();
   const isActive = (href: string) =>
     href === "/dashboard" ? path === "/dashboard" || path === "/" : path === href || path.startsWith(`${href}/`);
-
-  // Topbar search: submit lands on the global Leads list; ⌘K / Ctrl+K focuses it.
-  const searchRef = React.useRef<HTMLInputElement>(null);
-  const [search, setSearch] = React.useState("");
-  React.useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
-        e.preventDefault();
-        searchRef.current?.focus();
-      }
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, []);
-  const submitSearch = (e: React.FormEvent) => {
-    e.preventDefault();
-    const q = search.trim();
-    router.push(q ? `/leads?q=${encodeURIComponent(q)}` : "/leads");
-  };
 
   // Sidebar state. Desktop collapse is a persisted UI preference (the one small prefs
   // store — survives navigation since each page mounts its own AppShell). `mobileOpen`
@@ -121,29 +106,41 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     }
   };
 
-  // Unmatched backlog count for the nav badge (cheap; cached across pages).
+  // Nav-badge counts — cheap, cached across pages, from the server (PRN-15, never derived).
   const unmatched = useQuery({
     queryKey: ["unmatched", "count"],
     queryFn: () => apiGet<{ count: number }>("/api/leads/unmatched/count"),
     staleTime: 30_000,
   });
   const unmatchedCount = unmatched.data?.count ?? 0;
+  const leads = useQuery({
+    queryKey: ["leads", "count"],
+    queryFn: () => apiGet<{ count: number }>("/api/leads/count"),
+    staleTime: 30_000,
+  });
+  const leadsTotal = leads.data?.count ?? 0;
 
   // Rail contents, shared by the desktop column and the mobile drawer.
   const rail = (onNavigate?: () => void) => (
     <>
-      <Link href="/dashboard" onClick={onNavigate} className="flex items-center gap-2.5 px-2.5 pb-5">
-        <span className="grid h-8 w-8 place-items-center rounded-[10px] bg-brand text-[.72rem] font-bold text-white shadow-[0_5px_14px_-6px_var(--brand)]">JV</span>
-        <span className="font-display text-[.95rem] font-semibold tracking-tight">{APP_NAME}</span>
+      <Link href="/dashboard" onClick={onNavigate} className="flex items-center gap-2.5 px-2 pb-5">
+        <svg viewBox="0 0 34 34" fill="none" aria-hidden="true" className="h-[30px] w-[30px] shrink-0">
+          <rect x="1.5" y="1.5" width="31" height="31" rx="7" className="stroke-text" strokeWidth="1.5" />
+          <path d="M7 24 L14 12 L21 19 L27 9" className="stroke-brand" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+          <circle cx="7" cy="24" r="2.4" className="fill-text" />
+          <circle cx="27" cy="9" r="2.8" className="fill-brand" />
+        </svg>
+        <span className="min-w-0">
+          <span className="block truncate font-display text-[0.95rem] font-semibold leading-tight tracking-tight">{APP_NAME}</span>
+          <span className="block text-[0.8125rem] leading-tight text-text-3">Operations</span>
+        </span>
       </Link>
       <nav className="flex flex-col gap-0.5">
         {NAV_SECTIONS.map((section, i) => (
-          <React.Fragment key={section.label ?? `s${i}`}>
-            {section.label && (
-              <div className="px-3 pb-1.5 pt-5 text-[.62rem] font-semibold uppercase tracking-[.1em] text-text-3">
-                {section.label}
-              </div>
-            )}
+          <React.Fragment key={section.label}>
+            <div className={"px-3 pb-1.5 text-[0.8125rem] font-semibold uppercase tracking-[.08em] text-text-3 " + (i === 0 ? "pt-1" : "pt-5")}>
+              {section.label}
+            </div>
             {section.items.map((item) => {
               const on = isActive(item.href);
               return (
@@ -153,7 +150,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                   onClick={onNavigate}
                   aria-current={on ? "page" : undefined}
                   className={
-                    "group flex items-center gap-3 rounded-[11px] px-3 py-2.5 text-sm font-medium transition-all duration-150 " +
+                    "group flex items-center gap-3 rounded-md px-3 py-2.5 text-sm font-medium transition-all duration-150 " +
                     (on
                       ? "bg-brand-soft font-semibold text-brand-ink"
                       : "text-text-2 hover:translate-x-0.5 hover:bg-surface-3 hover:text-text")
@@ -169,8 +166,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                   </span>
                   {item.label}
                   {item.badge === "unmatched" && unmatchedCount > 0 && (
-                    <span className="num ml-auto rounded-full bg-warn-soft px-1.5 py-0.5 text-[.62rem] font-semibold text-warn" aria-label={`${unmatchedCount} unmatched`}>
+                    <span className="num ml-auto rounded-full bg-warn-soft px-1.5 py-0.5 text-[0.8125rem] font-semibold text-warn" aria-label={`${unmatchedCount} unmatched`}>
                       {unmatchedCount}
+                    </span>
+                  )}
+                  {item.badge === "leads" && leadsTotal > 0 && (
+                    <span className="num ml-auto rounded-full bg-surface-3 px-1.5 py-0.5 text-[0.8125rem] font-semibold text-text-2" aria-label={`${leadsTotal} leads`}>
+                      {leadsTotal.toLocaleString()}
                     </span>
                   )}
                 </Link>
@@ -179,17 +181,15 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </React.Fragment>
         ))}
       </nav>
-      <div className="mt-auto">
-        <Link href="/dev/emails" onClick={onNavigate} className="flex items-center gap-3 rounded-[11px] px-3 py-2.5 text-sm text-text-3 transition-colors hover:bg-surface-3 hover:text-text-2">
-          <span className="h-[17px] w-[17px]"><Icon name="help" /></span>
-          Help &amp; guides
-        </Link>
+      <div className="mt-auto border-t border-border-soft pt-2">
+        <ProfileMenu />
       </div>
     </>
   );
 
   return (
-    <div className={"grid min-h-screen grid-cols-1 " + (navOpen ? "md:grid-cols-[236px_1fr]" : "md:grid-cols-1")}>
+    <PageHeaderProvider>
+      <div className={"grid min-h-screen grid-cols-1 " + (navOpen ? "md:grid-cols-[236px_1fr]" : "md:grid-cols-1")}>
       {/* Desktop rail — a grid column, collapsible, pinned while content scrolls. */}
       <aside
         className={
@@ -233,30 +233,21 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             onClick={toggleNav}
             aria-label="Toggle navigation"
             aria-expanded={navOpen}
-            className="grid h-9 w-9 shrink-0 place-items-center rounded-[11px] border border-transparent text-text-2 transition-colors hover:border-border hover:bg-surface active:scale-95"
+            className="grid h-9 w-9 shrink-0 place-items-center rounded-md border border-transparent text-text-2 transition-colors hover:border-border hover:bg-surface active:scale-95"
           >
             <span className="h-[18px] w-[18px]"><Icon name="menu" /></span>
           </button>
-          <form onSubmit={submitSearch} className="flex h-9 w-full max-w-[320px] items-center gap-2.5 rounded-[11px] border border-border bg-surface px-3 text-text-3 transition-colors focus-within:border-brand-line">
-            <span className="h-4 w-4"><Icon name="search" /></span>
-            <input
-              ref={searchRef}
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="w-full bg-transparent text-sm text-text outline-none placeholder:text-text-3"
-              placeholder="Search leads, partners, ZIP codes…"
-              aria-label="Search leads"
-            />
-            <kbd className="num hidden rounded-[5px] border border-border px-1.5 text-[.62rem] text-text-3 sm:inline">⌘K</kbd>
-          </form>
-          <div className="ml-auto flex items-center gap-2">
+          <PageHeaderSlot />
+          <div className="ml-auto flex items-center gap-1.5">
+            <SearchExpand />
             <NotificationBell />
-            <ProfileMenu />
+            <ThemeToggle />
           </div>
         </header>
 
         <main className="anim-fade w-full max-w-[1240px] px-6 pb-14 pt-5 md:px-8">{children}</main>
       </div>
-    </div>
+      </div>
+    </PageHeaderProvider>
   );
 }
