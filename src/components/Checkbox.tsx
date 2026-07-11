@@ -31,14 +31,14 @@ export function Checkbox({ checked, onCheckedChange, label, disabled, id, classN
       aria-label={label ? undefined : ariaLabel}
       className={cn(
         "grid h-4 w-4 place-items-center rounded border outline-none transition-colors",
-        "focus-visible:ring-2 focus-visible:ring-brand/50",
-        "data-[state=checked]:border-brand data-[state=checked]:bg-brand",
-        "data-[state=unchecked]:border-border data-[state=unchecked]:bg-surface",
+        "focus-visible:ring-1 focus-visible:ring-brand-ink",
+        "data-[state=checked]:border-brand data-[state=checked]:bg-brand data-[state=checked]:hover:bg-brand-strong",
+        "data-[state=unchecked]:border-border data-[state=unchecked]:bg-surface data-[state=unchecked]:hover:border-text-3",
         "disabled:cursor-not-allowed disabled:opacity-60",
         className,
       )}
     >
-      <RadixCheckbox.Indicator className="text-white">
+      <RadixCheckbox.Indicator className="text-brand-contrast">
         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
           <path d="M20 6 9 17l-5-5" />
         </svg>

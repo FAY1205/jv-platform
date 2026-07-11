@@ -26,7 +26,7 @@ export default function AppearanceSettingsPage() {
                   aria-checked={on}
                   onClick={() => setPreferences({ theme: t })}
                   className={
-                    "flex flex-col items-start gap-0.5 rounded-xl border px-4 py-3 text-left outline-none transition-colors focus-visible:ring-2 focus-visible:ring-brand/50 " +
+                    "flex flex-col items-start gap-0.5 rounded-xl border px-4 py-3 text-left outline-none transition-colors focus-visible:ring-1 focus-visible:ring-brand-ink " +
                     (on ? "border-brand bg-brand-soft" : "border-border hover:bg-surface-3")
                   }
                 >

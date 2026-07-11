@@ -24,7 +24,7 @@ export const RowOpenButton = React.forwardRef<HTMLButtonElement, RowOpenButtonPr
       aria-haspopup="dialog"
       className={cn(
         "num rounded text-left font-medium text-brand-ink outline-none",
-        "hover:underline focus-visible:ring-2 focus-visible:ring-brand/50",
+        "hover:underline focus-visible:ring-1 focus-visible:ring-brand-ink",
         className,
       )}
       {...props}

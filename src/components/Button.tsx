@@ -17,7 +17,7 @@ const base =
   "active:scale-[.98] disabled:opacity-50 disabled:pointer-events-none select-none";
 
 const variants: Record<ButtonVariant, string> = {
-  primary: "bg-brand text-white border-brand hover:bg-brand-strong",
+  primary: "bg-brand text-brand-contrast border-brand hover:bg-brand-strong",
   secondary:
     "bg-surface text-text-2 border-border shadow-xs hover:bg-surface-2 hover:border-text-3",
   ghost: "bg-transparent text-text-2 border-transparent hover:bg-surface-3",

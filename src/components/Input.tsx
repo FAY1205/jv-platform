@@ -55,8 +55,8 @@ export const Input = React.forwardRef<HTMLInputElement, InputProps>(function Inp
             isPassword && "pr-10",
             "placeholder:text-text-3 transition-[border-color] duration-[120ms]",
             // F-16: a visible keyboard focus ring (was suppressed with outline-none).
-            "outline-none focus-visible:ring-2 focus-visible:ring-brand/50",
-            error ? "border-danger focus:border-danger" : "border-border focus:border-brand",
+            "outline-none focus-visible:ring-1 focus-visible:ring-brand-ink",
+            error ? "border-danger focus:border-danger" : "border-border focus:border-brand-ink",
             className,
           )}
           {...rest}
@@ -71,7 +71,7 @@ export const Input = React.forwardRef<HTMLInputElement, InputProps>(function Inp
             className={cn(
               "absolute right-1.5 top-1/2 grid h-7 w-7 -translate-y-1/2 place-items-center rounded",
               "text-text-3 transition-colors hover:text-text-2",
-              "focus:outline-none focus-visible:ring-2 focus-visible:ring-brand",
+              "focus:outline-none focus-visible:ring-1 focus-visible:ring-brand-ink",
             )}
           >
             <EyeIcon off={revealed} />

@@ -22,7 +22,7 @@ export interface PaginationProps {
 
 const arrowBtn = cn(
   "grid h-8 w-8 place-items-center rounded-md border border-border bg-surface text-text-2 outline-none transition-colors",
-  "hover:bg-surface-2 focus-visible:ring-2 focus-visible:ring-brand/50",
+  "hover:bg-surface-2 focus-visible:ring-1 focus-visible:ring-brand-ink",
   "disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-surface",
 );
 

@@ -14,7 +14,7 @@ export default function NotFound() {
       </div>
       <Link
         href="/"
-        className="rounded-md bg-brand px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-brand-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/50"
+        className="rounded-md bg-brand px-4 py-2 text-sm font-semibold text-brand-contrast transition-colors hover:bg-brand-strong focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-brand-ink"
       >
         Go home
       </Link>

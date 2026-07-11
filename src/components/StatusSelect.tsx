@@ -79,7 +79,7 @@ export function StatusSelect({ refId, status, mlsStatus, onChanged }: StatusSele
         aria-label={`Status for ${refId}`}
         className={cn(
           "num inline-flex cursor-pointer items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-semibold outline-none",
-          "focus-visible:ring-2 focus-visible:ring-brand-line disabled:opacity-60",
+          "focus-visible:ring-1 focus-visible:ring-brand-ink disabled:opacity-60",
           STATUS_PILL[val] ?? "bg-surface-3 text-text-2",
         )}
       >

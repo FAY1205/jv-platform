@@ -94,6 +94,14 @@ describe("F-17/F-18: token contrast meets WCAG AA (4.5:1)", () => {
         expect(contrastRatio(fg, bg)).toBeGreaterThanOrEqual(4.5);
       }
     });
+    it(`${theme}: DSN-10/PRN-14 — fixed-dark text reads on the marigold fill; the focus ring meets non-text AA`, () => {
+      // WP-C: primary Button + checkbox use the theme-invariant --brand-contrast on the
+      // marigold fill (the flipping --text is near-white in dark → fails). Focus rings use
+      // brand-ink (≥3:1 non-text on BOTH surface and paper) — brand-strong was 2.99 on paper.
+      expect(contrastRatio(t.brandContrast, t.brand)).toBeGreaterThanOrEqual(4.5);
+      expect(contrastRatio(t.brandInk, t.surface)).toBeGreaterThanOrEqual(3);
+      expect(contrastRatio(t.brandInk, t.bg)).toBeGreaterThanOrEqual(3);
+    });
   }
 });
 

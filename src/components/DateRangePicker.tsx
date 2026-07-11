@@ -32,7 +32,7 @@ function fmt(iso: string | null): string {
 
 const triggerClass = cn(
   "inline-flex w-full items-center justify-between gap-2 rounded-md border border-border bg-surface px-3 py-2 text-sm text-text",
-  "outline-none transition-[border-color] duration-[120ms] focus-visible:ring-2 focus-visible:ring-brand/50 focus-visible:border-brand",
+  "outline-none transition-[border-color] duration-[120ms] focus-visible:ring-1 focus-visible:ring-brand-ink focus-visible:border-brand-ink",
   "disabled:cursor-not-allowed disabled:opacity-60",
 );
 

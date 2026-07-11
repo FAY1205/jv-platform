@@ -27,6 +27,7 @@
   --brand-soft: #faefda;
   --brand-line: #ead8ae;
   --brand-ink: #8f5416;
+  --brand-contrast: #20160a;
   /* status: info / danger / warn (darkened) / success (matched) + prev (taupe) */
   --info: #2e6e93;
   --info-soft: #e7eff4;
@@ -88,6 +89,7 @@
     --brand-soft: #2a2417;
     --brand-line: #4a3a1e;
     --brand-ink: #f0a63e;
+    --brand-contrast: #20160a;
     --info: #5fa0c8;
     --info-soft: #1a2a33;
     --danger: #e06555;
@@ -123,6 +125,7 @@
   --brand-soft: #2a2417;
   --brand-line: #4a3a1e;
   --brand-ink: #f0a63e;
+  --brand-contrast: #20160a;
   --info: #5fa0c8;
   --info-soft: #1a2a33;
   --danger: #e06555;
@@ -159,6 +162,7 @@
   --color-brand-soft: var(--brand-soft);
   --color-brand-line: var(--brand-line);
   --color-brand-ink: var(--brand-ink);
+  --color-brand-contrast: var(--brand-contrast);
   --color-info: var(--info);
   --color-info-soft: var(--info-soft);
   --color-danger: var(--danger);
@@ -284,7 +288,7 @@ h4 {
 
 /* Visible keyboard focus on every interactive element (DSN-10, FRM-04). */
 :focus-visible {
-  outline: 2px solid var(--brand-strong);
+  outline: 1px solid var(--brand-ink);
   outline-offset: 2px;
   border-radius: 4px;
 }

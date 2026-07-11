@@ -30,6 +30,9 @@ export interface ColorTokens {
   brandLine: string;
   /** amber ink — the accent as TEXT/links (AA on paper); marigold is too light to read */
   brandInk: string;
+  /** fixed near-black for TEXT on the marigold fill (buttons/checkbox). Theme-invariant —
+   *  --text flips to near-white in dark and cannot read on the mid-tone marigold. */
+  brandContrast: string;
   /** status: info */
   info: string;
   infoSoft: string;
@@ -72,6 +75,7 @@ export const lightColors: ColorTokens = {
   brandSoft: "#FAEFDA",
   brandLine: "#EAD8AE",
   brandInk: "#8F5416",
+  brandContrast: "#20160A",
   info: "#2E6E93",
   infoSoft: "#E7EFF4",
   danger: "#B23A2E",
@@ -103,6 +107,7 @@ export const darkColors: ColorTokens = {
   brandSoft: "#2A2417",
   brandLine: "#4A3A1E",
   brandInk: "#F0A63E",
+  brandContrast: "#20160A",
   info: "#5FA0C8",
   infoSoft: "#1A2A33",
   danger: "#E06555",

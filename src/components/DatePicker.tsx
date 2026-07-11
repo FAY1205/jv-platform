@@ -29,17 +29,17 @@ function formatHuman(iso: string | null): string {
 
 /** Shared token styling for react-day-picker (both single + range pickers). */
 export const dayPickerClassNames = {
-  selected: "!bg-brand !text-white !rounded-md",
+  selected: "!bg-brand !text-brand-contrast !rounded-md",
   today: "font-bold text-brand-ink",
   chevron: "fill-text-2",
-  range_start: "!bg-brand !text-white !rounded-l-md",
-  range_end: "!bg-brand !text-white !rounded-r-md",
+  range_start: "!bg-brand !text-brand-contrast !rounded-l-md",
+  range_end: "!bg-brand !text-brand-contrast !rounded-r-md",
   range_middle: "!bg-brand-soft !text-brand-ink",
 } as const;
 
 const triggerClass = cn(
   "inline-flex w-full items-center justify-between gap-2 rounded-md border border-border bg-surface px-3 py-2 text-sm text-text",
-  "outline-none transition-[border-color] duration-[120ms] focus-visible:ring-2 focus-visible:ring-brand/50 focus-visible:border-brand",
+  "outline-none transition-[border-color] duration-[120ms] focus-visible:ring-1 focus-visible:ring-brand-ink focus-visible:border-brand-ink",
   "disabled:cursor-not-allowed disabled:opacity-60",
 );
 
