@@ -20,7 +20,7 @@ interface Note {
   edited: boolean;
 }
 
-export function NotesPanel({ leadRef, title }: { leadRef: string; title: string }) {
+export function NotesPanel({ leadRef, title, headingLevel = "h3" }: { leadRef: string; title: string; headingLevel?: "h2" | "h3" }) {
   const qc = useQueryClient();
   const key = ["lead-notes", leadRef];
   const { data, isLoading } = useQuery({
@@ -71,7 +71,7 @@ export function NotesPanel({ leadRef, title }: { leadRef: string; title: string 
   return (
     <Card>
       <CardHeader>
-        <CardTitle>{title}</CardTitle>
+        <CardTitle as={headingLevel}>{title}</CardTitle>
       </CardHeader>
       <CardBody className="flex flex-col gap-4">
         {isLoading ? (

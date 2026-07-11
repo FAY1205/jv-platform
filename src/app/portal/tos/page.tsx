@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import { Card, CardBody, CardHeader, CardTitle, Button } from "@/components";
+import { Card, CardBody, Button } from "@/components";
 import { csrfHeaders } from "@/lib/csrf-client";
 import { TOS_TITLE, TOS_SUMMARY } from "@/lib/legal/tos";
 
@@ -37,14 +37,12 @@ export default function PortalTosPage() {
 
   return (
     <main className="mx-auto w-full max-w-lg flex-1 p-6">
+      <h1 className="mb-4 font-display text-xl font-semibold tracking-tight text-text">{TOS_TITLE}</h1>
       <Card>
-        <CardHeader>
-          <CardTitle>{TOS_TITLE}</CardTitle>
-        </CardHeader>
         <CardBody>
           <p className="mb-5 text-sm leading-relaxed text-text-2">{TOS_SUMMARY}</p>
           {error && <p className="mb-3 text-sm text-danger">{error}</p>}
-          <Button variant="primary" loading={loading} onClick={accept} className="w-full">
+          <Button variant="primary" size="lg" loading={loading} onClick={accept} className="w-full">
             I agree — continue
           </Button>
         </CardBody>

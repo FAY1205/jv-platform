@@ -1,14 +1,12 @@
-import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getDb } from "@/db";
 import { getServerScope } from "@/lib/scope-context";
 import { latestTosVersion } from "@/lib/auth/tos-store";
 import { needsTosAcceptance } from "@/lib/legal/tos";
-import { Card, CardBody, CardHeader, CardTitle } from "@/components";
+import { PortalAccount } from "./portal-account";
 
-// PTL-01: partner portal landing. Server-side ToS gate — a partner cannot reach the
-// portal without accepting the current ToS. The scoped leads/statuses/notes views
-// land in WP-026; this is the authenticated placeholder.
+// PTL-01: partner portal "Account" tab. Server-side ToS gate — a partner cannot reach the
+// portal without accepting the current ToS. Identity + sign-out live in PortalAccount.
 export const dynamic = "force-dynamic";
 
 export default async function PortalHome() {
@@ -23,39 +21,9 @@ export default async function PortalHome() {
   if (needsTosAcceptance(accepted)) redirect("/portal/tos");
 
   return (
-    <main className="mx-auto w-full max-w-2xl flex-1 p-6">
+    <main className="mx-auto w-full flex-1 p-4">
       <h1 className="mb-4 font-display text-xl font-semibold tracking-tight text-text">Your account</h1>
-      <Card>
-        <CardHeader>
-          <CardTitle>Partner portal</CardTitle>
-        </CardHeader>
-        <CardBody>
-          <p className="mb-5 text-sm text-text-2">You&apos;re signed in. Manage your leads and devices below.</p>
-          <div className="grid grid-cols-2 gap-3">
-            <Link
-              href="/portal/leads"
-              className="rounded-md border border-border bg-surface p-4 transition-colors hover:border-text-3 hover:bg-surface-2"
-            >
-              <span className="block text-sm font-semibold text-text">Your leads</span>
-              <span className="block text-xs text-text-3">View, update statuses, and export</span>
-            </Link>
-            <Link
-              href="/portal/devices"
-              className="rounded-md border border-border bg-surface p-4 transition-colors hover:border-text-3 hover:bg-surface-2"
-            >
-              <span className="block text-sm font-semibold text-text">Your devices</span>
-              <span className="block text-xs text-text-3">Remembered browsers you can sign out</span>
-            </Link>
-            <Link
-              href="/portal/activity"
-              className="rounded-md border border-border bg-surface p-4 transition-colors hover:border-text-3 hover:bg-surface-2"
-            >
-              <span className="block text-sm font-semibold text-text">Your activity</span>
-              <span className="block text-xs text-text-3">Your status updates and notes</span>
-            </Link>
-          </div>
-        </CardBody>
-      </Card>
+      <PortalAccount />
     </main>
   );
 }

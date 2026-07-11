@@ -40,8 +40,14 @@ export function CardHeader({
   );
 }
 
-export function CardTitle({ className, ...rest }: React.HTMLAttributes<HTMLHeadingElement>) {
-  return <h3 className={cn("text-sm font-semibold", className)} {...rest} />;
+export function CardTitle({
+  as: Tag = "h3",
+  className,
+  ...rest
+}: React.HTMLAttributes<HTMLHeadingElement> & { as?: "h2" | "h3" }) {
+  // Default h3 keeps every existing call site unchanged; pages pass `as="h2"` where the
+  // card is a direct section under the page <h1> (avoids an h1→h3 heading skip).
+  return <Tag className={cn("text-sm font-semibold", className)} {...rest} />;
 }
 
 export function CardBody({ className, ...rest }: React.HTMLAttributes<HTMLDivElement>) {

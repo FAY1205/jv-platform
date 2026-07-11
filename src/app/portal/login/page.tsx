@@ -3,7 +3,7 @@
 import * as React from "react";
 import { Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Card, CardBody, Input, Button } from "@/components";
+import { Card, CardBody, Input, Button, Checkbox } from "@/components";
 import { APP_NAME } from "@/lib/app";
 
 // PTL-01 + AUT-10: partner sign-in. On load we silently try the trusted-device
@@ -106,7 +106,7 @@ function PortalLoginForm() {
       <Card className="w-full max-w-sm">
         <CardBody>
           <div className="mb-6 flex flex-col gap-1">
-            <span className="font-display text-lg font-semibold text-text">{APP_NAME}</span>
+            <h1 className="font-display text-lg font-semibold text-text">{APP_NAME}</h1>
             <span className="text-sm text-text-3">Partner portal sign-in</span>
           </div>
 
@@ -123,7 +123,7 @@ function PortalLoginForm() {
                 required
                 error={error ?? undefined}
               />
-              <Button type="submit" variant="primary" loading={loading} className="mt-1 w-full">
+              <Button type="submit" variant="primary" size="lg" loading={loading} className="mt-1 w-full">
                 Send code
               </Button>
             </form>
@@ -143,16 +143,8 @@ function PortalLoginForm() {
                 error={error ?? undefined}
                 className="font-mono tracking-[0.3em]"
               />
-              <label className="flex items-center gap-2 text-sm text-text-2">
-                <input
-                  type="checkbox"
-                  checked={remember}
-                  onChange={(e) => setRemember(e.target.checked)}
-                  className="h-4 w-4 rounded border-border accent-brand"
-                />
-                Remember this device for 30 days
-              </label>
-              <Button type="submit" variant="primary" loading={loading} disabled={code.length !== 6} className="mt-1 w-full">
+              <Checkbox checked={remember} onCheckedChange={setRemember} label="Remember this device for 30 days" />
+              <Button type="submit" variant="primary" size="lg" loading={loading} disabled={code.length !== 6} className="mt-1 w-full">
                 Verify &amp; sign in
               </Button>
               <button
@@ -162,7 +154,7 @@ function PortalLoginForm() {
                   setCode("");
                   setError(null);
                 }}
-                className="text-center text-sm text-text-3 hover:text-text-2"
+                className="inline-flex min-h-11 items-center justify-center text-center text-sm text-text-3 hover:text-text-2"
               >
                 Use a different email
               </button>

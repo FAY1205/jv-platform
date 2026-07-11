@@ -62,10 +62,13 @@ export default function PortalLeadDetailPage() {
   });
 
   return (
-    <main className="mx-auto w-full max-w-2xl flex-1 p-6">
-      <Link href="/portal/leads" className="mb-4 inline-flex min-h-11 items-center text-sm text-text-3 hover:text-text-2">
+    <main className="mx-auto w-full flex-1 p-4">
+      <Link href="/portal/leads" className="inline-flex min-h-11 items-center text-sm text-text-3 hover:text-text-2">
         ← Back to your leads
       </Link>
+      <h1 className="mb-4 mt-1 font-display text-xl font-semibold tracking-tight text-text">
+        Lead <span className="num">{ref}</span>
+      </h1>
 
       {error ? (
         <EmptyState title="Couldn't load this lead" description={(error as Error).message} />
@@ -75,9 +78,7 @@ export default function PortalLeadDetailPage() {
         <div className="flex flex-col gap-4">
           <Card>
             <CardHeader className="flex items-center justify-between">
-              <CardTitle>
-                <span className="font-mono">{data.refId}</span>
-              </CardTitle>
+              <CardTitle as="h2">Lead details</CardTitle>
               <Badge>{data.status}</Badge>
             </CardHeader>
             <CardBody className="flex flex-col gap-5">
@@ -125,7 +126,7 @@ export default function PortalLeadDetailPage() {
 
           <Card>
             <CardHeader>
-              <CardTitle>Status history</CardTitle>
+              <CardTitle as="h2">Status history</CardTitle>
             </CardHeader>
             <CardBody>
               {data.history.length === 0 ? (
@@ -135,7 +136,7 @@ export default function PortalLeadDetailPage() {
                   {data.history.map((h, i) => (
                     <li key={i} className="flex items-center gap-3 text-sm">
                       <Badge>{h.status}</Badge>
-                      <span className="font-mono text-xs text-text-3">{new Date(h.changedAt).toLocaleString()}</span>
+                      <span className="num text-[13px] text-text-3">{new Date(h.changedAt).toLocaleString()}</span>
                     </li>
                   ))}
                 </ol>
@@ -143,7 +144,7 @@ export default function PortalLeadDetailPage() {
             </CardBody>
           </Card>
 
-          <NotesPanel leadRef={ref} title="Your notes" />
+          <NotesPanel leadRef={ref} title="Your notes" headingLevel="h2" />
         </div>
       )}
     </main>

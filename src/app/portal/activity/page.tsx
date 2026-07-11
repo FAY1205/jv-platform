@@ -3,7 +3,7 @@
 import * as React from "react";
 import { useQuery } from "@tanstack/react-query";
 import { apiGet } from "@/lib/api";
-import { Card, CardBody, CardHeader, CardTitle, Badge, EmptyState, Skeleton, Button } from "@/components";
+import { Card, CardBody, Badge, EmptyState, Skeleton, Button } from "@/components";
 
 // ACT-02: the partner's own actions on their own leads (status updates + notes).
 interface Item { when: string; kind: "status" | "note"; detail: string }
@@ -18,9 +18,9 @@ export default function PortalActivityPage() {
   const items = data?.items ?? [];
 
   return (
-    <main className="mx-auto w-full max-w-2xl flex-1 p-6">
+    <main className="mx-auto w-full flex-1 p-4">
+      <h1 className="mb-4 font-display text-xl font-semibold tracking-tight text-text">Your activity</h1>
       <Card>
-        <CardHeader><CardTitle>Your activity</CardTitle></CardHeader>
         <CardBody>
           {error ? (
             <EmptyState title="Couldn't load activity" description={(error as Error).message} />
@@ -36,7 +36,7 @@ export default function PortalActivityPage() {
                     <Badge variant={i.kind === "status" ? "state" : "neutral"}>{i.kind === "status" ? "Status" : "Note"}</Badge>
                     <span className="num text-sm text-text-2">{i.detail}</span>
                   </div>
-                  <span className="num text-xs text-text-3">{new Date(i.when).toLocaleString()}</span>
+                  <span className="num text-[13px] text-text-3">{new Date(i.when).toLocaleString()}</span>
                 </li>
               ))}
             </ul>
