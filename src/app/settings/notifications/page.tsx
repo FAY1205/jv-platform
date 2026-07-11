@@ -83,7 +83,7 @@ export default function NotificationSettingsPage() {
               </div>
             ) : (
               <div className="flex flex-col gap-1">
-                <div className="grid grid-cols-[1fr_auto_auto] items-center gap-4 border-b border-border-soft pb-2 text-xs font-semibold text-text-3">
+                <div className="grid grid-cols-[1fr_auto_auto] items-center gap-4 border-b border-border-soft pb-2 text-[13px] font-semibold text-text-3">
                   <span>Event</span>
                   <span className="w-16 text-center">Email</span>
                   <span className="w-16 text-center">In-app</span>
@@ -94,7 +94,7 @@ export default function NotificationSettingsPage() {
                     <div key={`${ev.role}.${ev.key}`} className="grid grid-cols-[1fr_auto_auto] items-center gap-4 py-2.5">
                       <div>
                         <p className="text-sm text-text">{ev.label}</p>
-                        <p className="text-xs text-text-3 capitalize">{ev.role}</p>
+                        <p className="text-[13px] text-text-3 capitalize">{ev.role}</p>
                       </div>
                       <div className="flex w-16 justify-center">
                         <Checkbox checked={ch.email} onCheckedChange={() => toggle(ev.role, ev.key, "email")} ariaLabel={`Email ${ev.label}`} />

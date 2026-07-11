@@ -49,6 +49,7 @@ export { EmptyState, type EmptyStateProps } from "./EmptyState";
 export { NotesPanel } from "./NotesPanel";
 export { PasswordChangeForm } from "./PasswordChangeForm";
 export { NotificationBell } from "./NotificationBell";
+export { NotificationTypeIcon, type NotificationTypeIconProps } from "./NotificationTypeIcon";
 export { ProfileMenu } from "./ProfileMenu";
 export { ListingBadge, type ListingStatus } from "./ListingBadge";
 export { AppShell } from "./AppShell";

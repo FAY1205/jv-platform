@@ -28,6 +28,7 @@ import {
   SegmentedControl,
   Checkbox,
   Switch,
+  NotificationTypeIcon,
   DatePicker,
   DateRangePicker,
   type DateRangeValue,
@@ -423,6 +424,26 @@ function Gallery() {
                 <Switch checked={switchB} onCheckedChange={setSwitchB} label="Auction & short-sale" />
                 <Switch checked disabled onCheckedChange={() => {}} label="Disabled — on" />
                 <Switch checked={false} disabled onCheckedChange={() => {}} label="Disabled — off" />
+              </CardBody>
+            </Card>
+
+            <Card>
+              <CardHeader><CardTitle>Notification type tiles</CardTitle></CardHeader>
+              <CardBody className="flex flex-col gap-3">
+                {[
+                  { type: "run_summary", label: "Import IM-26-044 distributed 412 leads." },
+                  { type: "new_leads", label: "36 new leads matched to your territory." },
+                  { type: "status_change", label: "A lead you own moved to Contacted." },
+                  { type: "system", label: "Unmapped type — neutral fallback." },
+                ].map((n) => (
+                  <div key={n.type} className="flex items-start gap-2.5">
+                    <NotificationTypeIcon type={n.type} />
+                    <div className="min-w-0">
+                      <p className="text-sm text-text">{n.label}</p>
+                      <p className="num text-[13px] text-text-3">{n.type}</p>
+                    </div>
+                  </div>
+                ))}
               </CardBody>
             </Card>
 

@@ -3,7 +3,7 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiGet } from "@/lib/api";
 import { csrfHeaders } from "@/lib/csrf-client";
-import { Card, CardBody, CardHeader, CardTitle, Table, THead, TBody, Th, Tr, Td, Badge, Checkbox, Skeleton, EmptyState, useToast } from "@/components";
+import { Card, CardBody, CardHeader, CardTitle, Table, THead, TBody, Th, Tr, Td, Badge, Switch, Skeleton, EmptyState, useToast } from "@/components";
 import { SettingsSection } from "../settings-section";
 
 // WS-7g: Data & Export — export color coding (F-39, wired to the export routes), data
@@ -60,7 +60,7 @@ export default function DataSettingsPage() {
                   <p className="text-sm text-text">Color-code partner sections</p>
                   <p className="text-xs text-text-3">Full-row fills per partner in the .xlsx. The partner name + reference ID always appear regardless of color (PRN-14).</p>
                 </div>
-                <Checkbox checked={data.colorCoding} disabled={saveColor.isPending} onCheckedChange={(v) => saveColor.mutate(v)} ariaLabel="Color-code exports" />
+                <Switch checked={data.colorCoding} disabled={saveColor.isPending} onCheckedChange={(v) => saveColor.mutate(v)} ariaLabel="Color-code partner sections" />
               </div>
             </CardBody>
           </Card>

@@ -26,7 +26,7 @@ export default function ProfileSettingsPage() {
             <Skeleton className="h-14" />
           ) : (
             <div className="flex items-center gap-4">
-              <span className="grid h-12 w-12 place-items-center rounded-full bg-brand text-base font-semibold text-white">
+              <span className="grid h-12 w-12 place-items-center rounded-full bg-brand text-base font-semibold text-brand-contrast">
                 {initialsFromEmail(data.email)}
               </span>
               <div className="flex flex-col">

@@ -15,6 +15,7 @@ import {
 } from "./DropdownMenu";
 import { EmptyState } from "./EmptyState";
 import { Skeleton } from "./Skeleton";
+import { NotificationTypeIcon } from "./NotificationTypeIcon";
 import { groupByDay } from "@/lib/notification-groups";
 
 // NTF-04: in-app notification center on the DropdownMenu primitive (WS-7f). Grouped by
@@ -67,13 +68,18 @@ export function NotificationBell() {
   const groups = groupByDay(notifications, new Date());
 
   const row = (n: Notification) => (
-    <div className="flex items-start gap-2">
-      {!n.readAt && <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-brand" aria-hidden="true" />}
-      <div className={cn("min-w-0", n.readAt && "pl-3.5")}>
-        <p className="truncate text-sm font-medium text-text">{n.title}</p>
-        {n.body && <p className="text-xs text-text-3">{n.body}</p>}
-        <p className="num mt-0.5 text-[.66rem] text-text-3">{timeAgo(n.createdAt)}</p>
+    <div className="flex items-start gap-2.5">
+      <NotificationTypeIcon type={n.type} className="mt-0.5" />
+      <div className="min-w-0 flex-1">
+        <p className="text-sm font-medium text-text">
+          {!n.readAt && <span className="sr-only">Unread: </span>}
+          {n.title}
+        </p>
+        {n.body && <p className="text-[13px] text-text-3">{n.body}</p>}
+        <p className="num mt-0.5 text-[13px] text-text-3">{timeAgo(n.createdAt)}</p>
       </div>
+      {/* Unread = a dot SHAPE on the right (never tint alone) — PRN-14. */}
+      {!n.readAt && <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-brand" aria-hidden="true" />}
     </div>
   );
 
