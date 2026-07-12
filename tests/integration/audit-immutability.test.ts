@@ -8,6 +8,24 @@ import { purgeAuditLog } from "../helpers/audit";
 // Runs against a live Postgres (dev DB locally; CI service container). Self-skips
 // when DATABASE_URL is unset. Proves the migration-0014 append-only trigger (F-05).
 const url = process.env.DATABASE_URL;
+
+// drizzle-orm wraps every failed query in a DrizzleQueryError whose `.message` is
+// the generic "Failed query: <sql>…" and preserves the original Postgres error —
+// carrying the trigger's `RAISE` text — on `.cause`. vitest's toThrow(regex) only
+// matches `.message`, so we walk the whole cause chain to assert against the real
+// DB message. `append-only` can only originate from the trigger, never the SQL.
+function errorChainText(e: unknown): string {
+  const parts: string[] = [];
+  const seen = new Set<unknown>();
+  let cur: unknown = e;
+  while (cur && !seen.has(cur)) {
+    seen.add(cur);
+    const msg = (cur as { message?: unknown }).message;
+    if (typeof msg === "string") parts.push(msg);
+    cur = (cur as { cause?: unknown }).cause;
+  }
+  return parts.join("\n");
+}
 const suite = url ? describe : describe.skip;
 const SLUG = "test-audit-immutable-ws9";
 
@@ -50,18 +68,25 @@ suite("F-05: audit_log is append-only (DB trigger)", () => {
   });
 
   it("F-05: UPDATE is rejected", async () => {
-    await expect(
-      db.update(schema.auditLog).set({ action: "tampered" }).where(eq(schema.auditLog.id, rowId)),
-    ).rejects.toThrow(/append-only/);
+    const err = await db
+      .update(schema.auditLog)
+      .set({ action: "tampered" })
+      .where(eq(schema.auditLog.id, rowId))
+      .then(() => null, (e: unknown) => e);
+    expect(err, "UPDATE must be rejected by the append-only trigger").not.toBeNull();
+    expect(errorChainText(err)).toMatch(/append-only/);
     // The row is unchanged.
     const [row] = await db.select().from(schema.auditLog).where(eq(schema.auditLog.id, rowId));
     expect(row.action).toBe("partner.created");
   });
 
   it("F-05: DELETE is rejected", async () => {
-    await expect(
-      db.delete(schema.auditLog).where(eq(schema.auditLog.id, rowId)),
-    ).rejects.toThrow(/append-only/);
+    const err = await db
+      .delete(schema.auditLog)
+      .where(eq(schema.auditLog.id, rowId))
+      .then(() => null, (e: unknown) => e);
+    expect(err, "DELETE must be rejected by the append-only trigger").not.toBeNull();
+    expect(errorChainText(err)).toMatch(/append-only/);
     const rows = await db.select().from(schema.auditLog).where(eq(schema.auditLog.id, rowId));
     expect(rows).toHaveLength(1);
   });
