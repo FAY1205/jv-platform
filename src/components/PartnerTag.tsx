@@ -22,8 +22,8 @@ export function PartnerTag({ name, color, refId, size = "md", className }: Partn
   return (
     <span className={cn("inline-flex items-center gap-2 font-semibold whitespace-nowrap", className)}>
       <span
-        className="rounded-[6px] border border-black/15 shrink-0"
-        style={{ width: swatch, height: swatch, background: color }}
+        className="rounded-[6px] border shrink-0"
+        style={{ width: swatch, height: swatch, background: color, borderColor: "var(--swatch-border)" }}
         aria-hidden="true"
       />
       <span className={size === "sm" ? "text-xs" : "text-sm"}>{name}</span>

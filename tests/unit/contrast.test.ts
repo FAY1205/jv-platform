@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { contrastText, contrastHalo } from "@/lib/contrast";
+import { contrastText, contrastHalo, contrastRatio } from "@/lib/contrast";
 import { PARTNER_SWATCHES } from "@/lib/tokens/tokens";
 
 const PARTNER_FILL_OPACITY = 0.9; // mirror of the shared constant (src/components/map/mapStyle)
@@ -18,16 +18,9 @@ function composite(fillHex: string, opacity: number, overHex: string): string {
   return `#${h2(mix(fr, br))}${h2(mix(fg, bg))}${h2(mix(fb, bb))}`;
 }
 
-function lum(hex: string): number {
-  const s = hex.replace(/^#/, "");
-  const ch = [0, 2, 4].map((i) => parseInt(s.slice(i, i + 2), 16) / 255);
-  const lin = ch.map((v) => (v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4));
-  return 0.2126 * lin[0] + 0.7152 * lin[1] + 0.0722 * lin[2];
-}
-function ratio(a: string, b: string): number {
-  const [la, lb] = [lum(a), lum(b)];
-  return (Math.max(la, lb) + 0.05) / (Math.min(la, lb) + 0.05);
-}
+// WP-H / CON-01: the luminance/ratio math is the shared contrastRatio primitive
+// (src/lib/contrast.ts), reference-pinned by wcag.test.ts. `composite` above stays local —
+// it is sRGB alpha-compositing, not luminance math.
 
 // WS-8 / F-19: pick a readable label color (black/white) for text drawn ON a partner fill,
 // by WCAG relative luminance — instead of always-white (which fails on light partner tints).
@@ -72,7 +65,7 @@ describe("on-fill map label contrast (F-19 / SC 1.4.3 · ADR-0024)", () => {
     // prefers (returned as near-black #111111 / white #ffffff). Verified against pure
     // black/white — the crossover contrastText's 0.179 luminance threshold encodes.
     for (const hex of PARTNER_SWATCHES) {
-      const optimal = ratio("#000000", hex) >= ratio("#ffffff", hex) ? "#111111" : "#ffffff";
+      const optimal = contrastRatio("#000000", hex) >= contrastRatio("#ffffff", hex) ? "#111111" : "#ffffff";
       expect(contrastText(hex)).toBe(optimal);
     }
   });
@@ -81,7 +74,7 @@ describe("on-fill map label contrast (F-19 / SC 1.4.3 · ADR-0024)", () => {
     let worst = Infinity;
     for (const surface of ["#ffffff", "#17232a"]) {
       for (const hex of PARTNER_SWATCHES) {
-        worst = Math.min(worst, ratio(contrastText(hex), composite(hex, PARTNER_FILL_OPACITY, surface)));
+        worst = Math.min(worst, contrastRatio(contrastText(hex), composite(hex, PARTNER_FILL_OPACITY, surface)));
       }
     }
     // SC 1.4.3's fill-text bar is 4.5:1; these small map labels reach only ~3.74:1 worst

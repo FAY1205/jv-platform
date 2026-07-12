@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+import { contrastRatio } from "@/lib/contrast";
 import {
   lightColors,
   darkColors,
@@ -29,7 +30,9 @@ describe("DSN-01/SEAM-08: design tokens", () => {
 
   it("maps every semantic color into a Tailwind theme utility", () => {
     const unmapped = (Object.keys(lightColors) as (keyof ColorTokens)[])
-      .filter((k) => k !== "scrim") // scrim is used directly, not as a bg/text utility
+      // scrim + swatchBorder are applied directly (scrim overlay, inline swatch border),
+      // not as bg/text/border utilities — so they carry no --color-* Tailwind mapping.
+      .filter((k) => k !== "scrim" && k !== "swatchBorder")
       .map((k) => `--color-${toCssVar(k).slice(2)}`)
       .filter((themeVar) => !globalsCss.includes(`${themeVar}:`));
     expect(unmapped).toEqual([]);
@@ -37,6 +40,13 @@ describe("DSN-01/SEAM-08: design tokens", () => {
 
   it("defines matching light and dark values for every color role", () => {
     expect(Object.keys(darkColors).sort()).toEqual(Object.keys(lightColors).sort());
+  });
+
+  it("CON-03: swatchBorder is a dark edge in light and a light (inverted-channel) edge in dark", () => {
+    // WP-H: theme-flipping hairline on a partner swatch. The inverted channel (black→white)
+    // is more error-prone than a same-channel hex swap, so pin both values explicitly.
+    expect(lightColors.swatchBorder).toBe("rgba(0,0,0,0.18)");
+    expect(darkColors.swatchBorder).toBe("rgba(255,255,255,0.22)");
   });
 
   it("ships a dark theme via both system preference and explicit override", () => {
@@ -53,20 +63,11 @@ describe("DSN-01/SEAM-08: design tokens", () => {
 });
 
 // F-17/F-18 (WCAG SC 1.4.3): text/status tokens meet AA against their background.
-// Pure WCAG relative-luminance contrast — the regression gate so a future token edit
-// cannot silently drop a role below AA. Badge variants pair text-<t> on bg-<t>-soft
-// (see Badge.tsx); text-3 must read on both surface and bg in both themes.
-function relLuminance(hex: string): number {
-  const c = hex.replace("#", "");
-  const chan = [0, 2, 4]
-    .map((i) => parseInt(c.slice(i, i + 2), 16) / 255)
-    .map((v) => (v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4));
-  return 0.2126 * chan[0] + 0.7152 * chan[1] + 0.0722 * chan[2];
-}
-function contrastRatio(a: string, b: string): number {
-  const [l1, l2] = [relLuminance(a), relLuminance(b)].sort((x, y) => y - x);
-  return (l1 + 0.05) / (l2 + 0.05);
-}
+// The regression gate so a future token edit cannot silently drop a role below AA. Badge
+// variants pair text-<t> on bg-<t>-soft (see Badge.tsx); text-3 must read on both surface
+// and bg in both themes. WP-H / CON-01: contrastRatio is the ONE shared WCAG primitive
+// (src/lib/contrast.ts), independently pinned to WebAIM reference values by wcag.test.ts —
+// so this data gate is not grading the contrast function against itself.
 
 describe("F-17/F-18: token contrast meets WCAG AA (4.5:1)", () => {
   for (const [theme, t] of [["light", lightColors], ["dark", darkColors]] as const) {
@@ -101,6 +102,14 @@ describe("F-17/F-18: token contrast meets WCAG AA (4.5:1)", () => {
       expect(contrastRatio(t.brandContrast, t.brand)).toBeGreaterThanOrEqual(4.5);
       expect(contrastRatio(t.brandInk, t.surface)).toBeGreaterThanOrEqual(3);
       expect(contrastRatio(t.brandInk, t.bg)).toBeGreaterThanOrEqual(3);
+    });
+    it(`${theme}: CON-02 — on-fill status text meets AA on the danger + success fills`, () => {
+      // WP-H: Button danger + Toast success/danger paint text on the SOLID status fill. The
+      // theme-flipping `onStatus` token (white in light, near-black in dark) must clear 4.5:1
+      // on both fills in both themes — hardcoded white-on-fill failed in dark (danger 3.41,
+      // success 2.64). This is the regression gate for that fix.
+      expect(contrastRatio(t.onStatus, t.danger)).toBeGreaterThanOrEqual(4.5);
+      expect(contrastRatio(t.onStatus, t.success)).toBeGreaterThanOrEqual(4.5);
     });
   }
 });

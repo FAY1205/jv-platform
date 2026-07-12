@@ -2,27 +2,19 @@ import { describe, expect, it } from "vitest";
 import ExcelJS from "exceljs";
 import { contrastText, renderExport, type ExportLead, type PartnerInfo } from "@/modules/export/render";
 import { PARTNER_SWATCHES } from "@/lib/tokens/tokens";
+import { contrastRatio } from "@/lib/contrast";
 import type { RunSummary } from "@/modules/analytics/run-summary";
 
-// WCAG relative-luminance contrast (SC 1.4.3), for asserting the picked ink meets AA.
-function relLum(hex: string): number {
-  const h = hex.replace(/^#|^FF/i, "");
-  const ch = [0, 2, 4]
-    .map((i) => parseInt(h.slice(i, i + 2), 16) / 255)
-    .map((v) => (v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4));
-  return 0.2126 * ch[0] + 0.7152 * ch[1] + 0.0722 * ch[2];
-}
-function ratio(a: string, b: string): number {
-  const [l1, l2] = [relLum(a), relLum(b)].sort((x, y) => y - x);
-  return (l1 + 0.05) / (l2 + 0.05);
-}
+// WP-H / CON-01: AA assertions use the shared contrastRatio primitive (SC 1.4.3),
+// independently pinned to WebAIM reference values by wcag.test.ts. argbToHex converts an
+// exceljs ARGB (FFRRGGBB) → #RRGGBB for the ratio call.
 const argbToHex = (argb: string) => "#" + argb.slice(2);
 
 describe("EXP-06/PRN-14: export text meets WCAG AA on every partner tint", () => {
   it("contrastText picks an AA (>=4.5:1) ink for all 20 swatches", () => {
     for (const swatch of PARTNER_SWATCHES) {
       const ink = argbToHex(contrastText(swatch));
-      expect(ratio(ink, swatch), `swatch ${swatch}`).toBeGreaterThanOrEqual(4.5);
+      expect(contrastRatio(ink, swatch), `swatch ${swatch}`).toBeGreaterThanOrEqual(4.5);
     }
   });
 
@@ -56,13 +48,13 @@ describe("EXP-06/PRN-14: export text meets WCAG AA on every partner tint", () =>
     await wb.xlsx.load((await renderExport(leads, partners, summary, { colorCoding: true })) as unknown as ArrayBuffer);
 
     const legendCell = wb.getWorksheet("JV_Color_Legend")!.getRow(2).getCell(3);
-    expect(ratio(argbToHex(String(legendCell.font!.color!.argb)), dark)).toBeGreaterThanOrEqual(4.5);
+    expect(contrastRatio(argbToHex(String(legendCell.font!.color!.argb)), dark)).toBeGreaterThanOrEqual(4.5);
 
     const leadsWs = wb.getWorksheet("Leads")!;
     let dataCellArgb: string | undefined;
     leadsWs.eachRow((row) => {
       if (String(row.getCell(1).value ?? "") === "LD-1") dataCellArgb = String(row.getCell(1).font?.color?.argb);
     });
-    expect(ratio(argbToHex(dataCellArgb!), dark)).toBeGreaterThanOrEqual(4.5);
+    expect(contrastRatio(argbToHex(dataCellArgb!), dark)).toBeGreaterThanOrEqual(4.5);
   });
 });

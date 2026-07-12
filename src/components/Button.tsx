@@ -22,7 +22,9 @@ const variants: Record<ButtonVariant, string> = {
     "bg-surface text-text-2 border-border shadow-xs hover:bg-surface-2 hover:border-text-3",
   ghost: "bg-transparent text-text-2 border-transparent hover:bg-surface-3",
   // Destructive is never the visual default (DSN-04); it is opt-in and labeled.
-  danger: "bg-danger text-white border-danger hover:brightness-95",
+  // hover:brightness-95 dims fill + text together — verified still AA (dark hover 4.82:1). The
+  // CON-02 token gate only checks the unfiltered pair, so re-verify by hand if this filter changes.
+  danger: "bg-danger text-on-status border-danger hover:brightness-95",
 };
 
 const sizes: Record<ButtonSize, string> = {

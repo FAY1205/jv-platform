@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { buildPartnerDigest, buildAdminRunSummary } from "@/modules/notify/digests";
 import { backoffMs, MAX_OUTBOX_ATTEMPTS } from "@/modules/notify/outbox";
+import { lightColors } from "@/lib/tokens/tokens";
 
 // NTF-01/02: digest content. Pure builders — the outbox (NTF-03) attaches the
 // recipient + drains delivery. SEC-05: digests carry lead reference IDs + location,
@@ -83,6 +84,14 @@ describe("buildPartnerDigest — HTML (WP-G, mockup 11)", () => {
 
   it("PRN-14: the locked partner color renders as the intro swatch fill", () => {
     expect(buildPartnerDigest({ ...base, partnerColor: "#5B7A9E" }).html).toContain("background:#5B7A9E");
+  });
+
+  it("CON-03: the intro swatch border reads from the tokenized (light) swatchBorder, not a literal", () => {
+    // WP-H: emails can't read CSS vars, so the digest inlines lightColors.swatchBorder. A broken
+    // interpolation or a token drift from the source would fail here.
+    expect(buildPartnerDigest({ ...base, partnerColor: "#5B7A9E" }).html).toContain(
+      `border:1px solid ${lightColors.swatchBorder}`,
+    );
   });
 
   it("PRN-14: an invalid partner color is dropped, not injected into CSS", () => {

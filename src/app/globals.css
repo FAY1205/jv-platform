@@ -28,6 +28,8 @@
   --brand-line: #ead8ae;
   --brand-ink: #8f5416;
   --brand-contrast: #20160a;
+  /* text on a solid status fill (danger/success) — flips near-white↔near-black per theme */
+  --on-status: #ffffff;
   /* status: info / danger / warn (darkened) / success (matched) + prev (taupe) */
   --info: #2e6e93;
   --info-soft: #e7eff4;
@@ -39,6 +41,7 @@
   --success-soft: #e8f2ec;
   --prev: #6e5c46;
   --prev-soft: #efe8de;
+  --swatch-border: rgba(0, 0, 0, 0.18);
   --scrim: rgba(22, 36, 43, 0.4);
   /* radii (Survey: modest, slightly engineered 4–16px) */
   --r-xs: 4px;
@@ -90,6 +93,7 @@
     --brand-line: #4a3a1e;
     --brand-ink: #f0a63e;
     --brand-contrast: #20160a;
+    --on-status: #20160a;
     --info: #5fa0c8;
     --info-soft: #1a2a33;
     --danger: #e06555;
@@ -100,6 +104,7 @@
     --success-soft: #173529;
     --prev: #cbb89c;
     --prev-soft: #2a251e;
+    --swatch-border: rgba(255, 255, 255, 0.22);
     --scrim: rgba(0, 0, 0, 0.55);
     --sh-xs: 0 1px 2px rgba(0, 0, 0, 0.3);
     --sh-sm: 0 1px 3px rgba(0, 0, 0, 0.35);
@@ -126,6 +131,7 @@
   --brand-line: #4a3a1e;
   --brand-ink: #f0a63e;
   --brand-contrast: #20160a;
+  --on-status: #20160a;
   --info: #5fa0c8;
   --info-soft: #1a2a33;
   --danger: #e06555;
@@ -136,6 +142,7 @@
   --success-soft: #173529;
   --prev: #cbb89c;
   --prev-soft: #2a251e;
+  --swatch-border: rgba(255, 255, 255, 0.22);
   --scrim: rgba(0, 0, 0, 0.55);
   --sh-xs: 0 1px 2px rgba(0, 0, 0, 0.3);
   --sh-sm: 0 1px 3px rgba(0, 0, 0, 0.35);
@@ -163,6 +170,7 @@
   --color-brand-line: var(--brand-line);
   --color-brand-ink: var(--brand-ink);
   --color-brand-contrast: var(--brand-contrast);
+  --color-on-status: var(--on-status);
   --color-info: var(--info);
   --color-info-soft: var(--info-soft);
   --color-danger: var(--danger);

@@ -29,6 +29,11 @@ Canonicalizes the frontend patterns this codebase follows. Authority order:
 
 - No hex, font, logo, or product name outside `src/lib/tokens` + `src/app/globals.css`.
   Components consume semantic tokens (`text-text-2`, `bg-surface`, …).
+  - **Exception (algorithmic, not brand):** `src/lib/contrast.ts` and
+    `src/modules/export/render.ts` contain literal `#000000`/`#FFFFFF`/`#111111` as WCAG contrast
+    *endpoints* (the black/white the relative-luminance pick compares against), not brand identity.
+    These two files are accepted PRN-12 exceptions alongside the token homes — never route them
+    through theme tokens, which would break the ratio math.
 - Both themes are first-class: every surface verified in light AND dark.
 - Partner colors come only from `PARTNER_SWATCHES` (additive-only, AA-vetted,
   distance-checked — EXP-06); the same token source feeds UI, export legend, and emails.

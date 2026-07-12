@@ -33,6 +33,9 @@ export interface ColorTokens {
   /** fixed near-black for TEXT on the marigold fill (buttons/checkbox). Theme-invariant —
    *  --text flips to near-white in dark and cannot read on the mid-tone marigold. */
   brandContrast: string;
+  /** text ON a solid status FILL (danger/success buttons + toasts). Theme-FLIPPING:
+   *  near-white in light, near-black in dark — hardcoded white-on-fill fails AA in dark. */
+  onStatus: string;
   /** status: info */
   info: string;
   infoSoft: string;
@@ -48,6 +51,10 @@ export interface ColorTokens {
   /** accent for "previously matched" leads (DED-02) */
   prev: string;
   prevSoft: string;
+  /** hairline on a partner-color swatch — theme-FLIPPING (dark edge in light, light edge in
+   *  dark, so the swatch keeps a crisp boundary on dark cards). Direct-use, like `scrim`:
+   *  applied as an inline border color / raw email value; no Tailwind utility. */
+  swatchBorder: string;
   scrim: string;
 }
 
@@ -76,6 +83,7 @@ export const lightColors: ColorTokens = {
   brandLine: "#EAD8AE",
   brandInk: "#8F5416",
   brandContrast: "#20160A",
+  onStatus: "#FFFFFF",
   info: "#2E6E93",
   infoSoft: "#E7EFF4",
   danger: "#B23A2E",
@@ -88,6 +96,7 @@ export const lightColors: ColorTokens = {
   // previously-matched: warm stone/taupe (Survey bans purple) — a pencil-annotation read.
   prev: "#6E5C46",
   prevSoft: "#EFE8DE",
+  swatchBorder: "rgba(0,0,0,0.18)",
   scrim: "rgba(22,36,43,.4)",
 };
 
@@ -108,6 +117,7 @@ export const darkColors: ColorTokens = {
   brandLine: "#4A3A1E",
   brandInk: "#F0A63E",
   brandContrast: "#20160A",
+  onStatus: "#20160A",
   info: "#5FA0C8",
   infoSoft: "#1A2A33",
   danger: "#E06555",
@@ -118,6 +128,7 @@ export const darkColors: ColorTokens = {
   successSoft: "#173529",
   prev: "#CBB89C",
   prevSoft: "#2A251E",
+  swatchBorder: "rgba(255,255,255,0.22)",
   scrim: "rgba(0,0,0,.55)",
 };
 

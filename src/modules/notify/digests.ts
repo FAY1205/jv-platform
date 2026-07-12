@@ -46,7 +46,7 @@ function partnerDigestHtml(input: PartnerDigestInput): string {
   // never alone). Only a validated #RRGGBB reaches the inline CSS (defense-in-depth).
   const hex = /^#[0-9a-f]{6}$/i.test(input.partnerColor) ? input.partnerColor : null;
   const swatch = hex
-    ? `<span style="display:inline-block;width:11px;height:11px;border-radius:3px;background:${hex};border:1px solid rgba(0,0,0,.18);vertical-align:middle;margin-right:6px"></span>`
+    ? `<span style="display:inline-block;width:11px;height:11px;border-radius:3px;background:${hex};border:1px solid ${C.swatchBorder};vertical-align:middle;margin-right:6px"></span>`
     : "";
   const rows = input.leads
     .map(

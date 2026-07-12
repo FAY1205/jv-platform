@@ -448,6 +448,26 @@ function Gallery() {
             </Card>
 
             <Card>
+              <CardHeader><CardTitle>Status fills — on-status ink (WP-H)</CardTitle></CardHeader>
+              <CardBody className="flex flex-col gap-3">
+                <p className="text-[13px] text-text-2">
+                  Text on a solid status fill uses <span className="num">--on-status</span> — white in
+                  light, near-black in dark — so it stays AA in both themes (hardcoded white-on-fill
+                  failed in dark: danger 3.4:1, success 2.6:1).
+                </p>
+                <div className="flex flex-wrap gap-2.5">
+                  <span className="rounded-lg bg-danger text-on-status text-sm font-semibold px-3.5 py-2">Void run</span>
+                  <span className="rounded-lg bg-success text-on-status text-sm font-semibold px-3.5 py-2">Status saved</span>
+                  <span className="rounded-lg bg-brand text-brand-contrast text-sm font-semibold px-3.5 py-2">Process file</span>
+                </div>
+                <div className="flex items-center gap-2.5 pt-1">
+                  <PartnerTag name="Josh Ax" color={colorOf("Josh Ax")} refId="JV-003" />
+                  <span className="text-[13px] text-text-3">swatch edge = <span className="num">--swatch-border</span> (theme-aware)</span>
+                </div>
+              </CardBody>
+            </Card>
+
+            <Card>
               <CardHeader><CardTitle>Date + range pickers</CardTitle></CardHeader>
               <CardBody className="flex flex-col gap-4">
                 <div className="max-w-xs"><DatePicker label="Single date" value={date} onChange={setDate} /></div>
