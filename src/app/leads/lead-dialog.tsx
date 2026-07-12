@@ -17,9 +17,8 @@ import {
   EmptyState,
   useToast,
 } from "@/components";
-import { matchMethodLabel } from "@/lib/match-method";
+import { matchMethodLabel, routingExplanation } from "@/lib/match-method";
 import { offersUnassign } from "@/lib/unassign";
-import { LeadTerritory } from "./lead-territory";
 
 // ADM: the lead dialog — opened from the global Leads table (no page navigation).
 // Read-only by default; the Edit button unlocks every field (owner decision). The
@@ -139,8 +138,8 @@ export function LeadDialog({ refId, onClose }: { refId: string; onClose: () => v
             qc.invalidateQueries({ queryKey: ["leads"] });
             qc.invalidateQueries({ queryKey: ["dashboard"] });
             // A partner reassign/unassign/revert changes the coverage payload
-            // (unmatchedLeadCount, coveredVolumePct) that the dashboard hero map,
-            // attention banner, and the LeadTerritory matchcard all consume (F-1).
+            // (unmatchedLeadCount, coveredVolumePct) that the dashboard hero map
+            // and the attention banner consume.
             qc.invalidateQueries({ queryKey: ["coverage"] });
             toast.toast("Lead updated.", "success");
           }}
@@ -187,15 +186,19 @@ function ViewMode({ d, onEdit }: { d: LeadDetail; onEdit: () => void }) {
         </Button>
       </div>
 
-      {/* Matchcard (mockup 02) — the matching moment: partner territory + why routed. */}
+      {/* Why-routed note (mockup 02): the matching moment as plain language. The per-lead
+          territory map was dropped (owner F-1) — it read at state level, which mismatched
+          ZIP-level overrides; the sentence carries the "why" without that ambiguity. */}
       {d.partner && (
-        <LeadTerritory
-          partner={d.partner}
-          manual={d.assignment.manual}
-          matchMethod={d.assignment.matchMethod}
-          zip={d.zip}
-          state={d.state}
-        />
+        <p className="text-sm text-text-2">
+          {routingExplanation({
+            partnerName: d.partner.name,
+            manual: d.assignment.manual,
+            matchMethod: d.assignment.matchMethod,
+            zip: d.zip,
+            state: d.state,
+          })}
+        </p>
       )}
 
       <div className="grid grid-cols-2 gap-x-5 gap-y-4 sm:grid-cols-3">
