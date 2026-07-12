@@ -193,13 +193,14 @@
    `text-step-*` utilities (Tailwind v4 `--text-*` namespace). Font-size ONLY:
    no `--text-step-N--line-height` companion, so a swept element keeps its
    element/`leading-*` line-height and the rename stays visually inert.
-   Steps 0/2/4/5/6 mirror today's Tailwind-default sizes (text-xs/sm/lg/2xl/3xl)
+   Steps 2/4/5/6 mirror today's Tailwind-default sizes (text-sm/lg/2xl/3xl)
    as documented vocabulary for the later default-scale migration — not yet
    adopted in app code (they appear only in the /gallery doc card, which is what
-   generates them; a step referenced nowhere would emit no CSS). Not mirrored to
-   tokens.ts — sizes have no off-CSS consumer (WP-K design §5). */
+   generates them; a step referenced nowhere would emit no CSS). Step-0 (12px) IS
+   adopted (WP-P) for sub-13px meta. Not mirrored to tokens.ts — sizes have no
+   off-CSS consumer (WP-K design §5). */
 @theme {
-  --text-step-0: 0.75rem;   /* 12px — micro (= text-xs); vocab, not swept */
+  --text-step-0: 0.75rem;   /* 12px — micro (= text-xs); adopted for sub-13px meta (WP-P) */
   --text-step-1: 0.8125rem; /* 13px — chrome floor: labels, meta, dense text */
   --text-step-2: 0.875rem;  /* 14px — body-sm (= text-sm); vocab, not swept */
   --text-step-3: 1rem;      /* 16px — base/body; small card headings */

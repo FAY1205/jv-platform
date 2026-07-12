@@ -2,10 +2,14 @@ import { describe, it, expect } from "vitest";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 
-// DSN-11 (WP-K): once the ladder is swept, none of these arbitrary text-size
-// literal spellings may reappear in app source. The 5 remaining sub-13px
-// arbitrary sites (values .6/.62/.66/.7rem) are intentionally NOT listed —
-// they carry a documented token-gap comment pending slices B/D.
+// DSN-11 (WP-K + WP-P): once the ladder is swept, none of these arbitrary
+// text-size literal spellings may reappear in app source. WP-P (slice B2)
+// resolved the 4 readable sub-12px sites (.62/.66/.7rem) to text-step-0 and
+// added them here as a regression floor. The 2 GLYPH-FIT carve-outs remain by
+// design and are intentionally NOT banned: the NotificationBell unread-count
+// badge (text-[.6rem], fits a 16px circle) and the CoverageMap on-polygon hex
+// labels (raw fontSize:11) — sized to their container, not to a reading step
+// (FRONTEND_STANDARDS §2, glyph-fit exemption).
 const BANNED = [
   "text-[13px]",
   "text-[.8125rem]",
@@ -13,6 +17,13 @@ const BANNED = [
   "text-[.95rem]",
   "text-[0.95rem]",
   "text-[2rem]",
+  // WP-P: 4 readable sub-12px sites resolved to text-step-0.
+  "text-[.62rem]",
+  "text-[0.62rem]",
+  "text-[.66rem]",
+  "text-[0.66rem]",
+  "text-[.7rem]",
+  "text-[0.7rem]",
 ];
 
 function walk(dir: string): string[] {

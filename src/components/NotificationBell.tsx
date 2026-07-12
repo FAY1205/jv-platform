@@ -100,7 +100,9 @@ export function NotificationBell() {
                 <path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9" />
                 <path d="M10.3 21a1.94 1.94 0 0 0 3.4 0" />
               </svg>
-              {/* DSN-11 gap: sub-floor count text — pending the sub-13px pass (not a tap target). */}
+              {/* DSN-11 glyph-fit carve-out (WP-P): the count is sized to fit the 16px
+                  badge circle, not to a reading step — excluded from the text-step ladder
+                  by design (FRONTEND_STANDARDS §2). Not a tap target. */}
               {unread > 0 && (
                 <span className="absolute -right-1 -top-1 grid min-h-[16px] min-w-[16px] place-items-center rounded-full bg-brand px-1 text-[.6rem] font-bold text-brand-contrast">
                   {unread > 9 ? "9+" : unread}
@@ -133,8 +135,9 @@ export function NotificationBell() {
             ) : (
               groups.map((group) => (
                 <div key={group.key}>
-                  {/* DSN-11 gap: sub-floor group label — sizing owned by slice B/D. */}
-                  <DropdownMenuLabel className="text-[.62rem] uppercase tracking-wide text-text-3">{group.label}</DropdownMenuLabel>
+                  {/* WP-P: DropdownMenuLabel's own text-xs (12px) is the target size — the
+                      former sub-12px .62rem override is dropped, no font-size class needed. */}
+                  <DropdownMenuLabel className="uppercase tracking-wide text-text-3">{group.label}</DropdownMenuLabel>
                   {group.items.map((n) =>
                     n.deepLink ? (
                       <DropdownMenuItem

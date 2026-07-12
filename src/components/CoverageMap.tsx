@@ -78,6 +78,9 @@ export function CoverageMap({ states, selectedPartnerId = null, onSelectPartner,
                 dominantBaseline="central"
                 className="num pointer-events-none select-none"
                 style={{
+                  // DSN-11 glyph-fit carve-out (WP-P): the 2-letter code is sized to fit
+                  // the hex polygon, not to a reading step — excluded from the text-step
+                  // ladder by design (FRONTEND_STANDARDS §2). Raw SVG attr, not a class.
                   fontSize: 11,
                   fontWeight: 600,
                   fill: labelFill,
@@ -114,8 +117,7 @@ export function CoverageMap({ states, selectedPartnerId = null, onSelectPartner,
                 size="sm"
                 className="mt-1"
               />
-              {/* DSN-11 gap: sub-floor map micro-label — pending sub-13px pass. */}
-              <div className="num mt-1 text-[.7rem] text-text-3">
+              <div className="num mt-1 text-step-0 text-text-3">
                 {hoveredCov.leadCount} lead{hoveredCov.leadCount === 1 ? "" : "s"} received
               </div>
             </>

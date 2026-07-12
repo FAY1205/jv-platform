@@ -24,6 +24,13 @@ Canonicalizes the frontend patterns this codebase follows. Authority order:
 - Every interactive component implements **default / hover / focus-visible / active /
   disabled / loading**. `/gallery` is the living showcase — new components appear there
   in the same WP.
+- Type sizes come from the `text-step-0..7` ladder (DSN-11, `globals.css`; floor
+  `text-step-0` = 12px). No arbitrary `text-[…]` font-size literals in app source —
+  guarded by `tests/unit/type-scale.test.ts`.
+  - **Exception (glyph-fit, not type-scale):** the `NotificationBell` unread-count badge
+    (`text-[.6rem]`, fits a 16px circle) and the `CoverageMap` on-polygon 2-letter hex
+    labels (raw `fontSize:11`) are sized to their container, not to a reading step — kept
+    sub-floor by design and excluded from the ladder (and from the guard's ban list).
 - Known debt: `TODO(owner)` a `Checkbox` primitive (notification prefs use styled inputs).
 
 ## 3. Tokens & theming (PRN-12, SEAM-08)

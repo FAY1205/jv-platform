@@ -182,8 +182,7 @@ function Gallery() {
                 <span className="w-9 h-9 rounded-md border border-border shrink-0" style={{ background: `var(${s.varName})` }} />
                 <div className="leading-tight">
                   <div className="text-xs font-semibold">{s.label}</div>
-                  {/* DSN-11 gap: sub-floor token varName — pending sub-13px pass. */}
-                  <div className="num text-[.66rem] text-text-3">{s.varName}</div>
+                  <div className="num text-step-0 text-text-3">{s.varName}</div>
                 </div>
               </div>
             ))}
@@ -212,7 +211,7 @@ function Gallery() {
           <Card>
             <CardBody className="flex flex-col">
               {[
-                ["text-step-0", "12px", "micro — vocab (= text-xs), not yet adopted"],
+                ["text-step-0", "12px", "micro (= text-xs) — sub-13px meta (WP-P)"],
                 ["text-step-1", "13px", "chrome floor: labels, meta, dense text"],
                 ["text-step-2", "14px", "body-sm — vocab (= text-sm), not yet adopted"],
                 ["text-step-3", "16px", "base/body; small card headings"],
