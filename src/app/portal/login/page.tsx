@@ -11,7 +11,7 @@ import { APP_NAME } from "@/lib/app";
 function PortalLoginForm() {
   const router = useRouter();
   const params = useSearchParams();
-  const next = params.get("next") || "/portal";
+  const next = params.get("next") || "/portal/dashboard";
 
   const [checking, setChecking] = React.useState(true);
   const [step, setStep] = React.useState<"email" | "code">("email");

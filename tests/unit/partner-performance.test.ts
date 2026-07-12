@@ -15,6 +15,17 @@ describe("buildPartnerPerformance (ANA-02/03)", () => {
     expect(r.stats.closed).toBe(1);
   });
 
+  it("ANA-02: untouched counts in-range leads with no first touch", () => {
+    const r = buildPartnerPerformance("30d", NOW, [
+      f("2026-07-05T00:00:00Z", null, null), // in-range, no touch → untouched
+      f("2026-07-05T00:00:00Z", "2026-07-06T00:00:00Z", null), // in-range, touched
+      f("2020-01-01T00:00:00Z", null, null), // out of range → not counted
+    ]);
+    expect(r.stats.given).toBe(2);
+    expect(r.stats.contacted).toBe(1);
+    expect(r.stats.untouched).toBe(1);
+  });
+
   it("ANA-03: Avg Contact averages contacted leads only; null when none", () => {
     const r = buildPartnerPerformance("30d", NOW, [f("2026-07-05T00:00:00Z", "2026-07-05T02:00:00Z", null)]);
     expect(r.stats.avgContactHours).toBeGreaterThan(1.5);

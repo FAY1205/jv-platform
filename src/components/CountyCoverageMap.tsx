@@ -24,6 +24,13 @@ export interface CountyCoverageMapProps {
    *  wheel-zoom, drag-pan, or hover (used inside the lead dialog matchcard, where the
    *  mouse-only pan would be a keyboard trap; SC 2.1.1). Defaults to true. */
   interactive?: boolean;
+  /** Portal (WP-F.3): render non-covered states as a plain neutral fill instead of the
+   *  `--warn` gap hatch. The partner's own dashboard shows "not yours" as calm land, never
+   *  a coverage-gap alarm (an admin-only concern). Defaults to false (admin keeps the hatch). */
+  neutralUncovered?: boolean;
+  /** Override the SVG's accessible name (role="img"). Portal passes a scoped description
+   *  ("your covered states"); admin keeps the default all-partner wording. */
+  ariaLabel?: string;
 }
 
 // Module-level cache so the ~0.9 MB geometry is fetched once per session.
@@ -36,7 +43,7 @@ let geoCache: CountyGeo | null = null;
  * demand. 3,142 county paths render once; hover/click use event delegation and a
  * single highlight overlay so mouse-move never re-renders the whole map.
  */
-export function CountyCoverageMap({ states, selectedPartnerId = null, onSelectPartner, caption, interactive = true }: CountyCoverageMapProps) {
+export function CountyCoverageMap({ states, selectedPartnerId = null, onSelectPartner, caption, interactive = true, neutralUncovered = false, ariaLabel }: CountyCoverageMapProps) {
   const [geo, setGeo] = React.useState<CountyGeo | null>(geoCache);
   const [failed, setFailed] = React.useState(false);
   const wrapRef = React.useRef<HTMLDivElement>(null);
@@ -81,13 +88,13 @@ export function CountyCoverageMap({ states, selectedPartnerId = null, onSelectPa
           key={c.f}
           d={c.d}
           data-fips={c.f}
-          fill={covered ? cov!.color! : `url(#${hatchId})`}
+          fill={covered ? cov!.color! : neutralUncovered ? "var(--surface-3)" : `url(#${hatchId})`}
           fillOpacity={dimmed ? DIMMED_FILL_OPACITY : covered ? PARTNER_FILL_OPACITY : 1}
           className={covered ? "cursor-pointer" : "cursor-default"}
         />
       );
     });
-  }, [geo, covOfCounty, selectedPartnerId, hatchId]);
+  }, [geo, covOfCounty, selectedPartnerId, hatchId, neutralUncovered]);
 
   // ── Zoom & pan (SVG transform on a group; strokes stay crisp via
   //    non-scaling-stroke). Drag to pan, wheel/buttons to zoom toward the cursor.
@@ -189,7 +196,7 @@ export function CountyCoverageMap({ states, selectedPartnerId = null, onSelectPa
         viewBox={geo.viewBox}
         className={`w-full${interactive ? " touch-none" : ""}`}
         role="img"
-        aria-label="United States county coverage map, colored by partner"
+        aria-label={ariaLabel ?? "United States county coverage map, colored by partner"}
         style={{ cursor: interactive && view.s > 1 ? (dragging ? "grabbing" : "grab") : "default" }}
         onPointerDown={interactive ? onPointerDown : undefined}
         onPointerMove={interactive ? onMove : undefined}

@@ -20,13 +20,21 @@ function renderShell() {
 }
 
 describe("PortalShell", () => {
-  it("F-66: renders the three bottom tabs as a labeled nav", () => {
-    mockPath = "/portal/leads";
+  it("F-66: renders the four bottom tabs as a labeled nav", () => {
+    mockPath = "/portal/dashboard";
     renderShell();
     expect(screen.getByRole("navigation", { name: "Portal" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Dashboard" })).toHaveAttribute("href", "/portal/dashboard");
     expect(screen.getByRole("link", { name: "Leads" })).toHaveAttribute("href", "/portal/leads");
     expect(screen.getByRole("link", { name: "Activity" })).toHaveAttribute("href", "/portal/activity");
     expect(screen.getByRole("link", { name: "Account" })).toHaveAttribute("href", "/portal");
+  });
+
+  it("WP-F.3: marks the Dashboard tab current on /portal/dashboard", () => {
+    mockPath = "/portal/dashboard";
+    renderShell();
+    expect(screen.getByRole("link", { name: "Dashboard" })).toHaveAttribute("aria-current", "page");
+    expect(screen.getByRole("link", { name: "Leads" })).not.toHaveAttribute("aria-current");
   });
 
   it("marks the active tab from the URL", () => {

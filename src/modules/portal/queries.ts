@@ -3,6 +3,9 @@ import { getDb } from "@/db";
 import * as schema from "@/db/schema";
 import { leadWhere, leadChildWhere, tenantWhere, type ScopeContext } from "@/lib/scope";
 import { computeRunSummary, type RunSummary } from "../analytics/run-summary";
+import { partnerPerformanceDetail } from "../analytics/partner-performance";
+import { buildPartnerTerritory, type PartnerTerritory } from "../coverage/partner-territory";
+import type { RangeKey } from "../analytics/ranges";
 import type { ExportLead, PartnerInfo } from "../export/render";
 import { currentStatus, SEED_LEAD_STATUSES } from "./statuses";
 
@@ -171,6 +174,37 @@ export async function getPartnerLeadDetail(scope: ScopeContext, refId: string): 
     availableStatuses: [...SEED_LEAD_STATUSES],
     listing,
   };
+}
+
+export interface PartnerDashboardStats {
+  range: RangeKey;
+  leads: number;
+  contacted: number;
+  closed: number;
+  untouched: number;
+}
+
+/** WP-F.3: the caller's OWN dashboard KPIs (PRN-08). Numbers come from analytics (PRN-15). */
+export async function partnerDashboardStats(scope: ScopeContext, range: RangeKey): Promise<PartnerDashboardStats> {
+  if (!scope.partnerId) return { range, leads: 0, contacted: 0, closed: 0, untouched: 0 };
+  const perf = await partnerPerformanceDetail(scope, scope.partnerId, range);
+  return { range, leads: perf.stats.given, contacted: perf.stats.contacted, closed: perf.stats.closed, untouched: perf.stats.untouched };
+}
+
+/** WP-F.3: the caller's OWN state territory, everyone else anonymized (PRN-08). */
+export async function partnerTerritory(scope: ScopeContext): Promise<PartnerTerritory> {
+  const db = getDb();
+  const empty = { id: "", name: "", refId: "", color: "#000000" };
+  if (!scope.partnerId) return buildPartnerTerritory({ ownStates: [], partner: empty });
+  const [partner] = await db
+    .select({ id: schema.partners.id, name: schema.partners.name, refId: schema.partners.refId, color: schema.partners.color })
+    .from(schema.partners)
+    .where(and(tenantWhere(schema.partners, scope), eq(schema.partners.id, scope.partnerId)));
+  const rules = await db
+    .select({ state: schema.stateRules.state })
+    .from(schema.stateRules)
+    .where(and(tenantWhere(schema.stateRules, scope), eq(schema.stateRules.partnerId, scope.partnerId)));
+  return buildPartnerTerritory({ ownStates: rules.map((r) => r.state), partner: partner ?? empty });
 }
 
 export interface PartnerExportData {

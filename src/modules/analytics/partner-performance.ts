@@ -1,7 +1,7 @@
 import { sql } from "drizzle-orm";
 import { getDb } from "@/db";
 import * as schema from "@/db/schema";
-import { tenantWhere, type ScopeContext } from "@/lib/scope";
+import { tenantWhere, partnerOwnsLead, type ScopeContext } from "@/lib/scope";
 import { DEFAULT_STATUS } from "../portal/statuses";
 import { rangeWindow, type RangeKey } from "./ranges";
 
@@ -18,7 +18,7 @@ export interface PartnerLeadFact {
 
 export interface PartnerPerformance {
   range: { key: RangeKey; start: string; end: string; bucket: "day" | "month" };
-  stats: { given: number; contacted: number; closed: number; avgContactHours: number | null };
+  stats: { given: number; contacted: number; closed: number; untouched: number; avgContactHours: number | null };
   history: { bucketStart: string; given: number; contacted: number; closed: number }[];
 }
 
@@ -69,9 +69,13 @@ export function buildPartnerPerformance(range: RangeKey, now: Date, facts: reado
   let given = 0;
   let contacted = 0;
   let closed = 0;
+  let untouched = 0;
   let touchSumH = 0;
   for (const f of facts) {
-    if (inRange(f.receivedAt, startMs, endMs)) given += 1;
+    if (inRange(f.receivedAt, startMs, endMs)) {
+      given += 1;
+      if (f.firstTouchAt === null) untouched += 1; // in-range lead with no partner action yet
+    }
     if (inRange(f.firstTouchAt, startMs, endMs)) {
       contacted += 1;
       touchSumH += (new Date(f.firstTouchAt!).getTime() - new Date(f.receivedAt).getTime()) / HOUR;
@@ -79,7 +83,7 @@ export function buildPartnerPerformance(range: RangeKey, now: Date, facts: reado
     if (inRange(f.closedAt, startMs, endMs)) closed += 1;
   }
   const avgContactHours = contacted === 0 ? null : Math.round((touchSumH / contacted) * 10) / 10;
-  const stats = { given, contacted, closed, avgContactHours };
+  const stats = { given, contacted, closed, untouched, avgContactHours };
   const meta = { key: range, start: w.start.toISOString(), end: w.end.toISOString(), bucket: w.bucket };
 
   // Series bounds: fixed windows span the whole window (zero-filled edges); all-time
@@ -119,7 +123,7 @@ export async function partnerPerformanceDetail(scope: ScopeContext, partnerId: s
     with partner_leads as (
       select id, created_at from leads
       where ${leadTenant} and deleted_at is null and mls_status = 'kept'
-        and coalesce(manual_partner_id, partner_id) = ${partnerId}
+        and ${partnerOwnsLead(partnerId)}
     ),
     status_hist as (
       select lead_id,

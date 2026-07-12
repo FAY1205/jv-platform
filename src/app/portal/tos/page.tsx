@@ -22,7 +22,7 @@ export default function PortalTosPage() {
         body: "{}",
       });
       if (res.ok) {
-        router.push("/portal");
+        router.push("/portal/dashboard");
         router.refresh();
         return;
       }

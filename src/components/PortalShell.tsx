@@ -9,8 +9,8 @@ import { ThemeToggle } from "./ThemeToggle";
 import { useApplyTheme } from "@/lib/preferences";
 import { cn } from "@/lib/cn";
 
-// PortalShell (WP-F.1) — the partner-facing mobile chrome: a sticky top bar (brand +
-// notifications + theme) and a sticky bottom tab bar (Leads / Activity / Account). A
+// PortalShell (WP-F.1/F.3) — the partner-facing mobile chrome: a sticky top bar (brand +
+// notifications + theme) and a sticky bottom tab bar (Dashboard / Leads / Activity / Account). A
 // centered ≤520px column reads like an app on desktop and full-bleed on mobile. The
 // /portal/login (pre-auth) and /portal/tos (post-auth, pre-ToS-acceptance) routes render
 // bare (no chrome). The content region is a plain <div> so each page keeps its own single
@@ -29,6 +29,12 @@ const stroke = {
 };
 
 const TABS: Tab[] = [
+  {
+    href: "/portal/dashboard",
+    label: "Dashboard",
+    active: (p) => p === "/portal/dashboard",
+    icon: <svg {...stroke} className="h-[22px] w-[22px]"><path d="M3 13h8V3H3zM13 21h8V3h-8zM3 21h8v-6H3z" /></svg>,
+  },
   {
     href: "/portal/leads",
     label: "Leads",
@@ -58,7 +64,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
   return (
     <div className="mx-auto flex min-h-screen w-full max-w-[520px] flex-col border-border bg-bg md:border-x">
       <header className="sticky top-0 z-20 flex items-center gap-2 border-b border-border-soft bg-bg/85 px-4 py-3 backdrop-blur-md">
-        <Link href="/portal/leads" className="flex items-center gap-2">
+        <Link href="/portal/dashboard" className="flex items-center gap-2">
           <svg viewBox="0 0 34 34" fill="none" aria-hidden="true" className="h-7 w-7 shrink-0">
             <rect x="1.5" y="1.5" width="31" height="31" rx="7" className="stroke-text" strokeWidth="1.5" />
             <path d="M7 24 L14 12 L21 19 L27 9" className="stroke-brand" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
