@@ -54,8 +54,10 @@ describe("DSN-01/SEAM-08: design tokens", () => {
     expect(globalsCss).toContain(':root[data-theme="dark"]');
   });
 
-  it("DSN-02: root is 16px and the three next/font faces are wired", () => {
-    expect(globalsCss).toContain("font-size: 16px");
+  it("DSN-02: root font-size is 100% (16px default, respecting user zoom) and the three next/font faces are wired", () => {
+    // WCAG 1.4.4: root is `100%` (not a hardcoded 16px) so a user's browser text-size
+    // preference flows through the rem scale. 100% === 16px for the default browser setting.
+    expect(globalsCss).toContain("font-size: 100%");
     expect(globalsCss).toContain("--font-fraunces");
     expect(globalsCss).toContain("--font-hanken");
     expect(globalsCss).toContain("--font-plex-mono");

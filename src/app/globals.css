@@ -216,7 +216,11 @@
 }
 
 html {
-  font-size: 16px;
+  /* 100% (not a fixed 16px) so a user's browser/OS text-size preference flows through
+     the rem-based type scale — WCAG 1.4.4 (Resize text). The browser default is 16px, so
+     this is render-neutral for default settings and only differs when a user has changed
+     their base font size. */
+  font-size: 100%;
 }
 
 body {
