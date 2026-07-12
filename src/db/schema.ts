@@ -258,6 +258,10 @@ export const leads = pgTable(
     manualAssignedBy: uuid("manual_assigned_by"),
     manualReason: text("manual_reason"),
     deletedAt: timestamp("deleted_at", { withTimezone: true }), // soft delete (DM-09)
+    // WP-GL-B: stamped when the retention sweep redacts this soft-deleted lead's seller PII
+    // (DM-09 hard-delete-via-retention / LGL-02 grace). NULL = not yet purged; the sweep's
+    // idempotency + selectivity both key off it. PII lives on until then (DM-02 for live leads).
+    piiPurgedAt: timestamp("pii_purged_at", { withTimezone: true }),
     createdAt: createdAt(),
   },
   (t) => [
@@ -271,6 +275,11 @@ export const leads = pgTable(
     index("leads_tenant_created_idx").on(t.tenantId, t.createdAt),
     index("leads_tenant_state_idx").on(t.tenantId, t.state),
     index("leads_tenant_campaign_idx").on(t.tenantId, t.campaign),
+    // WP-GL-B: the retention sweep scans only soft-deleted-not-yet-purged rows — a small set —
+    // so a partial index keyed on exactly that predicate keeps the sweep cheap at any table size.
+    index("leads_pii_purge_idx")
+      .on(t.tenantId, t.deletedAt)
+      .where(sql`${t.piiPurgedAt} is null and ${t.deletedAt} is not null`),
   ],
 );
 

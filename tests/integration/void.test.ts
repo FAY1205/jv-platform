@@ -8,6 +8,7 @@ import { purgeAuditLog } from "../helpers/audit";
 import { DrizzleRunStore } from "@/modules/run/store";
 import { processRun } from "@/modules/run/process";
 import { voidUpload, AlreadyVoidedError, VoidWindowClosedError } from "@/modules/run/void";
+import { REDACTED_RAW_JSON, REDACTED_NOTE_BODY, REDACTED_DEDUPE_KEY } from "@/modules/retention/purge";
 import { listPartnerLeads } from "@/modules/portal/queries";
 import { getRunDetail } from "@/modules/run/queries";
 import { getRunExportData } from "@/modules/run/export-data";
@@ -202,8 +203,43 @@ suite("WP-018: void-run (ING-09)", () => {
 
   it("ING-09/DM-09: a corrected re-upload re-inserts a soft-deleted lead's dedupe_key (partial unique index)", async () => {
     await voidUpload(scope, await processNjRun("77 Reupload Way"), "wrong file"); // soft-deletes the lead, frees the key
-    // Re-processing the SAME address re-inserts the same dedupe_key — would throw a unique violation
-    // pre-migration; the partial index (WHERE deleted_at IS NULL) allows it.
+    // Re-processing the SAME address inserts a fresh live row with that dedupe_key. The old row is
+    // soft-deleted (and its key sentineled by the WP-GL-B purge), so the partial unique index
+    // (WHERE deleted_at IS NULL) excludes it — no collision.
     await expect(processNjRun("77 Reupload Way")).resolves.toBeTruthy();
+  });
+
+  it("WP-GL-B: voiding redacts the run's leads' seller PII + notes immediately (DM-09/LGL-02/SEC-05)", async () => {
+    const uploadRef = await processNjRun("88 Purge Blvd");
+    const [up] = await db
+      .select({ id: schema.uploads.id })
+      .from(schema.uploads)
+      .where(and(eq(schema.uploads.tenantId, scope.tenantId), eq(schema.uploads.refId, uploadRef)));
+    const [lead] = await db
+      .select({ id: schema.leads.id })
+      .from(schema.leads)
+      .where(and(eq(schema.leads.tenantId, scope.tenantId), eq(schema.leads.uploadId, up.id)));
+    // A note carrying seller PII on the lead.
+    const author = randomUUID();
+    await db.insert(schema.users).values({ id: author, tenantId: scope.tenantId, email: `purge-${author}@test.dev`, role: "admin" });
+    await db.insert(schema.leadNotes).values({ tenantId: scope.tenantId, leadId: lead.id, authorUserId: author, authorRole: "admin", body: "seller Bob at 555-000-1234" });
+
+    await voidUpload(scope, uploadRef, "wrong file");
+
+    const [l] = await db.select().from(schema.leads).where(eq(schema.leads.id, lead.id));
+    expect(l.deletedAt).not.toBeNull();
+    expect(l.piiPurgedAt).not.toBeNull();
+    expect(l.sellerFirst).toBeNull();
+    expect(l.address).toBeNull();
+    expect(l.dedupeKey).toBe(REDACTED_DEDUPE_KEY);
+    expect(l.rawJson).toEqual(REDACTED_RAW_JSON);
+    const notes = await db.select().from(schema.leadNotes).where(eq(schema.leadNotes.leadId, lead.id));
+    expect(notes[0].body).toBe(REDACTED_NOTE_BODY);
+    // DM-04: the void audit records the purge count.
+    const [audit] = await db
+      .select()
+      .from(schema.auditLog)
+      .where(and(eq(schema.auditLog.tenantId, scope.tenantId), eq(schema.auditLog.action, "upload.voided"), eq(schema.auditLog.entityRef, uploadRef)));
+    expect((audit.after as { piiPurged: number }).piiPurged).toBeGreaterThanOrEqual(1);
   });
 });

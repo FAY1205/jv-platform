@@ -4,6 +4,10 @@
     {
       "path": "/api/cron/drain-outbox",
       "schedule": "*/5 * * * *"
+    },
+    {
+      "path": "/api/cron/retention-sweep",
+      "schedule": "0 3 * * *"
     }
   ]
 }

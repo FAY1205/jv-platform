@@ -1,10 +1,11 @@
-import { and, eq, isNull, inArray, sql } from "drizzle-orm";
+import { and, eq, isNull, inArray, ne, sql } from "drizzle-orm";
 import { getDb } from "@/db";
 import * as schema from "@/db/schema";
 import { tenantWhere, type ScopeContext } from "@/lib/scope";
 import { isWithinVoidWindow } from "./void-window";
 import { loadVoidNotifiesPartners } from "../settings/export-settings";
 import { createNotification } from "../notify/notifications";
+import { redactionPatch, REDACTED_NOTE_BODY } from "../retention/purge";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Void a run (ING-09). Soft-void with a required reason: the upload is marked voided
@@ -12,6 +13,9 @@ import { createNotification } from "../notify/notifications";
 // which excludes them from dedupe, analytics, and exports EVERYWHERE (every lead read
 // filters deleted_at) while they stay visible on the import page (getRunDetail is the one
 // read that does not filter deleted_at). PRN-05: assignment columns are never rewritten.
+// WP-GL-B: the recalled leads' seller PII (name/contact/address/raw row + notes) is redacted
+// in the SAME transaction — a void is a "wrong file" undo, so the personal info goes at once
+// (DM-09/LGL-02/SEC-05); pii_purged_at is stamped so the backstop sweep skips them.
 // Affected partners get an in-app recall notice (WP-J2), gated by the void_notifies_partners
 // setting (PRN-11 default ON). The window guard (WP-J1) bounds all of this to 10 min post-import.
 // ─────────────────────────────────────────────────────────────────────────────
@@ -82,12 +86,16 @@ export async function voidUpload(scope: ScopeContext, ref: string, reason: strin
       .set({ status: "voided", voidReason: reason, voidedAt })
       .where(eq(schema.uploads.id, upload.id));
 
-    // ING-09 recall: soft-delete ALL of the run's live leads. Every lead read filters deleted_at,
-    // so they drop from dedupe/analytics/exports and both partner + admin lists globally; the import
-    // page still shows them (getRunDetail doesn't filter deleted_at). PRN-05: assignment untouched.
+    // ING-09 recall + WP-GL-B purge: soft-delete ALL of the run's live leads AND redact their
+    // seller PII in the same statement — a void is a "wrong file, re-import" undo, so the personal
+    // info goes at once (owner decision 2026-07-13). Every lead read filters deleted_at, so they
+    // drop from dedupe/analytics/exports and both partner + admin lists globally; the import page
+    // still shows them (redacted) since getRunDetail doesn't filter deleted_at. PRN-05: assignment
+    // untouched. dedupe_key is sentineled too, but the partial unique index (WHERE deleted_at IS
+    // NULL) already excludes soft-deleted rows, so a corrected re-upload still re-inserts freely.
     const recalled = await tx
       .update(schema.leads)
-      .set({ deletedAt: voidedAt })
+      .set({ deletedAt: voidedAt, ...redactionPatch(), piiPurgedAt: voidedAt })
       .where(
         and(
           tenantWhere(schema.leads, scope),
@@ -97,6 +105,21 @@ export async function voidUpload(scope: ScopeContext, ref: string, reason: strin
       )
       .returning({ id: schema.leads.id });
 
+    // Redact the recalled leads' free-text notes too (the likeliest place a human typed seller PII).
+    const recalledIds = recalled.map((r) => r.id);
+    if (recalledIds.length > 0) {
+      await tx
+        .update(schema.leadNotes)
+        .set({ body: REDACTED_NOTE_BODY })
+        .where(
+          and(
+            tenantWhere(schema.leadNotes, scope),
+            inArray(schema.leadNotes.leadId, recalledIds),
+            ne(schema.leadNotes.body, REDACTED_NOTE_BODY),
+          ),
+        );
+    }
+
     // Append-only audit of the mutation (DM-04).
     await tx.insert(schema.auditLog).values({
       tenantId: scope.tenantId,
@@ -105,7 +128,7 @@ export async function voidUpload(scope: ScopeContext, ref: string, reason: strin
       entityType: "upload",
       entityRef: upload.refId,
       before: { status: upload.status },
-      after: { status: "voided", voidReason: reason, recalledLeads: recalled.length },
+      after: { status: "voided", voidReason: reason, recalledLeads: recalled.length, piiPurged: recalled.length },
       traceId: globalThis.crypto.randomUUID(),
     });
 
