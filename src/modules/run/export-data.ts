@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import { getDb } from "@/db";
 import * as schema from "@/db/schema";
 import { tenantWhere, leadWhere, type ScopeContext } from "@/lib/scope";
@@ -29,7 +29,8 @@ export async function getRunExportData(scope: ScopeContext, ref: string): Promis
   if (!upload) return null;
 
   const [leadRows, partnerRows] = await Promise.all([
-    db.select().from(schema.leads).where(and(leadWhere(scope), eq(schema.leads.uploadId, upload.id))),
+    // WP-J2: exclude recalled (soft-deleted / voided-run) leads from the deliverable.
+    db.select().from(schema.leads).where(and(leadWhere(scope), eq(schema.leads.uploadId, upload.id), isNull(schema.leads.deletedAt))),
     db.select({ id: schema.partners.id, name: schema.partners.name, refId: schema.partners.refId, color: schema.partners.color }).from(schema.partners).where(tenantWhere(schema.partners, scope)),
   ]);
 

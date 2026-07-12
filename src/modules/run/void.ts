@@ -1,15 +1,19 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNull, inArray, sql } from "drizzle-orm";
 import { getDb } from "@/db";
 import * as schema from "@/db/schema";
 import { tenantWhere, type ScopeContext } from "@/lib/scope";
 import { isWithinVoidWindow } from "./void-window";
+import { loadVoidNotifiesPartners } from "../settings/export-settings";
+import { createNotification } from "../notify/notifications";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Void a run (ING-09). Soft-void with a required reason: the upload is marked voided
-// and audited (DM-04); its leads are NOT deleted (PRN-05 — voiding is the sanctioned
-// escape hatch, never a history rewrite). Voided leads are automatically excluded from
-// future dedupe because DrizzleRunStore.loadHistory filters uploads.status != 'voided'
-// (WP-017b), so a bad run can never poison "previously matched" going forward.
+// and audited (DM-04), and the run's leads are SOFT-DELETED (deleted_at = voidedAt) —
+// which excludes them from dedupe, analytics, and exports EVERYWHERE (every lead read
+// filters deleted_at) while they stay visible on the import page (getRunDetail is the one
+// read that does not filter deleted_at). PRN-05: assignment columns are never rewritten.
+// Affected partners get an in-app recall notice (WP-J2), gated by the void_notifies_partners
+// setting (PRN-11 default ON). The window guard (WP-J1) bounds all of this to 10 min post-import.
 // ─────────────────────────────────────────────────────────────────────────────
 
 export class UploadNotFoundError extends Error {
@@ -36,11 +40,19 @@ export class VoidWindowClosedError extends Error {
 export interface VoidResult {
   uploadRef: string;
   voidedAt: string;
+  /** Total leads soft-deleted (recalled) — includes removed/unmatched, not just delivered. */
+  recalledLeadCount: number;
+  /** Distinct partners who had delivered leads recalled (and were notified, if enabled). */
+  affectedPartnerCount: number;
 }
 
 export async function voidUpload(scope: ScopeContext, ref: string, reason: string): Promise<VoidResult> {
   const db = getDb();
+  const notifyPartners = await loadVoidNotifiesPartners(scope);
   return db.transaction(async (tx) => {
+    // ING-06 / concurrency: serialize per tenant (mirrors persistRun) so two overlapping voids
+    // can't double-recall or double-notify, and a void can't race a concurrent import's dedupe.
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${scope.tenantId})::bigint)`);
     const [upload] = await tx
       .select()
       .from(schema.uploads)
@@ -52,10 +64,38 @@ export async function voidUpload(scope: ScopeContext, ref: string, reason: strin
     if (!isWithinVoidWindow(upload.createdAt, new Date())) throw new VoidWindowClosedError(ref);
 
     const voidedAt = new Date();
+
+    // Affected partners = effective owners (coalesce(manual, pipeline)) of this run's DELIVERED
+    // (kept + assigned) leads, with per-partner counts. Captured BEFORE the soft-delete so the
+    // recall notice can name each partner's count. Tenant-scoped (PRN-08).
+    const affected = (await tx.execute(sql`
+      select coalesce(manual_partner_id, partner_id) as partner_id, count(*)::int as n
+      from leads
+      where ${tenantWhere(schema.leads, scope)} and upload_id = ${upload.id}
+        and deleted_at is null and mls_status = 'kept'
+        and coalesce(manual_partner_id, partner_id) is not null
+      group by coalesce(manual_partner_id, partner_id)
+    `)) as unknown as { partner_id: string; n: number }[];
+
     await tx
       .update(schema.uploads)
       .set({ status: "voided", voidReason: reason, voidedAt })
       .where(eq(schema.uploads.id, upload.id));
+
+    // ING-09 recall: soft-delete ALL of the run's live leads. Every lead read filters deleted_at,
+    // so they drop from dedupe/analytics/exports and both partner + admin lists globally; the import
+    // page still shows them (getRunDetail doesn't filter deleted_at). PRN-05: assignment untouched.
+    const recalled = await tx
+      .update(schema.leads)
+      .set({ deletedAt: voidedAt })
+      .where(
+        and(
+          tenantWhere(schema.leads, scope),
+          eq(schema.leads.uploadId, upload.id),
+          isNull(schema.leads.deletedAt),
+        ),
+      )
+      .returning({ id: schema.leads.id });
 
     // Append-only audit of the mutation (DM-04).
     await tx.insert(schema.auditLog).values({
@@ -65,10 +105,38 @@ export async function voidUpload(scope: ScopeContext, ref: string, reason: strin
       entityType: "upload",
       entityRef: upload.refId,
       before: { status: upload.status },
-      after: { status: "voided", voidReason: reason },
+      after: { status: "voided", voidReason: reason, recalledLeads: recalled.length },
       traceId: globalThis.crypto.randomUUID(),
     });
 
-    return { uploadRef: upload.refId, voidedAt: voidedAt.toISOString() };
+    // In-app recall notice to each affected partner's user(s) (NTF-04 shape; inlined so it commits
+    // atomically inside this transaction). SEC-05: import ref + count only, never seller PII.
+    // Gated by void_notifies_partners (PRN-11 default ON).
+    if (notifyPartners && affected.length > 0) {
+      const partnerIds = affected.map((a) => a.partner_id);
+      const countByPartner = new Map(affected.map((a) => [a.partner_id, a.n]));
+      const recipients = await tx
+        .select({ userId: schema.users.id, partnerId: schema.users.partnerId })
+        .from(schema.users)
+        .where(and(tenantWhere(schema.users, scope), inArray(schema.users.partnerId, partnerIds)));
+      for (const r of recipients) {
+        const n = countByPartner.get(r.partnerId!) ?? 0;
+        await createNotification(tx, {
+          tenantId: scope.tenantId,
+          userId: r.userId,
+          type: "run_voided",
+          title: `${n} lead${n === 1 ? "" : "s"} withdrawn`,
+          body: `Import ${upload.refId} was voided by your admin — ${n} lead${n === 1 ? "" : "s"} ${n === 1 ? "was" : "were"} removed from your list.`,
+          deepLink: "/portal/leads",
+        });
+      }
+    }
+
+    return {
+      uploadRef: upload.refId,
+      voidedAt: voidedAt.toISOString(),
+      recalledLeadCount: recalled.length,
+      affectedPartnerCount: affected.length,
+    };
   });
 }

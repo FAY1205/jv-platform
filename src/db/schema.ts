@@ -11,6 +11,7 @@ import {
   uniqueIndex,
   primaryKey,
 } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Data model (spec §5, DM-01..11). Every table carries tenant_id (SCP-01,
@@ -260,7 +261,9 @@ export const leads = pgTable(
     createdAt: createdAt(),
   },
   (t) => [
-    uniqueIndex("leads_tenant_dedupe_idx").on(t.tenantId, t.dedupeKey),
+    // Partial (DM-09 / WP-J2): voiding soft-deletes a run's leads; a corrected re-upload must be
+    // able to re-insert the same dedupe_key, so uniqueness applies only to live (non-deleted) rows.
+    uniqueIndex("leads_tenant_dedupe_idx").on(t.tenantId, t.dedupeKey).where(sql`${t.deletedAt} is null`),
     index("leads_tenant_upload_idx").on(t.tenantId, t.uploadId),
     index("leads_tenant_partner_created_idx").on(t.tenantId, t.partnerId, t.createdAt),
     index("leads_tenant_manual_partner_idx").on(t.tenantId, t.manualPartnerId),

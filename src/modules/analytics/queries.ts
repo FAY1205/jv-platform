@@ -96,7 +96,10 @@ export async function dashboardData(scope: ScopeContext, range: RangeKey): Promi
     db.execute(sql`
       with closed as (
         select lead_id, max(created_at) as closed_at
-        from lead_status_history where ${histTenant} and status = 'Closed' group by lead_id
+        from lead_status_history where ${histTenant} and status = 'Closed'
+          -- WP-J2 (DM-09): don't count a recalled (soft-deleted) lead's Closed event.
+          and lead_id in (select id from leads where ${leadTenant} and deleted_at is null)
+        group by lead_id
       )
       select
         count(*) filter (where closed_at >= ${start} and closed_at < ${end})::int as c,

@@ -8,6 +8,12 @@ import { purgeAuditLog } from "../helpers/audit";
 import { DrizzleRunStore } from "@/modules/run/store";
 import { processRun } from "@/modules/run/process";
 import { voidUpload, AlreadyVoidedError, VoidWindowClosedError } from "@/modules/run/void";
+import { listPartnerLeads } from "@/modules/portal/queries";
+import { getRunDetail } from "@/modules/run/queries";
+import { getRunExportData } from "@/modules/run/export-data";
+import { updateLeadStatus, LeadNotFoundError } from "@/modules/portal/status-update";
+import { listPartnerActivity } from "@/modules/activity/queries";
+import { saveVoidNotifiesPartners } from "@/modules/settings/export-settings";
 import { buildCoverage } from "@/modules/pipeline/assign";
 import { DEFAULT_MLS_PATTERNS } from "@/modules/pipeline/mls-patterns";
 import { GENERIC_PROFILE } from "@/modules/sources";
@@ -29,9 +35,14 @@ suite("WP-018: void-run (ING-09)", () => {
     const tids = t.map((x) => x.id);
     if (tids.length === 0) return;
     await purgeAuditLog(db, inArray(schema.auditLog.tenantId, tids));
+    await db.delete(schema.notifications).where(inArray(schema.notifications.tenantId, tids));
+    await db.delete(schema.leadStatusHistory).where(inArray(schema.leadStatusHistory.tenantId, tids));
+    await db.delete(schema.leadNotes).where(inArray(schema.leadNotes.tenantId, tids));
     await db.delete(schema.leads).where(inArray(schema.leads.tenantId, tids));
     await db.delete(schema.uploads).where(inArray(schema.uploads.tenantId, tids));
     await db.delete(schema.refCounters).where(inArray(schema.refCounters.tenantId, tids));
+    await db.delete(schema.settings).where(inArray(schema.settings.tenantId, tids));
+    await db.delete(schema.users).where(inArray(schema.users.tenantId, tids));
     await db.delete(schema.partners).where(inArray(schema.partners.tenantId, tids));
     await db.delete(schema.tenants).where(inArray(schema.tenants.id, tids));
   }
@@ -102,5 +113,97 @@ suite("WP-018: void-run (ING-09)", () => {
       })
       .returning({ refId: schema.uploads.refId });
     await expect(voidUpload(scope, up.refId, "too late")).rejects.toBeInstanceOf(VoidWindowClosedError);
+  });
+
+  // Process one NJ lead (→ partnerNJ) from a given address; distinct addresses ⇒ distinct dedupe_keys.
+  async function processNjRun(address: string): Promise<string> {
+    const rules = { mlsPatterns: DEFAULT_MLS_PATTERNS, coverage: buildCoverage([], [{ state: "NJ", partnerId: partnerNJ }]) };
+    const snapshotInput = { sourceProfile: { id: GENERIC_PROFILE.id, version: GENERIC_PROFILE.version }, mlsPatterns: DEFAULT_MLS_PATTERNS, stateRules: [{ state: "NJ", partnerId: partnerNJ }], zipCoverage: [] };
+    const row = { Campaign: "x", "Date Created": "2026-07-06", Notes: "", Address: address, City: "T", State: "NJ", Zip: "08034", "Seller First Name": "R", "Seller Last Name": "C", Phone: "", Email: "", "Reason For Selling": "", Motivation: "", "Time to Sell": "" };
+    const result = await processRun(
+      { tenantId: scope.tenantId, filename: "recall.xlsx", rows: [row], profile: GENERIC_PROFILE, rules, snapshotInput, year: 2026, colorCoding: false },
+      { store, clock: () => "2026-07-08T12:00:00.000Z" },
+    );
+    return result.uploadRefId;
+  }
+
+  it("ING-09: void recalls the run's leads — gone from partner + admin reads, blocked in the partner write path, still on the import page (TST-08)", async () => {
+    const uploadRef = await processNjRun("9 Recall Rd");
+    const partnerScope: ScopeContext = { tenantId: scope.tenantId, role: "partner", userId: randomUUID(), partnerId: partnerNJ };
+
+    const before = await listPartnerLeads(partnerScope);
+    expect(before.total).toBeGreaterThan(0); // partner sees it BEFORE
+    const leadRef = before.leads[0].refId;
+
+    const voided = await voidUpload(scope, uploadRef, "recall it");
+    expect(voided.recalledLeadCount).toBeGreaterThanOrEqual(1);
+    expect(voided.affectedPartnerCount).toBe(1);
+
+    // AFTER: soft-deleted ⇒ excluded from every deleted_at-filtered read — partner list AND the
+    // admin per-run export deliverable (SEC-05: no recalled-lead PII re-downloadable).
+    expect((await listPartnerLeads(partnerScope)).total).toBe(0);
+    expect((await getRunExportData(scope, uploadRef))!.exportLeads.length).toBe(0);
+    // …the partner can no longer mutate it…
+    await expect(updateLeadStatus(partnerScope, leadRef, "Contacted")).rejects.toBeInstanceOf(LeadNotFoundError);
+    // …but it STILL shows in history on the import page (getRunDetail does not filter deleted_at).
+    expect((await getRunDetail(scope, uploadRef))!.leads.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it("ING-09: a recalled lead's activity drops out of the partner Activity feed", async () => {
+    const userId = randomUUID();
+    await db.insert(schema.users).values({ id: userId, tenantId: scope.tenantId, email: "act@test.dev", role: "partner", partnerId: partnerNJ });
+    const partnerScope: ScopeContext = { tenantId: scope.tenantId, role: "partner", userId, partnerId: partnerNJ };
+    const uploadRef = await processNjRun("33 Activity Ct");
+    const leadRef = (await listPartnerLeads(partnerScope)).leads[0].refId;
+
+    await updateLeadStatus(partnerScope, leadRef, "Contacted"); // partner action → activity for this user
+    expect((await listPartnerActivity(partnerScope)).items.length).toBeGreaterThan(0);
+
+    await voidUpload(scope, uploadRef, "recall it");
+    expect((await listPartnerActivity(partnerScope)).items.length).toBe(0); // recalled ⇒ feed clears
+  });
+
+  it("ING-09/ANA-02: the recall notice follows the effective owner (manual overlay wins over the pipeline)", async () => {
+    const [pB] = await db.insert(schema.partners).values({ tenantId: scope.tenantId, refId: "JV-002", name: "Overlay Partner", color: "#6E8B5E", status: "active" }).returning({ id: schema.partners.id });
+    const userB = randomUUID(); // pB's user
+    const userNJ = randomUUID(); // partnerNJ's user (the pipeline owner)
+    await db.insert(schema.users).values([
+      { id: userB, tenantId: scope.tenantId, email: "b@test.dev", role: "partner", partnerId: pB.id },
+      { id: userNJ, tenantId: scope.tenantId, email: "nj-overlay@test.dev", role: "partner", partnerId: partnerNJ },
+    ]);
+    const uploadRef = await processNjRun("50 Overlay Ave"); // pipeline-owned by partnerNJ
+    const [up] = await db.select({ id: schema.uploads.id }).from(schema.uploads).where(and(eq(schema.uploads.tenantId, scope.tenantId), eq(schema.uploads.refId, uploadRef)));
+    await db.update(schema.leads).set({ manualPartnerId: pB.id }).where(and(eq(schema.leads.tenantId, scope.tenantId), eq(schema.leads.uploadId, up.id))); // effective owner → pB
+
+    const voided = await voidUpload(scope, uploadRef, "recall it");
+    expect(voided.affectedPartnerCount).toBe(1);
+    const notices = async (uid: string) =>
+      (await db.select().from(schema.notifications).where(and(eq(schema.notifications.tenantId, scope.tenantId), eq(schema.notifications.userId, uid)))).filter((n) => n.type === "run_voided").length;
+    expect(await notices(userB)).toBe(1); // the manual owner is notified…
+    expect(await notices(userNJ)).toBe(0); // …not the pipeline owner (no longer the effective owner)
+  });
+
+  it("ING-09/PRN-11: voiding notifies affected partners' users in-app, and honors the setting", async () => {
+    const userId = randomUUID();
+    await db.insert(schema.users).values({ id: userId, tenantId: scope.tenantId, email: "nj@test.dev", role: "partner", partnerId: partnerNJ });
+    const countNotices = async () =>
+      (await db.select().from(schema.notifications).where(and(eq(schema.notifications.tenantId, scope.tenantId), eq(schema.notifications.userId, userId)))).filter((n) => n.type === "run_voided").length;
+
+    // setting default ON ⇒ one recall notice.
+    await voidUpload(scope, await processNjRun("11 Notify Ln"), "with notice");
+    expect(await countNotices()).toBe(1);
+
+    // setting OFF ⇒ no new notice.
+    await saveVoidNotifiesPartners(scope, false);
+    await voidUpload(scope, await processNjRun("12 Silent Ln"), "silent");
+    expect(await countNotices()).toBe(1);
+    await saveVoidNotifiesPartners(scope, true); // restore default for later tests
+  });
+
+  it("ING-09/DM-09: a corrected re-upload re-inserts a soft-deleted lead's dedupe_key (partial unique index)", async () => {
+    await voidUpload(scope, await processNjRun("77 Reupload Way"), "wrong file"); // soft-deletes the lead, frees the key
+    // Re-processing the SAME address re-inserts the same dedupe_key — would throw a unique violation
+    // pre-migration; the partial index (WHERE deleted_at IS NULL) allows it.
+    await expect(processNjRun("77 Reupload Way")).resolves.toBeTruthy();
   });
 });

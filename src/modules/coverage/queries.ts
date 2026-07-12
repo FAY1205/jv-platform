@@ -31,7 +31,7 @@ export async function coverageMapData(scope: ScopeContext): Promise<CoverageMapR
     db
       .select({ state: schema.leads.state, n: sql<number>`count(*)::int` })
       .from(schema.leads)
-      .where(and(tenantWhere(schema.leads, scope), eq(schema.leads.mlsStatus, "kept")))
+      .where(and(tenantWhere(schema.leads, scope), eq(schema.leads.mlsStatus, "kept"), isNull(schema.leads.deletedAt)))
       .groupBy(schema.leads.state),
     db
       .select({ n: count() })
@@ -47,6 +47,7 @@ export async function coverageMapData(scope: ScopeContext): Promise<CoverageMapR
           isNull(schema.leads.partnerId),
           // A manually-assigned lead is no longer a coverage gap (ASN-03).
           isNull(schema.leads.manualPartnerId),
+          isNull(schema.leads.deletedAt), // WP-J2: a recalled lead isn't a coverage gap.
         ),
       ),
     db

@@ -1,7 +1,11 @@
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, isNull } from "drizzle-orm";
 import { getDb } from "@/db";
 import * as schema from "@/db/schema";
 import { leadWhere, noteWhere, type ScopeContext } from "@/lib/scope";
+
+// WP-J2: a partner can't note/read a recalled (soft-deleted) lead; admin keeps access — voided
+// leads stay visible to admin in the import history.
+const partnerLive = (scope: ScopeContext) => (scope.role === "partner" ? isNull(schema.leads.deletedAt) : undefined);
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Two-stream lead notes (NTS, PRN-13). Every path filters by author_role AND scope
@@ -38,7 +42,7 @@ export async function listLeadNotes(scope: ScopeContext, leadRefId: string): Pro
   const [lead] = await db
     .select({ id: schema.leads.id })
     .from(schema.leads)
-    .where(and(leadWhere(scope), eq(schema.leads.refId, leadRefId)));
+    .where(and(leadWhere(scope), eq(schema.leads.refId, leadRefId), partnerLive(scope)));
   if (!lead) throw new LeadNotFoundError(leadRefId);
 
   const rows = await db
@@ -69,7 +73,7 @@ export async function addLeadNote(scope: ScopeContext, leadRefId: string, body: 
   const [lead] = await db
     .select({ id: schema.leads.id, tenantId: schema.leads.tenantId })
     .from(schema.leads)
-    .where(and(leadWhere(scope), eq(schema.leads.refId, leadRefId)));
+    .where(and(leadWhere(scope), eq(schema.leads.refId, leadRefId), partnerLive(scope)));
   if (!lead) throw new LeadNotFoundError(leadRefId);
 
   const [note] = await db

@@ -29,12 +29,18 @@ export async function GET(_req: Request, { params }: { params: Promise<{ ref: st
     const adminOnly = requireAdminResponse(scope);
     if (adminOnly) return adminOnly;
 
-    // If we have a stored file, hand back a signed URL (private bucket, no regen).
     const [upload] = await getDb()
-      .select({ storagePath: schema.uploads.storagePath })
+      .select({ status: schema.uploads.status, storagePath: schema.uploads.storagePath })
       .from(schema.uploads)
       .where(and(tenantWhere(schema.uploads, scope), eq(schema.uploads.refId, parsed.data)));
 
+    // WP-J2 (ING-09): a voided run's leads are recalled — its deliverable (the stored blob predates
+    // the void and would still carry recalled leads' PII) is no longer downloadable.
+    if (upload?.status === "voided") {
+      return jsonError("run_voided", `Run ${parsed.data} was voided — its export is no longer available.`, 409);
+    }
+
+    // If we have a stored file, hand back a signed URL (private bucket, no regen).
     if (upload?.storagePath) {
       try {
         const url = await signedExportUrl(getSupabaseAdmin(), upload.storagePath, `${parsed.data}.xlsx`);

@@ -1,4 +1,4 @@
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, isNull } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import * as schema from "@/db/schema";
 import { tenantWhere, type ScopeContext } from "@/lib/scope";
@@ -26,7 +26,7 @@ export async function runListingChecks(
   const leadRows = await db
     .select({ id: schema.leads.id, address: schema.leads.address, city: schema.leads.city, state: schema.leads.state, zip: schema.leads.zip })
     .from(schema.leads)
-    .where(and(tenantWhere(schema.leads, scope), eq(schema.leads.uploadId, upload.id), eq(schema.leads.mlsStatus, "kept")));
+    .where(and(tenantWhere(schema.leads, scope), eq(schema.leads.uploadId, upload.id), eq(schema.leads.mlsStatus, "kept"), isNull(schema.leads.deletedAt)));
 
   if (leadRows.length === 0) return 0;
 

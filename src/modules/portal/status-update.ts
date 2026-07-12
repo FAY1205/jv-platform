@@ -1,4 +1,4 @@
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, isNull } from "drizzle-orm";
 import { getDb } from "@/db";
 import * as schema from "@/db/schema";
 import { leadWhere, type ScopeContext } from "@/lib/scope";
@@ -40,7 +40,8 @@ export async function updateLeadStatus(
     const [lead] = await tx
       .select({ id: schema.leads.id, tenantId: schema.leads.tenantId, mlsStatus: schema.leads.mlsStatus })
       .from(schema.leads)
-      .where(and(leadWhere(scope), eq(schema.leads.refId, refId)));
+      // WP-J2: a recalled (soft-deleted / voided-run) lead is not updatable — treat as not found.
+      .where(and(leadWhere(scope), eq(schema.leads.refId, refId), isNull(schema.leads.deletedAt)));
     if (!lead) throw new LeadNotFoundError(refId);
     // PRN-04: a removed lead's status IS "Removed MLS" — refuse workflow overwrites.
     if (lead.mlsStatus === "removed") throw new LeadRemovedError(refId);

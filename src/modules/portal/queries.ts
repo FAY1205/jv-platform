@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { getDb } from "@/db";
 import * as schema from "@/db/schema";
 import { leadWhere, leadChildWhere, tenantWhere, type ScopeContext } from "@/lib/scope";
@@ -67,7 +67,8 @@ export async function listPartnerLeads(scope: ScopeContext, page = 1): Promise<P
   const pageSize = PARTNER_LEADS_PAGE_SIZE;
   const current = Math.max(1, Math.floor(page) || 1);
   const offset = (current - 1) * pageSize;
-  const baseWhere = and(leadWhere(scope), eq(schema.leads.mlsStatus, "kept"));
+  // WP-J2: exclude soft-deleted (recalled/voided-run) leads — every partner-facing read must.
+  const baseWhere = and(leadWhere(scope), eq(schema.leads.mlsStatus, "kept"), isNull(schema.leads.deletedAt));
 
   const [rows, totalRows] = await Promise.all([
     db
@@ -136,7 +137,7 @@ export async function getPartnerLeadDetail(scope: ScopeContext, refId: string): 
   const [lead] = await db
     .select()
     .from(schema.leads)
-    .where(and(leadWhere(scope), eq(schema.leads.refId, refId), eq(schema.leads.mlsStatus, "kept")));
+    .where(and(leadWhere(scope), eq(schema.leads.refId, refId), eq(schema.leads.mlsStatus, "kept"), isNull(schema.leads.deletedAt)));
   if (!lead) return null;
 
   const hist = await db
@@ -217,7 +218,7 @@ export interface PartnerExportData {
 export async function getPartnerExportData(scope: ScopeContext): Promise<PartnerExportData> {
   const db = getDb();
   const [leadRows, partnerRows] = await Promise.all([
-    db.select().from(schema.leads).where(and(leadWhere(scope), eq(schema.leads.mlsStatus, "kept"))),
+    db.select().from(schema.leads).where(and(leadWhere(scope), eq(schema.leads.mlsStatus, "kept"), isNull(schema.leads.deletedAt))),
     db
       .select({ id: schema.partners.id, name: schema.partners.name, refId: schema.partners.refId, color: schema.partners.color })
       .from(schema.partners)

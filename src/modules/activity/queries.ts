@@ -1,4 +1,4 @@
-import { and, asc, count, desc, eq, gte, ilike, lte, not, or, type SQL } from "drizzle-orm";
+import { and, asc, count, desc, eq, gte, ilike, isNull, lte, not, or, type SQL } from "drizzle-orm";
 import { getDb } from "@/db";
 import * as schema from "@/db/schema";
 import { tenantWhere, partnerOwnsLead, requirePartner, type ScopeContext } from "@/lib/scope";
@@ -128,14 +128,15 @@ export async function listPartnerActivity(scope: ScopeContext, page = 1): Promis
       .select({ when: schema.leadStatusHistory.createdAt, status: schema.leadStatusHistory.status, ref: schema.leads.refId })
       .from(schema.leadStatusHistory)
       .innerJoin(schema.leads, eq(schema.leads.id, schema.leadStatusHistory.leadId))
-      .where(and(tenantWhere(schema.leadStatusHistory, scope), eq(schema.leadStatusHistory.changedByUserId, scope.userId), partnerOwnsLead(partnerId)))
+      // WP-J2: a recalled (soft-deleted) lead's activity must not surface to the partner.
+      .where(and(tenantWhere(schema.leadStatusHistory, scope), eq(schema.leadStatusHistory.changedByUserId, scope.userId), partnerOwnsLead(partnerId), isNull(schema.leads.deletedAt)))
       .orderBy(desc(schema.leadStatusHistory.createdAt))
       .limit(window),
     db
       .select({ when: schema.leadNotes.createdAt, ref: schema.leads.refId })
       .from(schema.leadNotes)
       .innerJoin(schema.leads, eq(schema.leads.id, schema.leadNotes.leadId))
-      .where(and(tenantWhere(schema.leadNotes, scope), eq(schema.leadNotes.authorUserId, scope.userId), partnerOwnsLead(partnerId)))
+      .where(and(tenantWhere(schema.leadNotes, scope), eq(schema.leadNotes.authorUserId, scope.userId), partnerOwnsLead(partnerId), isNull(schema.leads.deletedAt)))
       .orderBy(desc(schema.leadNotes.createdAt))
       .limit(window),
   ]);

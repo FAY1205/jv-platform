@@ -9,7 +9,7 @@ import { apiGet } from "@/lib/api";
 import { csrfHeaders } from "@/lib/csrf-client";
 import type { RunDetail, RunLeadView, PartnerView } from "@/modules/run/view-types";
 import { buildAnalytics } from "@/modules/analytics/overview";
-import { Badge, Button, Dialog, Textarea, Card, CardHeader, CardTitle, CardBody, PartnerTag, Table, THead, TBody, Th, Tr, Td, RowOpenButton, EmptyState, Skeleton, AppShell } from "@/components";
+import { Badge, Button, Dialog, Textarea, Card, CardHeader, CardTitle, CardBody, PartnerTag, Table, THead, TBody, Th, Tr, Td, RowOpenButton, EmptyState, Skeleton, AppShell, useToast } from "@/components";
 import { fmtDate } from "../_shell";
 import { isWithinVoidWindow } from "@/modules/run/void-window";
 
@@ -72,6 +72,7 @@ function Funnel({ steps }: { steps: { v: number; label: string; desc: string; to
 function RunView({ detail }: { detail: RunDetail }) {
   const { upload, summary, distribution, partners, leads } = detail;
   const qc = useQueryClient();
+  const { toast } = useToast();
   const [modalOpen, setModalOpen] = useState(false);
   const [reason, setReason] = useState("");
   const [openRef, setOpenRef] = useState<string | null>(null);
@@ -92,7 +93,7 @@ function RunView({ detail }: { detail: RunDetail }) {
       if (!res.ok) throw new Error(b?.message ?? "Void failed.");
       return b;
     },
-    onSuccess: () => {
+    onSuccess: (result: { recalledLeadCount?: number; affectedPartnerCount?: number }) => {
       qc.invalidateQueries({ queryKey: ["run", upload.refId] });
       qc.invalidateQueries({ queryKey: ["runs"] });
       // Voiding recalls this import's distributed leads and excludes them from analytics
@@ -104,6 +105,9 @@ function RunView({ detail }: { detail: RunDetail }) {
       qc.invalidateQueries({ queryKey: ["unmatched-stats"] });
       setModalOpen(false);
       setReason("");
+      const n = result?.recalledLeadCount ?? 0;
+      const m = result?.affectedPartnerCount ?? 0;
+      toast(m > 0 ? `Voided — ${n} lead${n === 1 ? "" : "s"} recalled from ${m} partner${m === 1 ? "" : "s"}.` : "Run voided.", "success");
     },
   });
 
@@ -157,12 +161,14 @@ function RunView({ detail }: { detail: RunDetail }) {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <a
-            href={`/api/runs/${upload.refId}/export`}
-            className="inline-flex items-center gap-2 rounded-md border border-border bg-surface px-3.5 py-2 text-sm font-semibold text-text-2 shadow-xs transition-colors hover:border-text-3 hover:bg-surface-2"
-          >
-            <span aria-hidden="true">↓</span> Download Excel
-          </a>
+          {!isVoided && (
+            <a
+              href={`/api/runs/${upload.refId}/export`}
+              className="inline-flex items-center gap-2 rounded-md border border-border bg-surface px-3.5 py-2 text-sm font-semibold text-text-2 shadow-xs transition-colors hover:border-text-3 hover:bg-surface-2"
+            >
+              <span aria-hidden="true">↓</span> Download Excel
+            </a>
+          )}
           {!isVoided && voidWindowOpen && (
             <Button variant="ghost" onClick={() => setModalOpen(true)}>
               Void import
@@ -338,15 +344,16 @@ function RunView({ detail }: { detail: RunDetail }) {
         }
       >
         <p className="mb-3 text-sm text-text-2">
-          Voiding <span className="num font-semibold text-text">{upload.refId}</span> ({upload.filename}) excludes every lead in
-          this import from future dedupe, analytics and exports, and marks the run voided in history. This can&apos;t be undone.
+          Voiding <span className="num font-semibold text-text">{upload.refId}</span> ({upload.filename}) marks the run voided in
+          history and excludes its leads from dedupe, analytics and exports. Only available within 10 minutes of an import; this can&apos;t be undone.
         </p>
         {distributed > 0 && (
           <p className="mb-3 text-sm text-text-2">
-            It does <span className="font-semibold text-text">not</span> recall leads already delivered:{" "}
-            <span className="num font-semibold text-text">{distributed}</span> distributed lead{distributed === 1 ? "" : "s"}{" "}
-            {distributed === 1 ? "keeps its" : "keep their"} assignment and {distributed === 1 ? "stays" : "stay"} visible to the
-            partner{distributed === 1 ? "" : "s"} — reassign or notify them separately if needed.
+            This <span className="font-semibold text-text">recalls</span> the{" "}
+            <span className="num font-semibold text-text">{distributed}</span> lead{distributed === 1 ? "" : "s"} already delivered:{" "}
+            {distributed === 1 ? "it is" : "they are"} removed from the partner{distributed === 1 ? "’s" : "s’"} lists,
+            exports and stats (still visible here as voided), and affected partners are notified unless you&apos;ve turned that off
+            in Settings.
           </p>
         )}
         <Textarea

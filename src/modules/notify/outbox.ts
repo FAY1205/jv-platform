@@ -127,7 +127,8 @@ export async function enqueueRunDigests(
     })
     .from(schema.leads)
     .innerJoin(schema.partners, eq(schema.partners.id, schema.leads.partnerId))
-    .where(and(tenantWhere(schema.leads, scope), eq(schema.leads.uploadId, upload.id), eq(schema.leads.mlsStatus, "kept")))
+    // WP-J2: don't digest a recalled lead if a void races this post-run step.
+    .where(and(tenantWhere(schema.leads, scope), eq(schema.leads.uploadId, upload.id), eq(schema.leads.mlsStatus, "kept"), isNull(schema.leads.deletedAt)))
     .orderBy(asc(schema.leads.refId));
 
   interface Group {

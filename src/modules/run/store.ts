@@ -50,7 +50,8 @@ export class DrizzleRunStore implements RunStore {
 
     const map = new Map<string, HistoryEntry>();
     for (const r of rows) {
-      // The unique (tenant, dedupe_key) index means one row per key; keep the first seen.
+      // The PARTIAL unique index guarantees one LIVE row per key (WP-J2), and this read filters
+      // deleted_at IS NULL, so at most one row per key reaches here; keep the first seen.
       if (map.has(r.dedupeKey)) continue;
       map.set(r.dedupeKey, {
         partnerId: r.partnerId,
@@ -152,7 +153,13 @@ export class DrizzleRunStore implements RunStore {
         const inserted = await tx
           .insert(schema.leads)
           .values(values)
-          .onConflictDoNothing({ target: [schema.leads.tenantId, schema.leads.dedupeKey] })
+          // The (tenant, dedupe_key) unique index is PARTIAL (WHERE deleted_at IS NULL, WP-J2 /
+          // DM-09) so a voided run's soft-deleted key can be re-uploaded; the ON CONFLICT arbiter
+          // must name the same predicate to match that partial index.
+          .onConflictDoNothing({
+            target: [schema.leads.tenantId, schema.leads.dedupeKey],
+            where: sql`${schema.leads.deletedAt} is null`,
+          })
           .returning({ refId: schema.leads.refId, dedupeKey: schema.leads.dedupeKey });
         for (const r of inserted) refByKey.set(r.dedupeKey, r.refId);
       }
@@ -163,7 +170,8 @@ export class DrizzleRunStore implements RunStore {
         const existing = await tx
           .select({ dedupeKey: schema.leads.dedupeKey, refId: schema.leads.refId })
           .from(schema.leads)
-          .where(and(eq(schema.leads.tenantId, input.tenantId), inArray(schema.leads.dedupeKey, unresolved)));
+          // Resolve to the LIVE row (a soft-deleted voided-run row may share the key, WP-J2).
+          .where(and(eq(schema.leads.tenantId, input.tenantId), inArray(schema.leads.dedupeKey, unresolved), isNull(schema.leads.deletedAt)));
         for (const e of existing) refByKey.set(e.dedupeKey, e.refId);
       }
 

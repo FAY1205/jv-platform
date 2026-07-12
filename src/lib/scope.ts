@@ -63,7 +63,9 @@ export function noteWhere(scope: ScopeContext, db: DB): SQL {
   const ownLeads = db
     .select({ id: leads.id })
     .from(leads)
-    .where(and(eq(leads.tenantId, scope.tenantId), partnerOwnsLead(requirePartner(scope))));
+    // WP-J2 / DM-09b: a partner's owned-lead set excludes recalled (soft-deleted) leads, so the
+    // guard is self-sufficient — child-table reads never rely on a parent join to filter deletes.
+    .where(and(eq(leads.tenantId, scope.tenantId), partnerOwnsLead(requirePartner(scope)), isNull(leads.deletedAt)));
   return and(base, eq(leadNotes.authorRole, "partner"), inArray(leadNotes.leadId, ownLeads))!;
 }
 
@@ -78,6 +80,8 @@ export function leadChildWhere(
   const ownLeads = db
     .select({ id: leads.id })
     .from(leads)
-    .where(and(eq(leads.tenantId, scope.tenantId), partnerOwnsLead(requirePartner(scope))));
+    // WP-J2 / DM-09b: a partner's owned-lead set excludes recalled (soft-deleted) leads, so the
+    // guard is self-sufficient — child-table reads never rely on a parent join to filter deletes.
+    .where(and(eq(leads.tenantId, scope.tenantId), partnerOwnsLead(requirePartner(scope)), isNull(leads.deletedAt)));
   return and(base, inArray(table.leadId, ownLeads))!;
 }
