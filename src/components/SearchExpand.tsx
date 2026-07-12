@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
+import { IconButton } from "./IconButton";
 
 // SearchExpand (WP-B) — the topbar's global search: a compact icon that expands to a
 // field on click or ⌘K, submits to the Leads list, and collapses on Escape / empty blur.
@@ -47,15 +48,9 @@ export function SearchExpand() {
 
   if (!open) {
     return (
-      <button
-        type="button"
-        aria-label="Search"
-        aria-expanded={false}
-        onClick={expand}
-        className="grid h-11 w-11 place-items-center rounded-md border border-transparent text-text-2 transition-colors hover:border-border hover:bg-surface focus-visible:border-border active:scale-95"
-      >
+      <IconButton aria-label="Search" aria-expanded={false} onClick={expand}>
         <SearchIcon className="h-[18px] w-[18px]" />
-      </button>
+      </IconButton>
     );
   }
 

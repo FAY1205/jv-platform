@@ -11,6 +11,7 @@ import { ProfileMenu } from "./ProfileMenu";
 import { PageHeaderProvider, PageHeaderSlot } from "./PageHeader";
 import { SearchExpand } from "./SearchExpand";
 import { ThemeToggle } from "./ThemeToggle";
+import { IconButton } from "./IconButton";
 import { usePreferences, setPreferences, useApplyTheme } from "@/lib/preferences";
 
 // The admin app shell (DSN): a minimal sidebar + a clean top bar. Every admin page
@@ -227,16 +228,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           leave the drawer and screen readers skip the covered content (true modal). */}
       <div className="flex min-w-0 flex-col" inert={mobileOpen}>
         <header className="sticky top-0 z-20 flex items-center gap-3 border-b border-border-soft bg-bg/80 px-6 py-2 backdrop-blur-md md:px-7">
-          <button
+          <IconButton
             ref={menuBtnRef}
-            type="button"
             onClick={toggleNav}
             aria-label="Toggle navigation"
             aria-expanded={navOpen}
-            className="grid h-11 w-11 shrink-0 place-items-center rounded-md border border-transparent text-text-2 transition-colors hover:border-border hover:bg-surface active:scale-95"
           >
             <span className="h-[18px] w-[18px]"><Icon name="menu" /></span>
-          </button>
+          </IconButton>
           <PageHeaderSlot />
           <div className="ml-auto flex items-center gap-1.5">
             <SearchExpand />

@@ -14,6 +14,7 @@ import {
   DropdownMenuLabel,
 } from "./DropdownMenu";
 import { EmptyState } from "./EmptyState";
+import { IconButton } from "./IconButton";
 import { Skeleton } from "./Skeleton";
 import { NotificationTypeIcon } from "./NotificationTypeIcon";
 import { groupByDay } from "@/lib/notification-groups";
@@ -91,11 +92,7 @@ export function NotificationBell() {
       </span>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <button
-            type="button"
-            aria-label={`Notifications${unread ? `, ${unread} unread` : ""}`}
-            className="grid h-11 w-11 place-items-center rounded-md text-text-2 transition-colors hover:bg-surface-3 focus:outline-none focus-visible:ring-1 focus-visible:ring-brand-ink"
-          >
+          <IconButton aria-label={`Notifications${unread ? `, ${unread} unread` : ""}`}>
             {/* Badge anchors to this icon-sized wrapper, not the 44px button, so the 44px
                 tap target doesn't detach the count from the bell. */}
             <span className="relative grid h-[18px] w-[18px] place-items-center">
@@ -110,7 +107,7 @@ export function NotificationBell() {
                 </span>
               )}
             </span>
-          </button>
+          </IconButton>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-80 p-0">
           <div className="flex items-center justify-between border-b border-border-soft px-3 py-2">

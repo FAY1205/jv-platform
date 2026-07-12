@@ -3,6 +3,7 @@
 import * as React from "react";
 import {
   Button,
+  IconButton,
   Badge,
   Card,
   CardHeader,
@@ -248,6 +249,29 @@ function Gallery() {
                   {loading ? "Processing…" : "Click to load"}
                 </Button>
               </div>
+            </CardBody>
+          </Card>
+        </Section>
+
+        <Section title="IconButton — 44px chrome control (DSN-03, F-66)">
+          <Card>
+            <CardBody className="flex flex-wrap items-center gap-3">
+              <IconButton aria-label="Settings">
+                <svg className="h-[18px] w-[18px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.85" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <circle cx="12" cy="12" r="3" />
+                  <path d="M12 2v3m0 14v3M2 12h3m14 0h3M5 5l2 2m10 10 2 2M19 5l-2 2M7 17l-2 2" />
+                </svg>
+              </IconButton>
+              <IconButton aria-label="Disabled example" disabled>
+                <svg className="h-[18px] w-[18px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.85" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <circle cx="12" cy="12" r="3" />
+                  <path d="M12 2v3m0 14v3M2 12h3m14 0h3" />
+                </svg>
+              </IconButton>
+              <IconButton aria-label="Loading example" loading>
+                <svg className="h-[18px] w-[18px]" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3" /></svg>
+              </IconButton>
+              <span className="text-step-1 text-text-3">Hover = hairline border + surface; focus-visible = 1px brand-ink outline; active = scale-95.</span>
             </CardBody>
           </Card>
         </Section>

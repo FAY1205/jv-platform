@@ -34,12 +34,12 @@ const sizes: Record<ButtonSize, string> = {
   lg: "text-sm px-4 py-2.5 min-h-11",
 };
 
-function Spinner() {
+export function Spinner({ size = 14 }: { size?: number } = {}) {
   return (
     <svg
       className="animate-spin"
-      width="14"
-      height="14"
+      width={size}
+      height={size}
       viewBox="0 0 24 24"
       fill="none"
       aria-hidden="true"

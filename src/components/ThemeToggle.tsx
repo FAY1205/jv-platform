@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import { usePreferences, setPreferences, nextTheme, type ThemePref } from "@/lib/preferences";
+import { IconButton } from "./IconButton";
 
 // ThemeToggle (WP-B) — the topbar theme control, cycling system → light → dark. Reads and
 // writes the one prefs store; useApplyTheme (in AppShell) keeps <html data-theme> in sync.
@@ -16,15 +17,13 @@ const NEXT_LABEL: Record<ThemePref, string> = { system: "light", light: "dark", 
 export function ThemeToggle() {
   const { theme } = usePreferences();
   return (
-    <button
-      type="button"
+    <IconButton
       aria-label={`Theme: ${theme}. Switch to ${NEXT_LABEL[theme]}`}
       onClick={() => setPreferences({ theme: nextTheme(theme) })}
-      className="grid h-11 w-11 place-items-center rounded-md border border-transparent text-text-2 transition-colors hover:border-border hover:bg-surface focus-visible:border-border active:scale-95"
     >
       <svg className="h-[18px] w-[18px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.85" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
         {ICON[theme]}
       </svg>
-    </button>
+    </IconButton>
   );
 }
