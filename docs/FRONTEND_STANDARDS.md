@@ -17,10 +17,10 @@ Canonicalizes the frontend patterns this codebase follows. Authority order:
 
 ## 2. Components (DSN, §6.17)
 
-- All UI is composed from `src/components` (19 primitives — incl. `IconButton`,
-  the shared 44px chrome icon button — + `PartnerTag`, `NotificationBell`,
-  `NotesPanel`, `ListingBadge`). Repeated ad-hoc markup means:
-  promote a primitive first, then use it.
+- All UI is composed from `src/components` (20 primitives — incl. `IconButton`,
+  the shared 44px chrome icon button, and `LinkCard`, the shared tappable-card
+  link — + `PartnerTag`, `NotificationBell`, `NotesPanel`, `ListingBadge`).
+  Repeated ad-hoc markup means: promote a primitive first, then use it.
 - Every interactive component implements **default / hover / focus-visible / active /
   disabled / loading**. `/gallery` is the living showcase — new components appear there
   in the same WP.

@@ -239,7 +239,7 @@ export default function PartnerDetailPage() {
                         caption={{ title: partner.name, subtitle: `${partner.stateCount} state${partner.stateCount === 1 ? "" : "s"}` }}
                       />
                     ) : coverageQ.isError ? (
-                      <div role="status" className="grid h-full place-items-center px-4 text-center text-sm text-text-3">Territory map unavailable.</div>
+                      <EmptyState compact title="Territory map unavailable." />
                     ) : (
                       <Skeleton className="h-full w-full rounded-lg" />
                     )}

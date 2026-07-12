@@ -1,11 +1,10 @@
 "use client";
 
 import * as React from "react";
-import Link from "next/link";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiGet } from "@/lib/api";
 import { csrfHeaders } from "@/lib/csrf-client";
-import { Card, CardBody, Button, Skeleton, EmptyState } from "@/components";
+import { Card, CardBody, Button, LinkCard, Skeleton, EmptyState } from "@/components";
 import { initialsFromEmail } from "@/lib/identity";
 
 // WP-F.2: the portal "Account" tab body. Identity from /api/me (PRN-08 — caller's own
@@ -70,13 +69,10 @@ export function PortalAccount() {
       <ul className="flex flex-col gap-2">
         {LINKS.map((l) => (
           <li key={l.href}>
-            <Link
-              href={l.href}
-              className="flex min-h-[52px] flex-col justify-center rounded-xl border border-border bg-surface px-4 py-2.5 transition-colors hover:border-text-3 hover:bg-surface-2 focus-visible:border-brand-ink"
-            >
+            <LinkCard href={l.href} className="flex min-h-[52px] flex-col justify-center px-4 py-2.5">
               <span className="text-sm font-semibold text-text">{l.label}</span>
               <span className="text-step-1 text-text-3">{l.hint}</span>
-            </Link>
+            </LinkCard>
           </li>
         ))}
       </ul>

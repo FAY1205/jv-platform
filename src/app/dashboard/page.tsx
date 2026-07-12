@@ -269,7 +269,7 @@ function DashboardBody() {
                   </Link>
                 </>
               ) : coverage.isError ? (
-                <div className="grid flex-1 place-items-center px-4 text-center text-sm text-text-3">Coverage map unavailable.</div>
+                <EmptyState compact title="Coverage map unavailable." className="flex-1" />
               ) : (
                 <Skeleton className="h-full min-h-[248px] flex-1" />
               )}

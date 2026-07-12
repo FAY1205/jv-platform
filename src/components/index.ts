@@ -1,6 +1,7 @@
 // The component library (DSN-03). Nothing UI ships outside this directory.
 export { Button, type ButtonProps } from "./Button";
 export { IconButton, type IconButtonProps } from "./IconButton";
+export { LinkCard, type LinkCardProps } from "./LinkCard";
 export { Badge, type BadgeProps, type BadgeVariant } from "./Badge";
 export { Card, CardHeader, CardTitle, CardBody } from "./Card";
 export { Stat, type StatProps } from "./Stat";
@@ -8,7 +9,7 @@ export { PartnerTag, type PartnerTagProps } from "./PartnerTag";
 export { Input, type InputProps } from "./Input";
 export { Textarea, type TextareaProps } from "./Textarea";
 export { Select, type SelectProps, type SelectOption } from "./Select";
-export { StatusSelect, STATUS_PILL, type StatusSelectProps } from "./StatusSelect";
+export { StatusSelect, type StatusSelectProps } from "./StatusSelect";
 export { SegmentedControl, type SegmentedControlProps, type SegmentOption } from "./SegmentedControl";
 export { NativeSelect, type NativeSelectProps } from "./NativeSelect";
 export { DatePicker, type DatePickerProps, isoToDate, dateToIso } from "./DatePicker";

@@ -7,20 +7,12 @@ import { csrfHeaders } from "@/lib/csrf-client";
 import { SEED_LEAD_STATUSES } from "@/modules/portal/statuses";
 import { Badge } from "./Badge";
 import { useToast } from "./Toast";
-import { cn } from "@/lib/cn";
+import { statusPillClass } from "@/lib/status-pill";
 
 // StatusSelect — the inline lead-status control (WS-3). Radix Select styled as the colored
 // status pill; optimistic with error-toast + revert. Removed leads are read-only (PRN-04):
 // they render the verdict badge, never a control. No raw <select> (F-58 spirit).
-
-export const STATUS_PILL: Record<string, string> = {
-  New: "bg-surface-3 text-text-2",
-  Contacted: "bg-brand-soft text-brand-ink",
-  Appointment: "bg-warn-soft text-warn",
-  "Under contract": "bg-prev-soft text-prev",
-  Closed: "bg-success-soft text-success",
-  Dead: "bg-danger-soft text-danger",
-};
+// The pill vocabulary lives in @/lib/status-pill (statusPillClass), shared with the portal.
 
 export interface StatusSelectProps {
   refId: string;
@@ -77,10 +69,9 @@ export function StatusSelect({ refId, status, mlsStatus, onChanged }: StatusSele
     <RadixSelect.Root value={val} onValueChange={(v) => mut.mutate(v)} disabled={mut.isPending}>
       <RadixSelect.Trigger
         aria-label={`Status for ${refId}`}
-        className={cn(
-          "num inline-flex cursor-pointer items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-semibold outline-none",
-          "focus-visible:ring-1 focus-visible:ring-brand-ink disabled:opacity-60",
-          STATUS_PILL[val] ?? "bg-surface-3 text-text-2",
+        className={statusPillClass(
+          val,
+          "cursor-pointer gap-1 outline-none focus-visible:ring-1 focus-visible:ring-brand-ink disabled:opacity-60",
         )}
       >
         <RadixSelect.Value />

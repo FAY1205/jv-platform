@@ -1,11 +1,10 @@
 "use client";
 
 import * as React from "react";
-import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
 import { apiGet } from "@/lib/api";
-import { Button, EmptyState, Skeleton, STATUS_PILL } from "@/components";
-import { cn } from "@/lib/cn";
+import { Button, EmptyState, LinkCard, Skeleton } from "@/components";
+import { statusPillClass } from "@/lib/status-pill";
 
 interface Lead {
   refId: string;
@@ -70,14 +69,14 @@ export default function PortalLeadsPage() {
         <>
           <div className="flex flex-col gap-3">
             {leads.map((l) => (
-              <Link
+              <LinkCard
                 key={l.refId}
                 href={`/portal/leads/${l.refId}`}
-                className="block rounded-xl border border-border bg-surface p-4 shadow-sm transition-colors hover:border-text-3 hover:bg-surface-2 focus-visible:border-brand-ink"
+                className="block p-4 shadow-sm"
               >
                 <div className="flex items-center gap-2">
                   <span className="num text-step-1 text-text-3">{l.refId}</span>
-                  <span className={cn("num ml-auto inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold", STATUS_PILL[l.status] ?? "bg-surface-3 text-text-2")}>
+                  <span className={statusPillClass(l.status, "ml-auto")}>
                     {l.status}
                   </span>
                 </div>
@@ -90,7 +89,7 @@ export default function PortalLeadsPage() {
                   <span className="text-text-3">· {fmtDate(l.receivedAt)}</span>
                   {l.previouslyMatched && <span className="text-text-3">· returning</span>}
                 </div>
-              </Link>
+              </LinkCard>
             ))}
           </div>
           {totalPages > 1 && (

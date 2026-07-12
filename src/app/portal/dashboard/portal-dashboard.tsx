@@ -118,9 +118,7 @@ export function PortalDashboard() {
               ariaLabel="County map highlighting your covered states"
             />
           ) : territory.isError ? (
-            <div role="status" className="grid h-full place-items-center text-sm text-text-3">
-              Territory map unavailable.
-            </div>
+            <EmptyState compact title="Territory map unavailable." />
           ) : (
             <Skeleton className="h-full w-full rounded-lg" />
           )}

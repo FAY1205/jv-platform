@@ -1,9 +1,11 @@
 "use client";
 
 import * as React from "react";
+import { statusPillClass } from "@/lib/status-pill";
 import {
   Button,
   IconButton,
+  LinkCard,
   Badge,
   Card,
   CardHeader,
@@ -404,6 +406,24 @@ function Gallery() {
           </Card>
         </Section>
 
+        <Section title="LinkCard — tappable card chrome (DSN)">
+          <p className="mb-3 text-step-1 text-text-3">Hover/focus-visible/active states are the anchor&apos;s own chrome; no disabled/loading — LinkCard is a link, not a control. Callers own layout (block vs flex).</p>
+          <div className="grid gap-3 md:grid-cols-2">
+            <LinkCard href="#" className="block p-4 shadow-sm">
+              <div className="flex items-center gap-2">
+                <span className="num text-step-1 text-text-3">LD-26-00404</span>
+                <span className={statusPillClass("Contacted", "ml-auto")}>Contacted</span>
+              </div>
+              <div className="mt-1.5 text-base font-semibold text-text">120 Maple Ave</div>
+              <div className="mt-1 text-step-1 text-text-2">Austin, TX · <span className="num">78701</span></div>
+            </LinkCard>
+            <LinkCard href="#" className="flex min-h-[52px] flex-col justify-center px-4 py-2.5">
+              <span className="text-sm font-semibold text-text">Your devices</span>
+              <span className="text-step-1 text-text-3">Remembered browsers you can sign out</span>
+            </LinkCard>
+          </div>
+        </Section>
+
         <Section title="Empty & loading states">
           <div className="grid md:grid-cols-2 gap-3.5">
             <Card>
@@ -420,6 +440,12 @@ function Gallery() {
                 <Skeleton className="h-8 w-1/4" />
                 <Skeleton className="h-24 w-full" />
               </CardBody>
+            </Card>
+            {/* Compact variant — fills an embedded panel (e.g. a map that failed to load). */}
+            <Card>
+              <div className="h-40">
+                <EmptyState compact title="Territory map unavailable." />
+              </div>
             </Card>
           </div>
         </Section>
