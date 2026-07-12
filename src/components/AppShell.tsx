@@ -131,14 +131,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <circle cx="27" cy="9" r="2.8" className="fill-brand" />
         </svg>
         <span className="min-w-0">
-          <span className="block truncate font-display text-[0.95rem] font-semibold leading-tight tracking-tight">{APP_NAME}</span>
-          <span className="block text-[0.8125rem] leading-tight text-text-3">Operations</span>
+          <span className="block truncate font-display text-step-3 font-semibold leading-tight tracking-tight">{APP_NAME}</span>
+          <span className="block text-step-1 leading-tight text-text-3">Operations</span>
         </span>
       </Link>
       <nav className="flex flex-col gap-0.5">
         {NAV_SECTIONS.map((section, i) => (
           <React.Fragment key={section.label}>
-            <div className={"px-3 pb-1.5 text-[0.8125rem] font-semibold uppercase tracking-[.08em] text-text-3 " + (i === 0 ? "pt-1" : "pt-5")}>
+            <div className={"px-3 pb-1.5 text-step-1 font-semibold uppercase tracking-[.08em] text-text-3 " + (i === 0 ? "pt-1" : "pt-5")}>
               {section.label}
             </div>
             {section.items.map((item) => {
@@ -166,12 +166,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                   </span>
                   {item.label}
                   {item.badge === "unmatched" && unmatchedCount > 0 && (
-                    <span className="num ml-auto rounded-full bg-warn-soft px-1.5 py-0.5 text-[0.8125rem] font-semibold text-warn" aria-label={`${unmatchedCount} unmatched`}>
+                    <span className="num ml-auto rounded-full bg-warn-soft px-1.5 py-0.5 text-step-1 font-semibold text-warn" aria-label={`${unmatchedCount} unmatched`}>
                       {unmatchedCount}
                     </span>
                   )}
                   {item.badge === "leads" && leadsTotal > 0 && (
-                    <span className="num ml-auto rounded-full bg-surface-3 px-1.5 py-0.5 text-[0.8125rem] font-semibold text-text-2" aria-label={`${leadsTotal} leads`}>
+                    <span className="num ml-auto rounded-full bg-surface-3 px-1.5 py-0.5 text-step-1 font-semibold text-text-2" aria-label={`${leadsTotal} leads`}>
                       {leadsTotal.toLocaleString()}
                     </span>
                   )}

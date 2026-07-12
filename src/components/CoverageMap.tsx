@@ -114,6 +114,7 @@ export function CoverageMap({ states, selectedPartnerId = null, onSelectPartner,
                 size="sm"
                 className="mt-1"
               />
+              {/* DSN-11 gap: sub-floor map micro-label — pending sub-13px pass. */}
               <div className="num mt-1 text-[.7rem] text-text-3">
                 {hoveredCov.leadCount} lead{hoveredCov.leadCount === 1 ? "" : "s"} received
               </div>

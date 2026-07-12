@@ -22,7 +22,7 @@ export function MapCaption({ title, subtitle }: MapCaptionProps) {
         {title}
       </div>
       {subtitle && (
-        <div className="num mt-0.5 text-[.8125rem] tracking-[.04em] text-text-3">{subtitle}</div>
+        <div className="num mt-0.5 text-step-1 tracking-[.04em] text-text-3">{subtitle}</div>
       )}
     </div>
   );

@@ -51,7 +51,7 @@ const RANGES: { value: RangeKey; label: string; short: string }[] = [
 const RANGE_SEGMENTS: { value: RangeKey; label: string }[] = RANGES.map((r) => ({ value: r.value, label: r.short }));
 
 const panel = "rounded-2xl border border-border-soft bg-surface p-5 shadow-sm";
-const label13 = "text-[.8125rem]"; // ≥13px chrome text (no sub-13px — WP-A/C rule)
+const label13 = "text-step-1"; // ≥13px chrome text (no sub-13px — WP-A/C rule)
 const pct = (n: number) => `${Math.round(n * 100)}%`;
 
 // Trend x-axis label: "Jul 3" for daily buckets, "Jul 2026" for monthly.
@@ -231,7 +231,7 @@ function DashboardBody() {
           <section className="grid overflow-hidden rounded-2xl border border-border-soft bg-surface shadow-sm lg:grid-cols-[1fr_1.2fr]">
             <div className="flex flex-col p-6 lg:p-7">
               <span className={`font-semibold uppercase tracking-[.08em] text-text-3 ${label13}`}>{current.label}</span>
-              <h2 className="mt-2 font-display text-[2rem] font-semibold leading-[1.12] tracking-tight text-balance">
+              <h2 className="mt-2 font-display text-step-7 font-semibold leading-[1.12] tracking-tight text-balance">
                 <HeroHeadline distributed={d!.stats.distributed.value} leadsIn={d!.stats.leadsIn.value} activePartners={d!.stats.partners.value} />
               </h2>
               <p className="mt-2 max-w-[40ch] text-sm text-text-2">
@@ -280,7 +280,7 @@ function DashboardBody() {
           <div className="grid gap-5 lg:grid-cols-[1.5fr_1fr]">
             <section className={panel}>
               <div className="mb-4 flex items-baseline justify-between gap-2">
-                <h3 className="font-display text-[.95rem] font-semibold tracking-tight">Lead flow</h3>
+                <h3 className="font-display text-step-3 font-semibold tracking-tight">Lead flow</h3>
                 <span className={`text-text-3 ${label13}`}>{rangeLabel}</span>
               </div>
               {d!.trend.length === 0 ? (
@@ -298,7 +298,7 @@ function DashboardBody() {
               )}
             </section>
             <section className={panel}>
-              <h3 className="mb-4 font-display text-[.95rem] font-semibold tracking-tight">Removed by source</h3>
+              <h3 className="mb-4 font-display text-step-3 font-semibold tracking-tight">Removed by source</h3>
               {donutData.length === 0 ? (
                 <p className="py-8 text-center text-sm text-text-3">No removed leads {rangeLabel}.</p>
               ) : (
@@ -312,7 +312,7 @@ function DashboardBody() {
           {/* Partner performance — no progress bars */}
           <section className={panel}>
             <div className="mb-1 flex items-baseline justify-between">
-              <h3 className="font-display text-[.95rem] font-semibold tracking-tight">Partner performance</h3>
+              <h3 className="font-display text-step-3 font-semibold tracking-tight">Partner performance</h3>
               <span className={`text-text-3 ${label13}`}>{rangeLabel} · counts by when each event happened</span>
             </div>
             {d!.partners.length === 0 ? (
@@ -352,7 +352,7 @@ function DashboardBody() {
           {/* Lead source performance (table) */}
           <section className={panel}>
             <div className="mb-1 flex items-baseline justify-between">
-              <h3 className="font-display text-[.95rem] font-semibold tracking-tight">Lead source performance</h3>
+              <h3 className="font-display text-step-3 font-semibold tracking-tight">Lead source performance</h3>
               <span className={`text-text-3 ${label13}`}>removal rate = share discarded as MLS-listed</span>
             </div>
             {d!.sources.length === 0 ? (

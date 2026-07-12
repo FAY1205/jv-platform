@@ -136,7 +136,7 @@ export default function PortalLeadDetailPage() {
                   {data.history.map((h, i) => (
                     <li key={i} className="flex items-center gap-3 text-sm">
                       <Badge>{h.status}</Badge>
-                      <span className="num text-[13px] text-text-3">{new Date(h.changedAt).toLocaleString()}</span>
+                      <span className="num text-step-1 text-text-3">{new Date(h.changedAt).toLocaleString()}</span>
                     </li>
                   ))}
                 </ol>

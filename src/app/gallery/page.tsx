@@ -181,6 +181,7 @@ function Gallery() {
                 <span className="w-9 h-9 rounded-md border border-border shrink-0" style={{ background: `var(${s.varName})` }} />
                 <div className="leading-tight">
                   <div className="text-xs font-semibold">{s.label}</div>
+                  {/* DSN-11 gap: sub-floor token varName — pending sub-13px pass. */}
                   <div className="num text-[.66rem] text-text-3">{s.varName}</div>
                 </div>
               </div>
@@ -202,6 +203,30 @@ function Gallery() {
               <div className="font-display text-3xl font-bold tracking-tight">Display · Space Grotesk</div>
               <div className="text-base text-text-2">Body · Inter — deterministic lead-routing you can audit lead by lead.</div>
               <div className="num text-sm text-text-2">Mono · IBM Plex — LD-26-00404 · ZIP 06404 · 06511 · 1,284 leads · 77.8%</div>
+            </CardBody>
+          </Card>
+        </Section>
+
+        <Section title="Type scale (DSN-11)">
+          <Card>
+            <CardBody className="flex flex-col">
+              {[
+                ["text-step-0", "12px", "micro — vocab (= text-xs), not yet adopted"],
+                ["text-step-1", "13px", "chrome floor: labels, meta, dense text"],
+                ["text-step-2", "14px", "body-sm — vocab (= text-sm), not yet adopted"],
+                ["text-step-3", "16px", "base/body; small card headings"],
+                ["text-step-4", "18px", "vocab (= text-lg), not yet adopted"],
+                ["text-step-5", "24px", "vocab (= text-2xl), not yet adopted"],
+                ["text-step-6", "30px", "vocab (= text-3xl), not yet adopted"],
+                ["text-step-7", "32px", "hero/display"],
+              ].map(([cls, px, role]) => (
+                <div key={cls} className="flex items-baseline gap-3 border-b border-border-soft py-1.5 last:border-0">
+                  <span className={cls + " font-semibold text-text"}>Ag</span>
+                  <span className="num text-step-1 text-text-2">{cls}</span>
+                  <span className="num text-step-1 text-text-3">{px}</span>
+                  <span className="text-step-1 text-text-3">{role}</span>
+                </div>
+              ))}
             </CardBody>
           </Card>
         </Section>
@@ -440,7 +465,7 @@ function Gallery() {
                     <NotificationTypeIcon type={n.type} />
                     <div className="min-w-0">
                       <p className="text-sm text-text">{n.label}</p>
-                      <p className="num text-[13px] text-text-3">{n.type}</p>
+                      <p className="num text-step-1 text-text-3">{n.type}</p>
                     </div>
                   </div>
                 ))}
@@ -450,7 +475,7 @@ function Gallery() {
             <Card>
               <CardHeader><CardTitle>Status fills — on-status ink (WP-H)</CardTitle></CardHeader>
               <CardBody className="flex flex-col gap-3">
-                <p className="text-[13px] text-text-2">
+                <p className="text-step-1 text-text-2">
                   Text on a solid status fill uses <span className="num">--on-status</span> — white in
                   light, near-black in dark — so it stays AA in both themes (hardcoded white-on-fill
                   failed in dark: danger 3.4:1, success 2.6:1).
@@ -462,7 +487,7 @@ function Gallery() {
                 </div>
                 <div className="flex items-center gap-2.5 pt-1">
                   <PartnerTag name="Josh Ax" color={colorOf("Josh Ax")} refId="JV-003" />
-                  <span className="text-[13px] text-text-3">swatch edge = <span className="num">--swatch-border</span> (theme-aware)</span>
+                  <span className="text-step-1 text-text-3">swatch edge = <span className="num">--swatch-border</span> (theme-aware)</span>
                 </div>
               </CardBody>
             </Card>

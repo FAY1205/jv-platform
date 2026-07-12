@@ -58,8 +58,8 @@ function Funnel({ steps }: { steps: { v: number; label: string; desc: string; to
       {steps.map((s, i) => (
         <div key={s.label} className="relative rounded-2xl border border-border-soft bg-surface p-4 shadow-sm">
           <div className={`font-display text-2xl font-semibold leading-none tabular-nums ${toneCls[s.tone]}`}>{s.v.toLocaleString()}</div>
-          <div className="mt-1.5 text-[.8125rem] font-semibold uppercase tracking-[.05em] text-text-3">{s.label}</div>
-          <div className="mt-0.5 text-[.8125rem] text-text-3">{s.desc}</div>
+          <div className="mt-1.5 text-step-1 font-semibold uppercase tracking-[.05em] text-text-3">{s.label}</div>
+          <div className="mt-0.5 text-step-1 text-text-3">{s.desc}</div>
           {i < steps.length - 1 && (
             <span aria-hidden="true" className="absolute -right-2.5 top-1/2 hidden -translate-y-1/2 text-lg text-text-3 sm:block">→</span>
           )}
@@ -178,7 +178,7 @@ function RunView({ detail }: { detail: RunDetail }) {
       </div>
 
       {!isVoided && !voidWindowOpen && (
-        <div className="mb-6 rounded-lg border border-border bg-surface-2 px-4 py-3 text-[13px] text-text-3">
+        <div className="mb-6 rounded-lg border border-border bg-surface-2 px-4 py-3 text-step-1 text-text-3">
           The 10-minute window to void this import has closed — voiding is only available right after an import.
         </div>
       )}
@@ -199,7 +199,7 @@ function RunView({ detail }: { detail: RunDetail }) {
         ]}
       />
       {summary.previouslyMatched > 0 && (
-        <p className="-mt-3 mb-6 text-[.8125rem] text-text-3">
+        <p className="-mt-3 mb-6 text-step-1 text-text-3">
           <span className="num font-semibold text-text-2">{summary.previouslyMatched}</span> previously matched (excluded from distribution).
         </p>
       )}
@@ -209,7 +209,7 @@ function RunView({ detail }: { detail: RunDetail }) {
         <CardBody>
           {distribution.length > 0 && (
             <div>
-              <div className="mb-2 text-[.8125rem] font-semibold uppercase tracking-wider text-text-3">Distribution</div>
+              <div className="mb-2 text-step-1 font-semibold uppercase tracking-wider text-text-3">Distribution</div>
               <div className="flex h-2.5 overflow-hidden rounded-full">
                 {distribution.map((d) => (
                   <div key={d.partnerId} style={{ flexGrow: d.count, background: d.color }} title={`${d.name}: ${d.count}`} />
@@ -228,7 +228,7 @@ function RunView({ detail }: { detail: RunDetail }) {
 
           {keptTotal > 0 && (
             <div className="mt-6">
-              <div className="mb-2 text-[.8125rem] font-semibold uppercase tracking-wider text-text-3">How leads routed</div>
+              <div className="mb-2 text-step-1 font-semibold uppercase tracking-wider text-text-3">How leads routed</div>
               <div className="flex h-2.5 overflow-hidden rounded-full">
                 {composition.zip > 0 && <div style={{ flexGrow: composition.zip, background: "var(--brand)" }} title={`ZIP match: ${composition.zip}`} />}
                 {composition.stateFallback > 0 && <div style={{ flexGrow: composition.stateFallback, background: "var(--info)" }} title={`State fallback: ${composition.stateFallback}`} />}
@@ -396,7 +396,7 @@ function GroupRows({ info, rows, onOpen }: { info: PartnerView | undefined; rows
           <Td><PartnerTag size="sm" name={name} color={color} refId={refId} /></Td>
           <Td align="right">
             {l.previouslyMatched && (
-              <span className="inline-flex items-center gap-1 rounded-full bg-prev-soft px-2 py-0.5 text-[.8125rem] font-semibold text-prev">
+              <span className="inline-flex items-center gap-1 rounded-full bg-prev-soft px-2 py-0.5 text-step-1 font-semibold text-prev">
                 prev. matched
               </span>
             )}

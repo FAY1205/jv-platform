@@ -40,7 +40,7 @@ const EFFECT_META: Record<MlsEffect, { title: string; hint: string; badge: "succ
 /** The locked-note pill: phrase text is fixed in code (PRN-04); only the on/off runs. */
 export function LockedNote() {
   return (
-    <span className="mt-3 inline-flex items-center gap-2 rounded-full border border-border bg-surface-2 px-3 py-1 text-[13px] text-text-3">
+    <span className="mt-3 inline-flex items-center gap-2 rounded-full border border-border bg-surface-2 px-3 py-1 text-step-1 text-text-3">
       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
         <rect x="5" y="11" width="14" height="9" rx="2" />
         <path d="M8 11V8a4 4 0 0 1 8 0v3" />
@@ -74,7 +74,7 @@ export function MlsPhrasesCard({ patterns, onToggle, pendingId }: MlsPhrasesCard
                     <Badge variant={meta.badge}>{meta.badgeLabel}</Badge>
                     <h3 className="text-sm font-semibold text-text">{meta.title}</h3>
                   </div>
-                  <p className="text-[13px] text-text-3">{meta.hint}</p>
+                  <p className="text-step-1 text-text-3">{meta.hint}</p>
                   {/* Tie the table to its effect header so AT users hear which group it is (WCAG 1.3.1). */}
                   <Table aria-labelledby={`mls-group-${group.effect}`}>
                     <THead><Tr><Th>Phrase</Th><Th>Key</Th><Th align="right">On</Th></Tr></THead>
@@ -83,9 +83,9 @@ export function MlsPhrasesCard({ patterns, onToggle, pendingId }: MlsPhrasesCard
                         <Tr key={m.id}>
                           <Td>
                             <div className="text-sm text-text">{m.label}</div>
-                            <div className="num text-[13px] text-text-3">{m.regex}</div>
+                            <div className="num text-step-1 text-text-3">{m.regex}</div>
                           </Td>
-                          <Td><span className="num text-[13px] text-text-3">{m.patternKey}</span></Td>
+                          <Td><span className="num text-step-1 text-text-3">{m.patternKey}</span></Td>
                           <Td align="right">
                             <div className="inline-flex justify-end">
                               <Switch

@@ -58,7 +58,7 @@ export function PortalAccount() {
               </span>
               <div className="min-w-0">
                 <p className="truncate text-sm font-semibold text-text">{data.email}</p>
-                <p className="text-[13px] capitalize text-text-3">
+                <p className="text-step-1 capitalize text-text-3">
                   {data.role} · {data.workspace.name}
                 </p>
               </div>
@@ -75,7 +75,7 @@ export function PortalAccount() {
               className="flex min-h-[52px] flex-col justify-center rounded-xl border border-border bg-surface px-4 py-2.5 transition-colors hover:border-text-3 hover:bg-surface-2 focus-visible:border-brand-ink"
             >
               <span className="text-sm font-semibold text-text">{l.label}</span>
-              <span className="text-[13px] text-text-3">{l.hint}</span>
+              <span className="text-step-1 text-text-3">{l.hint}</span>
             </Link>
           </li>
         ))}

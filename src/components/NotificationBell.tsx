@@ -75,8 +75,8 @@ export function NotificationBell() {
           {!n.readAt && <span className="sr-only">Unread: </span>}
           {n.title}
         </p>
-        {n.body && <p className="text-[13px] text-text-3">{n.body}</p>}
-        <p className="num mt-0.5 text-[13px] text-text-3">{timeAgo(n.createdAt)}</p>
+        {n.body && <p className="text-step-1 text-text-3">{n.body}</p>}
+        <p className="num mt-0.5 text-step-1 text-text-3">{timeAgo(n.createdAt)}</p>
       </div>
       {/* Unread = a dot SHAPE on the right (never tint alone) — PRN-14. */}
       {!n.readAt && <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-brand" aria-hidden="true" />}
@@ -100,6 +100,7 @@ export function NotificationBell() {
               <path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9" />
               <path d="M10.3 21a1.94 1.94 0 0 0 3.4 0" />
             </svg>
+            {/* DSN-11 gap: sub-floor count badge — sizing owned by slice D (touch targets). */}
             {unread > 0 && (
               <span className="absolute -right-0.5 -top-0.5 grid min-h-[16px] min-w-[16px] place-items-center rounded-full bg-brand px-1 text-[.6rem] font-bold text-brand-contrast">
                 {unread > 9 ? "9+" : unread}
@@ -131,6 +132,7 @@ export function NotificationBell() {
             ) : (
               groups.map((group) => (
                 <div key={group.key}>
+                  {/* DSN-11 gap: sub-floor group label — sizing owned by slice B/D. */}
                   <DropdownMenuLabel className="text-[.62rem] uppercase tracking-wide text-text-3">{group.label}</DropdownMenuLabel>
                   {group.items.map((n) =>
                     n.deepLink ? (

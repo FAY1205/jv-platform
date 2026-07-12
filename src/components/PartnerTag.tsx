@@ -27,6 +27,7 @@ export function PartnerTag({ name, color, refId, size = "md", className }: Partn
         aria-hidden="true"
       />
       <span className={size === "sm" ? "text-xs" : "text-sm"}>{name}</span>
+      {/* DSN-11 gap: sub-floor refId size — sizing owned by slice B (PartnerTag size=sm). */}
       {refId && (
         <span className="num text-[.66rem] font-medium text-text-3" aria-label={`Reference ${refId}`}>
           {refId}

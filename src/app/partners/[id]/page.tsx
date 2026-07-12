@@ -107,7 +107,7 @@ function Stat({ label, value, sub, tip }: { label: React.ReactNode; value: React
     <div className={panel}>
       {header}
       <div className="mt-1.5 font-display text-2xl font-semibold leading-none tracking-tight tabular-nums text-text">{value}</div>
-      {sub && <div className="mt-1 text-[.8125rem] text-text-3">{sub}</div>}
+      {sub && <div className="mt-1 text-step-1 text-text-3">{sub}</div>}
     </div>
   );
 }
@@ -204,7 +204,7 @@ export default function PartnerDetailPage() {
 
           {/* Performance history */}
           <section className={panel}>
-            <h2 className="mb-4 font-display text-[.95rem] font-semibold tracking-tight">Performance over time</h2>
+            <h2 className="mb-4 font-display text-step-3 font-semibold tracking-tight">Performance over time</h2>
             {perfQ.isPending ? (
               <Skeleton className="h-64 w-full" />
             ) : perfQ.error ? (
@@ -227,7 +227,7 @@ export default function PartnerDetailPage() {
           <div className="grid grid-cols-1 items-start gap-5 lg:grid-cols-[1fr_320px]">
             {/* Territory */}
             <section className={panel}>
-              <h2 className="mb-3 font-display text-[.95rem] font-semibold tracking-tight">Territory</h2>
+              <h2 className="mb-3 font-display text-step-3 font-semibold tracking-tight">Territory</h2>
               {partner.stateCount > 0 ? (
                 <>
                   <div className="relative aspect-[960/600] w-full overflow-hidden rounded-lg">
@@ -246,7 +246,7 @@ export default function PartnerDetailPage() {
                   </div>
                   <div className="mt-3 flex flex-wrap gap-1.5">
                     {partner.territory.states.map((s) => (
-                      <span key={s} className="num rounded-md bg-surface-3 px-1.5 py-0.5 text-[.8125rem] font-semibold text-text-2">
+                      <span key={s} className="num rounded-md bg-surface-3 px-1.5 py-0.5 text-step-1 font-semibold text-text-2">
                         {s}
                       </span>
                     ))}
@@ -262,7 +262,7 @@ export default function PartnerDetailPage() {
 
             {/* Admin notes (PRN-13) */}
             <aside className={panel}>
-              <h2 className="mb-3 font-display text-[.95rem] font-semibold tracking-tight">Admin notes</h2>
+              <h2 className="mb-3 font-display text-step-3 font-semibold tracking-tight">Admin notes</h2>
               {partner.adminNotes ? (
                 <p className="whitespace-pre-wrap text-sm text-text-2">{partner.adminNotes}</p>
               ) : (
@@ -274,7 +274,7 @@ export default function PartnerDetailPage() {
           {/* Recent leads */}
           <section className={panel}>
             <div className="mb-3 flex items-center justify-between">
-              <h2 className="font-display text-[.95rem] font-semibold tracking-tight">Recent leads</h2>
+              <h2 className="font-display text-step-3 font-semibold tracking-tight">Recent leads</h2>
               <span className="num text-xs text-text-3">last {leadsQ.data?.leads.length ?? 0}</span>
             </div>
             {leadsQ.isPending ? (

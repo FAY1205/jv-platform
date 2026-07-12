@@ -36,7 +36,7 @@ export default function PortalActivityPage() {
                     <Badge variant={i.kind === "status" ? "state" : "neutral"}>{i.kind === "status" ? "Status" : "Note"}</Badge>
                     <span className="num text-sm text-text-2">{i.detail}</span>
                   </div>
-                  <span className="num text-[13px] text-text-3">{new Date(i.when).toLocaleString()}</span>
+                  <span className="num text-step-1 text-text-3">{new Date(i.when).toLocaleString()}</span>
                 </li>
               ))}
             </ul>

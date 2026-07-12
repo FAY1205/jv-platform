@@ -36,7 +36,7 @@ export interface ThProps extends React.ThHTMLAttributes<HTMLTableCellElement> {
 
 export function Th({ sortable, sortDir = null, onSort, align = "left", className, children, ...rest }: ThProps) {
   const base = cn(
-    "text-[0.8125rem] uppercase tracking-wider text-text-3 font-semibold px-3.5 py-2.5",
+    "text-step-1 uppercase tracking-wider text-text-3 font-semibold px-3.5 py-2.5",
     "border-b border-border-strong bg-surface-2 whitespace-nowrap sticky top-0 z-[2]",
     align === "right" ? "text-right" : "text-left",
     sortable && "cursor-pointer select-none hover:text-text",

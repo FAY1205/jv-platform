@@ -156,7 +156,7 @@ export function LeadDialog({ refId, onClose }: { refId: string; onClose: () => v
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="flex flex-col gap-0.5">
-      <span className="text-[.8125rem] font-semibold uppercase tracking-wide text-text-3">{label}</span>
+      <span className="text-step-1 font-semibold uppercase tracking-wide text-text-3">{label}</span>
       <span className="text-sm text-text">{children}</span>
     </div>
   );
@@ -269,7 +269,7 @@ function ViewMode({ d, onEdit }: { d: LeadDetail; onEdit: () => void }) {
 function ActivityLog({ activity }: { activity: Activity[] }) {
   return (
     <div className="rounded-xl border border-border-soft bg-surface-2 p-4">
-      <h3 className="mb-3 text-[.8125rem] font-semibold uppercase tracking-wide text-text-3">Activity</h3>
+      <h3 className="mb-3 text-step-1 font-semibold uppercase tracking-wide text-text-3">Activity</h3>
       {activity.length === 0 ? (
         <p className="text-sm text-text-3">No activity yet.</p>
       ) : (

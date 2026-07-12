@@ -61,7 +61,7 @@ export default function PortalDevicesPage() {
                 <li key={d.familyId} className="flex items-center justify-between gap-4 py-3">
                   <div className="min-w-0">
                     <p className="truncate text-sm text-text-2">{d.deviceLabel ?? "Unknown device"}</p>
-                    <p className="num text-[13px] text-text-3">
+                    <p className="num text-step-1 text-text-3">
                       last seen {fmt(d.lastSeenAt)} · {d.ip ?? "—"}
                     </p>
                   </div>

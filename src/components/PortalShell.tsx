@@ -71,7 +71,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
             <circle cx="7" cy="24" r="2.4" className="fill-text" />
             <circle cx="27" cy="9" r="2.8" className="fill-brand" />
           </svg>
-          <span className="font-display text-[0.95rem] font-semibold tracking-tight text-text">{APP_NAME}</span>
+          <span className="font-display text-step-3 font-semibold tracking-tight text-text">{APP_NAME}</span>
         </Link>
         <div className="ml-auto flex items-center gap-1">
           <NotificationBell />
@@ -91,7 +91,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
               aria-current={on ? "page" : undefined}
               className={cn(
                 // Active tab carries a bg pill + color (never color alone — PRN-14).
-                "flex min-h-[48px] flex-1 flex-col items-center justify-center gap-0.5 rounded-lg text-[13px] font-semibold transition-colors",
+                "flex min-h-[48px] flex-1 flex-col items-center justify-center gap-0.5 rounded-lg text-step-1 font-semibold transition-colors",
                 on ? "bg-brand-soft text-brand-ink" : "text-text-3 hover:text-text",
               )}
             >

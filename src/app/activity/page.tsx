@@ -106,10 +106,10 @@ function ActivityBody() {
             <TBody>
               {rows.map((i) => (
                 <Tr key={i.id}>
-                  <Td><span className="num text-[13px] text-text-3">{new Date(i.when).toLocaleString()}</span></Td>
+                  <Td><span className="num text-step-1 text-text-3">{new Date(i.when).toLocaleString()}</span></Td>
                   <Td><span className="text-sm text-text-2">{i.actor ?? "system"}</span></Td>
-                  <Td><span className="num text-[13px] text-text-2">{i.action}</span></Td>
-                  <Td><span className="num text-[13px] text-text-3">{i.entityRef ?? "—"}</span></Td>
+                  <Td><span className="num text-step-1 text-text-2">{i.action}</span></Td>
+                  <Td><span className="num text-step-1 text-text-3">{i.entityRef ?? "—"}</span></Td>
                   <Td><Badge variant={i.category === "security" ? "warn" : "neutral"}>{i.category}</Badge></Td>
                 </Tr>
               ))}

@@ -63,14 +63,6 @@
   --font-display: var(--font-fraunces), ui-serif, "Iowan Old Style", "Palatino Linotype", Georgia, serif;
   --font-sans: var(--font-hanken), system-ui, -apple-system, "Segoe UI", sans-serif;
   --font-mono: var(--font-plex-mono), "SF Mono", "Cascadia Code", ui-monospace, "Roboto Mono", monospace;
-  /* Type scale — 1.2 ratio (adopted per-heading as pages are reworked in WP-E). */
-  --step--1: 0.813rem;
-  --step-0: 1rem;
-  --step-1: 1.2rem;
-  --step-2: 1.44rem;
-  --step-3: 1.728rem;
-  --step-4: 2.074rem;
-  --step-5: 2.488rem;
 }
 
 /* Dark palette applies via system preference (unless the user forced light)
@@ -195,6 +187,26 @@
   --font-display: var(--font-display);
   --font-sans: var(--font-sans);
   --font-mono: var(--font-mono);
+}
+
+/* Type scale (DSN-11, WP-K) — one named ladder consumed via Tailwind
+   `text-step-*` utilities (Tailwind v4 `--text-*` namespace). Font-size ONLY:
+   no `--text-step-N--line-height` companion, so a swept element keeps its
+   element/`leading-*` line-height and the rename stays visually inert.
+   Steps 0/2/4/5/6 mirror today's Tailwind-default sizes (text-xs/sm/lg/2xl/3xl)
+   as documented vocabulary for the later default-scale migration — not yet
+   adopted in app code (they appear only in the /gallery doc card, which is what
+   generates them; a step referenced nowhere would emit no CSS). Not mirrored to
+   tokens.ts — sizes have no off-CSS consumer (WP-K design §5). */
+@theme {
+  --text-step-0: 0.75rem;   /* 12px — micro (= text-xs); vocab, not swept */
+  --text-step-1: 0.8125rem; /* 13px — chrome floor: labels, meta, dense text */
+  --text-step-2: 0.875rem;  /* 14px — body-sm (= text-sm); vocab, not swept */
+  --text-step-3: 1rem;      /* 16px — base/body; small card headings */
+  --text-step-4: 1.125rem;  /* 18px — (= text-lg); vocab, not swept */
+  --text-step-5: 1.5rem;    /* 24px — (= text-2xl); vocab, not swept */
+  --text-step-6: 1.875rem;  /* 30px — (= text-3xl); vocab, not swept */
+  --text-step-7: 2rem;      /* 32px — hero/display */
 }
 
 /* ── Base ── */

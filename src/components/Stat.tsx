@@ -25,7 +25,7 @@ const deltaStyles = {
 export function Stat({ label, value, delta, foot, className }: StatProps) {
   return (
     <div className={cn("flex flex-col gap-1.5", className)}>
-      <span className="text-[0.8125rem] font-semibold uppercase tracking-wider text-text-3">
+      <span className="text-step-1 font-semibold uppercase tracking-wider text-text-3">
         {label}
       </span>
       <div className="flex items-baseline gap-2">
@@ -35,7 +35,7 @@ export function Stat({ label, value, delta, foot, className }: StatProps) {
         {delta && (
           <span
             className={cn(
-              "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[0.8125rem] font-bold",
+              "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-step-1 font-bold",
               deltaStyles[delta.dir],
             )}
           >

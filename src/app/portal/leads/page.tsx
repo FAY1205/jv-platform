@@ -47,7 +47,7 @@ export default function PortalLeadsPage() {
       <div className="mb-4 flex items-end justify-between gap-3">
         <div>
           <h1 className="font-display text-xl font-semibold tracking-tight text-text">Your leads</h1>
-          {total > 0 && <p className="text-[13px] text-text-3">{total} total</p>}
+          {total > 0 && <p className="text-step-1 text-text-3">{total} total</p>}
         </div>
         <a href="/api/portal/leads/export" download>
           <Button variant="secondary" size="lg">
@@ -76,13 +76,13 @@ export default function PortalLeadsPage() {
                 className="block rounded-xl border border-border bg-surface p-4 shadow-sm transition-colors hover:border-text-3 hover:bg-surface-2 focus-visible:border-brand-ink"
               >
                 <div className="flex items-center gap-2">
-                  <span className="num text-[13px] text-text-3">{l.refId}</span>
+                  <span className="num text-step-1 text-text-3">{l.refId}</span>
                   <span className={cn("num ml-auto inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold", STATUS_PILL[l.status] ?? "bg-surface-3 text-text-2")}>
                     {l.status}
                   </span>
                 </div>
                 <div className="mt-1.5 text-base font-semibold text-text">{l.address}</div>
-                <div className="mt-1 flex flex-wrap gap-x-2 gap-y-0.5 text-[13px] text-text-2">
+                <div className="mt-1 flex flex-wrap gap-x-2 gap-y-0.5 text-step-1 text-text-2">
                   <span>
                     {l.city}, {l.state}
                   </span>
@@ -94,7 +94,7 @@ export default function PortalLeadsPage() {
             ))}
           </div>
           {totalPages > 1 && (
-            <div className="mt-4 flex items-center justify-between gap-3 text-[13px] text-text-3">
+            <div className="mt-4 flex items-center justify-between gap-3 text-step-1 text-text-3">
               <span>
                 Page <span className="num">{page}</span> of <span className="num">{totalPages}</span> · <span className="num">{total}</span> leads
               </span>

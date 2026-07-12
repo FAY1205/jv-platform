@@ -80,7 +80,7 @@ export function SearchExpand() {
         aria-label="Search leads"
         className="w-full bg-transparent text-sm text-text outline-none placeholder:text-text-3"
       />
-      <kbd className="num hidden rounded-xs border border-border px-1.5 text-[0.8125rem] text-text-3 sm:inline">⌘K</kbd>
+      <kbd className="num hidden rounded-xs border border-border px-1.5 text-step-1 text-text-3 sm:inline">⌘K</kbd>
     </form>
   );
 }

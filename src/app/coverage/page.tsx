@@ -27,9 +27,9 @@ function StatCard({ label, value, sub, tone }: { label: string; value: React.Rea
   const color = tone === "warn" ? "text-warn" : tone === "danger" ? "text-danger" : "text-text";
   return (
     <div className={panel}>
-      <div className="text-[13px] font-medium text-text-2">{label}</div>
+      <div className="text-step-1 font-medium text-text-2">{label}</div>
       <div className={`mt-1.5 font-display text-2xl font-semibold leading-none tracking-tight tabular-nums ${color}`}>{value}</div>
-      {sub && <div className="mt-1 text-[13px] text-text-3">{sub}</div>}
+      {sub && <div className="mt-1 text-step-1 text-text-3">{sub}</div>}
     </div>
   );
 }
@@ -82,14 +82,14 @@ function CoverageBody() {
 
           <div className="grid grid-cols-1 items-start gap-5 lg:grid-cols-[1fr_300px]">
             <section className={panel}>
-              <h2 className="mb-4 font-display text-[.95rem] font-semibold tracking-tight">County map</h2>
+              <h2 className="mb-4 font-display text-step-3 font-semibold tracking-tight">County map</h2>
               <CountyCoverageMap
                 states={data!.states}
                 selectedPartnerId={selected}
                 onSelectPartner={toggle}
                 caption={{ title: "US coverage", subtitle: `${data!.coveredCount}/51 states · ${data!.zipCoverageCount} ZIP overrides` }}
               />
-              <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[13px] text-text-3">
+              <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-step-1 text-text-3">
                 <span className="inline-flex items-center gap-1.5">
                   {/* Legend swatch reuses the map's amber hatch (MapHatch) — exact parity, texture not color alone (PRN-14). */}
                   <span className="inline-flex h-3.5 w-3.5 overflow-hidden rounded-[3px] border border-border">
@@ -106,9 +106,9 @@ function CoverageBody() {
 
             <aside className={panel}>
               <div className="mb-3 flex items-center justify-between gap-2">
-                <h2 className="font-display text-[.95rem] font-semibold tracking-tight">Partners</h2>
+                <h2 className="font-display text-step-3 font-semibold tracking-tight">Partners</h2>
                 {selected && (
-                  <Link href={`/partners/${selected}`} className="text-[13px] font-semibold text-brand-ink hover:underline">
+                  <Link href={`/partners/${selected}`} className="text-step-1 font-semibold text-brand-ink hover:underline">
                     Open →
                   </Link>
                 )}
@@ -131,7 +131,7 @@ function CoverageBody() {
                         }
                       >
                         <PartnerTag name={p.name} color={p.color} refId={p.refId} size="sm" />
-                        <span className="num shrink-0 text-[13px] text-text-3">
+                        <span className="num shrink-0 text-step-1 text-text-3">
                           {p.stateCount} state{p.stateCount === 1 ? "" : "s"}
                         </span>
                       </button>

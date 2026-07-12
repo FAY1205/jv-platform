@@ -85,7 +85,7 @@ function AssignModal({ refId, onClose }: { refId: string; onClose: () => void })
           ]}
         />
         <Input label="Reason (optional)" value={reason} onChange={(e) => setReason(e.target.value)} placeholder="e.g. covers this metro off-book" />
-        <p className="text-[.8125rem] text-text-3">Recorded in the activity log. The lead&apos;s original &ldquo;unmatched&rdquo; record is kept — history isn&apos;t rewritten (PRN-05).</p>
+        <p className="text-step-1 text-text-3">Recorded in the activity log. The lead&apos;s original &ldquo;unmatched&rdquo; record is kept — history isn&apos;t rewritten (PRN-05).</p>
       </div>
     </Dialog>
   );
@@ -148,9 +148,9 @@ function UnmatchedBody() {
 
           {/* State map */}
           <section className="rounded-2xl border border-border-soft bg-surface p-5 shadow-sm">
-            <h2 className="mb-4 font-display text-[.95rem] font-semibold tracking-tight">Where the gaps are</h2>
+            <h2 className="mb-4 font-display text-step-3 font-semibold tracking-tight">Where the gaps are</h2>
             <CoverageMap states={gapMapStates} />
-            <p className="mt-3 text-[.8125rem] text-text-3">States with unmatched leads carry a warn ring. Recruiting a partner (or adding a state rule) there closes the gap.</p>
+            <p className="mt-3 text-step-1 text-text-3">States with unmatched leads carry a warn ring. Recruiting a partner (or adding a state rule) there closes the gap.</p>
           </section>
 
           {/* Paginated table (reuses the leads list; F-11) */}

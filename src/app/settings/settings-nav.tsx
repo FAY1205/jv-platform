@@ -30,7 +30,7 @@ export function SettingsNav() {
     <nav aria-label="Settings sections" className="flex flex-col gap-4">
       {GROUPS.map((group) => (
         <div key={group.label} className="flex flex-col gap-0.5">
-          <div className="px-3 pb-1 text-[0.8125rem] font-semibold uppercase tracking-[.08em] text-text-3">{group.label}</div>
+          <div className="px-3 pb-1 text-step-1 font-semibold uppercase tracking-[.08em] text-text-3">{group.label}</div>
           {group.items.map((item) => {
             const on = path === item.href || path.startsWith(`${item.href}/`);
             return (

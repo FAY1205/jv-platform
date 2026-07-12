@@ -25,7 +25,7 @@ const RANGE_SEGMENTS: { value: RangeKey; label: string }[] = [
   { value: "12mo", label: "12mo" },
   { value: "all", label: "All" },
 ];
-const label13 = "text-[.8125rem]"; // 13px chrome floor (no sub-13px)
+const label13 = "text-step-1"; // 13px chrome floor (no sub-13px)
 
 function Kpi({ label, value, tip }: { label: string; value: number; tip: string }) {
   return (
