@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { getServerScope } from "@/lib/scope-context";
 import { assertCsrf, authErrorResponse, requireAdminResponse } from "@/lib/auth/guard";
-import { voidUpload, UploadNotFoundError, AlreadyVoidedError } from "@/modules/run/void";
+import { voidUpload, UploadNotFoundError, AlreadyVoidedError, VoidWindowClosedError } from "@/modules/run/void";
 import { jsonOk, jsonError } from "@/lib/http";
 
 const RefSchema = z.string().regex(/^IM-\d{2}-\d{3,}$/);
@@ -33,6 +33,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ ref: st
     if (authResp) return authResp;
     if (e instanceof UploadNotFoundError) return jsonError("not_found", e.message, 404);
     if (e instanceof AlreadyVoidedError) return jsonError("already_voided", e.message, 409);
+    if (e instanceof VoidWindowClosedError) return jsonError("void_window_closed", e.message, 409);
     return jsonError("void_failed", e instanceof Error ? e.message : "Void failed.", 500);
   }
 }

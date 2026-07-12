@@ -11,6 +11,7 @@ import type { RunDetail, RunLeadView, PartnerView } from "@/modules/run/view-typ
 import { buildAnalytics } from "@/modules/analytics/overview";
 import { Badge, Button, Dialog, Textarea, Card, CardHeader, CardTitle, CardBody, PartnerTag, Table, THead, TBody, Th, Tr, Td, RowOpenButton, EmptyState, Skeleton, AppShell } from "@/components";
 import { fmtDate } from "../_shell";
+import { isWithinVoidWindow } from "@/modules/run/void-window";
 
 // F-55: leads open in the shared dialog, not the old read-only /leads/[ref] page.
 const LeadDialog = dynamic(() => import("../../leads/lead-dialog").then((m) => m.LeadDialog), { ssr: false });
@@ -75,6 +76,10 @@ function RunView({ detail }: { detail: RunDetail }) {
   const [reason, setReason] = useState("");
   const [openRef, setOpenRef] = useState<string | null>(null);
   const isVoided = upload.status === "voided";
+  // WP-J1 (ING-09): void is a bounded undo — only within 10 min of import. Snapshot at mount
+  // (server is authoritative; this only gates the button). new Date in a useState initializer
+  // keeps render pure (mirrors the WS-4 `now` snapshot pattern).
+  const [voidWindowOpen] = useState(() => isWithinVoidWindow(new Date(upload.createdAt), new Date()));
 
   const voidMut = useMutation({
     mutationFn: async () => {
@@ -158,13 +163,19 @@ function RunView({ detail }: { detail: RunDetail }) {
           >
             <span aria-hidden="true">↓</span> Download Excel
           </a>
-          {!isVoided && (
+          {!isVoided && voidWindowOpen && (
             <Button variant="ghost" onClick={() => setModalOpen(true)}>
               Void import
             </Button>
           )}
         </div>
       </div>
+
+      {!isVoided && !voidWindowOpen && (
+        <div className="mb-6 rounded-lg border border-border bg-surface-2 px-4 py-3 text-[13px] text-text-3">
+          The 10-minute window to void this import has closed — voiding is only available right after an import.
+        </div>
+      )}
 
       {isVoided && (
         <div className="mb-6 rounded-lg border border-danger/40 bg-danger-soft px-4 py-3 text-sm text-danger">

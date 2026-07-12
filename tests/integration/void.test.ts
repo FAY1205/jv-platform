@@ -7,7 +7,7 @@ import * as schema from "@/db/schema";
 import { purgeAuditLog } from "../helpers/audit";
 import { DrizzleRunStore } from "@/modules/run/store";
 import { processRun } from "@/modules/run/process";
-import { voidUpload, AlreadyVoidedError } from "@/modules/run/void";
+import { voidUpload, AlreadyVoidedError, VoidWindowClosedError } from "@/modules/run/void";
 import { buildCoverage } from "@/modules/pipeline/assign";
 import { DEFAULT_MLS_PATTERNS } from "@/modules/pipeline/mls-patterns";
 import { GENERIC_PROFILE } from "@/modules/sources";
@@ -86,5 +86,21 @@ suite("WP-018: void-run (ING-09)", () => {
   it("rejects voiding an already-voided run", async () => {
     const [upload] = await db.select({ refId: schema.uploads.refId }).from(schema.uploads).where(eq(schema.uploads.tenantId, scope.tenantId));
     await expect(voidUpload(scope, upload.refId, "again")).rejects.toBeInstanceOf(AlreadyVoidedError);
+  });
+
+  it("ING-09: rejects voiding a run whose 10-minute grace window has closed", async () => {
+    // A run created 11 min ago — backdated via the runner clock, the SAME clock voidUpload
+    // compares against (new Date()), so this is robust to DB/runner clock skew.
+    const [up] = await db
+      .insert(schema.uploads)
+      .values({
+        tenantId: scope.tenantId,
+        refId: "IM-26-990",
+        filename: "old.xlsx",
+        status: "processed",
+        createdAt: new Date(Date.now() - 11 * 60 * 1000),
+      })
+      .returning({ refId: schema.uploads.refId });
+    await expect(voidUpload(scope, up.refId, "too late")).rejects.toBeInstanceOf(VoidWindowClosedError);
   });
 });

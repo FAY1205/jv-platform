@@ -2,6 +2,7 @@ import { and, eq } from "drizzle-orm";
 import { getDb } from "@/db";
 import * as schema from "@/db/schema";
 import { tenantWhere, type ScopeContext } from "@/lib/scope";
+import { isWithinVoidWindow } from "./void-window";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Void a run (ING-09). Soft-void with a required reason: the upload is marked voided
@@ -25,6 +26,13 @@ export class AlreadyVoidedError extends Error {
   }
 }
 
+export class VoidWindowClosedError extends Error {
+  constructor(ref: string) {
+    super(`Run ${ref} can no longer be voided — voiding is only available for 10 minutes after an import.`);
+    this.name = "VoidWindowClosedError";
+  }
+}
+
 export interface VoidResult {
   uploadRef: string;
   voidedAt: string;
@@ -39,6 +47,9 @@ export async function voidUpload(scope: ScopeContext, ref: string, reason: strin
       .where(and(tenantWhere(schema.uploads, scope), eq(schema.uploads.refId, ref)));
     if (!upload) throw new UploadNotFoundError(ref);
     if (upload.status === "voided") throw new AlreadyVoidedError(ref);
+    // WP-J1 (ING-09): void is a bounded undo — only within 10 min of import. Order matters:
+    // not-found and already-voided are more specific and must win over the window check.
+    if (!isWithinVoidWindow(upload.createdAt, new Date())) throw new VoidWindowClosedError(ref);
 
     const voidedAt = new Date();
     await tx
