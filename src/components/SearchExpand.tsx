@@ -52,7 +52,7 @@ export function SearchExpand() {
         aria-label="Search"
         aria-expanded={false}
         onClick={expand}
-        className="grid h-9 w-9 place-items-center rounded-md border border-transparent text-text-2 transition-colors hover:border-border hover:bg-surface focus-visible:border-border active:scale-95"
+        className="grid h-11 w-11 place-items-center rounded-md border border-transparent text-text-2 transition-colors hover:border-border hover:bg-surface focus-visible:border-border active:scale-95"
       >
         <SearchIcon className="h-[18px] w-[18px]" />
       </button>

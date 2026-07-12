@@ -122,7 +122,7 @@ export function NotesPanel({ leadRef, title, headingLevel = "h3" }: { leadRef: s
           )}
           <Button
             variant="secondary"
-            size="sm"
+            size="lg"
             className="w-fit"
             loading={add.isPending}
             disabled={!draft.trim()}

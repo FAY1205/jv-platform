@@ -226,14 +226,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       {/* F-70: while the mobile drawer is open, the rest of the app is inert — Tab can't
           leave the drawer and screen readers skip the covered content (true modal). */}
       <div className="flex min-w-0 flex-col" inert={mobileOpen}>
-        <header className="sticky top-0 z-20 flex items-center gap-3 border-b border-border-soft bg-bg/80 px-6 py-3 backdrop-blur-md md:px-7">
+        <header className="sticky top-0 z-20 flex items-center gap-3 border-b border-border-soft bg-bg/80 px-6 py-2 backdrop-blur-md md:px-7">
           <button
             ref={menuBtnRef}
             type="button"
             onClick={toggleNav}
             aria-label="Toggle navigation"
             aria-expanded={navOpen}
-            className="grid h-9 w-9 shrink-0 place-items-center rounded-md border border-transparent text-text-2 transition-colors hover:border-border hover:bg-surface active:scale-95"
+            className="grid h-11 w-11 shrink-0 place-items-center rounded-md border border-transparent text-text-2 transition-colors hover:border-border hover:bg-surface active:scale-95"
           >
             <span className="h-[18px] w-[18px]"><Icon name="menu" /></span>
           </button>

@@ -94,18 +94,22 @@ export function NotificationBell() {
           <button
             type="button"
             aria-label={`Notifications${unread ? `, ${unread} unread` : ""}`}
-            className="relative grid h-8 w-8 place-items-center rounded-md text-text-2 transition-colors hover:bg-surface-3 focus:outline-none focus-visible:ring-1 focus-visible:ring-brand-ink"
+            className="grid h-11 w-11 place-items-center rounded-md text-text-2 transition-colors hover:bg-surface-3 focus:outline-none focus-visible:ring-1 focus-visible:ring-brand-ink"
           >
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9" />
-              <path d="M10.3 21a1.94 1.94 0 0 0 3.4 0" />
-            </svg>
-            {/* DSN-11 gap: sub-floor count badge — sizing owned by slice D (touch targets). */}
-            {unread > 0 && (
-              <span className="absolute -right-0.5 -top-0.5 grid min-h-[16px] min-w-[16px] place-items-center rounded-full bg-brand px-1 text-[.6rem] font-bold text-brand-contrast">
-                {unread > 9 ? "9+" : unread}
-              </span>
-            )}
+            {/* Badge anchors to this icon-sized wrapper, not the 44px button, so the 44px
+                tap target doesn't detach the count from the bell. */}
+            <span className="relative grid h-[18px] w-[18px] place-items-center">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9" />
+                <path d="M10.3 21a1.94 1.94 0 0 0 3.4 0" />
+              </svg>
+              {/* DSN-11 gap: sub-floor count text — pending the sub-13px pass (not a tap target). */}
+              {unread > 0 && (
+                <span className="absolute -right-1 -top-1 grid min-h-[16px] min-w-[16px] place-items-center rounded-full bg-brand px-1 text-[.6rem] font-bold text-brand-contrast">
+                  {unread > 9 ? "9+" : unread}
+                </span>
+              )}
+            </span>
           </button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-80 p-0">

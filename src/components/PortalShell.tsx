@@ -63,7 +63,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="mx-auto flex min-h-screen w-full max-w-[520px] flex-col border-border bg-bg md:border-x">
-      <header className="sticky top-0 z-20 flex items-center gap-2 border-b border-border-soft bg-bg/85 px-4 py-3 backdrop-blur-md">
+      <header className="sticky top-0 z-20 flex items-center gap-2 border-b border-border-soft bg-bg/85 px-4 py-2 backdrop-blur-md">
         <Link href="/portal/dashboard" className="flex items-center gap-2">
           <svg viewBox="0 0 34 34" fill="none" aria-hidden="true" className="h-7 w-7 shrink-0">
             <rect x="1.5" y="1.5" width="31" height="31" rx="7" className="stroke-text" strokeWidth="1.5" />

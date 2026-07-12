@@ -242,6 +242,7 @@ function Gallery() {
               </div>
               <div className="flex flex-wrap items-center gap-3">
                 <Button variant="primary" size="sm">Small primary</Button>
+                <Button variant="secondary" size="lg">Large — 44px (F-66)</Button>
                 <Button variant="secondary" disabled>Disabled</Button>
                 <Button variant="primary" loading={loading} onClick={() => { setLoading(true); setTimeout(() => setLoading(false), 1400); }}>
                   {loading ? "Processing…" : "Click to load"}

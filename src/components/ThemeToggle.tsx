@@ -20,7 +20,7 @@ export function ThemeToggle() {
       type="button"
       aria-label={`Theme: ${theme}. Switch to ${NEXT_LABEL[theme]}`}
       onClick={() => setPreferences({ theme: nextTheme(theme) })}
-      className="grid h-9 w-9 place-items-center rounded-md border border-transparent text-text-2 transition-colors hover:border-border hover:bg-surface focus-visible:border-border active:scale-95"
+      className="grid h-11 w-11 place-items-center rounded-md border border-transparent text-text-2 transition-colors hover:border-border hover:bg-surface focus-visible:border-border active:scale-95"
     >
       <svg className="h-[18px] w-[18px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.85" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
         {ICON[theme]}
