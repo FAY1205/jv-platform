@@ -1,0 +1,68 @@
+// Pure no-dep renderer for streamed assistant text (design §6: plain language,
+// dash bullets for 3+ numbers, mono refs). NOT a markdown engine — only the three
+// things the system prompt actually emits: **bold**, dash/•/* bullets, ref IDs.
+// The React layer renders these spans (no dangerouslySetInnerHTML).
+
+export type InlineSpan = { kind: "text" | "bold" | "ref"; text: string };
+export type AnswerBlock =
+  | { type: "p"; spans: InlineSpan[] }
+  | { type: "ul"; items: InlineSpan[][] };
+
+const BULLET_RE = /^\s*[-–•*]\s+(.*)$/;
+const REF_RE = /\b(JV-\d{3,}|LD-\d{2}-\d{5,}|IM-\d{2}-\d{3,}|UP-\d{4}-\d{3,})\b/g;
+
+/** Split a line into text/bold/ref spans. Bold is matched first, then refs inside
+ *  each non-bold segment. */
+function inlineSpans(line: string): InlineSpan[] {
+  const spans: InlineSpan[] = [];
+  const boldRe = /\*\*([^*]+)\*\*/g;
+  let last = 0;
+  let m: RegExpExecArray | null;
+  const pushText = (t: string) => {
+    if (!t) return;
+    let idx = 0;
+    let r: RegExpExecArray | null;
+    REF_RE.lastIndex = 0;
+    while ((r = REF_RE.exec(t))) {
+      if (r.index > idx) spans.push({ kind: "text", text: t.slice(idx, r.index) });
+      spans.push({ kind: "ref", text: r[0] });
+      idx = r.index + r[0].length;
+    }
+    if (idx < t.length) spans.push({ kind: "text", text: t.slice(idx) });
+  };
+  while ((m = boldRe.exec(line))) {
+    if (m.index > last) pushText(line.slice(last, m.index));
+    spans.push({ kind: "bold", text: m[1] });
+    last = m.index + m[0].length;
+  }
+  if (last < line.length) pushText(line.slice(last));
+  return spans;
+}
+
+export function formatAnswer(text: string): AnswerBlock[] {
+  const blocks: AnswerBlock[] = [];
+  let para: string[] = [];
+  const flushPara = () => {
+    if (para.length) {
+      blocks.push({ type: "p", spans: inlineSpans(para.join(" ").trim()) });
+      para = [];
+    }
+  };
+  for (const raw of text.split("\n")) {
+    const line = raw.trimEnd();
+    const bullet = BULLET_RE.exec(line);
+    if (bullet) {
+      flushPara();
+      const prev = blocks[blocks.length - 1];
+      const item = inlineSpans(bullet[1].trim());
+      if (prev && prev.type === "ul") prev.items.push(item);
+      else blocks.push({ type: "ul", items: [item] });
+    } else if (line.trim() === "") {
+      flushPara();
+    } else {
+      para.push(line.trim());
+    }
+  }
+  flushPara();
+  return blocks;
+}

@@ -20,6 +20,7 @@ const GROUPS: { label: string; items: NavItem[] }[] = [
   { label: "Organization", items: [
     { href: "/settings/data", label: "Data & Export" },
     { href: "/settings/billing", label: "Billing" },
+    { href: "/settings/ai", label: "AI assistant" },
     { href: "/settings/team", label: "Team" },
   ] },
 ];

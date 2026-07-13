@@ -155,12 +155,14 @@ export const radii = {
   full: "9999px",
 } as const;
 
-/** Elevation levels 0–3 — subtle, no heavy drops (DSN-01). */
+/** Elevation levels 0–3 + assistant ambient/upward (WP-AI-2) — subtle, no heavy drops (DSN-01). */
 export const elevation = {
   xs: "0 1px 2px rgba(15,23,34,.04)",
   sm: "0 1px 2px rgba(15,23,34,.05),0 1px 3px rgba(15,23,34,.04)",
   md: "0 4px 12px rgba(15,23,34,.07),0 1px 3px rgba(15,23,34,.05)",
   lg: "0 16px 40px rgba(15,23,34,.14),0 4px 12px rgba(15,23,34,.08)",
+  amb: "0 8px 20px rgba(22,36,43,.2)",
+  up: "0 -2px 10px rgba(22,36,43,.05)",
 } as const;
 
 /** Motion durations + easing (DSN-01, DSN-08). */

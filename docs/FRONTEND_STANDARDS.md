@@ -42,6 +42,10 @@ Canonicalizes the frontend patterns this codebase follows. Authority order:
     *endpoints* (the black/white the relative-luminance pick compares against), not brand identity.
     These two files are accepted PRN-12 exceptions alongside the token homes — never route them
     through theme tokens, which would break the ratio math.
+  - **Exception (canvas paint, not brand):** `src/components/assistant/Orb.tsx` renders a
+    theme-aware plasma orb on a `<canvas>`; canvas 2D cannot consume CSS `var(--token)`, so its
+    glass/ribbon paint palette holds raw color values (the orb's visual identity, like the SVG
+    map paint). The DOM chrome around the orb uses tokens only.
 - Both themes are first-class: every surface verified in light AND dark.
 - Partner colors come only from `PARTNER_SWATCHES` (additive-only, AA-vetted,
   distance-checked — EXP-06); the same token source feeds UI, export legend, and emails.

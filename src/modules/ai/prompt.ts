@@ -47,7 +47,4 @@ export function buildSystemPrompt(screen?: ScreenKey): string {
 }
 
 /** PRN-10 UI guard (shared with WP-AI-2): only these internal path prefixes render as links. */
-const INTERNAL_PATH_RE = /^\/(dashboard|leads|unmatched|imports|partners|coverage|activity|rules|settings)(\/|$)/;
-export function isInternalPath(href: string): boolean {
-  return INTERNAL_PATH_RE.test(href) && !href.startsWith("//");
-}
+export { isInternalPath } from "./internal-path";

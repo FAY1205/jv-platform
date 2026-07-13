@@ -62,6 +62,18 @@ describe("DSN-01/SEAM-08: design tokens", () => {
     expect(globalsCss).toContain("--font-hanken");
     expect(globalsCss).toContain("--font-plex-mono");
   });
+
+  it("WP-AI-2: declares the additive assistant elevation/glow tokens in both themes", () => {
+    // --halo (orb glow), --sh-amb (launcher ambient), --sh-up (footer top-shadow).
+    for (const v of ["--halo", "--sh-amb", "--sh-up"]) {
+      // once in :root (light) + once in each dark block ⇒ ≥3 declarations.
+      const count = globalsCss.split(`${v}:`).length - 1;
+      expect(count, `${v} should be declared in light + both dark blocks`).toBeGreaterThanOrEqual(3);
+    }
+    expect(globalsCss).toContain("--shadow-amb:");
+    expect(globalsCss).toContain("--shadow-up:");
+    expect(globalsCss).toContain("@keyframes assistant-breathe");
+  });
 });
 
 // F-17/F-18 (WCAG SC 1.4.3): text/status tokens meet AA against their background.
@@ -96,6 +108,14 @@ describe("F-17/F-18: token contrast meets WCAG AA (4.5:1)", () => {
       for (const [fg, bg] of pairs) {
         expect(contrastRatio(fg, bg)).toBeGreaterThanOrEqual(4.5);
       }
+    });
+    it(`${theme}: WP-AI-2 — assistant widget's new token pairings meet AA`, () => {
+      // Regression gate for the pairings the assistant widget introduced: source
+      // chips (text-3 on surface-2), the cap-band settings link (brand-ink on
+      // warn-soft), and the user message bubble (text on brand-soft).
+      expect(contrastRatio(t.text3, t.surface2)).toBeGreaterThanOrEqual(4.5); // assistant source chips
+      expect(contrastRatio(t.brandInk, t.warnSoft)).toBeGreaterThanOrEqual(4.5); // cap-band link
+      expect(contrastRatio(t.text, t.brandSoft)).toBeGreaterThanOrEqual(4.5); // user message bubble
     });
     it(`${theme}: DSN-10/PRN-14 — fixed-dark text reads on the marigold fill; the focus ring meets non-text AA`, () => {
       // WP-C: primary Button + checkbox use the theme-invariant --brand-contrast on the
