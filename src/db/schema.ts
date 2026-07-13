@@ -4,6 +4,7 @@ import {
   uuid,
   text,
   integer,
+  bigint,
   boolean,
   jsonb,
   timestamp,
@@ -483,6 +484,24 @@ export const aiFeedback = pgTable(
     createdAt: createdAt(),
   },
   (t) => [index("ai_feedback_tenant_idx").on(t.tenantId)],
+);
+
+// ── AI assistant usage metering (AIA-06/BIL-04, ADR-0027). One row per answered
+// question; counts + cost only — NEVER message content (SEC-05). costMicroUsd is
+// integer micro-dollars ($10.00 = 10_000_000) so budget math stays integral.
+export const aiUsage = pgTable(
+  "ai_usage",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id").notNull().references(() => tenants.id),
+    userId: uuid("user_id").notNull(),
+    model: text("model").notNull(),
+    inputTokens: integer("input_tokens").notNull(),
+    outputTokens: integer("output_tokens").notNull(),
+    costMicroUsd: bigint("cost_micro_usd", { mode: "number" }).notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [index("ai_usage_tenant_created_idx").on(t.tenantId, t.createdAt)],
 );
 
 // ── Reference-ID counters (DM-07): per (tenant, entity, year), monotonic. ──

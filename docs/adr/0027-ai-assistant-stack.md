@@ -1,6 +1,6 @@
 # ADR-0027: AI assistant stack — AI SDK v6 via Vercel AI Gateway, Gemini 3.1 Flash-Lite default
 
-- **Status:** Proposed (accepted with WP-AI-1)
+- **Status:** Accepted
 - **Date:** 2026-07-13
 - **Phase / WP:** Phase B (AI Assistant) / WP-AI-1
 

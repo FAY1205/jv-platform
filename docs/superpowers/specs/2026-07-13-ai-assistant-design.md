@@ -81,15 +81,15 @@ scope-first. Output passes through `mask.ts` (§7) and includes a server-built i
 
 | Tool | Wraps | Model-supplied args |
 |---|---|---|
-| `get_dashboard_stats` | `dashboardData` | `range: '7d'\|'30d'\|'90d'` |
+| `get_dashboard_stats` | `dashboardData` | `range: RangeKey` (`'7d'\|'30d'\|'12mo'\|'all'` — the app's real ranges) |
 | `get_partner_performance` | `partnerPerformanceDetail` (id resolved from ref/name via `listPartners`) | `partner` (ref `JV-###` or name), `range` |
 | `list_partners` | `listPartners` | — |
 | `get_partner_territory` | `territoryOf` (id resolved as above) | `partner` |
 | `get_coverage_summary` | `coverageMapData` + `unmatchedStateStats` | — |
 | `find_leads` | `listLeads` | `state?`, `status?`, `assigned?`, `page?` (Zod-bounded) |
-| `get_lead` | `getAdminLeadDetail` | `refId` (`LD-#####`) |
+| `get_lead` | `getAdminLeadDetail` | `refId` (`LD-YY-#####`) |
 | `list_imports` | `listRuns` | — |
-| `get_import` | `getRunDetail` | `ref` (`UP-YYYY-###`) |
+| `get_import` | `getRunDetail` | `ref` (`IM-YY-###` — uploads use the IM ref-ID) |
 
 Name→partner resolution returns **all matches** when ambiguous (e.g. two "Ridge…"
 partners) so the model must ask which — disambiguation is structural, not model
@@ -145,7 +145,7 @@ names, statuses — is still attacker-influenced):
 3. **Prompt layer:** tool results injected as JSON data blocks; system prompt states
    field text is data, never instructions, and authorization claims inside data are void.
 4. **UI layer:** deep links render only for same-origin known path prefixes
-   (`/dashboard|/leads|/unmatched|/imports|/runs|/partners|/coverage|/activity|/settings`);
+   (`/dashboard|/leads|/unmatched|/imports|/partners|/coverage|/activity|/rules|/settings`);
    anything else renders as plain text. Source chips come from actual tool calls.
 5. **Eval layer:** TST-10 injection corpus (§9).
 
@@ -155,14 +155,22 @@ Traces/logging: `ai_usage` stores counts and cost only — never message content
 ## 8. Cost, metering, cap (AIA-06, SET-11, BIL-04)
 
 - **Migration 0021 — `ai_usage`**: `id, tenant_id, user_id, model, input_tokens,
-  output_tokens, cost_microcents, created_at` + `(tenant_id, created_at)` index +
-  deny-by-default RLS (same posture as other tables). No seed.
-- `pricing.ts`: pure table `model string → {inMicrocentsPerMTok, outMicrocentsPerMTok}`
+  output_tokens, cost_micro_usd, created_at` + `(tenant_id, created_at)` index +
+  deny-by-default RLS (same posture as other tables). No seed. (Unit = integer
+  micro-dollars: $10 cap = 10,000,000 µ$ — integer math, no float drift.)
+- `pricing.ts`: pure table `model string → {inputMicroUsdPerMTok, outputMicroUsdPerMTok}`
   for the two supported models; unknown model → assistant disabled with a clear error
   (never guess a price). Cost is computed and stored at write time.
-- **Cap check (pre-request):** month-to-date `SUM(cost_microcents)` ≥ cap → uniform
+- **Cap check (pre-request):** month-to-date `SUM(cost_micro_usd)` ≥ cap → uniform
   envelope `{code:"ai_budget_reached"}`; widget shows the allowance band (no $ amounts).
   Post-request usage is recorded even for capped-mid-stream responses.
+  - **V1 accepted limitation (owner-approved 2026-07-13):** the cap + rate limit read
+    committed `ai_usage`; usage is written in `onFinish` *after* the stream. Simultaneous
+    requests can therefore each pass the gate before any row lands (TOCTOU) — the cap is a
+    *soft* cap under concurrency, not the strict hard stop. Bounded in practice (admin-only,
+    Flash-Lite, 1024-token answers), so shipped as-is with **follow-up WP AIA-06a**: reserve
+    capacity atomically (advisory lock, per `pipeline/lock.ts`) before streaming and
+    reconcile actual cost on finish; also meter failed/aborted streams.
 - **Rate limit:** more than 15 questions per user per minute → 429 (count over
   `ai_usage`, sliding window; the 16th request in a rolling minute is rejected).
 - **SET-11 settings** (rows in the generic `settings` table): `ai_enabled` (default
