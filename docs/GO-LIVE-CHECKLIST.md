@@ -44,6 +44,7 @@ Roughly in dependency order:
 ### Exact env vars to set in Vercel (from `src/lib/env.ts`)
 
 - `APP_ENV=production`
+- `APP_URL` — your production origin, e.g. `https://app.yourdomain.com` (release-cron digest email links; **the app refuses to boot in production if left at the localhost default**)
 - `DATABASE_URL` — prod Supabase pooler connection string
 - `NEXT_PUBLIC_SUPABASE_URL`
 - `NEXT_PUBLIC_SUPABASE_ANON_KEY`

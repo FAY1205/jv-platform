@@ -2,6 +2,7 @@ import { sql } from "drizzle-orm";
 import { getDb } from "@/db";
 import * as schema from "@/db/schema";
 import { tenantWhere, partnerOwnsLead, type ScopeContext } from "@/lib/scope";
+import { releaseCutoff } from "../run/hold-window";
 import { DEFAULT_STATUS } from "../portal/statuses";
 import { rangeWindow, type RangeKey } from "./ranges";
 
@@ -118,12 +119,17 @@ export async function partnerPerformanceDetail(scope: ScopeContext, partnerId: s
   const leadTenant = tenantWhere(schema.leads, scope);
   const histTenant = tenantWhere(schema.leadStatusHistory, scope);
   const noteTenant = tenantWhere(schema.leadNotes, scope);
+  // Distribution hold: a partner's own dashboard counts only RELEASED leads (held leads aren't
+  // theirs yet); the admin's view of a partner's stats sees everything.
+  // Pass the cutoff as an ISO string + explicit cast: db.execute()'s raw path can't serialize a
+  // Date param (unlike the query builder used elsewhere).
+  const holdGate = scope.role === "partner" ? sql`and created_at < ${releaseCutoff(new Date()).toISOString()}::timestamptz` : sql``;
 
   const rows = await db.execute(sql`
     with partner_leads as (
       select id, created_at from leads
       where ${leadTenant} and deleted_at is null and mls_status = 'kept'
-        and ${partnerOwnsLead(partnerId)}
+        and ${partnerOwnsLead(partnerId)} ${holdGate}
     ),
     status_hist as (
       select lead_id,

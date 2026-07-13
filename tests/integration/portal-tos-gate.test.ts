@@ -8,6 +8,7 @@ import { CURRENT_TOS_VERSION } from "@/lib/legal/tos";
 import type { ScopeContext } from "@/lib/scope";
 import type * as ScopeContextModule from "@/lib/scope-context";
 import { jsonRequest, routeParams, scopeContextMock, setRouteScope } from "./_route-harness";
+import { releaseTenantLeads } from "../helpers/hold";
 
 // F-04 / TR-4: a portal DATA route must refuse a partner who hasn't accepted the
 // current ToS — not just the /portal landing page. getServerScope is injected at its
@@ -49,6 +50,7 @@ suite("F-04: portal data routes are ToS-gated", () => {
     await db.insert(schema.users).values({ id: partnerUserId, tenantId, email: "px@tos.test", role: "partner", partnerId: p.id });
     const [u] = await db.insert(schema.uploads).values({ tenantId, refId: "IM-26-001", filename: "a.xlsx", status: "processed" }).returning({ id: schema.uploads.id });
     await db.insert(schema.leads).values({ tenantId, refId: "LD-26-00001", uploadId: u.id, dedupeKey: "x|1", rawJson: {}, partnerId: p.id, matchMethod: "zip", mlsStatus: "kept" });
+    await releaseTenantLeads(db, tenantId); // released past the hold window so the partner can see it
     const partnerScope: ScopeContext = { tenantId, role: "partner", userId: partnerUserId, partnerId: p.id };
     setRouteScope(partnerScope);
   });

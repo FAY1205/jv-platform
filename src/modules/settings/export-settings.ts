@@ -9,17 +9,10 @@ import { tenantWhere, type ScopeContext } from "@/lib/scope";
 
 export const COLOR_CODING_KEY = "color_coding";
 export const RETENTION_DAYS_KEY = "retention_days";
-export const VOID_NOTIFIES_PARTNERS_KEY = "void_notifies_partners";
 const DEFAULT_RETENTION_DAYS = 365;
 
 /** SET-01 default ON — only an explicit stored `false` disables color coding. */
 export function coerceColorCoding(value: unknown): boolean {
-  return value !== false;
-}
-
-/** WP-J2 (ING-09) default ON (PRN-11) — only an explicit stored `false` silences the in-app
- *  recall notice partners get when a run they received leads from is voided. */
-export function coerceVoidNotifiesPartners(value: unknown): boolean {
   return value !== false;
 }
 
@@ -55,20 +48,4 @@ export async function saveColorCoding(scope: ScopeContext, value: boolean): Prom
 /** Days original upload files are retained (SET-07). Read-only surface for now. */
 export async function loadRetentionDays(scope: ScopeContext): Promise<number> {
   return coerceRetentionDays(await readSetting(scope, RETENTION_DAYS_KEY));
-}
-
-/** WP-J2 (ING-09): whether voiding a run sends affected partners an in-app recall notice. */
-export async function loadVoidNotifiesPartners(scope: ScopeContext): Promise<boolean> {
-  return coerceVoidNotifiesPartners(await readSetting(scope, VOID_NOTIFIES_PARTNERS_KEY));
-}
-
-/** Persist the void-notify toggle (admin Settings). One row per tenant+key. */
-export async function saveVoidNotifiesPartners(scope: ScopeContext, value: boolean): Promise<void> {
-  await getDb()
-    .insert(schema.settings)
-    .values({ tenantId: scope.tenantId, key: VOID_NOTIFIES_PARTNERS_KEY, value })
-    .onConflictDoUpdate({
-      target: [schema.settings.tenantId, schema.settings.key],
-      set: { value, updatedAt: new Date() },
-    });
 }

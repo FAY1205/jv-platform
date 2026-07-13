@@ -200,11 +200,20 @@ export const uploads = pgTable(
     rulesSnapshot: jsonb("rules_snapshot"),
     voidReason: text("void_reason"), // ING-09
     voidedAt: timestamp("voided_at", { withTimezone: true }),
+    // Distribution hold: NULL = the partner push (digest + notifications) hasn't been sent yet.
+    // Set by the release cron once the import is past its hold window. Visibility does NOT depend
+    // on this column (it's computed at read time from the lead's created_at) — this marker is only
+    // the push's idempotency, so a stalled cron delays emails, never lead access.
+    distributedAt: timestamp("distributed_at", { withTimezone: true }),
     createdAt: createdAt(),
   },
   (t) => [
     index("uploads_tenant_idx").on(t.tenantId),
     uniqueIndex("uploads_tenant_ref_idx").on(t.tenantId, t.refId),
+    // Release scan: only imports still awaiting their push (not yet distributed, not voided).
+    index("uploads_pending_release_idx")
+      .on(t.tenantId, t.createdAt)
+      .where(sql`${t.distributedAt} is null and ${t.voidedAt} is null`),
   ],
 );
 

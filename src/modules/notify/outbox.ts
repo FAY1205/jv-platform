@@ -1,8 +1,9 @@
-import { and, asc, eq, inArray, isNull, lte, or } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, lt, lte, or, sql } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import * as schema from "@/db/schema";
 import { tenantWhere, type ScopeContext } from "@/lib/scope";
 import { env, isProduction } from "@/lib/env";
+import { releaseCutoff } from "../run/hold-window";
 import { APP_NAME } from "@/lib/app";
 import { logError } from "@/lib/observability";
 import { sendEmail, type EmailTransport } from "./email";
@@ -84,15 +85,18 @@ export function rowToEmailMessage(row: {
 
 export interface EnqueueRunDigestsInput {
   uploadRef: string;
-  summary: RunSummary;
+  /** Required for the admin run-summary (audience "admin"/"all"); unused for "partner". */
+  summary?: RunSummary;
   /** Absolute origin for building the partner portal link. */
   portalBaseUrl: string;
-  /** Admin recipients for the run-summary email (NTF-02). */
-  adminEmails: string[];
+  /** Admin recipients for the run-summary email (NTF-02). Unused for audience "partner". */
+  adminEmails?: string[];
   /** The acting admin's user id — target for their in-app run notification (NTF-04). */
   adminUserId?: string;
   /** When provided, gates email vs in-app per role/event (NTF-05); absent = email all (028a). */
   prefs?: NotificationPrefs;
+  /** Which recipients to notify: "all" (default), "admin" only (at import), "partner" only (at release). */
+  audience?: "all" | "admin" | "partner";
 }
 
 /**
@@ -107,133 +111,141 @@ export async function enqueueRunDigests(
   scope: ScopeContext,
   input: EnqueueRunDigestsInput,
 ): Promise<number> {
-  const [upload] = await db
-    .select({ id: schema.uploads.id })
-    .from(schema.uploads)
-    .where(and(tenantWhere(schema.uploads, scope), eq(schema.uploads.refId, input.uploadRef)));
-  if (!upload) return 0;
-
-  // New delivered leads for this run: only newly-inserted leads carry this upload_id.
-  const rows = await db
-    .select({
-      refId: schema.leads.refId,
-      city: schema.leads.city,
-      state: schema.leads.state,
-      partnerId: schema.leads.partnerId,
-      pName: schema.partners.name,
-      pEmail: schema.partners.email,
-      pRef: schema.partners.refId,
-      pColor: schema.partners.color,
-    })
-    .from(schema.leads)
-    .innerJoin(schema.partners, eq(schema.partners.id, schema.leads.partnerId))
-    // WP-J2: don't digest a recalled lead if a void races this post-run step.
-    .where(and(tenantWhere(schema.leads, scope), eq(schema.leads.uploadId, upload.id), eq(schema.leads.mlsStatus, "kept"), isNull(schema.leads.deletedAt)))
-    .orderBy(asc(schema.leads.refId));
-
-  interface Group {
-    partnerId: string;
-    name: string;
-    email: string | null;
-    ref: string;
-    color: string;
-    leads: PartnerDigestLead[];
-  }
-  const byPartner = new Map<string, Group>();
-  for (const r of rows) {
-    if (!r.partnerId) continue;
-    const g =
-      byPartner.get(r.partnerId) ??
-      { partnerId: r.partnerId, name: r.pName, email: r.pEmail, ref: r.pRef, color: r.pColor, leads: [] };
-    g.leads.push({ refId: r.refId, city: r.city, state: r.state });
-    byPartner.set(r.partnerId, g);
-  }
-
-  // Map partner → user id for in-app notifications (a partner may not have onboarded).
-  const partnerIds = [...byPartner.keys()];
-  const userByPartner = new Map<string, string>();
-  if (input.prefs && partnerIds.length > 0) {
-    const userRows = await db
-      .select({ id: schema.users.id, partnerId: schema.users.partnerId })
-      .from(schema.users)
-      .where(and(tenantWhere(schema.users, scope), inArray(schema.users.partnerId, partnerIds)));
-    for (const u of userRows) if (u.partnerId) userByPartner.set(u.partnerId, u.id);
-  }
-
+  const audience = input.audience ?? "all";
   const emailOn = (role: "admin" | "partner", ev: "run_summary" | "status_change" | "new_leads") =>
     !input.prefs || resolvePref(input.prefs, role, ev).email;
   const inAppOn = (role: "admin" | "partner", ev: "run_summary" | "status_change" | "new_leads") =>
     !!input.prefs && resolvePref(input.prefs, role, ev).inApp;
 
   let enqueued = 0;
-  for (const g of byPartner.values()) {
-    if (g.leads.length === 0) continue;
-    const c = buildPartnerDigest({
-      appName: APP_NAME,
-      partnerName: g.name,
-      partnerRef: g.ref,
-      portalUrl: `${input.portalBaseUrl}/portal`,
-      uploadRef: input.uploadRef,
-      leads: g.leads,
-      partnerColor: g.color,
-    });
-    // NTF-01: email a partner with an address, when their digest email is on.
-    if (g.email && emailOn("partner", "new_leads")) {
-      await enqueueEmail(db, {
-        tenantId: scope.tenantId,
-        to: g.email,
-        subject: c.subject,
-        body: c.body,
-        html: c.html,
-        kind: "partner_digest",
-        meta: { uploadRef: input.uploadRef, partnerRef: g.ref },
-      });
-      enqueued++;
-    }
-    // NTF-04: in-app notification for onboarded partners, when the in-app channel is on.
-    const uid = userByPartner.get(g.partnerId);
-    if (uid && inAppOn("partner", "new_leads")) {
-      await createNotification(db, {
-        tenantId: scope.tenantId,
-        userId: uid,
-        type: "new_leads",
-        title: c.subject,
-        body: `${g.leads.length} new lead${g.leads.length === 1 ? "" : "s"} from ${input.uploadRef}.`,
-        deepLink: "/portal/leads",
-      });
+
+  // Partner digests (NTF-01/04) — the "distributed to partners" push, deferred to the release cron.
+  if (audience !== "admin") {
+    const [upload] = await db
+      .select({ id: schema.uploads.id })
+      .from(schema.uploads)
+      .where(and(tenantWhere(schema.uploads, scope), eq(schema.uploads.refId, input.uploadRef)));
+    if (upload) {
+      // New delivered leads for this run: only newly-inserted leads carry this upload_id.
+      const rows = await db
+        .select({
+          refId: schema.leads.refId,
+          city: schema.leads.city,
+          state: schema.leads.state,
+          partnerId: schema.leads.partnerId,
+          pName: schema.partners.name,
+          pEmail: schema.partners.email,
+          pRef: schema.partners.refId,
+          pColor: schema.partners.color,
+        })
+        .from(schema.leads)
+        .innerJoin(schema.partners, eq(schema.partners.id, schema.leads.partnerId))
+        // WP-J2: don't digest a recalled lead if a void races this post-run step.
+        .where(and(tenantWhere(schema.leads, scope), eq(schema.leads.uploadId, upload.id), eq(schema.leads.mlsStatus, "kept"), isNull(schema.leads.deletedAt)))
+        .orderBy(asc(schema.leads.refId));
+
+      interface Group {
+        partnerId: string;
+        name: string;
+        email: string | null;
+        ref: string;
+        color: string;
+        leads: PartnerDigestLead[];
+      }
+      const byPartner = new Map<string, Group>();
+      for (const r of rows) {
+        if (!r.partnerId) continue;
+        const g =
+          byPartner.get(r.partnerId) ??
+          { partnerId: r.partnerId, name: r.pName, email: r.pEmail, ref: r.pRef, color: r.pColor, leads: [] };
+        g.leads.push({ refId: r.refId, city: r.city, state: r.state });
+        byPartner.set(r.partnerId, g);
+      }
+
+      // Map partner → user id for in-app notifications (a partner may not have onboarded).
+      const partnerIds = [...byPartner.keys()];
+      const userByPartner = new Map<string, string>();
+      if (input.prefs && partnerIds.length > 0) {
+        const userRows = await db
+          .select({ id: schema.users.id, partnerId: schema.users.partnerId })
+          .from(schema.users)
+          .where(and(tenantWhere(schema.users, scope), inArray(schema.users.partnerId, partnerIds)));
+        for (const u of userRows) if (u.partnerId) userByPartner.set(u.partnerId, u.id);
+      }
+
+      for (const g of byPartner.values()) {
+        if (g.leads.length === 0) continue;
+        const c = buildPartnerDigest({
+          appName: APP_NAME,
+          partnerName: g.name,
+          partnerRef: g.ref,
+          portalUrl: `${input.portalBaseUrl}/portal`,
+          uploadRef: input.uploadRef,
+          leads: g.leads,
+          partnerColor: g.color,
+        });
+        // NTF-01: email a partner with an address, when their digest email is on.
+        if (g.email && emailOn("partner", "new_leads")) {
+          await enqueueEmail(db, {
+            tenantId: scope.tenantId,
+            to: g.email,
+            subject: c.subject,
+            body: c.body,
+            html: c.html,
+            kind: "partner_digest",
+            meta: { uploadRef: input.uploadRef, partnerRef: g.ref },
+          });
+          enqueued++;
+        }
+        // NTF-04: in-app notification for onboarded partners, when the in-app channel is on.
+        const uid = userByPartner.get(g.partnerId);
+        if (uid && inAppOn("partner", "new_leads")) {
+          await createNotification(db, {
+            tenantId: scope.tenantId,
+            userId: uid,
+            type: "new_leads",
+            title: c.subject,
+            body: `${g.leads.length} new lead${g.leads.length === 1 ? "" : "s"} from ${input.uploadRef}.`,
+            deepLink: "/portal/leads",
+          });
+        }
+      }
     }
   }
 
-  // NTF-02/04: admin run summary — email (default on) + in-app for the acting admin.
-  const summary = buildAdminRunSummary({
-    appName: APP_NAME,
-    uploadRef: input.uploadRef,
-    summary: input.summary,
-    importUrl: `${input.portalBaseUrl}/imports/${input.uploadRef}`,
-  });
-  if (emailOn("admin", "run_summary")) {
-    for (const email of dedupe(input.adminEmails)) {
-      await enqueueEmail(db, {
-        tenantId: scope.tenantId,
-        to: email,
-        subject: summary.subject,
-        body: summary.body,
-        html: summary.html,
-        kind: "admin_run_summary",
-        meta: { uploadRef: input.uploadRef },
-      });
-      enqueued++;
-    }
-  }
-  if (input.adminUserId && inAppOn("admin", "run_summary")) {
-    await createNotification(db, {
-      tenantId: scope.tenantId,
-      userId: input.adminUserId,
-      type: "run_summary",
-      title: summary.subject,
-      body: `${input.summary.kept} distributed · ${input.summary.removed} removed · ${input.summary.unmatched} unmatched.`,
-      deepLink: `/imports/${input.uploadRef}`,
+  // Admin run summary (NTF-02/04) — sent at IMPORT with the acting admin + the true full-run summary
+  // (NOT deferred: the admin isn't a partner, and a recompute at release undercounts repeat leads).
+  if (audience !== "partner" && input.summary) {
+    const s = buildAdminRunSummary({
+      appName: APP_NAME,
+      uploadRef: input.uploadRef,
+      summary: input.summary,
+      importUrl: `${input.portalBaseUrl}/imports/${input.uploadRef}`,
     });
+    if (emailOn("admin", "run_summary")) {
+      for (const email of dedupe(input.adminEmails ?? [])) {
+        await enqueueEmail(db, {
+          tenantId: scope.tenantId,
+          to: email,
+          subject: s.subject,
+          body: s.body,
+          html: s.html,
+          kind: "admin_run_summary",
+          meta: { uploadRef: input.uploadRef },
+        });
+        enqueued++;
+      }
+    }
+    if (input.adminUserId && inAppOn("admin", "run_summary")) {
+      await createNotification(db, {
+        tenantId: scope.tenantId,
+        userId: input.adminUserId,
+        type: "run_summary",
+        title: s.subject,
+        body: `${input.summary.kept} distributed · ${input.summary.removed} removed · ${input.summary.unmatched} unmatched.`,
+        deepLink: `/imports/${input.uploadRef}`,
+      });
+    }
   }
 
   return enqueued;
@@ -389,4 +401,64 @@ export async function pendingOutboxCount(db: DB, tenantId: string): Promise<numb
     .from(schema.emailOutbox)
     .where(and(eq(schema.emailOutbox.tenantId, tenantId), inArray(schema.emailOutbox.status, ["pending"])));
   return rows.length;
+}
+
+/**
+ * Distribution hold: release imports whose 10-min hold window has elapsed. For each processed,
+ * not-yet-distributed, not-voided upload past its window, mark it distributed and fan out the
+ * PARTNER digests + partner in-app notifications (the admin run-summary already went out at import).
+ * Per-upload transaction under the SAME per-tenant advisory lock voidUpload uses, so a void and a
+ * release can't interleave; the mark + enqueue commit together, so a push failure rolls back and
+ * retries next tick. Partner visibility is computed from the lead's created_at (not this marker), so
+ * a stalled release only delays the email, never lead access. Tenant-scoped (PRN-08).
+ */
+export async function releaseDueImports(
+  db: DB,
+  opts: { tenantId: string; portalBaseUrl: string; now?: Date; limit?: number },
+): Promise<{ released: number }> {
+  const now = opts.now ?? new Date();
+  const cutoff = releaseCutoff(now);
+  const due = await db
+    .select({ id: schema.uploads.id, refId: schema.uploads.refId })
+    .from(schema.uploads)
+    .where(
+      and(
+        eq(schema.uploads.tenantId, opts.tenantId),
+        eq(schema.uploads.status, "processed"),
+        isNull(schema.uploads.distributedAt),
+        isNull(schema.uploads.voidedAt),
+        lt(schema.uploads.createdAt, cutoff), // strict — mirrors releasedLeads()'s partner-visibility gate
+      ),
+    )
+    .orderBy(asc(schema.uploads.createdAt))
+    .limit(opts.limit ?? 50);
+  if (due.length === 0) return { released: 0 };
+
+  // Partner in-app gating needs the per-tenant prefs; userId is unused (prefs are per-tenant).
+  const scope: ScopeContext = { tenantId: opts.tenantId, role: "admin", userId: opts.tenantId };
+  const prefs = await loadNotificationPrefs(db, scope);
+
+  let released = 0;
+  for (const upload of due) {
+    try {
+      await db.transaction(async (tx) => {
+        // SAME per-tenant lock key as voidUpload/persistRun so a void and a release can't interleave (F-1).
+        await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${opts.tenantId})::bigint)`);
+        const [fresh] = await tx
+          .select({ distributedAt: schema.uploads.distributedAt, voidedAt: schema.uploads.voidedAt })
+          .from(schema.uploads)
+          .where(eq(schema.uploads.id, upload.id));
+        if (!fresh || fresh.distributedAt !== null || fresh.voidedAt !== null) return; // released/voided since select
+        await tx
+          .update(schema.uploads)
+          .set({ distributedAt: now })
+          .where(and(eq(schema.uploads.id, upload.id), isNull(schema.uploads.voidedAt)));
+        await enqueueRunDigests(tx, scope, { uploadRef: upload.refId, portalBaseUrl: opts.portalBaseUrl, prefs, audience: "partner" });
+      });
+      released++;
+    } catch (e) {
+      logError("release_import_failed", { uploadRef: upload.refId, message: e instanceof Error ? e.message : String(e) });
+    }
+  }
+  return { released };
 }

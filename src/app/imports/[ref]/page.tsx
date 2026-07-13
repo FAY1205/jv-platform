@@ -93,11 +93,11 @@ function RunView({ detail }: { detail: RunDetail }) {
       if (!res.ok) throw new Error(b?.message ?? "Void failed.");
       return b;
     },
-    onSuccess: (result: { recalledLeadCount?: number; affectedPartnerCount?: number }) => {
+    onSuccess: (result: { recalledLeadCount?: number }) => {
       qc.invalidateQueries({ queryKey: ["run", upload.refId] });
       qc.invalidateQueries({ queryKey: ["runs"] });
-      // Voiding recalls this import's distributed leads and excludes them from analytics
-      // — invalidate every aggregate that counted them (F-1), mirroring the assign flow.
+      // Voiding removes this import's leads and excludes them from analytics — invalidate
+      // every aggregate that counted them (F-1), mirroring the assign flow.
       qc.invalidateQueries({ queryKey: ["leads"] });
       qc.invalidateQueries({ queryKey: ["dashboard"] });
       qc.invalidateQueries({ queryKey: ["coverage"] });
@@ -106,8 +106,7 @@ function RunView({ detail }: { detail: RunDetail }) {
       setModalOpen(false);
       setReason("");
       const n = result?.recalledLeadCount ?? 0;
-      const m = result?.affectedPartnerCount ?? 0;
-      toast(m > 0 ? `Voided — ${n} lead${n === 1 ? "" : "s"} recalled from ${m} partner${m === 1 ? "" : "s"}.` : "Run voided.", "success");
+      toast(n > 0 ? `Import voided — ${n} lead${n === 1 ? "" : "s"} removed.` : "Import voided.", "success");
     },
   });
 

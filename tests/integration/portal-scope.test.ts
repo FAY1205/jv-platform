@@ -7,6 +7,7 @@ import * as schema from "@/db/schema";
 import type { ScopeContext } from "@/lib/scope";
 import { listPartnerLeads, getPartnerLeadDetail } from "@/modules/portal/queries";
 import { updateLeadStatus, LeadNotFoundError, LeadRemovedError } from "@/modules/portal/status-update";
+import { releaseTenantLeads } from "../helpers/hold";
 
 // TST-08 (live): partner portal scoping. A partner sees ONLY their own leads and can
 // only update their own leads' status; the admin sees the change. Self-skips w/o DB.
@@ -57,6 +58,8 @@ suite("TST-08: partner portal scoping", () => {
     // A removed lead — its status is the read-only "Removed MLS" verdict; workflow
     // status changes must be refused (PRN-04 keeps MLS state authoritative).
     await db.insert(schema.leads).values({ tenantId: t.id, refId: "LD-26-00003", uploadId: up.id, dedupeKey: "z|3", rawJson: {}, partnerId: px.id, matchMethod: "zip", mlsStatus: "removed", sellerFirst: "Zed", sellerLast: "Z" });
+    // Release the seeded leads past the distribution hold so the partner can see/act on them.
+    await releaseTenantLeads(db, id.tenant);
   });
 
   afterAll(async () => {
@@ -93,6 +96,20 @@ suite("TST-08: partner portal scoping", () => {
 
   it("PRN-04: a workflow status change on an MLS-removed lead is refused", async () => {
     await expect(updateLeadStatus(adminA(), "LD-26-00003", "Contacted")).rejects.toBeInstanceOf(LeadRemovedError);
+  });
+
+  it("distribution hold: a fresh lead is held (invisible to the partner) until released; admin sees it throughout", async () => {
+    const [up] = await db.insert(schema.uploads).values({ tenantId: id.tenant, refId: "IM-26-002", filename: "h.xlsx", status: "processed" }).returning({ id: schema.uploads.id });
+    await db.insert(schema.leads).values({ tenantId: id.tenant, refId: "LD-26-00099", uploadId: up.id, dedupeKey: "held|99", rawJson: {}, partnerId: id.px, matchMethod: "zip", mlsStatus: "kept" }); // fresh ⇒ held
+    // HELD: invisible to the partner…
+    expect((await listPartnerLeads(partnerX())).leads.some((l) => l.refId === "LD-26-00099")).toBe(false);
+    expect(await getPartnerLeadDetail(partnerX(), "LD-26-00099")).toBeNull();
+    // …but the admin sees it immediately (the gate is partner-only).
+    expect((await getPartnerLeadDetail(adminA(), "LD-26-00099"))?.refId).toBe("LD-26-00099");
+    // RELEASED (past the window): now visible to the partner.
+    await db.update(schema.leads).set({ createdAt: new Date(Date.now() - 20 * 60 * 1000) }).where(eq(schema.leads.refId, "LD-26-00099"));
+    expect((await listPartnerLeads(partnerX())).leads.some((l) => l.refId === "LD-26-00099")).toBe(true);
+    expect((await getPartnerLeadDetail(partnerX(), "LD-26-00099"))?.refId).toBe("LD-26-00099");
   });
 
   it("F-12: re-setting the current status is a no-op (changed:false, no new history, so the route skips notify)", async () => {

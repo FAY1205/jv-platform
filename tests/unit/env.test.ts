@@ -10,9 +10,14 @@ describe("SEC-07: environment config", () => {
     expect(env.EMAIL_SINK_ADDRESS).toBe("dev-sink@example.test");
   });
 
-  it("parses an explicit production environment", () => {
-    const env = readEnv({ APP_ENV: "production" });
+  it("parses an explicit production environment (with APP_URL set)", () => {
+    const env = readEnv({ APP_ENV: "production", APP_URL: "https://app.example.com" });
     expect(env.APP_ENV).toBe("production");
+    expect(env.APP_URL).toBe("https://app.example.com");
+  });
+
+  it("refuses to boot in production if APP_URL is left at the localhost default (release-cron links)", () => {
+    expect(() => readEnv({ APP_ENV: "production" })).toThrow();
   });
 
   it("treats blank strings as unset (no false URL/email validation failures)", () => {

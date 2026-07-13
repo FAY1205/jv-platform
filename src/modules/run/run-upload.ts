@@ -18,14 +18,14 @@ import { loadColorCoding } from "@/modules/settings/export-settings";
 import { newTraceId } from "@/lib/http";
 import type { RunSummary } from "@/modules/analytics/run-summary";
 
-// Shared upload processing (WP-020 + WP-028/029/032): run the pipeline for a chosen
-// Source Profile, store the export, enqueue digests + notifications, and drain the
-// outbox — all best-effort around the run so email/storage never fail an upload.
-// Both the exact-detect path and the confirmed-mapping path (ING-08) call this.
+// Shared upload processing (WP-020 + WP-028/029/032): run the pipeline for a chosen Source Profile,
+// store the export, send the ADMIN run-summary now (partner digests are deferred to the release cron
+// by the distribution hold), and drain — all best-effort around the run so email/storage never fail
+// an upload. Both the exact-detect path and the confirmed-mapping path (ING-08) call this.
 
 const errMsg = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
-async function resolveAdminEmails(db: ReturnType<typeof getDb>, tenantId: string, userId: string): Promise<string[]> {
+async function resolveAdminEmails(db: ReturnType<typeof getDb>, userId: string): Promise<string[]> {
   const [me] = await db.select({ email: schema.users.email }).from(schema.users).where(eq(schema.users.id, userId));
   return [...(me?.email ? [me.email] : []), ...adminAllowlist];
 }
@@ -69,12 +69,15 @@ export async function runUpload(scope: ScopeContext, input: RunUploadInput): Pro
       logError("export_store_failed", { message: errMsg(e) });
     }
 
-    // NTF-01/02/04/05: digests + in-app notifications (best-effort).
+    // NTF-02/04: the ADMIN run-summary goes out now — the admin isn't a partner, and it carries the
+    // true full-run summary + acting-admin context. PARTNER digests are HELD: the distribution hold
+    // defers them to the release cron once the 10-min window elapses, so a within-window void reaches
+    // no partner (visibility is likewise held, self-releasing). Best-effort.
     try {
-      const [adminEmails, prefs] = await Promise.all([resolveAdminEmails(db, scope.tenantId, scope.userId), loadNotificationPrefs(db, scope)]);
-      await enqueueRunDigests(db, scope, { uploadRef: result.uploadRefId, summary: result.summary, portalBaseUrl: input.origin, adminEmails, adminUserId: scope.userId, prefs });
+      const [adminEmails, prefs] = await Promise.all([resolveAdminEmails(db, scope.userId), loadNotificationPrefs(db, scope)]);
+      await enqueueRunDigests(db, scope, { uploadRef: result.uploadRefId, summary: result.summary, portalBaseUrl: input.origin, adminEmails, adminUserId: scope.userId, prefs, audience: "admin" });
     } catch (e) {
-      logError("digest_enqueue_failed", { message: errMsg(e) });
+      logError("admin_summary_enqueue_failed", { message: errMsg(e) });
     }
 
     // LST-01: run the listing check (LinkOnly) after the pipeline. Best-effort; it

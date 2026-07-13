@@ -2,6 +2,7 @@ import { and, desc, eq, isNull } from "drizzle-orm";
 import { getDb } from "@/db";
 import * as schema from "@/db/schema";
 import { leadWhere, type ScopeContext } from "@/lib/scope";
+import { releasedLeads } from "../run/hold-filter";
 import { isValidStatus, DEFAULT_STATUS } from "./statuses";
 
 // PTL-03: a status update on an owned lead → lead_status_history (surfaced to the
@@ -41,7 +42,8 @@ export async function updateLeadStatus(
       .select({ id: schema.leads.id, tenantId: schema.leads.tenantId, mlsStatus: schema.leads.mlsStatus })
       .from(schema.leads)
       // WP-J2: a recalled (soft-deleted / voided-run) lead is not updatable — treat as not found.
-      .where(and(leadWhere(scope), eq(schema.leads.refId, refId), isNull(schema.leads.deletedAt)));
+      // Distribution hold: a held lead isn't the partner's yet, so it can't be acted on either.
+      .where(and(leadWhere(scope), eq(schema.leads.refId, refId), isNull(schema.leads.deletedAt), scope.role === "partner" ? releasedLeads() : undefined));
     if (!lead) throw new LeadNotFoundError(refId);
     // PRN-04: a removed lead's status IS "Removed MLS" — refuse workflow overwrites.
     if (lead.mlsStatus === "removed") throw new LeadRemovedError(refId);

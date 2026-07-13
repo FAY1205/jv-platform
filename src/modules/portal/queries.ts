@@ -2,6 +2,7 @@ import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { getDb } from "@/db";
 import * as schema from "@/db/schema";
 import { leadWhere, leadChildWhere, tenantWhere, type ScopeContext } from "@/lib/scope";
+import { releasedLeads } from "../run/hold-filter";
 import { computeRunSummary, type RunSummary } from "../analytics/run-summary";
 import { partnerPerformanceDetail } from "../analytics/partner-performance";
 import { buildPartnerTerritory, type PartnerTerritory } from "../coverage/partner-territory";
@@ -68,7 +69,14 @@ export async function listPartnerLeads(scope: ScopeContext, page = 1): Promise<P
   const current = Math.max(1, Math.floor(page) || 1);
   const offset = (current - 1) * pageSize;
   // WP-J2: exclude soft-deleted (recalled/voided-run) leads — every partner-facing read must.
-  const baseWhere = and(leadWhere(scope), eq(schema.leads.mlsStatus, "kept"), isNull(schema.leads.deletedAt));
+  // Distribution hold: exclude leads still within their import's hold window (partner-visible only
+  // once released; self-releasing, no cron dependency).
+  const baseWhere = and(
+    leadWhere(scope),
+    eq(schema.leads.mlsStatus, "kept"),
+    isNull(schema.leads.deletedAt),
+    scope.role === "partner" ? releasedLeads() : undefined,
+  );
 
   const [rows, totalRows] = await Promise.all([
     db
@@ -137,7 +145,7 @@ export async function getPartnerLeadDetail(scope: ScopeContext, refId: string): 
   const [lead] = await db
     .select()
     .from(schema.leads)
-    .where(and(leadWhere(scope), eq(schema.leads.refId, refId), eq(schema.leads.mlsStatus, "kept"), isNull(schema.leads.deletedAt)));
+    .where(and(leadWhere(scope), eq(schema.leads.refId, refId), eq(schema.leads.mlsStatus, "kept"), isNull(schema.leads.deletedAt), scope.role === "partner" ? releasedLeads() : undefined));
   if (!lead) return null;
 
   const hist = await db
@@ -218,7 +226,7 @@ export interface PartnerExportData {
 export async function getPartnerExportData(scope: ScopeContext): Promise<PartnerExportData> {
   const db = getDb();
   const [leadRows, partnerRows] = await Promise.all([
-    db.select().from(schema.leads).where(and(leadWhere(scope), eq(schema.leads.mlsStatus, "kept"), isNull(schema.leads.deletedAt))),
+    db.select().from(schema.leads).where(and(leadWhere(scope), eq(schema.leads.mlsStatus, "kept"), isNull(schema.leads.deletedAt), scope.role === "partner" ? releasedLeads() : undefined)),
     db
       .select({ id: schema.partners.id, name: schema.partners.name, refId: schema.partners.refId, color: schema.partners.color })
       .from(schema.partners)

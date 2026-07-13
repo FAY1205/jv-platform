@@ -21,6 +21,9 @@ const optionalString = z
 const EnvSchema = z.object({
   APP_ENV: AppEnvSchema.default("development"),
   APP_NAME: z.string().min(1).default(APP_NAME),
+  // Canonical app base URL for links built OUTSIDE a web request (the release cron's digest emails).
+  // Request-served paths still use the request origin; set this to the production URL at go-live.
+  APP_URL: z.url().default("http://localhost:3000"),
   DATABASE_URL: optionalString,
   SUPABASE_URL: optionalString.pipe(z.url().optional()),
   SUPABASE_ANON_KEY: optionalString,
@@ -35,7 +38,12 @@ const EnvSchema = z.object({
   // F-07: shared secret Vercel Cron presents as `Authorization: Bearer <CRON_SECRET>`.
   // The scheduled outbox drain refuses to run without it (a cron route must never be open).
   CRON_SECRET: optionalString,
-});
+}).refine(
+  // Fail fast in production if APP_URL is still the localhost default — otherwise the release cron
+  // would email real partners digest links pointing at localhost (audit-api-contract F-2).
+  (v) => v.APP_ENV !== "production" || v.APP_URL !== "http://localhost:3000",
+  { message: "APP_URL must be set to the production origin (release-cron digest links).", path: ["APP_URL"] },
+);
 
 export type Env = z.infer<typeof EnvSchema>;
 
@@ -49,6 +57,7 @@ export function readEnv(source: Record<string, string | undefined> = process.env
     APP_ENV: source.APP_ENV,
     // NEXT_PUBLIC_ prefix is required for client exposure; internal name is APP_NAME.
     APP_NAME: source.NEXT_PUBLIC_APP_NAME,
+    APP_URL: source.APP_URL,
     DATABASE_URL: source.DATABASE_URL,
     SUPABASE_URL: source.NEXT_PUBLIC_SUPABASE_URL,
     SUPABASE_ANON_KEY: source.NEXT_PUBLIC_SUPABASE_ANON_KEY,

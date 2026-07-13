@@ -98,4 +98,13 @@ suite("WS-5: partnerPerformanceDetail (ANA-02/03, PRN-08/13)", () => {
     const own = await partnerPerformanceDetail(scopeB, partnerOther, "all");
     expect(own.stats.given).toBe(1);
   });
+
+  it("distribution-hold: a held lead is excluded from the PARTNER's own stats but visible to ADMIN", async () => {
+    const partnerScope: ScopeContext = { tenantId: scope.tenantId, role: "partner", userId: partnerUserId, partnerId: partnerA };
+    const adminBefore = (await partnerPerformanceDetail(scope, partnerA, "all")).stats.given;
+    await mkLead({ partnerId: partnerA, createdAt: new Date() }); // fresh ⇒ held
+    // admin (ungated) counts the held lead; the partner's own dashboard does not (self-releasing gate)
+    expect((await partnerPerformanceDetail(scope, partnerA, "all")).stats.given).toBe(adminBefore + 1);
+    expect((await partnerPerformanceDetail(partnerScope, partnerA, "all")).stats.given).toBe(adminBefore);
+  });
 });

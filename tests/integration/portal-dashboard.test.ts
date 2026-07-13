@@ -42,7 +42,9 @@ suite("WP-F.3: portal dashboard reads (PTL-05/ANA-05, PRN-08)", () => {
     const [up] = await db.insert(schema.uploads).values({ tenantId: t.id, refId: "IM-26-050", filename: "w.xlsx", status: "processed" }).returning({ id: schema.uploads.id });
     // Explicit past created_at: the "all" range's upper bound is `now`, so a just-inserted
     // row can fall on the wrong side of a remote-DB/local clock skew. A fixed past date is deterministic.
-    const received = new Date("2026-07-01T00:00:00.000Z");
+    // 20 min before real now, so the leads are past the distribution hold window (released to the
+    // partner) regardless of the machine clock — the gate compares against `new Date()`.
+    const received = new Date(Date.now() - 20 * 60 * 1000);
     await db.insert(schema.leads).values([
       { tenantId: t.id, refId: "LD-26-1", uploadId: up.id, dedupeKey: "1|98001", rawJson: {}, partnerId: me.id, state: "WA", mlsStatus: "kept", createdAt: received },
       { tenantId: t.id, refId: "LD-26-2", uploadId: up.id, dedupeKey: "2|90001", rawJson: {}, partnerId: other.id, state: "CA", mlsStatus: "kept", createdAt: received }, // other partner's

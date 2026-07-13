@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { coerceColorCoding, coerceRetentionDays, coerceVoidNotifiesPartners } from "@/modules/settings/export-settings";
+import { coerceColorCoding, coerceRetentionDays } from "@/modules/settings/export-settings";
 
 // WS-7g / F-39 + SET-07: coerce the stored settings values with safe defaults (PRN-11).
 describe("coerceColorCoding", () => {
@@ -8,15 +8,6 @@ describe("coerceColorCoding", () => {
     expect(coerceColorCoding(null)).toBe(true);
     expect(coerceColorCoding(true)).toBe(true);
     expect(coerceColorCoding(false)).toBe(false);
-  });
-});
-
-describe("coerceVoidNotifiesPartners", () => {
-  it("PRN-11: defaults ON — only an explicit false silences partner recall notices", () => {
-    expect(coerceVoidNotifiesPartners(undefined)).toBe(true);
-    expect(coerceVoidNotifiesPartners(null)).toBe(true);
-    expect(coerceVoidNotifiesPartners(true)).toBe(true);
-    expect(coerceVoidNotifiesPartners(false)).toBe(false);
   });
 });
 

@@ -112,7 +112,6 @@ async function main() {
       },
       { tenantId, key: "listing_check", value: { linkOnly: true, automated: false } }, // SET-06
       { tenantId, key: "retention_days", value: 365 }, // SET-07
-      { tenantId, key: "void_notifies_partners", value: true }, // WP-J2 / ING-09 (PRN-11 default ON)
       { tenantId, key: "jv_notes_mapping", value: { mapped: false } }, // SET-05 / NTS-03
       { tenantId, key: "ai_assistant", value: { enabled: false } }, // SET-11
     ]);

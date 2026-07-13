@@ -20,7 +20,6 @@ interface Format {
 interface DataSettings {
   colorCoding: boolean;
   retentionDays: number;
-  voidNotifiesPartners: boolean;
   formats: Format[];
 }
 
@@ -35,22 +34,6 @@ export default function DataSettingsPage() {
         method: "PUT",
         headers: { "Content-Type": "application/json", ...csrfHeaders() },
         body: JSON.stringify({ colorCoding }),
-      });
-      if (!res.ok) throw new Error(((await res.json().catch(() => ({}))) as { message?: string }).message ?? "Save failed.");
-    },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["settings-data"] });
-      toast("Saved.", "success");
-    },
-    onError: (e: Error) => toast(e.message, "danger"),
-  });
-
-  const saveVoidNotify = useMutation({
-    mutationFn: async (voidNotifiesPartners: boolean) => {
-      const res = await fetch("/api/settings/data", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json", ...csrfHeaders() },
-        body: JSON.stringify({ voidNotifiesPartners }),
       });
       if (!res.ok) throw new Error(((await res.json().catch(() => ({}))) as { message?: string }).message ?? "Save failed.");
     },
@@ -78,19 +61,6 @@ export default function DataSettingsPage() {
                   <p className="text-xs text-text-3">Full-row fills per partner in the .xlsx. The partner name + reference ID always appear regardless of color (PRN-14).</p>
                 </div>
                 <Switch checked={data.colorCoding} disabled={saveColor.isPending} onCheckedChange={(v) => saveColor.mutate(v)} ariaLabel="Color-code partner sections" />
-              </div>
-            </CardBody>
-          </Card>
-
-          <Card>
-            <CardHeader><CardTitle>Voiding</CardTitle></CardHeader>
-            <CardBody>
-              <div className="flex items-start justify-between gap-4">
-                <div>
-                  <p className="text-sm text-text">Notify partners when a run is voided</p>
-                  <p className="text-xs text-text-3">Voiding recalls a run&apos;s leads from partners (removed from their lists, exports and stats). With this on, affected partners get an in-app notice.</p>
-                </div>
-                <Switch checked={data.voidNotifiesPartners} disabled={saveVoidNotify.isPending} onCheckedChange={(v) => saveVoidNotify.mutate(v)} ariaLabel="Notify partners when a run is voided" />
               </div>
             </CardBody>
           </Card>

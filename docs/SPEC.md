@@ -110,7 +110,7 @@ Tables: `tenants, users, partners, coverage_zips, state_rules, mls_patterns, cam
 | ING-06 | **Processing lock:** one pipeline run at a time per tenant; concurrent uploads queue with visible position. _Why:_ interleaved runs could corrupt dedupe ordering. |
 | ING-07 | **Source Profiles:** declared, versioned format contracts — header signature, mapping, required columns, strictness (*flexible*: extra columns allowed; *strict*: any deviation blocks). Managed in Settings (SET-12). Profile version pinned into the run's rules snapshot (DM-08). |
 | ING-08 | **Drift handling — never silently re-guess.** Partial signature match → block and show a format-diff (added/removed/renamed columns), propose an updated mapping, require explicit admin confirmation → new profile version. Missing required columns → hard block naming the columns in plain language. |
-| ING-09 | **Void a run.** Admin can void a processed upload (wrong file, wrongly confirmed mapping): soft-void with required reason; voided leads are excluded from dedupe, analytics, and exports while remaining visible in history as voided; the action is audited, partner digests already sent get a correction notice, and portal counts update. _Why:_ history immutability (PRN-05) must not make honest mistakes permanent — a bad run would otherwise poison "previously matched" results forever. |
+| ING-09 | **Void a run.** Admin can void a processed upload (wrong file, wrongly confirmed mapping): soft-void with required reason; voided leads are excluded from dedupe, analytics, and exports while remaining visible in history as voided; the action is audited and portal counts update. New imports are **held from partners for a 10-min window (ADR-0026)**, so an in-window void reaches no partner (no recall notice needed) — only the **latest, still-held** import can be voided, and its seller PII is purged immediately on void (ADR-0025). _Why:_ history immutability (PRN-05) must not make honest mistakes permanent — a bad run would otherwise poison "previously matched" results forever. |
 
 ### 6.2 Normalization (NRM)
 
@@ -186,7 +186,7 @@ Tables: `tenants, users, partners, coverage_zips, state_rules, mls_patterns, cam
 
 | ID | Requirement |
 | -- | ----------- |
-| NTF-01 | Upload completion → per-partner digest (only partners with new leads) with counts + reference IDs + portal link. Partners with zero new leads receive nothing. |
+| NTF-01 | **Release** (10 min after upload — the distribution hold, ADR-0026) → per-partner digest (only partners with new leads) with counts + reference IDs + portal link. Partners with zero new leads receive nothing. (The admin run-summary is sent at upload completion.) |
 | NTF-02 | Admin run-summary email; optional admin alert on partner status changes (SET-03). |
 | NTF-03 | All email via Resend through an outbox table (delivery status, retry with backoff), consuming `events`. |
 | NTF-04 | In-app notification center for both roles: unread badge, list with deep links, mark-read. |

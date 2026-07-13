@@ -7,6 +7,7 @@ import * as schema from "@/db/schema";
 import { purgeAuditLog } from "../helpers/audit";
 import type { ScopeContext } from "@/lib/scope";
 import { listLeadNotes, addLeadNote, editLeadNote, LeadNotFoundError } from "@/modules/notes/notes";
+import { releaseTenantLeads } from "../helpers/hold";
 
 // TST-08 / PRN-13 (live): admin and partner note streams are mutually invisible.
 // Self-skips without DATABASE_URL. Run with node --env-file=.env.local.
@@ -50,6 +51,8 @@ suite("PRN-13/NTS: two-stream note visibility", () => {
     const [up] = await db.insert(schema.uploads).values({ tenantId: t.id, refId: "IM-26-001", filename: "a.xlsx", status: "processed" }).returning({ id: schema.uploads.id });
     await db.insert(schema.leads).values({ tenantId: t.id, refId: "LD-26-00001", uploadId: up.id, dedupeKey: "x|1", rawJson: {}, partnerId: px.id, matchMethod: "zip", mlsStatus: "kept" });
     await db.insert(schema.leads).values({ tenantId: t.id, refId: "LD-26-00002", uploadId: up.id, dedupeKey: "y|2", rawJson: {}, partnerId: py.id, matchMethod: "zip", mlsStatus: "kept" });
+    // Release the seeded leads past the distribution hold so the partner can note them.
+    await releaseTenantLeads(db, id.tenant);
   });
 
   afterAll(async () => {

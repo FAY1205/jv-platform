@@ -2,7 +2,7 @@ import { getDb } from "@/db";
 import * as schema from "@/db/schema";
 import { env } from "@/lib/env";
 import { isAuthorizedCron } from "@/lib/auth/cron-auth";
-import { drainOutbox } from "@/modules/notify/outbox";
+import { drainOutbox, releaseDueImports } from "@/modules/notify/outbox";
 import { logError } from "@/lib/observability";
 import { jsonOk, jsonError, jsonServerError } from "@/lib/http";
 
@@ -27,8 +27,16 @@ export async function GET(request: Request) {
   }
   let sent = 0;
   let failed = 0;
+  let released = 0;
   let drained = 0;
   for (const t of tenants) {
+    // Distribution hold: release imports past their 10-min window (enqueues their digests). Kept in
+    // its OWN try so a release failure never blocks that tenant's unrelated pending mail (F-2).
+    try {
+      released += (await releaseDueImports(db, { tenantId: t.id, portalBaseUrl: env.APP_URL })).released;
+    } catch (e) {
+      logError("cron_release_tenant_failed", { tenantId: t.id, message: e instanceof Error ? e.message : String(e) });
+    }
     try {
       const r = await drainOutbox(db, { tenantId: t.id });
       sent += r.sent;
@@ -39,5 +47,5 @@ export async function GET(request: Request) {
       logError("cron_drain_tenant_failed", { tenantId: t.id, message: e instanceof Error ? e.message : String(e) });
     }
   }
-  return jsonOk({ code: "ok", tenants: drained, sent, failed });
+  return jsonOk({ code: "ok", tenants: drained, released, sent, failed });
 }

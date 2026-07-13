@@ -46,7 +46,7 @@ suite("WP-034: activity views (ACT-01/02/04)", () => {
     partner = { tenantId: t.id, role: "partner", userId: partnerUserId, partnerId: p.id };
 
     const [up] = await db.insert(schema.uploads).values({ tenantId: t.id, refId: "IM-26-001", filename: "w.xlsx", status: "processed" }).returning({ id: schema.uploads.id });
-    const [lead] = await db.insert(schema.leads).values({ tenantId: t.id, refId: "LD-26-00001", uploadId: up.id, dedupeKey: "1|75001", rawJson: {}, partnerId: p.id, mlsStatus: "kept" }).returning({ id: schema.leads.id });
+    const [lead] = await db.insert(schema.leads).values({ tenantId: t.id, refId: "LD-26-00001", uploadId: up.id, dedupeKey: "1|75001", rawJson: {}, partnerId: p.id, mlsStatus: "kept", createdAt: new Date(Date.now() - 20 * 60 * 1000) }).returning({ id: schema.leads.id }); // backdated past the hold window (released)
 
     await db.insert(schema.auditLog).values([
       { tenantId: t.id, actorUserId: adminUserId, action: "mls_pattern.updated", entityType: "rule", entityRef: "dq_is_listed_yes" },

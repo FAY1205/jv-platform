@@ -235,7 +235,8 @@ suite("TST-01: tenant & partner isolation", () => {
   it("F-31: listPartnerActivity counts a partner's action on a manually-assigned (partnerId=null) lead", async () => {
     const [ml] = await db
       .insert(schema.leads)
-      .values({ tenantId: id.tenantA, refId: "LD-26-00012", uploadId: id.uploadA, dedupeKey: "ma|00012", rawJson: {}, partnerId: null, matchMethod: "none", manualPartnerId: id.partnerX, mlsStatus: "kept" })
+      // backdated past the hold window so it's released to the partner (distribution hold)
+      .values({ tenantId: id.tenantA, refId: "LD-26-00012", uploadId: id.uploadA, dedupeKey: "ma|00012", rawJson: {}, partnerId: null, matchMethod: "none", manualPartnerId: id.partnerX, mlsStatus: "kept", createdAt: new Date(Date.now() - 20 * 60 * 1000) })
       .returning({ id: schema.leads.id });
     await db.insert(schema.leadStatusHistory).values({ tenantId: id.tenantA, leadId: ml.id, status: "Contacted", changedByUserId: id.partnerUser });
     // Under the old eq(partnerId) predicate this lead (partnerId=null) was under-reported.
