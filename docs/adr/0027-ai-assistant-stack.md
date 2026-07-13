@@ -16,8 +16,10 @@ never used to train AI models; SEC-05: PII masked out of AI traffic).
 ## Decision
 
 1. **Dependencies: `ai` (Vercel AI SDK v6) + `@ai-sdk/react`.** `streamText` with typed
-   Zod tools server-side; `useChat` streaming client-side. No other AI packages —
-   in particular **no provider SDKs** (`@ai-sdk/anthropic`, `@ai-sdk/google`, `@google/genai`).
+   Zod tools server-side; `useChat` streaming client-side. No `@ai-sdk/anthropic`.
+   (Amended 2026-07-13 — see Amendment 1 — `@ai-sdk/google@3` is now a dependency for the
+   optional dev-only direct-Google path; pin the **v3** line to match `ai@6`'s
+   LanguageModelV2/V3 spec — `@ai-sdk/google@4` targets core v7 and fails typecheck.)
 2. **Provider path: the Vercel AI Gateway** with plain `"provider/model"` strings.
    One integration for every model family, zero token markup, per-user/tag usage
    attribution, and model switching as a string constant. Env is already Vercel/Next;
@@ -62,3 +64,28 @@ never used to train AI models; SEC-05: PII masked out of AI traffic).
   two requires touching that table (deliberate friction — unknown price = disabled).
 - Provider swap risk is contained to one constant + a pricing row + rerunning the
   manual eval script (`scripts/ai-eval.ts`).
+
+## Amendment 1 (2026-07-13): env-selected runtime provider (dev-only direct Google)
+
+**Context:** the Vercel AI Gateway needs a Vercel-issued `vck_…` key; the owner wanted to
+vet the model at $0 using their existing Google AI Studio key first. Google's *free* tier
+trains on submitted content (LGL-04), so it is lawful only against dev's synthetic data.
+
+**Decision:** the runtime model is selected by env, not hardcoded (`src/modules/ai/model.ts`):
+- `AI_PROVIDER=gateway` (default) → the bare `AI_MODEL` string routes through the Vercel AI
+  Gateway (zero data retention → LGL-04 clean). Auth: `AI_GATEWAY_API_KEY`.
+- `AI_PROVIDER=google` → `@ai-sdk/google@3`'s `google("gemini-3.1-flash-lite-preview")` calls
+  Google's Generative Language API directly. Auth: `GOOGLE_GENERATIVE_AI_API_KEY` (AIza…).
+  **Dev-only** — synthetic data (SEC-07). The direct API exposes Flash-Lite under the
+  `-preview` id; pricing/metering stay keyed on `AI_MODEL` (same model, same rates).
+
+**Compliance is preserved by the existing gate:** `assistantGate` still hard-refuses in
+production unless `AI_TIER=paid`, and Google's free tier is `AI_TIER=free-dev` — so the
+training-permitted path can never run in production regardless of `AI_PROVIDER`. For a
+production Google-direct path the owner must use Google's *paid* tier (no training) and set
+`AI_TIER=paid`; the recommended production path remains the gateway.
+
+**Blast radius:** `env.ts` (+`AI_PROVIDER`, +`GOOGLE_GENERATIVE_AI_API_KEY`), new
+`model.ts` (`resolveModel()`/`hasProviderKey()`), the chat route + eval consume those; the
+gate's key check renamed `hasGatewayKey`→`hasProviderKey`. Integration tests inject a mock
+model so they are provider-agnostic. Typecheck + 8/8 chat-gate tests green.

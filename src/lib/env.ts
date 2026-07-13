@@ -38,12 +38,20 @@ const EnvSchema = z.object({
   // F-07: shared secret Vercel Cron presents as `Authorization: Bearer <CRON_SECRET>`.
   // The scheduled outbox drain refuses to run without it (a cron route must never be open).
   CRON_SECRET: optionalString,
-  // ADR-0027: Vercel AI Gateway key (assistant is unusable without it) and the
-  // data-terms tier guard. LGL-04: Gemini's FREE tier trains on submitted content,
-  // so "free-dev" is only lawful against dev's synthetic data (SEC-07); the chat
-  // route hard-refuses in production unless AI_TIER=paid.
+  // ADR-0027: Vercel AI Gateway key (default provider) and the data-terms tier
+  // guard. LGL-04: Gemini's FREE tier trains on submitted content, so "free-dev"
+  // is only lawful against dev's synthetic data (SEC-07); the chat route
+  // hard-refuses in production unless AI_TIER=paid.
   AI_GATEWAY_API_KEY: optionalString,
   AI_TIER: z.enum(["paid", "free-dev"]).default("free-dev"),
+  // ADR-0027 amendment: runtime model provider. "gateway" (default) routes the
+  // model string through the Vercel AI Gateway (zero-retention, LGL-04-clean).
+  // "google" calls Google's Generative Language API directly — a DEV-only path
+  // for vetting on Google's free tier against synthetic data; production is still
+  // blocked from the free tier by the AI_TIER=paid gate regardless of provider.
+  AI_PROVIDER: z.enum(["gateway", "google"]).default("gateway"),
+  // Google AI Studio API key (AIza…) — only read when AI_PROVIDER=google.
+  GOOGLE_GENERATIVE_AI_API_KEY: optionalString,
 }).refine(
   // Fail fast in production if APP_URL is still the localhost default — otherwise the release cron
   // would email real partners digest links pointing at localhost (audit-api-contract F-2).
@@ -76,6 +84,8 @@ export function readEnv(source: Record<string, string | undefined> = process.env
     CRON_SECRET: source.CRON_SECRET,
     AI_GATEWAY_API_KEY: source.AI_GATEWAY_API_KEY,
     AI_TIER: source.AI_TIER,
+    AI_PROVIDER: source.AI_PROVIDER,
+    GOOGLE_GENERATIVE_AI_API_KEY: source.GOOGLE_GENERATIVE_AI_API_KEY,
   });
 }
 

@@ -198,7 +198,7 @@ suite("WP-AI-1 Task 11: assistant core — gate + streamText (AIA-01..06)", () =
     it("gate: disabled tenant → ai_disabled", async () => {
       const scope = await seedTenant(SLUG_DISABLED, "AI Chat Test Disabled");
       // No saveAiSettings call — loadAiSettings defaults to { enabled: false }.
-      const res = await assistantGate(db, scope, { appEnv: "development", aiTier: "paid", hasGatewayKey: true, now: NOW });
+      const res = await assistantGate(db, scope, { appEnv: "development", aiTier: "paid", hasProviderKey: true, now: NOW });
       expect(res).toEqual({ ok: false, code: "ai_disabled", status: 403, message: expect.any(String) });
     });
 
@@ -207,7 +207,7 @@ suite("WP-AI-1 Task 11: assistant core — gate + streamText (AIA-01..06)", () =
       await saveAiSettings(scope, { enabled: true, capUsd: 1 });
       // 1 * 1_000_000 = the cap in µ$ — spend meets it exactly, which is NOT < cap.
       await db.insert(schema.aiUsage).values({ tenantId: scope.tenantId, userId: scope.userId, model: "google/gemini-3.1-flash-lite", inputTokens: 1, outputTokens: 1, costMicroUsd: 1_000_000 });
-      const res = await assistantGate(db, scope, { appEnv: "development", aiTier: "paid", hasGatewayKey: true, now: NOW });
+      const res = await assistantGate(db, scope, { appEnv: "development", aiTier: "paid", hasProviderKey: true, now: NOW });
       expect(res).toEqual({ ok: false, code: "ai_budget_reached", status: 402, message: expect.any(String) });
     });
 
@@ -224,12 +224,12 @@ suite("WP-AI-1 Task 11: assistant core — gate + streamText (AIA-01..06)", () =
         createdAt: new Date(NOW.getTime() - 30_000), // backdated but within the 60s window
       }));
       await db.insert(schema.aiUsage).values(rows);
-      const res = await assistantGate(db, scope, { appEnv: "development", aiTier: "paid", hasGatewayKey: true, now: NOW });
+      const res = await assistantGate(db, scope, { appEnv: "development", aiTier: "paid", hasProviderKey: true, now: NOW });
       expect(res).toEqual({ ok: false, code: "ai_rate_limited", status: 429, message: expect.any(String) });
     });
 
     it("gate: production + free-dev tier → ai_disabled (503)", async () => {
-      const res = await assistantGate(db, scopeA, { appEnv: "production", aiTier: "free-dev", hasGatewayKey: true, now: NOW });
+      const res = await assistantGate(db, scopeA, { appEnv: "production", aiTier: "free-dev", hasProviderKey: true, now: NOW });
       expect(res).toEqual({ ok: false, code: "ai_disabled", status: 503, message: expect.any(String) });
     });
   });

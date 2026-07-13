@@ -33,12 +33,12 @@ function lastUserText(messages: ChatBody["messages"]): string {
   return (last.parts as { type?: string; text?: string }[]).map((p) => (p?.type === "text" ? (p.text ?? "") : "")).join("");
 }
 
-export async function assistantGate(db: Db, scope: ScopeContext, opts: { appEnv: "development" | "preview" | "production"; aiTier: "paid" | "free-dev"; hasGatewayKey: boolean; now: Date }) {
+export async function assistantGate(db: Db, scope: ScopeContext, opts: { appEnv: "development" | "preview" | "production"; aiTier: "paid" | "free-dev"; hasProviderKey: boolean; now: Date }) {
   // LGL-04/SEC-07 tier guard: prod may never run on the training-permitted free tier.
   if (opts.appEnv === "production" && opts.aiTier !== "paid") {
     return { ok: false as const, code: "ai_disabled" as const, status: 503, message: "Assistant unavailable: production requires the paid AI tier (see Settings → AI assistant)." };
   }
-  if (!opts.hasGatewayKey) {
+  if (!opts.hasProviderKey) {
     return { ok: false as const, code: "ai_disabled" as const, status: 503, message: "Assistant is not configured yet." };
   }
   const settings = await loadAiSettings(scope);

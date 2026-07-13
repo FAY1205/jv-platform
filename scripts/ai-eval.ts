@@ -15,13 +15,15 @@ import postgres from "postgres";
 import { generateText, stepCountIs } from "ai";
 import * as schema from "../src/db/schema";
 import type { ScopeContext } from "../src/lib/scope";
-import { AI_MODEL } from "../src/modules/ai/pricing";
 import { buildSystemPrompt } from "../src/modules/ai/prompt";
 import { buildAiTools } from "../src/modules/ai/tools";
+import { resolveModel } from "../src/modules/ai/model";
 
-// ── Guard 1: never spend a token by accident ──────────────────────────────────
-if (!process.env.AI_GATEWAY_API_KEY) {
-  console.error("Set AI_GATEWAY_API_KEY in .env.local to run the eval — it makes real (billed/free-tier) model calls.");
+// ── Guard 1: never spend a token by accident — require the ACTIVE provider's key ──
+const usingGoogle = process.env.AI_PROVIDER === "google";
+if (usingGoogle ? !process.env.GOOGLE_GENERATIVE_AI_API_KEY : !process.env.AI_GATEWAY_API_KEY) {
+  const needed = usingGoogle ? "GOOGLE_GENERATIVE_AI_API_KEY (AI_PROVIDER=google)" : "AI_GATEWAY_API_KEY";
+  console.error(`Set ${needed} in .env.local to run the eval — it makes real (billed/free-tier) model calls.`);
   process.exit(1);
 }
 
@@ -98,13 +100,15 @@ async function main() {
   const tools = buildAiTools(scope);
   const system = buildSystemPrompt();
 
+  console.log(`Provider: ${usingGoogle ? "google (direct Generative Language API — DEV synthetic data)" : "vercel-ai-gateway"}`);
+
   let hardFail = false;
 
   for (const [i, q] of QUESTIONS.entries()) {
     console.log(`\n${"─".repeat(72)}`);
     console.log(`Q${i + 1} [${q.label}]: ${q.prompt}`);
     const { text } = await generateText({
-      model: AI_MODEL,
+      model: resolveModel(),
       system,
       tools,
       stopWhen: stepCountIs(5),
@@ -118,6 +122,11 @@ async function main() {
       console.log(`${verdict} — ${note}`);
       if (verdict === "FAIL") hardFail = true;
     }
+
+    // Each question is a multi-step tool loop = several model calls. Google's free
+    // tier caps Flash-Lite at 15 requests/min, so pace question starts to finish all
+    // 10 without a 429. Harmless on the gateway/paid tier (just adds a short wait).
+    if (i < QUESTIONS.length - 1) await new Promise((r) => setTimeout(r, 15_000));
   }
 
   console.log(`\n${"─".repeat(72)}`);
