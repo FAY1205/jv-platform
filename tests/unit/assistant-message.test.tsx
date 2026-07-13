@@ -49,4 +49,10 @@ describe("WP-AI-2 AssistantMessage", () => {
     render(<AssistantMessage id="w" text="Hi" sources={[]} showThumbs={false} />);
     expect(screen.queryByRole("button", { name: /helpful/i })).toBeNull();
   });
+  it("renders the confirmed rated state when seeded with defaultRating (showcase)", () => {
+    render(<AssistantMessage id="r" text="ok" sources={[]} defaultRating="up" />);
+    expect(screen.getByText(/feedback recorded/i)).toBeTruthy();
+    expect(screen.getByRole("button", { name: /helpful/i }).getAttribute("aria-pressed")).toBe("true");
+    expect((screen.getByRole("button", { name: /helpful/i }) as HTMLButtonElement).disabled).toBe(true);
+  });
 });

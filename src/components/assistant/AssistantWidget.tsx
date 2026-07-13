@@ -13,6 +13,7 @@ import { gateStateFromCode, type AssistantGate } from "@/modules/ai/gate-error";
 import { Orb } from "./Orb";
 import { SuggestionChips } from "./SuggestionChips";
 import { AssistantMessage, type AssistantSource } from "./AssistantMessage";
+import { AssistantIconButton } from "./AssistantIconButton";
 
 const WELCOME = "Hi — I can answer questions about your workspace: partners, leads, coverage, imports, or what a screen does.";
 
@@ -44,6 +45,8 @@ export default function AssistantWidget() {
   const inputRef = React.useRef<HTMLInputElement>(null);
   const scrollRef = React.useRef<HTMLDivElement>(null);
   const launcherRef = React.useRef<HTMLButtonElement>(null);
+  const panelRef = React.useRef<HTMLElement>(null);
+  const wantsInputFocusRef = React.useRef(false);
 
   const gateFetch: typeof fetch = async (input, init) => {
     const res = await fetch(input, init);
@@ -55,7 +58,7 @@ export default function AssistantWidget() {
     return res;
   };
 
-  const { messages, status, sendMessage, error, regenerate } = useChat({
+  const { messages, status, sendMessage, error, regenerate, setMessages, clearError, stop } = useChat({
     transport: new DefaultChatTransport({
       api: "/api/ai/chat",
       fetch: gateFetch,
@@ -68,6 +71,37 @@ export default function AssistantWidget() {
 
   const busy = status === "submitted" || status === "streaming";
   const blocked = gate !== null;
+
+  // Start over: the chat route caps history at 24 messages (ChatBodySchema), so a long
+  // session eventually 400s. "New chat" lets the user reset the transcript before/at that
+  // cap. Also aborts any in-flight stream and clears a transient error or a stale gate flag
+  // (the server re-gates the next turn if the cap/rate/disabled condition still holds).
+  const newChat = () => {
+    stop();
+    setMessages([]);
+    clearError();
+    setGate(null);
+    setDraft("");
+    // "New chat" is clickable mid-stream (it interrupts via stop()), so the composer
+    // may still be `disabled` this tick and this button is about to unmount (messages→0).
+    // Focusing a disabled input silently no-ops → focus would drop to <body>. Fall back to
+    // the panel, then move into the composer once it's actually enabled (effect below).
+    if (inputRef.current && !inputRef.current.disabled) {
+      inputRef.current.focus();
+    } else {
+      panelRef.current?.focus();
+      wantsInputFocusRef.current = true;
+    }
+  };
+
+  // Deferred composer focus after a mid-stream "New chat": once the stream aborts
+  // (busy clears) and no gate blocks input, move focus from the panel into the composer.
+  React.useEffect(() => {
+    if (wantsInputFocusRef.current && !blocked && !busy) {
+      wantsInputFocusRef.current = false;
+      inputRef.current?.focus();
+    }
+  }, [blocked, busy]);
 
   const send = (text: string) => {
     const t = text.trim();
@@ -111,8 +145,10 @@ export default function AssistantWidget() {
     <>
       {/* Panel */}
       <section
+        ref={panelRef}
         id="assistant-panel"
         aria-label="Assistant"
+        tabIndex={-1}
         inert={!open}
         className={
           "fixed bottom-[92px] right-6 z-50 flex h-[min(640px,calc(100vh-128px))] w-[min(400px,calc(100vw-24px))] flex-col overflow-hidden rounded-[18px] border border-border bg-surface shadow-lg transition-all duration-200 max-[520px]:inset-x-2 max-[520px]:bottom-[88px] max-[520px]:h-[calc(100vh-104px)] max-[520px]:w-auto " +
@@ -129,9 +165,16 @@ export default function AssistantWidget() {
               Answers from your workspace · chats aren&rsquo;t saved
             </div>
           </div>
-          <button type="button" aria-label="Close assistant" onClick={() => setOpen(false)} className="ml-auto grid h-[34px] w-[34px] flex-none place-items-center rounded-lg border border-transparent text-text-3 hover:border-border hover:bg-surface focus-visible:border-border active:scale-95">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-4 w-4" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12" strokeLinecap="round" strokeLinejoin="round" /></svg>
-          </button>
+          <div className="ml-auto flex items-center gap-1">
+            {messages.length > 0 && (
+              <AssistantIconButton variant="ghost" aria-label="New chat" onClick={newChat}>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-4 w-4" aria-hidden="true"><path d="M11 4H6a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-5M18.5 2.5a2.12 2.12 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5Z" strokeLinecap="round" strokeLinejoin="round" /></svg>
+              </AssistantIconButton>
+            )}
+            <AssistantIconButton variant="ghost" aria-label="Close assistant" onClick={() => setOpen(false)}>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-4 w-4" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12" strokeLinecap="round" strokeLinejoin="round" /></svg>
+            </AssistantIconButton>
+          </div>
         </header>
 
         {/* Transcript */}
@@ -169,7 +212,7 @@ export default function AssistantWidget() {
         {!blocked && error && (
           <div role="alert" className="flex flex-none items-start gap-2.5 border-t border-border-soft bg-danger-soft px-3.5 py-2.5 text-step-1 text-text-2">
             <span aria-hidden className="grid h-[18px] w-[18px] flex-none place-items-center rounded-[5px] bg-danger text-step-0 font-bold text-on-status">!</span>
-            <span>Something went wrong reaching the assistant. <button type="button" onClick={() => regenerate()} className="font-semibold text-brand-ink underline">Try again</button></span>
+            <span>Something went wrong reaching the assistant. <button type="button" onClick={() => regenerate()} className="font-semibold text-brand-ink underline">Try again</button>{messages.length > 0 && <> or <button type="button" onClick={newChat} className="font-semibold text-brand-ink underline">start a new chat</button></>}.</span>
           </div>
         )}
 
@@ -195,9 +238,9 @@ export default function AssistantWidget() {
               aria-label="Ask the assistant"
               className="flex-1 border-none bg-transparent py-1.5 text-step-2 text-text outline-none placeholder:text-text-3 disabled:opacity-50"
             />
-            <button type="button" aria-label="Send" disabled={blocked || busy || draft.trim() === ""} onClick={() => send(draft)} className="grid h-9 w-9 flex-none place-items-center rounded-full border border-brand-strong bg-brand text-brand-contrast shadow-xs transition-all hover:bg-brand-strong hover:shadow-md active:scale-95 disabled:opacity-45 disabled:shadow-none">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-4 w-4"><path d="M4 12h15M13 6l6 6-6 6" strokeLinecap="round" strokeLinejoin="round" /></svg>
-            </button>
+            <AssistantIconButton variant="primary" aria-label="Send" loading={busy} disabled={blocked || draft.trim() === ""} onClick={() => send(draft)}>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-4 w-4" aria-hidden="true"><path d="M4 12h15M13 6l6 6-6 6" strokeLinecap="round" strokeLinejoin="round" /></svg>
+            </AssistantIconButton>
           </div>
         </footer>
       </section>

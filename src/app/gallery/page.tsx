@@ -53,6 +53,12 @@ import {
 } from "@/components";
 import { PARTNER_PALETTE } from "@/lib/tokens/tokens";
 import { APP_NAME } from "@/lib/app";
+// Assistant components are client-only and intentionally out of the "@/components" barrel
+// (keeps AI deps off the base bundle); the living showcase imports them directly.
+import { Orb } from "@/components/assistant/Orb";
+import { SuggestionChips } from "@/components/assistant/SuggestionChips";
+import { AssistantMessage } from "@/components/assistant/AssistantMessage";
+import { AssistantIconButton } from "@/components/assistant/AssistantIconButton";
 
 const SEMANTIC_SWATCHES: { label: string; varName: string }[] = [
   { label: "bg", varName: "--bg" },
@@ -608,6 +614,115 @@ function Gallery() {
                     { name: "Real Estate Bees", value: 11, color: colorOf("Randy Wolfe") },
                     { name: "Facebook Ads", value: 7, color: colorOf("Michael Pinter") },
                   ]}
+                />
+              </CardBody>
+            </Card>
+          </div>
+        </Section>
+
+        <Section title="AI assistant (WP-AI-2) — floating admin chat">
+          <div className="grid gap-4 md:grid-cols-2">
+            <Card>
+              <CardHeader><CardTitle>Orb — theme-aware plasma launcher</CardTitle></CardHeader>
+              <CardBody className="flex flex-wrap items-end gap-6">
+                {[
+                  { size: 52, animate: true, label: "launcher · animate" },
+                  { size: 52, animate: false, label: "launcher · static" },
+                  { size: 34, animate: false, label: "header 34" },
+                  { size: 24, animate: false, label: "avatar 24" },
+                ].map((o) => (
+                  <div key={o.label} className="flex flex-col items-center gap-1.5">
+                    <Orb size={o.size} animate={o.animate} />
+                    <span className="text-step-1 text-text-3">{o.label}</span>
+                  </div>
+                ))}
+              </CardBody>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle>Icon buttons — compact panel controls</CardTitle>
+                <span className="text-xs text-text-3">sub-44px per mockup rev-7 (WCAG 2.1 AA); default · disabled · loading</span>
+              </CardHeader>
+              <CardBody className="flex flex-col gap-4">
+                <div className="flex items-center gap-4">
+                  <span className="w-16 text-step-1 text-text-3">ghost 34</span>
+                  <AssistantIconButton variant="ghost" aria-label="Close (demo)">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-4 w-4" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12" strokeLinecap="round" strokeLinejoin="round" /></svg>
+                  </AssistantIconButton>
+                  <AssistantIconButton variant="ghost" aria-label="Close disabled (demo)" disabled>
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-4 w-4" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12" strokeLinecap="round" strokeLinejoin="round" /></svg>
+                  </AssistantIconButton>
+                </div>
+                <div className="flex items-center gap-4">
+                  <span className="w-16 text-step-1 text-text-3">primary 36</span>
+                  <AssistantIconButton variant="primary" aria-label="Send (demo)">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-4 w-4" aria-hidden="true"><path d="M4 12h15M13 6l6 6-6 6" strokeLinecap="round" strokeLinejoin="round" /></svg>
+                  </AssistantIconButton>
+                  <AssistantIconButton variant="primary" aria-label="Send disabled (demo)" disabled>
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-4 w-4" aria-hidden="true"><path d="M4 12h15M13 6l6 6-6 6" strokeLinecap="round" strokeLinejoin="round" /></svg>
+                  </AssistantIconButton>
+                  <AssistantIconButton variant="primary" aria-label="Send loading (demo)" loading>
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-4 w-4" aria-hidden="true"><path d="M4 12h15M13 6l6 6-6 6" strokeLinecap="round" strokeLinejoin="round" /></svg>
+                  </AssistantIconButton>
+                </div>
+                <div className="flex items-center gap-4">
+                  <span className="w-16 text-step-1 text-text-3">toggle 26</span>
+                  <AssistantIconButton variant="toggle" aria-label="Helpful (demo)">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-4 w-4" aria-hidden="true"><path d="M7 11v9h10a3 3 0 0 0 3-3l-1-6a2 2 0 0 0-2-2h-4l1-4a2 2 0 0 0-2-2l-5 8H4v9h3" strokeLinecap="round" strokeLinejoin="round" /></svg>
+                  </AssistantIconButton>
+                  <AssistantIconButton variant="toggle" aria-label="Helpful pressed (demo)" aria-pressed disabled>
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-4 w-4" aria-hidden="true"><path d="M7 11v9h10a3 3 0 0 0 3-3l-1-6a2 2 0 0 0-2-2h-4l1-4a2 2 0 0 0-2-2l-5 8H4v9h3" strokeLinecap="round" strokeLinejoin="round" /></svg>
+                  </AssistantIconButton>
+                </div>
+              </CardBody>
+            </Card>
+
+            <Card>
+              <CardHeader><CardTitle>Suggestion chips — contextual, per screen</CardTitle></CardHeader>
+              <CardBody className="flex flex-col gap-4">
+                <SuggestionChips
+                  items={["How are my partners performing?", "Which states have no coverage?", "Explain this screen"]}
+                  onSelect={() => {}}
+                />
+                <div>
+                  <p className="mb-2 text-step-1 text-text-3">Disabled — while the assistant is capped or off:</p>
+                  <SuggestionChips items={["Show top partners", "Where are my gaps?"]} onSelect={() => {}} disabled />
+                </div>
+              </CardBody>
+            </Card>
+
+            <Card className="md:col-span-2">
+              <CardHeader>
+                <CardTitle>Assistant message — sources, deep link, thumbs</CardTitle>
+                <span className="text-xs text-text-3">answer body + tool-derived source chips + one whitelisted deep link (PRN-10)</span>
+              </CardHeader>
+              <CardBody className="flex flex-col gap-4 bg-bg">
+                {/* Sources + an internal deep link (first internal path renders as the pill; others stay plain chips) + thumbs. */}
+                <AssistantMessage
+                  id="gallery-sources"
+                  text={"**Meridian Buyers** leads on close rate.\n- JV-003 — 88 leads, 12% closed\n- JV-007 — 64 leads, 9% closed"}
+                  sources={[{ label: "Partner performance", path: "/partners" }, { label: "Coverage map", path: "/coverage" }]}
+                />
+                {/* A non-internal path never links — the label still shows as a plain chip. */}
+                <AssistantMessage
+                  id="gallery-nonlink"
+                  text="Last week's import distributed 412 leads across 11 states."
+                  sources={[{ label: "External reference", path: "https://example.com/report" }]}
+                />
+                {/* No sources; pre-rated so the confirmation state is visible statically. */}
+                <AssistantMessage
+                  id="gallery-rated"
+                  text="You have 7 active partners covering 42 states."
+                  sources={[]}
+                  defaultRating="up"
+                />
+                {/* Welcome variant — no thumbs. */}
+                <AssistantMessage
+                  id="gallery-welcome"
+                  text="Hi — I can answer questions about your workspace: partners, leads, coverage, or what a screen does."
+                  sources={[]}
+                  showThumbs={false}
                 />
               </CardBody>
             </Card>

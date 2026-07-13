@@ -5,6 +5,7 @@ import Link from "next/link";
 import { isInternalPath } from "@/modules/ai/internal-path";
 import { Orb } from "./Orb";
 import { AnswerBody } from "./AnswerBody";
+import { AssistantIconButton } from "./AssistantIconButton";
 
 export interface AssistantSource { label: string; path?: string }
 export interface AssistantMessageProps {
@@ -13,6 +14,9 @@ export interface AssistantMessageProps {
   sources: AssistantSource[];
   showThumbs?: boolean;
   onFeedback?: (id: string, rating: "up" | "down") => void;
+  /** Seed the initial thumb selection (uncontrolled). Used by the /gallery showcase to
+   *  render the confirmed "rated" state statically; unset in the live widget. */
+  defaultRating?: "up" | "down";
 }
 
 function ThumbIcon({ down }: { down?: boolean }) {
@@ -23,8 +27,8 @@ function ThumbIcon({ down }: { down?: boolean }) {
   );
 }
 
-export function AssistantMessage({ id, text, sources, showThumbs = true, onFeedback }: AssistantMessageProps) {
-  const [rated, setRated] = React.useState<"up" | "down" | null>(null);
+export function AssistantMessage({ id, text, sources, showThumbs = true, onFeedback, defaultRating }: AssistantMessageProps) {
+  const [rated, setRated] = React.useState<"up" | "down" | null>(defaultRating ?? null);
 
   // Dedupe source labels; the deep link is the first source with an internal path (PRN-10).
   const seen = new Set<string>();
@@ -55,17 +59,17 @@ export function AssistantMessage({ id, text, sources, showThumbs = true, onFeedb
             )}
             {showThumbs && (
               <span role="group" aria-label="Was this helpful?" className="ml-auto inline-flex gap-0.5">
-                <button type="button" aria-label="Helpful" aria-pressed={rated === "up"} disabled={rated !== null} onClick={() => rate("up")} className="grid h-[26px] w-[26px] place-items-center rounded-md border border-transparent text-text-3 hover:border-border hover:bg-surface-2 focus-visible:border-border active:scale-90 aria-pressed:border-brand-line aria-pressed:bg-brand-soft aria-pressed:text-brand-ink disabled:opacity-100">
+                <AssistantIconButton variant="toggle" aria-label="Helpful" aria-pressed={rated === "up"} disabled={rated !== null} onClick={() => rate("up")}>
                   <ThumbIcon />
-                </button>
-                <button type="button" aria-label="Not useful" aria-pressed={rated === "down"} disabled={rated !== null} onClick={() => rate("down")} className="grid h-[26px] w-[26px] place-items-center rounded-md border border-transparent text-text-3 hover:border-border hover:bg-surface-2 focus-visible:border-border active:scale-90 aria-pressed:border-brand-line aria-pressed:bg-brand-soft aria-pressed:text-brand-ink disabled:opacity-100">
+                </AssistantIconButton>
+                <AssistantIconButton variant="toggle" aria-label="Not useful" aria-pressed={rated === "down"} disabled={rated !== null} onClick={() => rate("down")}>
                   <ThumbIcon down />
-                </button>
+                </AssistantIconButton>
               </span>
             )}
           </div>
         )}
-        {rated && <div className="mt-1.5 text-step-0 text-success">Thanks — feedback recorded.</div>}
+        {rated && <div role="status" className="mt-1.5 text-step-0 text-success">Thanks — feedback recorded.</div>}
       </div>
     </div>
   );
