@@ -5,7 +5,7 @@ import { eq, inArray } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import * as schema from "@/db/schema";
 import type { ScopeContext } from "@/lib/scope";
-import { listPartnerLeads } from "@/modules/portal/queries";
+import { countPartnerLeads, listPartnerLeads } from "@/modules/portal/queries";
 import { updateLeadStatus } from "@/modules/portal/status-update";
 
 // PW-PW-3 Task 1: tenancy-safe server-side sort + status filter on the portal
@@ -278,5 +278,37 @@ suite("WP-PW-3 Task 1: listPartnerLeads sort + status filter (PRN-08)", () => {
     expect(sortedFiltered.total).toBe(filtered.total);
     expect(sortedFiltered.total).toBe(2);
     expect(sortedFiltered.leads.every((l) => l.status === "Closed")).toBe(true);
+  });
+
+  it("T7A-01: countPartnerLeads (nav badge) matches the unfiltered list total and never counts another partner's, held, recalled, removed, or another tenant's leads", async () => {
+    // Baseline: PX's badge counts exactly their 3 released leads — PY's 2 never counted.
+    expect(await countPartnerLeads(partnerX())).toBe(3);
+
+    // Exclusions the badge must never count (each direct on the COUNT path, not just
+    // transitively via the list tests): a still-held lead (fresh createdAt, inside the
+    // 10-min distribution hold), a soft-deleted (WP-J2 recalled) lead, a removed
+    // (MLS-filtered) lead — all PX's own — and another TENANT's released kept lead.
+    const SLUG_T7A = "test-portal-t7a-count-foreign";
+    const [t2] = await db.insert(schema.tenants).values({ name: "T7A Count Foreign", slug: SLUG_T7A }).returning({ id: schema.tenants.id });
+    const [p2] = await db.insert(schema.partners).values({ tenantId: t2.id, refId: "JV-701", name: "PF", color: "#333333", status: "active" }).returning({ id: schema.partners.id });
+    const [up2] = await db.insert(schema.uploads).values({ tenantId: t2.id, refId: "IM-26-701", filename: "f.xlsx", status: "processed" }).returning({ id: schema.uploads.id });
+    const extra = await db
+      .insert(schema.leads)
+      .values([
+        { tenantId: id.tenant, refId: "LD-26-30098", uploadId: id.upload, dedupeKey: "px|held", rawJson: {}, partnerId: id.px, matchMethod: "zip", mlsStatus: "kept", city: "Heldtown", state: "TX", createdAt: new Date() },
+        { tenantId: id.tenant, refId: "LD-26-30099", uploadId: id.upload, dedupeKey: "px|recalled", rawJson: {}, partnerId: id.px, matchMethod: "zip", mlsStatus: "kept", city: "Gonesville", state: "TX", createdAt: releasedAt(40), deletedAt: new Date() },
+        { tenantId: id.tenant, refId: "LD-26-30097", uploadId: id.upload, dedupeKey: "px|removed", rawJson: {}, partnerId: id.px, matchMethod: "zip", mlsStatus: "removed", city: "Filteredburg", state: "TX", createdAt: releasedAt(45) },
+        { tenantId: t2.id, refId: "LD-26-70001", uploadId: up2.id, dedupeKey: "t7a|foreign", rawJson: {}, partnerId: p2.id, matchMethod: "zip", mlsStatus: "kept", city: "Foreignton", state: "TX", createdAt: releasedAt(50) },
+      ])
+      .returning({ id: schema.leads.id });
+    try {
+      const count = await countPartnerLeads(partnerX());
+      const page = await listPartnerLeads(partnerX());
+      expect(count).toBe(3); // held + recalled + removed + foreign-tenant all excluded
+      expect(count).toBe(page.total); // badge ≡ list total (count-consistency, shared visibleLeadsWhere)
+    } finally {
+      await db.delete(schema.leads).where(inArray(schema.leads.id, extra.map((r) => r.id)));
+      await cleanupSlugs([SLUG_T7A]);
+    }
   });
 });

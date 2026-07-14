@@ -21,7 +21,7 @@ export default async function PortalHome() {
   if (needsTosAcceptance(accepted)) redirect("/portal/tos");
 
   return (
-    <main className="mx-auto w-full flex-1 p-4">
+    <main className="mx-auto w-full flex-1 p-4 md:p-0">
       <h1 className="mb-4 font-display text-xl font-semibold tracking-tight text-text md:hidden">Your account</h1>
       <PortalAccount />
     </main>

@@ -46,7 +46,7 @@ export function LeadsMobile() {
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
 
   return (
-    <main className="mx-auto w-full flex-1 p-4">
+    <main className="mx-auto w-full flex-1 p-4 md:p-0">
       <div className="mb-4 flex items-end justify-between gap-3">
         <div>
           <h1 className="font-display text-xl font-semibold tracking-tight text-text md:hidden">Your leads</h1>

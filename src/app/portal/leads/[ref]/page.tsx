@@ -62,7 +62,7 @@ export default function PortalLeadDetailPage() {
   });
 
   return (
-    <main className="mx-auto w-full flex-1 p-4">
+    <main className="mx-auto w-full flex-1 p-4 md:p-0">
       <Link href="/portal/leads" className="inline-flex min-h-11 items-center text-sm text-text-3 hover:text-text-2">
         ← Back to your leads
       </Link>

@@ -18,6 +18,7 @@ vi.mock("@/lib/scope-context", async (orig) => scopeContextMock(await orig<typeo
 // Imported after the mock is registered (Vitest hoists vi.mock above imports).
 import { GET } from "@/app/api/portal/leads/route";
 import { GET as notesGet } from "@/app/api/leads/[ref]/notes/route";
+import { GET as countGet } from "@/app/api/portal/leads/count/route";
 
 const url = process.env.DATABASE_URL;
 const suite = url ? describe : describe.skip;
@@ -74,11 +75,21 @@ suite("F-04: portal data routes are ToS-gated", () => {
     expect((await res.json()).code).toBe("tos_required");
   });
 
-  it("F-04: after accepting the current ToS, the same route serves data", async () => {
+  it("F-04/T7A-02: the leads-count route (nav badge) is gated too", async () => {
+    const res = await countGet();
+    expect(res.status).toBe(403);
+    expect((await res.json()).code).toBe("tos_required");
+  });
+
+  it("F-04: after accepting the current ToS, the same routes serve data", async () => {
     await recordTosAcceptance(db, partnerUserId, CURRENT_TOS_VERSION);
     const res = await GET(jsonRequest("GET", "/api/portal/leads?page=1"));
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.leads.map((l: { refId: string }) => l.refId)).toContain("LD-26-00001");
+    // T7A-02: the count route serves the same visibility semantics post-acceptance.
+    const countRes = await countGet();
+    expect(countRes.status).toBe(200);
+    expect(await countRes.json()).toEqual({ count: 1 });
   });
 });

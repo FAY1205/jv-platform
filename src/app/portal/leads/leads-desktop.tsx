@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
 import { apiGet } from "@/lib/api";
 import {
-  Button, Table, THead, TBody, Th, Tr, Td, Pagination, DEFAULT_PAGE_SIZE, Skeleton, EmptyState,
+  Button, Card, Table, THead, TBody, Th, Tr, Td, Pagination, DEFAULT_PAGE_SIZE, Skeleton, EmptyState,
 } from "@/components";
 import { statusPillClass } from "@/lib/status-pill";
 // leads-contract, NOT ./queries: this is a "use client" component and a VALUE import
@@ -76,9 +76,24 @@ export function LeadsDesktop() {
   const sortDir = (f: PortalLeadSort) => (sort === f ? dir : null);
 
   return (
-    <main className="mx-auto w-full flex-1 p-4">
-      <div className="mb-4 flex items-end justify-between gap-3">
-        <div>{data && data.total > 0 && <p className="text-step-1 text-text-3">{data.total} total</p>}</div>
+    <main className="mx-auto w-full flex-1 p-4 md:p-0">
+      {/* T7a: admin list-page order — filters row (pills left, in-body action right),
+          live result count, then the table in a Card (the admin leads-view idiom). */}
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center gap-1.5">
+          <span className="mr-1 text-xs font-semibold text-text-3">Status</span>
+          <button type="button" onClick={() => setStatuses([])} aria-pressed={statuses.length === 0} className={pillClass(statuses.length === 0)}>
+            All
+          </button>
+          {PORTAL_STATUS_FILTERS.map((s) => {
+            const active = statuses.includes(s);
+            return (
+              <button key={s} type="button" onClick={() => toggleStatus(s)} aria-pressed={active} className={pillClass(active)}>
+                {s}
+              </button>
+            );
+          })}
+        </div>
         <a href="/api/portal/leads/export" download>
           <Button variant="secondary" size="lg">
             Export
@@ -86,41 +101,35 @@ export function LeadsDesktop() {
         </a>
       </div>
 
-      <div className="mb-4 flex flex-wrap items-center gap-1.5">
-        <span className="mr-1 text-xs font-semibold text-text-3">Status</span>
-        <button type="button" onClick={() => setStatuses([])} aria-pressed={statuses.length === 0} className={pillClass(statuses.length === 0)}>
-          All
-        </button>
-        {PORTAL_STATUS_FILTERS.map((s) => {
-          const active = statuses.includes(s);
-          return (
-            <button key={s} type="button" onClick={() => toggleStatus(s)} aria-pressed={active} className={pillClass(active)}>
-              {s}
-            </button>
-          );
-        })}
-      </div>
+      {/* Live result count (admin T2 copy) — re-announces as the filter narrows the set. */}
+      {data && (
+        <p className="mb-2 text-step-1 text-text-3" aria-live="polite">
+          <span className="num font-semibold text-text-2">{data.total.toLocaleString()}</span>{" "}
+          {data.total === 1 ? "lead" : "leads"}{statuses.length ? " match the filters" : ""}
+        </p>
+      )}
 
-      {leadsQ.isPending ? (
-        <div className="flex flex-col gap-3">
-          {Array.from({ length: 8 }).map((_, i) => (
-            <Skeleton key={i} className="h-9 w-full" />
-          ))}
-        </div>
-      ) : leadsQ.error ? (
-        <div className="py-6">
-          <EmptyState compact title="Couldn't load your leads" description={(leadsQ.error as Error).message} />
-        </div>
-      ) : data!.leads.length === 0 ? (
-        <div className="py-6">
-          <EmptyState
-            compact
-            title="No leads found"
-            description={statuses.length ? "Try widening the status filter." : "Leads assigned to you will appear here after the next upload."}
-          />
-        </div>
-      ) : (
-        <>
+      <Card>
+        {leadsQ.isPending ? (
+          <div className="flex flex-col gap-3 p-5">
+            {Array.from({ length: 8 }).map((_, i) => (
+              <Skeleton key={i} className="h-9 w-full" />
+            ))}
+          </div>
+        ) : leadsQ.error ? (
+          // role="status" (SC 4.1.3): the count line above only announces when data exists,
+          // so a query failure must announce itself (the compact EmptyState used to carry this).
+          <div className="p-6" role="status">
+            <EmptyState title="Couldn't load your leads" description={(leadsQ.error as Error).message} />
+          </div>
+        ) : data!.leads.length === 0 ? (
+          <div className="p-6">
+            <EmptyState
+              title="No leads found"
+              description={statuses.length ? "Try widening the status filter." : "Leads assigned to you will appear here after the next upload."}
+            />
+          </div>
+        ) : (
           <Table>
             <THead>
               <Tr>
@@ -157,18 +166,18 @@ export function LeadsDesktop() {
               ))}
             </TBody>
           </Table>
+        )}
+      </Card>
 
-          {data && data.total > 0 && (
-            <Pagination
-              className="mt-4"
-              page={data.page}
-              pageSize={data.pageSize}
-              total={data.total}
-              onPageChange={setPage}
-              onPageSizeChange={setPageSize}
-            />
-          )}
-        </>
+      {data && data.total > 0 && (
+        <Pagination
+          className="mt-4"
+          page={data.page}
+          pageSize={data.pageSize}
+          total={data.total}
+          onPageChange={setPage}
+          onPageSizeChange={setPageSize}
+        />
       )}
     </main>
   );

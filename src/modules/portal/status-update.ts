@@ -43,6 +43,10 @@ export async function updateLeadStatus(
       .from(schema.leads)
       // WP-J2: a recalled (soft-deleted / voided-run) lead is not updatable — treat as not found.
       // Distribution hold: a held lead isn't the partner's yet, so it can't be acted on either.
+      // NOTE (T7a): this mirrors queries.ts visibleLeadsWhere MINUS eq(mlsStatus,"kept") —
+      // intentionally, because this path must FIND a removed lead to refuse it with
+      // LeadRemovedError below (PRN-04). If visibility semantics (hold/soft-delete) ever
+      // change, change both in lockstep.
       .where(and(leadWhere(scope), eq(schema.leads.refId, refId), isNull(schema.leads.deletedAt), scope.role === "partner" ? releasedLeads() : undefined));
     if (!lead) throw new LeadNotFoundError(refId);
     // PRN-04: a removed lead's status IS "Removed MLS" — refuse workflow overwrites.

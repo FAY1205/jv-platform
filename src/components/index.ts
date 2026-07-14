@@ -54,6 +54,7 @@ export { PasswordChangeForm } from "./PasswordChangeForm";
 export { NotificationBell } from "./NotificationBell";
 export { NotificationTypeIcon, type NotificationTypeIconProps } from "./NotificationTypeIcon";
 export { ProfileMenu } from "./ProfileMenu";
+export { PortalProfileMenu } from "./PortalProfileMenu";
 export { ListingBadge, type ListingStatus } from "./ListingBadge";
 export { AppShell } from "./AppShell";
 export { PortalShell } from "./PortalShell";

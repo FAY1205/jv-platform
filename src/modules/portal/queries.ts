@@ -87,6 +87,32 @@ async function statusMap(
   return map;
 }
 
+// T7a: the ONE partner-visible leads predicate — scoped (PRN-08), kept only, not
+// soft-deleted (WP-J2 recall), and past the distribution hold for partner requests
+// (released; admin scopes stay ungated). Every "which leads can this portal caller
+// see" read composes on this so a new read can't drop a predicate.
+// ⚠️ SCOPE-GUARD-ADJACENT (pr-review T7a F-3): four partner reads compose on this one
+// function — treat edits here with lib/scope.ts (Tier A) ceremony.
+function visibleLeadsWhere(scope: ScopeContext) {
+  return and(
+    leadWhere(scope),
+    eq(schema.leads.mlsStatus, "kept"),
+    isNull(schema.leads.deletedAt),
+    scope.role === "partner" ? releasedLeads() : undefined,
+  );
+}
+
+/** T7a: total visible leads for the shell nav badge — identical semantics to the
+ *  unfiltered listPartnerLeads count (PTL-02), without fetching rows. */
+export async function countPartnerLeads(scope: ScopeContext): Promise<number> {
+  const db = getDb();
+  const [row] = await db
+    .select({ total: sql<number>`count(*)::int` })
+    .from(schema.leads)
+    .where(visibleLeadsWhere(scope));
+  return row?.total ?? 0;
+}
+
 /** Server-side paginated, sortable, status-filterable list of the partner's own kept
  *  leads (PTL-02, FEP-03; WP-PW-3 Task 1). Back-compat: `opts` fully optional, and the
  *  no-opts call is byte-identical to the pre-WP-PW-3 behavior (received/desc, no
@@ -122,16 +148,12 @@ export async function listPartnerLeads(scope: ScopeContext, opts: ListPartnerLea
   // (`${s}`), never string-concatenated.
   const statusFilters = (opts.statuses ?? []).filter((s) => (PORTAL_STATUS_FILTERS as readonly string[]).includes(s));
 
-  // WP-J2: exclude soft-deleted (recalled/voided-run) leads — every partner-facing read must.
-  // Distribution hold: exclude leads still within their import's hold window (partner-visible only
-  // once released; self-releasing, no cron dependency). The status filter is pushed INTO this
-  // shared baseWhere so the row select and the count(*) below stay identically scoped/filtered
+  // Visibility (scope + kept + WP-J2 soft-delete + distribution hold) comes from the
+  // shared visibleLeadsWhere; the status filter is pushed INTO this shared baseWhere so
+  // the row select and the count(*) below stay identically scoped/filtered
   // (count-consistency) — never a JS filter-after-fetch.
   const baseWhere = and(
-    leadWhere(scope),
-    eq(schema.leads.mlsStatus, "kept"),
-    isNull(schema.leads.deletedAt),
-    scope.role === "partner" ? releasedLeads() : undefined,
+    visibleLeadsWhere(scope),
     statusFilters.length > 0 ? or(...statusFilters.map((s) => sql`${sExpr} = ${s}`)) : undefined,
   );
 
@@ -202,7 +224,7 @@ export async function getPartnerLeadDetail(scope: ScopeContext, refId: string): 
   const [lead] = await db
     .select()
     .from(schema.leads)
-    .where(and(leadWhere(scope), eq(schema.leads.refId, refId), eq(schema.leads.mlsStatus, "kept"), isNull(schema.leads.deletedAt), scope.role === "partner" ? releasedLeads() : undefined));
+    .where(and(visibleLeadsWhere(scope), eq(schema.leads.refId, refId)));
   if (!lead) return null;
 
   const hist = await db
@@ -298,7 +320,7 @@ export interface PartnerExportData {
 export async function getPartnerExportData(scope: ScopeContext): Promise<PartnerExportData> {
   const db = getDb();
   const [leadRows, partnerRows] = await Promise.all([
-    db.select().from(schema.leads).where(and(leadWhere(scope), eq(schema.leads.mlsStatus, "kept"), isNull(schema.leads.deletedAt), scope.role === "partner" ? releasedLeads() : undefined)),
+    db.select().from(schema.leads).where(visibleLeadsWhere(scope)),
     db
       .select({ id: schema.partners.id, name: schema.partners.name, refId: schema.partners.refId, color: schema.partners.color })
       .from(schema.partners)

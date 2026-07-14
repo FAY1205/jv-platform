@@ -37,6 +37,13 @@ const RANGE_SEGMENTS: { value: RangeKey; label: string }[] = [
   { value: "12mo", label: "12mo" },
   { value: "all", label: "All" },
 ];
+// T7a: the desktop hero's uppercase range eyebrow (admin dashboard anatomy).
+const RANGE_LABELS: Record<RangeKey, string> = {
+  "7d": "Last 7 days",
+  "30d": "Last 30 days",
+  "12mo": "Last 12 months",
+  all: "All time",
+};
 const label13 = "text-step-1"; // 13px chrome floor (no sub-13px)
 
 interface RecentLead {
@@ -89,6 +96,16 @@ export function PortalDashboard() {
           neutralUncovered
           interactive={false}
           ariaLabel="County map highlighting your covered states"
+          // T7a: the admin hero's blurred caption plate, desktop only (mobile keeps the
+          // shipped plateless map). PartnerTag stays BELOW the map (PRN-14, WP-F.3).
+          caption={
+            isDesktop
+              ? {
+                  title: "Your territory",
+                  subtitle: `${territory.data.ownStateCount} state${territory.data.ownStateCount === 1 ? "" : "s"}${territory.data.partner.name ? ` · ${territory.data.partner.name}` : ""}`,
+                }
+              : undefined
+          }
         />
       ) : territory.isError ? (
         <EmptyState compact title="Territory map unavailable." />
@@ -174,7 +191,11 @@ export function PortalDashboard() {
             <EmptyState title="Couldn't load your dashboard" description={(stats.error as Error).message} />
           ) : (
             <>
-              <p className="font-display text-step-7 font-semibold leading-[1.12] tracking-tight text-balance text-text">
+              {/* T7a: admin hero anatomy — uppercase range eyebrow, headline, honest
+                  subtitle, then the KPI tiers at a fixed mt-6 rhythm (the admin T1
+                  owner call: never bottom-anchored against a taller map column). */}
+              <span className={`font-semibold uppercase tracking-[.08em] text-text-3 ${label13}`}>{RANGE_LABELS[range]}</span>
+              <h2 className="mt-2 font-display text-step-7 font-semibold leading-[1.12] tracking-tight text-balance text-text">
                 {!s ? (
                   <Skeleton className="h-8 w-3/4" />
                 ) : s.leads === 0 ? (
@@ -191,9 +212,23 @@ export function PortalDashboard() {
                     .
                   </>
                 )}
-              </p>
+              </h2>
+              {s && (
+                <p className="mt-2 max-w-[40ch] text-sm text-text-2">
+                  {s.leads === 0 ? (
+                    "Leads assigned to you will appear here after the next import."
+                  ) : s.untouched > 0 ? (
+                    <>
+                      <span className="num font-semibold text-text">{s.untouched.toLocaleString()}</span>{" "}
+                      {s.untouched === 1 ? "lead is" : "leads are"} waiting for a first touch — newest first in your Leads list.
+                    </>
+                  ) : (
+                    "You're all caught up — every lead has a first touch."
+                  )}
+                </p>
+              )}
 
-              <div className="mt-auto pt-4 grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-border bg-border">
+              <div className="mt-6 grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-border bg-border">
                 {!s ? (
                   [0, 1, 2, 3].map((i) => (
                     <div key={i} className="bg-surface px-4 py-3">
