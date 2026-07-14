@@ -5,6 +5,7 @@ import { useQuery } from "@tanstack/react-query";
 import { apiGet } from "@/lib/api";
 import { AppShell, Card, Table, THead, TBody, Th, Tr, Td, Badge, Input, Select, DateRangePicker, Pagination, EmptyState, Skeleton, usePageHeader } from "@/components";
 import type { DateRangeValue } from "@/components/DateRangePicker";
+import { activityActionLabel, activityEntityLabel } from "@/modules/activity/labels";
 
 // ACT-01/04: the tenant's audit trail, server-side filtered (category, actor, date range,
 // search) + sorted + paginated. Security events are badged (categorize.ts single source).
@@ -108,8 +109,19 @@ function ActivityBody() {
                 <Tr key={i.id}>
                   <Td><span className="num text-step-1 text-text-3">{new Date(i.when).toLocaleString()}</span></Td>
                   <Td><span className="text-sm text-text-2">{i.actor ?? "system"}</span></Td>
-                  <Td><span className="num text-step-1 text-text-2">{i.action}</span></Td>
-                  <Td><span className="num text-step-1 text-text-3">{i.entityRef ?? "—"}</span></Td>
+                  {/* T6 (owner note #9): sentences, not machine strings — the raw action
+                      string stays reachable via the title attribute. */}
+                  <Td><span className="text-sm text-text-2" title={i.action}>{activityActionLabel(i.action)}</span></Td>
+                  <Td>
+                    {i.entityRef ? (
+                      <>
+                        <span className="text-sm text-text-2">{activityEntityLabel(i.entityType)}</span>{" "}
+                        <span className="num text-step-1 text-text-3">{i.entityRef}</span>
+                      </>
+                    ) : (
+                      <span className="text-sm text-text-3">{activityEntityLabel(i.entityType)}</span>
+                    )}
+                  </Td>
                   <Td><Badge variant={i.category === "security" ? "warn" : "neutral"}>{i.category}</Badge></Td>
                 </Tr>
               ))}

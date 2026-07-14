@@ -64,7 +64,7 @@ export interface CreatedPartner {
   color: string;
 }
 
-/** Create a partner: next JV-### + first unused locked color, status not_invited. */
+/** Create a partner: next PR-### + first unused locked color, status not_invited. */
 export async function createPartner(
   scope: ScopeContext,
   input: PartnerCreateInput,
@@ -72,7 +72,7 @@ export async function createPartner(
   const db = getDb();
   return db.transaction(async (tx) => {
     // Serialize ref/color allocation per tenant (ING-06 pattern) so two concurrent
-    // creates can't collide on JV-### or a color.
+    // creates can't collide on PR-### or a color.
     await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${scope.tenantId + ":partner"})::bigint)`);
 
     const existing = await tx

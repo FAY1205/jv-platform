@@ -126,7 +126,7 @@ const phone = () => `(${int(200,989)}) ${int(200,989)}-${String(int(0,9999)).pad
 
 // ── partners + coverage ──────────────────────────────────────────────────────
 const partnerRows = PARTNERS.map((p, i) => ({
-  tenant_id: tenant.id, ref_id: `JV-${String(i + 1).padStart(3, "0")}`, name: p.name, color: PALETTE[i],
+  tenant_id: tenant.id, ref_id: `PR-${String(i + 1).padStart(3, "0")}`, name: p.name, color: PALETTE[i],
   email: `${p.name.toLowerCase().replace(/[^a-z]+/g, ".").replace(/^\.|\.$/g, "")}@example.com`,
   phone: phone(), status: p.status,
   activated_at: p.status === "active" ? new Date(NOW - int(60, 700) * DAY).toISOString() : null,
@@ -288,10 +288,10 @@ for (let i = 0; i < leads.length; i++) {
   if (leads[i].manual_partner_id && chance(0.6)) addAudit("lead.manually_assigned", "lead", leads[i].ref_id, new Date(leads[i].manual_assigned_at).getTime());
 }
 // coverage edits (security), invites (data), source-profile saves (security), session revokes (security)
-for (let k = 0; k < 12; k++) addAudit("partner.coverage_updated", "partner", `JV-${String(int(1,14)).padStart(3,"0")}`, NOW - int(5, 350) * DAY);
-for (let k = 0; k < 6; k++) addAudit("partner.invited", "partner", `JV-${String(int(1,14)).padStart(3,"0")}`, NOW - int(30, 360) * DAY);
+for (let k = 0; k < 12; k++) addAudit("partner.coverage_updated", "partner", `PR-${String(int(1,14)).padStart(3,"0")}`, NOW - int(5, 350) * DAY);
+for (let k = 0; k < 6; k++) addAudit("partner.invited", "partner", `PR-${String(int(1,14)).padStart(3,"0")}`, NOW - int(30, 360) * DAY);
 for (let k = 0; k < 5; k++) addAudit("source_profile.saved", "source_profile", `InvestorFuse v1`, NOW - int(10, 340) * DAY);
-for (let k = 0; k < 4; k++) addAudit("partner.session_revoked", "partner", `JV-${String(int(1,14)).padStart(3,"0")}`, NOW - int(2, 120) * DAY);
+for (let k = 0; k < 4; k++) addAudit("partner.session_revoked", "partner", `PR-${String(int(1,14)).padStart(3,"0")}`, NOW - int(2, 120) * DAY);
 for (let k = 0; k < 8; k++) addAudit("lead.edited", "lead", pick(leads).ref_id, NOW - int(1, 300) * DAY);
 if (auditRows.length) {
   for (let i = 0; i < auditRows.length; i += 200) {

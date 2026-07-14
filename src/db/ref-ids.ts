@@ -3,11 +3,13 @@ import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Human-readable, tenant-scoped, immutable reference IDs (DM-07, v2 / ADR-0019):
-//   partners  JV-###          leads  LD-YY-#####        imports  IM-YY-###
+//   partners  PR-###          leads  LD-YY-#####        imports  IM-YY-###
 // The year is rendered two-digit and imports carry the IM- prefix. Allocation is
 // transactional via the ref_counters table (monotonic per tenant+entity+year; the
 // "upload" entity key is unchanged — only the rendered format moved). Formatting is
 // pure and unit-tested.
+// Partner prefix JV- → PR- (owner testing note #7, 2026-07-15; migration 0022
+// renames existing rows). Historical audit_log entity_refs keep JV- — append-only.
 // ─────────────────────────────────────────────────────────────────────────────
 
 export type RefEntity = "partner" | "lead" | "upload";
@@ -18,7 +20,7 @@ function yy(year: number): string {
 }
 
 export function formatPartnerRef(n: number): string {
-  return `JV-${String(n).padStart(3, "0")}`;
+  return `PR-${String(n).padStart(3, "0")}`;
 }
 
 export function formatLeadRef(year: number, n: number): string {

@@ -121,7 +121,7 @@ const SUFF = ["St","Ave","Dr","Ln","Rd","Ct","Blvd","Way"];
 
 // ── partners + coverage ──────────────────────────────────────────────────────
 const partnerRows = PARTNERS.map((p, i) => ({
-  tenant_id: tenant.id, ref_id: `JV-${String(i + 1).padStart(3, "0")}`, name: p.name, color: PALETTE[i],
+  tenant_id: tenant.id, ref_id: `PR-${String(i + 1).padStart(3, "0")}`, name: p.name, color: PALETTE[i],
   email: `${p.name.toLowerCase().replace(/[^a-z]+/g, ".").replace(/^\.|\.$/g, "")}@example.com`,
   status: p.status,
   activated_at: p.status === "active" ? new Date(NOW - int(60, 700) * DAY).toISOString() : null,

@@ -31,6 +31,10 @@ export interface CountyCoverageMapProps {
   /** Override the SVG's accessible name (role="img"). Portal passes a scoped description
    *  ("your covered states"); admin keeps the default all-partner wording. */
   ariaLabel?: string;
+  /** Hover copy for a state with NO entry coloring it. Defaults to the coverage wording
+   *  ("No partner covers X"); the Unmatched gap map (T3) overrides it — there, an
+   *  uncolored state means "no unmatched leads here", not "uncovered". */
+  uncoveredHoverLabel?: (stateName: string) => string;
 }
 
 // Module-level cache so the ~0.9 MB geometry is fetched once per session.
@@ -43,7 +47,7 @@ let geoCache: CountyGeo | null = null;
  * demand. 3,142 county paths render once; hover/click use event delegation and a
  * single highlight overlay so mouse-move never re-renders the whole map.
  */
-export function CountyCoverageMap({ states, selectedPartnerId = null, onSelectPartner, caption, interactive = true, neutralUncovered = false, ariaLabel }: CountyCoverageMapProps) {
+export function CountyCoverageMap({ states, selectedPartnerId = null, onSelectPartner, caption, interactive = true, neutralUncovered = false, ariaLabel, uncoveredHoverLabel }: CountyCoverageMapProps) {
   const [geo, setGeo] = React.useState<CountyGeo | null>(geoCache);
   const [failed, setFailed] = React.useState(false);
   const wrapRef = React.useRef<HTMLDivElement>(null);
@@ -242,9 +246,11 @@ export function CountyCoverageMap({ states, selectedPartnerId = null, onSelectPa
             {hoverName} <span className="text-text-3">County</span>
           </div>
           {hoverCov.partnerId ? (
-            <PartnerTag name={hoverCov.partnerName!} color={hoverCov.color!} refId={hoverCov.refId!} size="sm" className="mt-1" />
+            <PartnerTag name={hoverCov.partnerName!} color={hoverCov.color!} refId={hoverCov.refId ?? undefined} size="sm" className="mt-1" />
           ) : (
-            <div className="mt-1 text-xs text-text-3">No partner covers {hoverCov.name}</div>
+            <div className="mt-1 text-xs text-text-3">
+              {uncoveredHoverLabel ? uncoveredHoverLabel(hoverCov.name) : `No partner covers ${hoverCov.name}`}
+            </div>
           )}
         </div>
       )}

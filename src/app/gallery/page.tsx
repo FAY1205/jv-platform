@@ -29,6 +29,7 @@ import {
   Select,
   StatusSelect,
   SegmentedControl,
+  Combobox,
   Checkbox,
   Switch,
   NotificationTypeIcon,
@@ -101,7 +102,7 @@ const LEADS: Lead[] = [
 
 const colorOf = (name: string) => PARTNER_PALETTE.find((p) => p.name === name)?.hex ?? PARTNER_PALETTE[0].hex;
 const refOf = (name: string) =>
-  "JV-" + String(PARTNER_PALETTE.findIndex((p) => p.name === name) + 1).padStart(3, "0");
+  "PR-" + String(PARTNER_PALETTE.findIndex((p) => p.name === name) + 1).padStart(3, "0");
 
 function MlsBadge({ v }: { v: Lead["mls"] }) {
   if (v === "Yes") return <Badge variant="removed">Possible</Badge>;
@@ -115,6 +116,25 @@ function Section({ title, children }: { title: string; children: React.ReactNode
       <h2 className="font-display text-lg font-semibold tracking-tight mb-4">{title}</h2>
       {children}
     </section>
+  );
+}
+
+// Stateful Combobox demo (the gallery page itself stays render-pure).
+function ComboboxDemo() {
+  const [state, setState] = React.useState("");
+  return (
+    <Combobox
+      ariaLabel="Filter by state"
+      placeholder="All states"
+      value={state}
+      onValueChange={setState}
+      options={[
+        { value: "FL", label: "Florida (FL)" },
+        { value: "TN", label: "Tennessee (TN)" },
+        { value: "TX", label: "Texas (TX)" },
+        { value: "WA", label: "Washington (WA)" },
+      ]}
+    />
   );
 }
 
@@ -200,7 +220,7 @@ function Gallery() {
         <Section title="Partner palette — locked, identified by color + name + reference ID">
           <div className="flex flex-wrap gap-x-6 gap-y-3">
             {PARTNER_PALETTE.map((p, i) => (
-              <PartnerTag key={p.name} name={p.name} color={p.hex} refId={`JV-${String(i + 1).padStart(3, "0")}`} />
+              <PartnerTag key={p.name} name={p.name} color={p.hex} refId={`PR-${String(i + 1).padStart(3, "0")}`} />
             ))}
           </div>
         </Section>
@@ -316,6 +336,18 @@ function Gallery() {
               <NativeSelect label="Match type" defaultValue="zip" options={[{ value: "zip", label: "ZIP match" }, { value: "state", label: "State fallback" }, { value: "none", label: "Unmatched" }]} />
             </CardBody>
           </Card>
+        </Section>
+
+        <Section title="Combobox — searchable single-select (DSN-03, T2)">
+          <p className="mb-3 text-step-1 text-text-3">
+            Type to filter; ArrowUp/Down + Enter select; Esc reverts; the ✕ clears. Built for the
+            Leads state filter (full names, not 2-letter codes) — ARIA 1.2 combobox, hand-rolled
+            like SegmentedControl/Switch (no new deps).
+          </p>
+          <div className="grid max-w-xl gap-4 sm:grid-cols-2">
+            <ComboboxDemo />
+            <Combobox ariaLabel="Disabled demo" placeholder="Disabled" options={[]} value="" onValueChange={() => {}} disabled />
+          </div>
         </Section>
 
         <Section title="Segmented control — all states">
@@ -542,7 +574,7 @@ function Gallery() {
                   <span className="rounded-lg bg-brand text-brand-contrast text-sm font-semibold px-3.5 py-2">Process file</span>
                 </div>
                 <div className="flex items-center gap-2.5 pt-1">
-                  <PartnerTag name="Josh Ax" color={colorOf("Josh Ax")} refId="JV-003" />
+                  <PartnerTag name="Josh Ax" color={colorOf("Josh Ax")} refId="PR-003" />
                   <span className="text-step-1 text-text-3">swatch edge = <span className="num">--swatch-border</span> (theme-aware)</span>
                 </div>
               </CardBody>
@@ -701,7 +733,7 @@ function Gallery() {
                 {/* Sources + an internal deep link (first internal path renders as the pill; others stay plain chips) + thumbs. */}
                 <AssistantMessage
                   id="gallery-sources"
-                  text={"**Meridian Buyers** leads on close rate.\n- JV-003 — 88 leads, 12% closed\n- JV-007 — 64 leads, 9% closed"}
+                  text={"**Meridian Buyers** leads on close rate.\n- PR-003 — 88 leads, 12% closed\n- PR-007 — 64 leads, 9% closed"}
                   sources={[{ label: "Partner performance", path: "/partners" }, { label: "Coverage map", path: "/coverage" }]}
                 />
                 {/* A non-internal path never links — the label still shows as a plain chip. */}
@@ -744,7 +776,7 @@ function Gallery() {
       <Modal
         open={modalOpen}
         onClose={() => setModalOpen(false)}
-        title="Delete partner JV-003 — Michael Pinter?"
+        title="Delete partner PR-003 — Michael Pinter?"
         footer={
           <>
             <Button variant="ghost" onClick={() => setModalOpen(false)}>Cancel</Button>

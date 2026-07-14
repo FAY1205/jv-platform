@@ -6,8 +6,8 @@ import { AssistantMessage } from "@/components/assistant/AssistantMessage";
 
 describe("WP-AI-2 AssistantMessage", () => {
   it("AIA-03: renders bullets and mono ref spans from the answer text", () => {
-    render(<AssistantMessage id="m1" text={"Top partner:\n- JV-003 got 88 leads"} sources={[]} />);
-    expect(screen.getByText("JV-003")).toBeTruthy();
+    render(<AssistantMessage id="m1" text={"Top partner:\n- PR-003 got 88 leads"} sources={[]} />);
+    expect(screen.getByText("PR-003")).toBeTruthy();
     expect(screen.getByRole("list")).toBeTruthy();
   });
   it("PRN-10: renders a deep link only for an internal path, not duplicated as a plain chip", () => {

@@ -51,18 +51,9 @@ function CoverageBody() {
   const toggle = (id: string | null) => setSelected((prev) => (prev === id ? null : id));
   const hatchId = React.useId();
 
-  const actions = React.useMemo(
-    () => (
-      <Link
-        href="/partners"
-        className="shrink-0 rounded-lg border border-border bg-surface px-3.5 py-2 text-sm font-semibold text-text-2 shadow-xs transition-colors hover:border-text-3 hover:bg-surface-2"
-      >
-        Manage partners →
-      </Link>
-    ),
-    [],
-  );
-  usePageHeader({ title: "Coverage", actions });
+  // Topbar carries the title only — the "Manage partners" action was dropped
+  // (owner testing note #8, 2026-07-15); Partners is one click away in the nav.
+  usePageHeader({ title: "Coverage" });
 
   return (
     <>
@@ -117,6 +108,9 @@ function CoverageBody() {
                 <p className="text-sm text-text-3">No state coverage assigned yet. Add state rules in Rules or ZIP coverage on a partner.</p>
               ) : (
                 <div className="flex flex-col gap-0.5">
+                  {/* Aligned columns (owner note #8): name truncates, the reference ID sits
+                      muted in its own column (PRN-14 — swatch + name + ID all present),
+                      the state count right-aligns. No more overflowing single-line rows. */}
                   {data!.partners.map((p) => {
                     const on = selected === p.id;
                     return (
@@ -126,12 +120,17 @@ function CoverageBody() {
                         onClick={() => toggle(p.id)}
                         aria-pressed={on}
                         className={
-                          "flex items-center justify-between gap-3 rounded-lg px-2 py-2 text-left transition-colors " +
+                          "grid w-full grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-x-2.5 rounded-lg px-2 py-2 text-left transition-colors " +
                           (on ? "bg-brand-soft" : "hover:bg-surface-2")
                         }
                       >
-                        <PartnerTag name={p.name} color={p.color} refId={p.refId} size="sm" />
-                        <span className="num shrink-0 text-step-1 text-text-3">
+                        <span className="min-w-0 truncate">
+                          <PartnerTag name={p.name} color={p.color} size="sm" />
+                        </span>
+                        <span className="num text-step-0 text-text-3" aria-label={`Reference ${p.refId}`}>
+                          {p.refId}
+                        </span>
+                        <span className="num min-w-16 text-right text-step-1 tabular-nums text-text-3">
                           {p.stateCount} state{p.stateCount === 1 ? "" : "s"}
                         </span>
                       </button>

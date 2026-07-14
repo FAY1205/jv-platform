@@ -14,7 +14,7 @@ const detail = {
   mlsStatus: "kept", mlsReason: "",
   status: "Contacted", editable: true,
   receivedAt: "2026-07-01T00:00:00.000Z", modifiedAt: null,
-  partner: { id: "11111111-1111-4111-8111-111111111111", name: "Meridian Buyers", refId: "JV-003", color: "#abc" },
+  partner: { id: "11111111-1111-4111-8111-111111111111", name: "Meridian Buyers", refId: "PR-003", color: "#abc" },
   assignment: { manual: false, reason: "", assignedAt: null, matchMethod: "zip", original: null },
   availableStatuses: ["New"], activity: [],
 } as unknown as AdminLeadDetail;
@@ -23,7 +23,7 @@ describe("SEC-05/PRN-10: mask projections", () => {
   it("SEC-05: lead detail keeps location + decisions, drops PII and ALL free text", () => {
     const m = maskLeadDetail(detail);
     expect(m).toMatchObject({ refId: "LD-00291", city: "Charleston", state: "SC", zip: "29407", status: "Contacted", campaign: "webinar-list", matchMethod: "zip" });
-    expect(m.partner).toEqual({ name: "Meridian Buyers", refId: "JV-003" });
+    expect(m.partner).toEqual({ name: "Meridian Buyers", refId: "PR-003" });
     expect(m.path).toBe("/leads/LD-00291");
     const json = JSON.stringify(m);
     expect(json).not.toContain("555-0100");
@@ -42,10 +42,10 @@ describe("SEC-05/PRN-10: mask projections", () => {
   });
   it("SEC-05: run detail keeps summary + distribution, drops per-lead rows", () => {
     const PARTNER_UUID = "22222222-2222-4222-8222-222222222222";
-    const run = { upload: { refId: "UP-2026-001", filename: "week.xlsx", status: "processed", rowCount: 50, createdAt: "2026-07-01T00:00:00.000Z", voidReason: null }, summary: { total: 50, kept: 24, removed: 26, unmatched: 1, previouslyMatched: 0, perPartner: [{ partnerId: PARTNER_UUID, count: 7 }] }, distribution: [{ partnerId: PARTNER_UUID, count: 7, name: "Meridian Buyers", refId: "JV-003", color: "#abc" }], partners: {}, leads: [{ refId: "LD-1" }] } as unknown as RunDetail;
+    const run = { upload: { refId: "UP-2026-001", filename: "week.xlsx", status: "processed", rowCount: 50, createdAt: "2026-07-01T00:00:00.000Z", voidReason: null }, summary: { total: 50, kept: 24, removed: 26, unmatched: 1, previouslyMatched: 0, perPartner: [{ partnerId: PARTNER_UUID, count: 7 }] }, distribution: [{ partnerId: PARTNER_UUID, count: 7, name: "Meridian Buyers", refId: "PR-003", color: "#abc" }], partners: {}, leads: [{ refId: "LD-1" }] } as unknown as RunDetail;
     const m = maskRunDetail(run);
     expect((m as Record<string, unknown>).leads).toBeUndefined();
-    expect(m.distribution[0]).toEqual({ name: "Meridian Buyers", refId: "JV-003", count: 7 });
+    expect(m.distribution[0]).toEqual({ name: "Meridian Buyers", refId: "PR-003", count: 7 });
     expect(m.path).toBe("/imports/UP-2026-001");
     // summary is projected to safe scalars — no perPartner, no raw partner UUID
     expect((m.summary as Record<string, unknown>).perPartner).toBeUndefined();

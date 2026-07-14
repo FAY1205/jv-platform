@@ -67,15 +67,17 @@ suite("WP-030: partners CRUD + deactivation → reassignment (ADM-03, PRN-05)", 
     await client.end();
   });
 
-  it("ADM-03: create allocates the next JV-### + an unused locked color, status not_invited", async () => {
+  it("ADM-03: create allocates the next PR-### + an unused locked color, status not_invited", async () => {
     // The command trusts route-validated input (Zod trims/validates at the boundary,
     // covered by partners-schema.test.ts); here we assert allocation + persistence.
+    // Seeded rows carry legacy JV- refs (pre-migration-0022): the new PR-003 must
+    // continue THEIR sequence — the mixed-prefix continuity case.
     const created = await createPartner(scope, { name: "Charlie Capital", email: "charlie@example.com" });
-    expect(created.refId).toBe("JV-003");
+    expect(created.refId).toBe("PR-003");
     expect(["#f4c95d", "#b9c4d6"]).not.toContain(created.color); // not Alpha's/Bravo's
 
     const roster = await listPartners(scope);
-    const charlie = roster.find((p) => p.refId === "JV-003")!;
+    const charlie = roster.find((p) => p.refId === "PR-003")!;
     expect(charlie.name).toBe("Charlie Capital");
     expect(charlie.status).toBe("not_invited");
     // F-10: the roster is a pure management table — no per-partner health / lead-count scan.
@@ -84,15 +86,15 @@ suite("WP-030: partners CRUD + deactivation → reassignment (ADM-03, PRN-05)", 
     expect(charlie).toHaveProperty("zipCount");
 
     const audits = await db.select().from(schema.auditLog).where(and(eq(schema.auditLog.tenantId, scope.tenantId), eq(schema.auditLog.action, "partner.created")));
-    expect(audits.some((a) => a.entityRef === "JV-003")).toBe(true);
+    expect(audits.some((a) => a.entityRef === "PR-003")).toBe(true);
   });
 
   it("ADM-03: update changes contact details but never the locked color", async () => {
     const roster = await listPartners(scope);
-    const charlie = roster.find((p) => p.refId === "JV-003")!;
+    const charlie = roster.find((p) => p.refId === "PR-003")!;
     await updatePartner(scope, charlie.id, { dealTerms: "60/40", phone: "555-0100" });
 
-    const after = (await listPartners(scope)).find((p) => p.refId === "JV-003")!;
+    const after = (await listPartners(scope)).find((p) => p.refId === "PR-003")!;
     expect(after.dealTerms).toBe("60/40");
     expect(after.phone).toBe("555-0100");
     expect(after.color).toBe(charlie.color); // unchanged

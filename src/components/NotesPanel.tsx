@@ -11,6 +11,9 @@ import { Textarea } from "./Textarea";
 // NTS/PRN-13: one lead-note stream (the caller's — admin OR partner; the API scopes
 // it). Append-with-edit: existing notes save on blur with a saved indicator (NTS-02).
 // Save failures surface inline (F-20) and status changes announce via aria-live (a11y F-6).
+// Saved notes render as OPEN TEXT (owner testing note #3, 2026-07-14) — a boxed
+// textarea per note read like a comment thread; editing now swaps in a textarea
+// only on demand (the Edit affordance), same blur-to-save behavior.
 interface Note {
   id: string;
   body: string;
@@ -67,6 +70,7 @@ export function NotesPanel({ leadRef, title, headingLevel = "h3" }: { leadRef: s
   });
 
   const notes = data?.notes ?? [];
+  const [editingId, setEditingId] = React.useState<string | null>(null);
 
   return (
     <Card>
@@ -81,21 +85,43 @@ export function NotesPanel({ leadRef, title, headingLevel = "h3" }: { leadRef: s
         ) : (
           notes.map((n) => (
             <div key={n.id} className="flex flex-col gap-1">
-              <Textarea
-                defaultValue={n.body}
-                rows={2}
-                aria-label="Edit note"
-                disabled={edit.isPending && edit.variables?.id === n.id}
-                onFocus={() => setSavedId(null)}
-                onBlur={(e) => {
-                  const v = e.target.value.trim();
-                  if (v && v !== n.body) edit.mutate({ id: n.id, body: v });
-                }}
-              />
-              <span className="text-xs text-text-3" aria-live="polite">
-                {new Date(n.updatedAt).toLocaleString()}
-                {n.edited ? " · edited" : ""}
-                {savedId === n.id ? " · Saved ✓" : ""}
+              {editingId === n.id ? (
+                <Textarea
+                  autoFocus
+                  defaultValue={n.body}
+                  rows={3}
+                  aria-label="Edit note"
+                  disabled={edit.isPending && edit.variables?.id === n.id}
+                  onFocus={() => setSavedId(null)}
+                  onBlur={(e) => {
+                    const v = e.target.value.trim();
+                    if (v && v !== n.body) edit.mutate({ id: n.id, body: v });
+                    setEditingId(null);
+                  }}
+                />
+              ) : (
+                <p className="whitespace-pre-wrap text-sm text-text">{n.body}</p>
+              )}
+              {/* The Edit button sits OUTSIDE the live region (pr-review F-2) — controls
+                  inside aria-live get re-announced noisily by some screen readers. */}
+              <span className="text-xs text-text-3">
+                <span aria-live="polite">
+                  {new Date(n.updatedAt).toLocaleString()}
+                  {n.edited ? " · edited" : ""}
+                  {savedId === n.id ? " · Saved ✓" : ""}
+                </span>
+                {editingId !== n.id && (
+                  <>
+                    {" · "}
+                    <button
+                      type="button"
+                      onClick={() => setEditingId(n.id)}
+                      className="rounded font-semibold text-text-2 underline-offset-2 hover:text-text hover:underline focus:outline-none focus-visible:ring-1 focus-visible:ring-brand-ink"
+                    >
+                      Edit
+                    </button>
+                  </>
+                )}
               </span>
             </div>
           ))

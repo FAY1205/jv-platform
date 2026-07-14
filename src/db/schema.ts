@@ -83,7 +83,7 @@ export const partners = pgTable(
     tenantId: uuid("tenant_id")
       .notNull()
       .references(() => tenants.id),
-    refId: text("ref_id").notNull(), // JV-### (DM-07)
+    refId: text("ref_id").notNull(), // PR-### (DM-07; JV- renamed by migration 0022)
     name: text("name").notNull(),
     email: text("email"),
     phone: text("phone"),

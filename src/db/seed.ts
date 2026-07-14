@@ -56,7 +56,7 @@ async function main() {
     await db.insert(schema.partners).values(
       PARTNER_PALETTE.map((p, i) => ({
         tenantId,
-        refId: `JV-${String(i + 1).padStart(3, "0")}`,
+        refId: `PR-${String(i + 1).padStart(3, "0")}`,
         name: p.name,
         color: p.hex,
         status: "active" as const,

@@ -16,7 +16,8 @@ export function formatMatchRatePct(rate: number | null): string {
   return `${Math.round(rate * 100)}%`;
 }
 
-/** ANA-03/UXQ-05: the one human definition of the hero match-rate figure. */
+/** ANA-03/UXQ-05: the one human definition of the hero match-rate figure.
+ *  Plain language per owner testing note #1 (2026-07-14): tooltips must be simple. */
 export const MATCH_RATE_DEFINITION =
-  "Share of kept leads — those not removed as already MLS-listed — that reached a " +
-  "covering partner: distributed ÷ (distributed + unmatched), within the selected range.";
+  "Of the leads kept after MLS filtering, the share that landed with a partner. " +
+  "The rest are unmatched — no partner covers their area yet.";

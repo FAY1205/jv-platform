@@ -3,10 +3,10 @@ import { formatPartnerRef, formatLeadRef, formatImportRef } from "@/db/ref-ids";
 
 // DM-07 / ADR-0019: human-readable reference ID formats (v2 — 2-digit year, IM- imports).
 describe("DM-07: reference ID formatting", () => {
-  it("formats partner refs as JV-### (min 3 digits)", () => {
-    expect(formatPartnerRef(3)).toBe("JV-003");
-    expect(formatPartnerRef(12)).toBe("JV-012");
-    expect(formatPartnerRef(1234)).toBe("JV-1234"); // pad-only, never truncates
+  it("formats partner refs as PR-### (min 3 digits; JV-→PR- rename, migration 0022)", () => {
+    expect(formatPartnerRef(3)).toBe("PR-003");
+    expect(formatPartnerRef(12)).toBe("PR-012");
+    expect(formatPartnerRef(1234)).toBe("PR-1234"); // pad-only, never truncates
   });
 
   it("formats lead refs as LD-YY-##### (2-digit year, min 5 digits)", () => {

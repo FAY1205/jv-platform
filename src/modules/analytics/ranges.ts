@@ -55,8 +55,8 @@ export function deltaOf(cur: number, prev: number | null): number | null {
   return prev === null ? null : cur - prev;
 }
 
-/** ANA-03 / F-64: the one human definition of Avg Contact, shown in the header tooltip. */
+/** ANA-03 / F-64: the one human definition of Avg Contact, shown in the header tooltip.
+ *  Plain language per owner testing note #1 (2026-07-14): tooltips must be simple. */
 export const AVG_CONTACT_DEFINITION =
-  "Average time from a lead being distributed to a partner until that partner's first action " +
-  "(a status change or note), measured only over leads acted on in the selected range. " +
-  "Untouched leads are excluded — they are counted under Untouched.";
+  "How quickly the partner typically acts on a new lead — from receiving it to their " +
+  "first status change or note. Leads they haven't touched yet aren't counted.";

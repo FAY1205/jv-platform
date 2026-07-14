@@ -5,7 +5,7 @@ export interface PartnerTagProps {
   name: string;
   /** Locked partner color hex (PRN-06). */
   color: string;
-  /** Human-readable reference ID, e.g. "JV-003" (DM-07). */
+  /** Human-readable reference ID, e.g. "PR-003" (DM-07). */
   refId?: string;
   size?: "sm" | "md";
   className?: string;

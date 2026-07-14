@@ -18,7 +18,7 @@ export interface PartnerDigestLead {
 export interface PartnerDigestInput {
   appName: string;
   partnerName: string;
-  partnerRef: string; // JV-### (PRN-14)
+  partnerRef: string; // PR-### (PRN-14)
   portalUrl: string;
   uploadRef: string;
   leads: PartnerDigestLead[];
@@ -42,7 +42,7 @@ function partnerDigestHtml(input: PartnerDigestInput): string {
   const F = EMAIL_FONTS;
   const n = input.leads.length;
   const noun = n === 1 ? "new lead" : "new leads";
-  // PRN-14: the partner swatch appears ONCE, beside the partner name + JV-ref (color
+  // PRN-14: the partner swatch appears ONCE, beside the partner name + PR-ref (color
   // never alone). Only a validated #RRGGBB reaches the inline CSS (defense-in-depth).
   const hex = /^#[0-9a-f]{6}$/i.test(input.partnerColor) ? input.partnerColor : null;
   const swatch = hex

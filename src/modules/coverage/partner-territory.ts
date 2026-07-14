@@ -3,7 +3,7 @@ import type { StateCoverage } from "./map";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Portal territory view model (WP-F.3, PTL). PURE. Scoped to ONE partner: the
-// partner's own states carry their identity (name + JV-ref + color, PRN-14); EVERY
+// partner's own states carry their identity (name + PR-ref + color, PRN-14); EVERY
 // other state is anonymized (null name/ref/color) so a partner can never see which
 // states other partners cover (PRN-08). No coverage-gap hatch in the portal — gaps
 // are an admin concern; here a non-owned state is simply "not yours".

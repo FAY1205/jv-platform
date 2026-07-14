@@ -9,7 +9,7 @@ import { contrastRatio } from "@/lib/contrast";
 // the xlsx container embeds nondeterministic metadata. This is the TST-05 contract.
 //
 // SEC-06: every user-originated cell is sanitised against formula injection.
-// PRN-14: partner name + JV-### ref accompany the color in every row and the
+// PRN-14: partner name + PR-### ref accompany the color in every row and the
 // legend — color is never the sole signal; fills keep AA-contrast text.
 // ─────────────────────────────────────────────────────────────────────────────
 

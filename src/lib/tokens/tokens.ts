@@ -224,7 +224,7 @@ export const PARTNER_PALETTE: readonly PartnerColor[] = [
  * palette: muted, distinguishable tints that stay AA as row/legend fills (the
  * export picks black/white text per fill via contrastText). New partners created
  * in-app (ADM-03) get the first unused color from this ordered, locked pool
- * (PRN-06); color is never the sole signal (always paired with name + JV-###).
+ * (PRN-06); color is never the sole signal (always paired with name + PR-###).
  * Roster 9 first, then ochre (held back from the seed so it doesn't read as the
  * route marigold), then further vetted map tints for headroom.
  */

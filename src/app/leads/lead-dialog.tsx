@@ -17,7 +17,8 @@ import {
   EmptyState,
   useToast,
 } from "@/components";
-import { matchMethodLabel, routingExplanation } from "@/lib/match-method";
+import { matchMethodLabel } from "@/lib/match-method";
+import { googleSearchUrl } from "@/lib/search-links";
 import { offersUnassign } from "@/lib/unassign";
 
 // ADM: the lead dialog — opened from the global Leads table (no page navigation).
@@ -76,10 +77,6 @@ interface Partner {
 
 const REVERT = "__revert__";
 const UNASSIGNED = "__unassigned__";
-
-function googleUrl(parts: string[]): string {
-  return `https://www.google.com/search?q=${encodeURIComponent(parts.filter(Boolean).join(" "))}`;
-}
 
 function fmtWhen(iso: string): string {
   return new Date(iso).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
@@ -186,21 +183,8 @@ function ViewMode({ d, onEdit }: { d: LeadDetail; onEdit: () => void }) {
         </Button>
       </div>
 
-      {/* Why-routed note (mockup 02): the matching moment as plain language. The per-lead
-          territory map was dropped (owner F-1) — it read at state level, which mismatched
-          ZIP-level overrides; the sentence carries the "why" without that ambiguity. */}
-      {d.partner && (
-        <p className="text-sm text-text-2">
-          {routingExplanation({
-            partnerName: d.partner.name,
-            manual: d.assignment.manual,
-            matchMethod: d.assignment.matchMethod,
-            zip: d.zip,
-            state: d.state,
-          })}
-        </p>
-      )}
-
+      {/* The why-routed sentence was removed (owner testing note #3, 2026-07-14) — the
+          partner tag + the Assignment fields below already carry how the lead routed. */}
       <div className="grid grid-cols-2 gap-x-5 gap-y-4 sm:grid-cols-3">
         <Field label="Seller">{`${d.seller.first} ${d.seller.last}`.trim() || "—"}</Field>
         <Field label="Phone">{d.seller.phone || "—"}</Field>
@@ -209,7 +193,7 @@ function ViewMode({ d, onEdit }: { d: LeadDetail; onEdit: () => void }) {
           <Field label="Property">
             {property ? (
               <a
-                href={googleUrl([d.address, d.city, d.state, d.zip])}
+                href={googleSearchUrl([d.address, d.city, d.state, d.zip])}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="inline-flex items-center gap-1 text-brand-ink hover:underline"

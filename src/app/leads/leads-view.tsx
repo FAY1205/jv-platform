@@ -7,9 +7,11 @@ import { apiGet } from "@/lib/api";
 import { LEAD_STATUS_FILTERS, type LeadSortField } from "@/modules/leads/schema";
 import {
   AppShell, Card, Table, THead, TBody, Th, Tr, Td, PartnerTag, EmptyState, Skeleton,
-  ToastProvider, Input, Select, DateRangePicker, Pagination, RowOpenButton, StatusSelect,
+  ToastProvider, Input, Select, Combobox, DateRangePicker, Pagination, RowOpenButton, StatusSelect,
   DEFAULT_PAGE_SIZE, usePageHeader,
 } from "@/components";
+import { US_STATES } from "@/lib/us-states";
+import { googleSearchUrl } from "@/lib/search-links";
 
 const LeadDialog = dynamic(() => import("./lead-dialog").then((m) => m.LeadDialog), { ssr: false });
 
@@ -36,10 +38,6 @@ const DEFAULT_DIR: Record<LeadSortField, "asc" | "desc"> = { received: "desc", m
 const PARTNER_ALL = "__all__";
 const PARTNER_UNMATCHED = "unmatched";
 const SOURCE_ALL = "__all__";
-
-function googleUrl(parts: (string | null)[]): string {
-  return `https://www.google.com/search?q=${encodeURIComponent(parts.filter(Boolean).join(" "))}`;
-}
 
 export function LeadsView({ initialQ }: { initialQ: string }) {
   return (
@@ -97,19 +95,19 @@ function LeadsBody({ initialQ }: { initialQ: string }) {
 // ── Filter bar (isolated; owns raw text + debounce, lifts committed filters) ──
 const LeadsFilterBar = React.memo(function LeadsFilterBar({ seedQ, onChange }: { seedQ: string; onChange: (f: Filters) => void }) {
   const [qInput, setQInput] = React.useState(seedQ);
-  const [stateInput, setStateInput] = React.useState("");
+  // State filter — a searchable full-name Combobox (owner note #2); selection commits
+  // the 2-letter code directly (no debounce — picking is an explicit act).
+  const [state, setState] = React.useState("");
   const [partnerId, setPartnerId] = React.useState(PARTNER_ALL);
   const [source, setSource] = React.useState("");
   const [statuses, setStatuses] = React.useState<string[]>([]);
   const [range, setRange] = React.useState<{ from: string | null; to: string | null }>({ from: null, to: null });
 
-  // Committed (debounced) text values, held as state so "Clear all" can reset them
+  // Committed (debounced) search text, held as state so "Clear all" can reset it
   // synchronously — otherwise the trailing debounce would re-commit stale search text
   // after an immediate clear, briefly showing a wrong result set.
   const [qCommitted, setQCommitted] = React.useState(seedQ.trim());
-  const [stateCommitted, setStateCommitted] = React.useState("");
   React.useEffect(() => { const t = setTimeout(() => setQCommitted(qInput.trim()), 300); return () => clearTimeout(t); }, [qInput]);
-  React.useEffect(() => { const t = setTimeout(() => setStateCommitted(stateInput.trim().toUpperCase().slice(0, 2)), 300); return () => clearTimeout(t); }, [stateInput]);
 
   // Re-seed the search box ONLY when the topbar pushes a new ?q= — never from our own
   // upstream commits (which would clobber in-progress typing).
@@ -121,19 +119,19 @@ const LeadsFilterBar = React.memo(function LeadsFilterBar({ seedQ, onChange }: {
 
   const clearAll = () => {
     setQInput(""); setQCommitted("");
-    setStateInput(""); setStateCommitted("");
+    setState("");
     setPartnerId(PARTNER_ALL); setSource(""); setStatuses([]); setRange({ from: null, to: null });
   };
 
   // Commit filters upward whenever a committed value changes. On "Clear all" the committed
   // text is reset in the same batch, so this fires once with a fully-empty, correct set.
   React.useEffect(() => {
-    onChange({ q: qCommitted, state: stateCommitted, partnerId: partnerId === PARTNER_ALL ? "" : partnerId, source, statuses, dateFrom: range.from ?? "", dateTo: range.to ?? "" });
+    onChange({ q: qCommitted, state, partnerId: partnerId === PARTNER_ALL ? "" : partnerId, source, statuses, dateFrom: range.from ?? "", dateTo: range.to ?? "" });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [qCommitted, stateCommitted, partnerId, source, statuses.join(","), range.from, range.to]);
+  }, [qCommitted, state, partnerId, source, statuses.join(","), range.from, range.to]);
 
   const toggleStatus = (s: string) => setStatuses((prev) => (prev.includes(s) ? prev.filter((x) => x !== s) : [...prev, s]));
-  const hasFilters = Boolean(qInput || stateInput || partnerId !== PARTNER_ALL || source || statuses.length || range.from);
+  const hasFilters = Boolean(qInput || state || partnerId !== PARTNER_ALL || source || statuses.length || range.from);
 
   return (
     <>
@@ -161,8 +159,14 @@ const LeadsFilterBar = React.memo(function LeadsFilterBar({ seedQ, onChange }: {
             options={[{ value: SOURCE_ALL, label: "All sources" }, ...(sourcesQ.data?.sources ?? []).map((s) => ({ value: s, label: s }))]}
           />
         </div>
-        <div className="w-[80px]">
-          <Input value={stateInput} onChange={(e) => setStateInput(e.target.value.toUpperCase().slice(0, 2))} placeholder="State" aria-label="Filter by state (2 letters)" className="text-center uppercase" />
+        <div className="w-48">
+          <Combobox
+            ariaLabel="Filter by state"
+            placeholder="All states"
+            value={state}
+            onValueChange={setState}
+            options={US_STATES.map((s) => ({ value: s.code, label: `${s.name} (${s.code})` }))}
+          />
         </div>
         <div className="w-52">
           <DateRangePicker value={range} onChange={setRange} placeholder="Received range" />
@@ -218,6 +222,13 @@ function LeadsTable({
 
   return (
     <>
+      {/* Live result count (owner note #2) — re-announces as filters narrow the set. */}
+      {data && (
+        <p className="mb-2 text-step-1 text-text-3" aria-live="polite">
+          <span className="num font-semibold text-text-2">{data.total.toLocaleString()}</span>{" "}
+          {data.total === 1 ? "lead" : "leads"}{hasFilters ? " match the filters" : ""}
+        </p>
+      )}
       <Card>
         {leadsQ.isPending ? (
           <div className="flex flex-col gap-3 p-5">{Array.from({ length: 8 }).map((_, i) => <Skeleton key={i} className="h-9 w-full" />)}</div>
@@ -244,7 +255,7 @@ function LeadsTable({
                   <Td><RowOpenButton className="text-xs" onClick={() => onOpen(l.refId)}>{l.refId}</RowOpenButton></Td>
                   <Td><span className="text-sm text-text">{l.seller}</span></Td>
                   <Td>
-                    <a href={googleUrl([l.address, l.city, l.state, l.zip])} target="_blank" rel="noopener noreferrer" className="group inline-flex items-baseline gap-1 hover:underline" title="Search this property on Google">
+                    <a href={googleSearchUrl([l.address, l.city, l.state, l.zip])} target="_blank" rel="noopener noreferrer" className="group inline-flex items-baseline gap-1 hover:underline" title="Search this property on Google">
                       <span className="text-sm text-text-2 group-hover:text-brand-ink">{l.address}</span>
                       <span className="text-xs text-text-3">{[l.city, l.state].filter(Boolean).join(", ")} <span className="num">{l.zip}</span></span>
                     </a>

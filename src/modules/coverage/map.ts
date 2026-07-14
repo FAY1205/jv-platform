@@ -3,7 +3,7 @@
 //
 // Colors each of the 51 hex states (50 + DC) by its state-fallback partner
 // (state_rules; ASN-01), flags coverage gaps (leads from a state nobody owns),
-// and builds the PRN-14 legend (partner name + JV ref accompany every color).
+// and builds the PRN-14 legend (partner name + partner ref accompany every color).
 // The caller (queries.ts) fetches the rows; this only shapes them.
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -101,7 +101,7 @@ export function buildStateCoverage(
     };
   });
 
-  // Legend: only partners that own at least one state, ordered by JV ref for a
+  // Legend: only partners that own at least one state, ordered by partner ref for a
   // stable, deterministic order.
   const legend: CoveragePartner[] = partners
     .filter((p) => (stateCountByPartner.get(p.id) ?? 0) > 0)

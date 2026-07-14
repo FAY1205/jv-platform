@@ -25,7 +25,7 @@ const COVERED = stateRow({
   name: "California",
   partnerId: "p1",
   partnerName: "Acme",
-  refId: "JV-001",
+  refId: "PR-001",
   color: "#5B7A9E",
   leadCount: 3,
 });
@@ -109,7 +109,7 @@ describe("MAP-01: CountyCoverageMap (county) — Survey reskin", () => {
 
   it("MAP-01: softens covered counties to the shared fill opacity", async () => {
     const states: StateCoverage[] = [
-      stateRow({ code: "CA", name: "California", partnerId: "p1", partnerName: "Acme", refId: "JV-001", color: "#5B7A9E" }),
+      stateRow({ code: "CA", name: "California", partnerId: "p1", partnerName: "Acme", refId: "PR-001", color: "#5B7A9E" }),
     ];
     const { container } = render(<CountyCoverageMap states={states} />);
     await waitFor(() => expect(container.querySelectorAll("path[data-fips]").length).toBe(2));
@@ -121,8 +121,8 @@ describe("MAP-01: CountyCoverageMap (county) — Survey reskin", () => {
 
   it("MAP-01: dims non-selected territory to the shared dim opacity", async () => {
     const states: StateCoverage[] = [
-      stateRow({ code: "CA", name: "California", partnerId: "p1", partnerName: "A", refId: "JV-001", color: "#5B7A9E" }),
-      stateRow({ code: "TX", name: "Texas", partnerId: "p2", partnerName: "B", refId: "JV-002", color: "#6E8B5E" }),
+      stateRow({ code: "CA", name: "California", partnerId: "p1", partnerName: "A", refId: "PR-001", color: "#5B7A9E" }),
+      stateRow({ code: "TX", name: "Texas", partnerId: "p2", partnerName: "B", refId: "PR-002", color: "#6E8B5E" }),
     ];
     const { container } = render(<CountyCoverageMap states={states} selectedPartnerId="p1" />);
     await waitFor(() => expect(container.querySelectorAll("path[data-fips]").length).toBe(2));

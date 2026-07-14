@@ -1,4 +1,4 @@
-import { and, eq, isNull, desc } from "drizzle-orm";
+import { and, eq, gte, isNull, lte, desc, sql, type SQL } from "drizzle-orm";
 import { getDb } from "@/db";
 import * as schema from "@/db/schema";
 import { tenantWhere, leadWhere, type ScopeContext } from "@/lib/scope";
@@ -26,6 +26,61 @@ export async function listRuns(scope: ScopeContext): Promise<RunListItem[]> {
     .where(tenantWhere(schema.uploads, scope))
     .orderBy(desc(schema.uploads.createdAt));
   return rows.map((r) => ({ ...r, createdAt: r.createdAt.toISOString() }));
+}
+
+export interface RunListPage {
+  runs: RunListItem[];
+  page: number;
+  pageSize: number;
+  total: number;
+}
+
+export interface ListRunsPageOpts {
+  page?: number;
+  pageSize?: number;
+  /** Processed-date bounds (YYYY-MM-DD, inclusive) — validated at the route boundary. */
+  dateFrom?: string;
+  dateTo?: string;
+}
+
+/** Server-side paginated + date-filtered imports list (T4, FEP-03 — the seeded year
+ *  put 365 rows in the unpaginated list). The WHERE is shared by the row select and
+ *  the count(*) so `total` always matches the filter (count-consistency). Tenant-
+ *  scoped via the guard (PRN-08). `listRuns` above remains the unpaged read (AI tool). */
+export async function listRunsPage(scope: ScopeContext, opts: ListRunsPageOpts = {}): Promise<RunListPage> {
+  const db = getDb();
+  const page = Math.max(1, Math.floor(opts.page ?? 1) || 1);
+  const pageSize = opts.pageSize === 10 || opts.pageSize === 50 ? opts.pageSize : 20;
+
+  const conds: SQL[] = [tenantWhere(schema.uploads, scope)];
+  // Date bounds mirror the leads list (UTC day bounds, inclusive).
+  if (opts.dateFrom) conds.push(gte(schema.uploads.createdAt, new Date(`${opts.dateFrom}T00:00:00Z`)));
+  if (opts.dateTo) conds.push(lte(schema.uploads.createdAt, new Date(`${opts.dateTo}T23:59:59Z`)));
+  const where = and(...conds);
+
+  const [rows, totalRows] = await Promise.all([
+    db
+      .select({
+        refId: schema.uploads.refId,
+        filename: schema.uploads.filename,
+        status: schema.uploads.status,
+        rowCount: schema.uploads.rowCount,
+        createdAt: schema.uploads.createdAt,
+      })
+      .from(schema.uploads)
+      .where(where)
+      .orderBy(desc(schema.uploads.createdAt))
+      .limit(pageSize)
+      .offset((page - 1) * pageSize),
+    db.select({ total: sql<number>`count(*)::int` }).from(schema.uploads).where(where),
+  ]);
+
+  return {
+    runs: rows.map((r) => ({ ...r, createdAt: r.createdAt.toISOString() })),
+    page,
+    pageSize,
+    total: Number(totalRows[0]?.total ?? 0),
+  };
 }
 
 export async function getRunDetail(scope: ScopeContext, ref: string): Promise<RunDetail | null> {

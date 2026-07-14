@@ -90,7 +90,7 @@ Tables: `tenants, users, partners, coverage_zips, state_rules, mls_patterns, cam
 | DM-04 | `audit_log` append-only: every pipeline decision, admin mutation, partner status/note change — actor, before/after, timestamp, trace ID. |
 | DM-05 | Timestamps UTC; tenant timezone (SET-08) applied at render. |
 | DM-06 | Coverage versioned (`effective_from/to`); history queryable; versions revertible (CVG-03). |
-| DM-07 | **Reference IDs**, human-readable, tenant-scoped, immutable: partners `JV-###`, leads `LD-YYYY-#####`, uploads `UP-YYYY-###`. Shown on every surface, export, and email; globally searchable. |
+| DM-07 | **Reference IDs**, human-readable, tenant-scoped, immutable: partners `PR-###` (ADR-0028; was `JV-###`), leads `LD-YY-#####`, imports `IM-YY-###` (ADR-0019). Shown on every surface, export, and email; globally searchable. |
 | DM-08 | **Rules snapshot:** every run stores a hash + snapshot reference of the rule set used (MLS patterns, coverage version, recodes, Source Profile version). _Why:_ preserves determinism and pins golden-file tests when rules evolve. |
 | DM-09 | Soft-delete with restore for partners and leads; hard delete only via retention policy or account deletion. |
 | DM-10 | `lead_notes`: lead_id, author_user_id, author_role (admin|partner), body, timestamps; visibility per PRN-13. |

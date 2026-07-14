@@ -133,17 +133,11 @@ function DashboardBody() {
   const dash = useQuery({ queryKey: ["dashboard", range], queryFn: () => apiGet<DashboardData>(`/api/dashboard?range=${range}`) });
   const coverage = useQuery({ queryKey: ["coverage"], queryFn: () => apiGet<CoverageMapResponse>("/api/coverage") });
 
-  // Topbar cluster (WP-B slot): title + range control + primary action. Memoized on
-  // [range] so the element identity is stable between renders — usePageHeader's effect
-  // keys on the actions node, and a fresh element every render would loop.
-  // Topbar action = the range control only (mockup 01). "New import" lives on the
-  // Imports page, not here. Memoized on [range] so the header effect's actions node
-  // stays stable between renders.
-  const actions = React.useMemo(
-    () => <SegmentedControl<RangeKey> ariaLabel="Time range" value={range} onValueChange={setRange} options={RANGE_SEGMENTS} />,
-    [range],
-  );
-  usePageHeader({ title: "Dashboard", actions });
+  // Topbar carries the title only. The range control moved in-body (owner testing
+  // note #1, 2026-07-14: filters don't belong in the top row next to the page title);
+  // it renders below, OUTSIDE the pending/error branches, so it stays visible and
+  // usable while a range switch is loading.
+  usePageHeader({ title: "Dashboard" });
 
   const d = dash.data;
   const current = RANGES.find((r) => r.value === range)!;
@@ -166,13 +160,36 @@ function DashboardBody() {
 
   return (
     <>
-      {coverage.isError && (
-        <div className={`mb-4 inline-flex items-center gap-2 rounded-full border border-danger-soft px-3 py-1.5 text-danger ${label13}`}>
-          <span aria-hidden="true" className="h-1.5 w-1.5 shrink-0 rounded-full bg-danger" />
-          <span className="font-medium">Couldn&apos;t check for attention items.</span>
-          <button type="button" onClick={() => coverage.refetch()} className="font-semibold underline underline-offset-2 hover:no-underline">Retry</button>
+      {/* Top row: attention pills (left) + range control (right) on ONE line (owner
+          note, 2026-07-15). Both derive from queries independent of `dash`, so the row
+          renders outside the pending/error branches — alerts and the range control stay
+          visible while a range switch loads. */}
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center gap-2">
+          {coverage.isError && (
+            <div className={`inline-flex items-center gap-2 rounded-full border border-danger-soft px-3 py-1.5 text-danger ${label13}`}>
+              <span aria-hidden="true" className="h-1.5 w-1.5 shrink-0 rounded-full bg-danger" />
+              <span className="font-medium">Couldn&apos;t check for attention items.</span>
+              <button type="button" onClick={() => coverage.refetch()} className="font-semibold underline underline-offset-2 hover:no-underline">Retry</button>
+            </div>
+          )}
+          {attention.map((a) => (
+            <Link
+              key={a.text}
+              href={a.href}
+              className={
+                `group inline-flex items-center gap-2 rounded-full border px-3 py-1.5 font-medium transition-colors ${label13} ` +
+                (a.tone === "danger" ? "border-danger-soft text-danger hover:bg-danger-soft" : "border-warn-soft text-warn hover:bg-warn-soft")
+              }
+            >
+              <span aria-hidden="true" className={`h-1.5 w-1.5 shrink-0 rounded-full ${a.tone === "danger" ? "bg-danger" : "bg-warn"}`} />
+              {a.text}
+              <span aria-hidden="true" className="transition-transform group-hover:translate-x-0.5">→</span>
+            </Link>
+          ))}
         </div>
-      )}
+        <SegmentedControl<RangeKey> ariaLabel="Time range" value={range} onValueChange={setRange} options={RANGE_SEGMENTS} />
+      </div>
 
       {dash.isPending ? (
         <div className="flex flex-col gap-5">
@@ -185,25 +202,6 @@ function DashboardBody() {
         </div>
       ) : (
         <div className="stagger flex flex-col gap-5">
-          {attention.length > 0 && (
-            <div className="flex flex-wrap items-center gap-2">
-              {attention.map((a) => (
-                <Link
-                  key={a.text}
-                  href={a.href}
-                  className={
-                    `group inline-flex items-center gap-2 rounded-full border px-3 py-1.5 font-medium transition-colors ${label13} ` +
-                    (a.tone === "danger" ? "border-danger-soft text-danger hover:bg-danger-soft" : "border-warn-soft text-warn hover:bg-warn-soft")
-                  }
-                >
-                  <span aria-hidden="true" className={`h-1.5 w-1.5 shrink-0 rounded-full ${a.tone === "danger" ? "bg-danger" : "bg-warn"}`} />
-                  {a.text}
-                  <span aria-hidden="true" className="transition-transform group-hover:translate-x-0.5">→</span>
-                </Link>
-              ))}
-            </div>
-          )}
-
           {/* Thesis hero — the business in one sentence + the live coverage map (ADM-01, mockup 01) */}
           <section className="grid overflow-hidden rounded-2xl border border-border-soft bg-surface shadow-sm lg:grid-cols-[1fr_1.2fr]">
             <div className="flex flex-col p-6 lg:p-7">
@@ -214,18 +212,21 @@ function DashboardBody() {
               <p className="mt-2 max-w-[40ch] text-sm text-text-2">
                 <HeroSubtitle distributed={d!.stats.distributed.value} unmatched={d!.stats.unmatched.value} leadsIn={d!.stats.leadsIn.value} />
               </p>
-              <div className="mt-auto">
+              {/* mt-6 (was mt-auto): a fixed rhythm under the subtitle — bottom-anchoring
+                  left a floating mid-card gap whenever the map column ran taller (owner
+                  testing note #1). Tooltip copy kept deliberately plain (same note). */}
+              <div className="mt-6">
                 <div className="grid grid-cols-3 gap-px overflow-hidden rounded-xl border border-border bg-border">
-                  <HeroKpi label="Leads in" value={d!.stats.leadsIn.value} delta={d!.stats.leadsIn.delta} tip="Leads imported in the selected range, before MLS filtering." />
-                  <HeroKpi label="Distributed" value={d!.stats.distributed.value} delta={d!.stats.distributed.delta} tone="brand" tip="Kept leads assigned to a partner (by routing or manual assignment) in the selected range." />
-                  <HeroKpi label="Unmatched" value={d!.stats.unmatched.value} delta={d!.stats.unmatched.delta} tone="warn" tip="Kept leads with no partner in the selected range." />
+                  <HeroKpi label="Leads in" value={d!.stats.leadsIn.value} delta={d!.stats.leadsIn.delta} tip="All leads imported in this range, before MLS filtering." />
+                  <HeroKpi label="Distributed" value={d!.stats.distributed.value} delta={d!.stats.distributed.delta} tone="brand" tip="Leads that went to a partner in this range." />
+                  <HeroKpi label="Unmatched" value={d!.stats.unmatched.value} delta={d!.stats.unmatched.delta} tone="warn" tip="Leads no partner covers yet — they're waiting for an assignment." />
                 </div>
                 {/* Partner-stat tier — same cell design as the KPIs, range-scoped rollups
                     across partners (PRN-15); no prior-window delta on these. */}
                 <div className="mt-3 grid grid-cols-3 gap-px overflow-hidden rounded-xl border border-border bg-border">
-                  <HeroKpi label={d!.stats.partners.value === 1 ? "Partner" : "Partners"} value={d!.stats.partners.value} delta={d!.stats.partners.delta} tip="Distinct partners that received at least one lead in the selected range." />
-                  <HeroKpi label="Contacted" value={d!.stats.contacted.value} delta={d!.stats.contacted.delta} tip="Leads whose first partner action (status change or note) fell in the selected range, across all partners." />
-                  <HeroKpi label="Closed" value={d!.stats.closed.value} delta={d!.stats.closed.delta} tip="Leads whose latest status became Closed in the selected range." />
+                  <HeroKpi label={d!.stats.partners.value === 1 ? "Partner" : "Partners"} value={d!.stats.partners.value} delta={d!.stats.partners.delta} tip="Partners that received at least one lead in this range." />
+                  <HeroKpi label="Contacted" value={d!.stats.contacted.value} delta={d!.stats.contacted.delta} tip="Leads partners acted on for the first time in this range — a status change or a note." />
+                  <HeroKpi label="Closed" value={d!.stats.closed.value} delta={d!.stats.closed.delta} tip="Leads marked Closed in this range." />
                 </div>
               </div>
             </div>
@@ -257,7 +258,7 @@ function DashboardBody() {
           <div className="grid gap-5 lg:grid-cols-[1.5fr_1fr]">
             <section className={panel}>
               <div className="mb-4 flex items-baseline justify-between gap-2">
-                <h3 className="font-display text-step-3 font-semibold tracking-tight">Lead flow</h3>
+                <h3 className="font-display text-step-3 font-semibold tracking-tight">Lead Flow</h3>
                 <span className={`text-text-3 ${label13}`}>{rangeLabel}</span>
               </div>
               {d!.trend.length === 0 ? (
@@ -275,7 +276,7 @@ function DashboardBody() {
               )}
             </section>
             <section className={panel}>
-              <h3 className="mb-4 font-display text-step-3 font-semibold tracking-tight">Removed by source</h3>
+              <h3 className="mb-4 font-display text-step-3 font-semibold tracking-tight">Removed by Source</h3>
               {donutData.length === 0 ? (
                 <p className="py-8 text-center text-sm text-text-3">No removed leads {rangeLabel}.</p>
               ) : (
@@ -289,7 +290,7 @@ function DashboardBody() {
           {/* Partner performance — no progress bars */}
           <section className={panel}>
             <div className="mb-1 flex items-baseline justify-between">
-              <h3 className="font-display text-step-3 font-semibold tracking-tight">Partner performance</h3>
+              <h3 className="font-display text-step-3 font-semibold tracking-tight">Partner Performance</h3>
               <span className={`text-text-3 ${label13}`}>{rangeLabel} · counts by when each event happened</span>
             </div>
             {d!.partners.length === 0 ? (
@@ -300,8 +301,8 @@ function DashboardBody() {
                   <Tr>
                     <Th>Partner</Th>
                     <Th align="right">Given</Th>
-                    <Th align="right"><HeaderTip label="Untouched" tip="Given leads with no partner action yet — no status change or partner note." /></Th>
-                    <Th align="right"><HeaderTip label="Contacted" tip="Leads whose first partner action fell in the selected range." /></Th>
+                    <Th align="right"><HeaderTip label="Untouched" tip="Leads the partner hasn't acted on yet." /></Th>
+                    <Th align="right"><HeaderTip label="Contacted" tip="Leads the partner first acted on in this range." /></Th>
                     <Th align="right"><HeaderTip label="Avg contact" tip={AVG_CONTACT_DEFINITION} /></Th>
                     <Th align="right">Closed</Th>
                   </Tr>
@@ -329,8 +330,8 @@ function DashboardBody() {
           {/* Lead source performance (table) */}
           <section className={panel}>
             <div className="mb-1 flex items-baseline justify-between">
-              <h3 className="font-display text-step-3 font-semibold tracking-tight">Lead source performance</h3>
-              <span className={`text-text-3 ${label13}`}>removal rate = share discarded as MLS-listed</span>
+              <h3 className="font-display text-step-3 font-semibold tracking-tight">Lead Source Performance</h3>
+              <span className={`text-text-3 ${label13}`}>{rangeLabel}</span>
             </div>
             {d!.sources.length === 0 ? (
               <p className="py-4 text-sm text-text-3">No leads imported {rangeLabel}.</p>
@@ -339,10 +340,10 @@ function DashboardBody() {
                 <THead>
                   <Tr>
                     <Th>Source</Th>
-                    <Th align="right">Imported</Th>
-                    <Th align="right">Removed</Th>
-                    <Th align="right">Removal %</Th>
-                    <Th align="right">Closed</Th>
+                    <Th align="right"><HeaderTip label="Imported" tip="Leads that came in from this source in this range." /></Th>
+                    <Th align="right"><HeaderTip label="Removed" tip="Leads from this source filtered out because they're already listed on the MLS." /></Th>
+                    <Th align="right"><HeaderTip label="Removal %" tip="The share of this source's leads that were removed. Higher means lower-quality leads." /></Th>
+                    <Th align="right"><HeaderTip label="Closed" tip="Leads from this source that reached Closed in this range." /></Th>
                   </Tr>
                 </THead>
                 <TBody>

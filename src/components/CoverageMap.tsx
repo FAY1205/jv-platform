@@ -22,7 +22,7 @@ export interface CoverageMapProps {
  * amber survey hatch, and coverage gaps (leads from an unowned state) add a dashed
  * --warn ring + marker so they read without relying on color (PRN-14). Every hex is
  * labeled with its 2-letter code (on-fill color + halo via the shared contrast
- * picker, F-19); the hover card and page legend add partner name + JV ref. Keyboard
+ * picker, F-19); the hover card and page legend add partner name + partner ref. Keyboard
  * access is the page's companion list (R3 WS-8) — the map is role="img".
  */
 export function CoverageMap({ states, selectedPartnerId = null, onSelectPartner, caption }: CoverageMapProps) {

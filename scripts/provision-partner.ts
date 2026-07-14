@@ -8,13 +8,13 @@ import { provisionPartnerUser } from "../src/lib/auth/provision";
 // Dev-only: provision a PARTNER portal sign-in (email-OTP, no password) for testing.
 // Usage:
 //   node --env-file=.env.local ./node_modules/tsx/dist/cli.mjs \
-//     scripts/provision-partner.ts <email> <partnerRefId=JV-001> [tenantSlug=dev-jv]
+//     scripts/provision-partner.ts <email> <partnerRefId=PR-001> [tenantSlug=dev-jv]
 //
 // The partner logs in at /portal/login with this email; in dev the OTP lands in the
 // dev mailbox at /dev/emails. Requires DATABASE_URL, NEXT_PUBLIC_SUPABASE_URL,
 // SUPABASE_SERVICE_ROLE_KEY in the loaded env.
 
-const [, , email, partnerRef = "JV-001", tenantSlug = "dev-jv"] = process.argv;
+const [, , email, partnerRef = "PR-001", tenantSlug = "dev-jv"] = process.argv;
 
 const dbUrl = process.env.DATABASE_URL;
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;

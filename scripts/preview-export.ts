@@ -24,7 +24,7 @@ import { SAMPLE_STATE_RULES, SAMPLE_ZIP_COVERAGE } from "../tests/fixtures/sampl
 const partners = new Map<string, PartnerInfo>(
   PARTNER_PALETTE.map((p, i) => [
     p.name,
-    { id: p.name, name: p.name, refId: `JV-${String(i + 1).padStart(3, "0")}`, color: p.hex },
+    { id: p.name, name: p.name, refId: `PR-${String(i + 1).padStart(3, "0")}`, color: p.hex },
   ]),
 );
 const coverage = buildCoverage(SAMPLE_ZIP_COVERAGE, SAMPLE_STATE_RULES);

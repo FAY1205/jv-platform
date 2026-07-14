@@ -9,7 +9,9 @@ export type AnswerBlock =
   | { type: "ul"; items: InlineSpan[][] };
 
 const BULLET_RE = /^\s*[-–•*]\s+(.*)$/;
-const REF_RE = /\b(JV-\d{3,}|LD-\d{2}-\d{5,}|IM-\d{2}-\d{3,}|UP-\d{4}-\d{3,})\b/g;
+// PR- is the current partner prefix (migration 0022); JV- stays matched so historical
+// refs (e.g. quoted from the activity log) still render as mono ref spans.
+const REF_RE = /\b(PR-\d{3,}|JV-\d{3,}|LD-\d{2}-\d{5,}|IM-\d{2}-\d{3,}|UP-\d{4}-\d{3,})\b/g;
 
 /** Split a line into text/bold/ref spans. Bold is matched first, then refs inside
  *  each non-bold segment. */

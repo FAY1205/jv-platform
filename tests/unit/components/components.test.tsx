@@ -61,9 +61,9 @@ describe("DSN-03: Button states", () => {
 
 describe("PRN-14: partner identity is never color alone", () => {
   it("renders partner name and reference ID alongside the color", () => {
-    render(<PartnerTag name="Josh Ax" color="#8fbfe8" refId="JV-003" />);
+    render(<PartnerTag name="Josh Ax" color="#8fbfe8" refId="PR-003" />);
     expect(screen.getByText("Josh Ax")).toBeInTheDocument();
-    expect(screen.getByText("JV-003")).toBeInTheDocument();
+    expect(screen.getByText("PR-003")).toBeInTheDocument();
   });
 
   it("Badge always carries text, not just a color", () => {

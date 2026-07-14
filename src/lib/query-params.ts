@@ -25,6 +25,18 @@ export function pageSizeParam() {
   });
 }
 
+/** Optional YYYY-MM-DD date filter — graceful: a value that fails the shape regex OR
+ *  doesn't round-trip through Date (e.g. "2026-13-45") degrades to undefined (no
+ *  filter), never a 400/500 (audit-tenancy F-1/F-3, 2026-07-15). Consumers pass the
+ *  validated string into UTC day bounds. */
+export function dateParam() {
+  return z.unknown().optional().transform((v) => {
+    if (typeof v !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(v)) return undefined;
+    const d = new Date(`${v}T00:00:00Z`);
+    return Number.isNaN(d.getTime()) || d.toISOString().slice(0, 10) !== v ? undefined : v;
+  });
+}
+
 /** Portal list ceiling — a partner's data is inherently bounded, so this never
  *  affects legitimate paging; it bounds pathological `?page=<huge>` (esp. the
  *  listPartnerActivity in-memory window). Admin stays uncapped. */

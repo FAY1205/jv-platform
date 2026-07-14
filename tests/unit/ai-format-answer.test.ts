@@ -19,9 +19,9 @@ describe("WP-AI-2 formatAnswer", () => {
     expect(p.spans[1]).toEqual({ kind: "text", text: " is your top partner." });
   });
   it("tokenizes ref IDs into mono spans", () => {
-    const b = formatAnswer("Partner JV-003 and lead LD-26-00042 in import IM-26-004.");
+    const b = formatAnswer("Partner PR-003 and lead LD-26-00042 in import IM-26-004.");
     const kinds = (b[0] as Extract<AnswerBlock, { type: "p" }>).spans.filter((s) => s.kind === "ref").map((s) => s.text);
-    expect(kinds).toEqual(["JV-003", "LD-26-00042", "IM-26-004"]);
+    expect(kinds).toEqual(["PR-003", "LD-26-00042", "IM-26-004"]);
   });
   it("does not treat a mid-word hyphen as a bullet", () => {
     const b = formatAnswer("first-pass match rate is 74%.");

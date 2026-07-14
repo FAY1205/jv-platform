@@ -20,6 +20,7 @@ import {
   Input,
   Textarea,
   Select,
+  Combobox,
   PartnerTag,
   EmptyState,
   Skeleton,
@@ -27,10 +28,12 @@ import {
   useToast,
   usePageHeader,
 } from "@/components";
+import { US_STATES } from "@/lib/us-states";
+import type { CoverageMapResponse } from "@/modules/coverage/map";
 
 // ADM-03: the admin partner roster — create, edit, invite, deactivate. Partners are
 // managed entirely in-app (no pre-supplied list). Every partner is shown as the
-// signature PartnerTag (color + name + JV-###); status never relies on color (PRN-14).
+// signature PartnerTag (color + name + PR-###); status never relies on color (PRN-14).
 
 interface Partner {
   id: string;
@@ -181,7 +184,7 @@ function PartnerForm({
         />
         <Textarea label="Deal terms" value={f.dealTerms} onChange={set("dealTerms")} rows={2} />
         <Textarea label="Admin notes" value={f.adminNotes} onChange={set("adminNotes")} rows={2} hint="Private to admins." />
-        {!editing && <p className="text-xs text-text-3">A locked color and JV-### reference are assigned automatically.</p>}
+        {!editing && <p className="text-xs text-text-3">A locked color and PR-### reference are assigned automatically.</p>}
       </div>
     </Dialog>
   );
@@ -354,27 +357,53 @@ function PartnersInner() {
 }
 
 function PartnersBody() {
+  // Topbar carries the title only; the "New partner" action moved in-body
+  // (owner testing note #7, 2026-07-15 — same treatment as Imports/Dashboard).
+  usePageHeader({ title: "Partners" });
   const { data, isPending, error } = useQuery({
     queryKey: ["partners"],
     queryFn: () => apiGet<{ partners: Partner[] }>("/api/admin/partners"),
   });
+  // State filter (note #7): "who covers Texas?" — answered from the shared coverage
+  // query (state-rule ownership; the same source every map reads). ZIP-only coverage
+  // inside a state is NOT included — this filters by state-rule owner.
+  const coverage = useQuery({ queryKey: ["coverage"], queryFn: () => apiGet<CoverageMapResponse>("/api/coverage") });
+  const [stateFilter, setStateFilter] = React.useState("");
   const [creating, setCreating] = React.useState(false);
   const [editing, setEditing] = React.useState<Partner | null>(null);
   const [deactivating, setDeactivating] = React.useState<Partner | null>(null);
-  const roster = data?.partners ?? [];
-
-  const actions = React.useMemo(
-    () => (
-      <Button variant="primary" onClick={() => setCreating(true)}>
-        + New partner
-      </Button>
-    ),
-    [],
-  );
-  usePageHeader({ title: "Partners", actions });
+  const all = React.useMemo(() => data?.partners ?? [], [data]);
+  const roster = React.useMemo(() => {
+    if (!stateFilter) return all;
+    const owner = coverage.data?.states.find((s) => s.code === stateFilter)?.partnerId ?? null;
+    return owner ? all.filter((p) => p.id === owner) : [];
+  }, [all, stateFilter, coverage.data]);
 
   return (
     <>
+      <div className="mb-3 flex flex-wrap items-end justify-between gap-2.5">
+        <div className="flex flex-wrap items-end gap-2.5">
+          <div className="w-48">
+            <Combobox
+              ariaLabel="Filter by covered state"
+              placeholder="Covers state…"
+              value={stateFilter}
+              onValueChange={setStateFilter}
+              options={US_STATES.map((s) => ({ value: s.code, label: `${s.name} (${s.code})` }))}
+            />
+          </div>
+          {data && (
+            <p className="pb-2 text-step-1 text-text-3" aria-live="polite">
+              <span className="num font-semibold text-text-2">{roster.length}</span>{" "}
+              {roster.length === 1 ? "partner" : "partners"}{stateFilter ? (roster.length === 1 ? " covers this state" : " cover this state") : ""}
+            </p>
+          )}
+        </div>
+        <Button variant="primary" onClick={() => setCreating(true)}>
+          + New partner
+        </Button>
+      </div>
+
         <Card>
           {isPending ? (
             <div className="flex flex-col gap-3 p-5">
@@ -388,7 +417,11 @@ function PartnersBody() {
             </div>
           ) : roster.length === 0 ? (
             <div className="p-6">
-              <EmptyState title="No partners yet" description="Add your first partner to start routing leads." />
+              {stateFilter ? (
+                <EmptyState title="No partner covers this state" description="No state rule assigns it — recruit a partner or add coverage. (ZIP-only coverage isn't included in this filter.)" />
+              ) : (
+                <EmptyState title="No partners yet" description="Add your first partner to start routing leads." />
+              )}
             </div>
           ) : (
             <Table>

@@ -18,7 +18,7 @@ import { maskLeadDetail, maskLeadRow, maskRunDetail } from "./mask";
 
 const RangeSchema = z.enum(RANGE_KEYS).default("30d");
 
-/** Resolve "Meridian" / "JV-003" → the roster match(es). All matches are returned
+/** Resolve "Meridian" / "PR-003" → the roster match(es). All matches are returned
  *  so ambiguity is structural — the model must ask, never guess (owner test F-3). */
 async function resolvePartner(scope: ScopeContext, q: string) {
   const roster = await listPartners(scope);
@@ -46,7 +46,7 @@ export function buildAiTools(scope: ScopeContext): ToolSet {
       },
     }),
     get_partner_performance: tool({
-      description: "One partner's performance (leads given, contacted, closed, untouched, avg hours to first contact) for a range. `partner` is a JV-### ref or a name fragment. Call this when a question names a partner.",
+      description: "One partner's performance (leads given, contacted, closed, untouched, avg hours to first contact) for a range. `partner` is a PR-### ref or a name fragment. Call this when a question names a partner.",
       inputSchema: z.object({ partner: z.string().min(1).max(80), range: RangeSchema }),
       execute: async ({ partner, range }) => {
         const { matches } = await resolvePartner(scope, partner);
@@ -58,7 +58,7 @@ export function buildAiTools(scope: ScopeContext): ToolSet {
       },
     }),
     list_partners: tool({
-      description: "The active partner roster: name, JV-### ref, status, coverage size (state/ZIP counts). Call this for 'who are my partners' or to check a name.",
+      description: "The active partner roster: name, PR-### ref, status, coverage size (state/ZIP counts). Call this for 'who are my partners' or to check a name.",
       inputSchema: z.object({}),
       execute: async () => {
         const roster = await listPartners(scope);
@@ -66,7 +66,7 @@ export function buildAiTools(scope: ScopeContext): ToolSet {
       },
     }),
     get_partner_territory: tool({
-      description: "The states and ZIP overrides one partner covers. `partner` is a JV-### ref or name fragment.",
+      description: "The states and ZIP overrides one partner covers. `partner` is a PR-### ref or name fragment.",
       inputSchema: z.object({ partner: z.string().min(1).max(80) }),
       execute: async ({ partner }) => {
         const { matches } = await resolvePartner(scope, partner);
