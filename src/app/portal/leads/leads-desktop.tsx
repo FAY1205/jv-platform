@@ -8,7 +8,9 @@ import {
   Button, Table, THead, TBody, Th, Tr, Td, Pagination, DEFAULT_PAGE_SIZE, Skeleton, EmptyState,
 } from "@/components";
 import { statusPillClass } from "@/lib/status-pill";
-import { PORTAL_STATUS_FILTERS, type PortalLeadSort, type PartnerLeadPage } from "@/modules/portal/queries";
+// leads-contract, NOT ./queries: this is a "use client" component and a VALUE import
+// from queries would pull its @/db → postgres → node:fs chain into the client bundle.
+import { PORTAL_STATUS_FILTERS, type PortalLeadSort, type PartnerLeadPage } from "@/modules/portal/leads-contract";
 
 // WP-PW-3 Task 2: the desktop (>= lg) Leads table — admin-style sortable, status-
 // filterable, server-side-paginated (mirrors src/app/leads/leads-view.tsx, portal-scoped).

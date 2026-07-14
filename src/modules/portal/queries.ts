@@ -9,6 +9,26 @@ import { buildPartnerTerritory, type PartnerTerritory } from "../coverage/partne
 import { deltaOf, type RangeKey } from "../analytics/ranges";
 import type { ExportLead, PartnerInfo } from "../export/render";
 import { currentStatus, SEED_LEAD_STATUSES } from "./statuses";
+import {
+  PARTNER_LEADS_PAGE_SIZE,
+  PORTAL_LEAD_SORT_FIELDS,
+  PORTAL_STATUS_FILTERS,
+  type PortalLeadSort,
+  type PartnerLeadRow,
+  type PartnerLeadPage,
+} from "./leads-contract";
+
+// Client-safe whitelists/types live in ./leads-contract (no @/db import chain —
+// the desktop Leads table imports them by value); re-exported here so server
+// callers keep importing from this module unchanged.
+export {
+  PARTNER_LEADS_PAGE_SIZE,
+  PORTAL_LEAD_SORT_FIELDS,
+  PORTAL_STATUS_FILTERS,
+  type PortalLeadSort,
+  type PartnerLeadRow,
+  type PartnerLeadPage,
+};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Partner portal scoped reads (PTL-02/03/04). Every query goes through the scope
@@ -16,36 +36,6 @@ import { currentStatus, SEED_LEAD_STATUSES } from "./statuses";
 // leads' status history (leadChildWhere). Kept leads only — removed leads are never
 // a partner's. TST-01/08 prove the isolation live.
 // ─────────────────────────────────────────────────────────────────────────────
-
-export const PARTNER_LEADS_PAGE_SIZE = 50;
-
-export interface PartnerLeadRow {
-  refId: string;
-  sellerFirst: string;
-  sellerLast: string;
-  address: string;
-  city: string;
-  state: string;
-  zip: string;
-  receivedAt: string;
-  status: string;
-  previouslyMatched: boolean;
-}
-
-export interface PartnerLeadPage {
-  leads: PartnerLeadRow[];
-  page: number;
-  pageSize: number;
-  total: number;
-}
-
-// WP-PW-3 Task 1: server-side sort + status filter for the desktop Leads table.
-// `sort`/`dir` are DISPLAY-ONLY — they flow ONLY through the whitelist map below
-// (never a raw param into a `where`). Portal leads are always mlsStatus="kept", so
-// the status vocabulary is the seeded 6 (no admin-only "Removed MLS" branch).
-export const PORTAL_LEAD_SORT_FIELDS = ["received", "status", "city", "state", "ref"] as const;
-export type PortalLeadSort = (typeof PORTAL_LEAD_SORT_FIELDS)[number];
-export const PORTAL_STATUS_FILTERS = SEED_LEAD_STATUSES;
 
 const PORTAL_PAGE_SIZES = [10, 20, 50] as const;
 
