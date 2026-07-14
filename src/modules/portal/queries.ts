@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import { getDb } from "@/db";
 import * as schema from "@/db/schema";
 import { leadWhere, leadChildWhere, tenantWhere, type ScopeContext } from "@/lib/scope";
@@ -39,6 +39,32 @@ export interface PartnerLeadPage {
   total: number;
 }
 
+// WP-PW-3 Task 1: server-side sort + status filter for the desktop Leads table.
+// `sort`/`dir` are DISPLAY-ONLY — they flow ONLY through the whitelist map below
+// (never a raw param into a `where`). Portal leads are always mlsStatus="kept", so
+// the status vocabulary is the seeded 6 (no admin-only "Removed MLS" branch).
+export const PORTAL_LEAD_SORT_FIELDS = ["received", "status", "city", "state", "ref"] as const;
+export type PortalLeadSort = (typeof PORTAL_LEAD_SORT_FIELDS)[number];
+export const PORTAL_STATUS_FILTERS = SEED_LEAD_STATUSES;
+
+const PORTAL_PAGE_SIZES = [10, 20, 50] as const;
+
+export interface ListPartnerLeadsOpts {
+  page?: number;
+  pageSize?: number;
+  sort?: PortalLeadSort;
+  dir?: "asc" | "desc";
+  statuses?: readonly string[];
+}
+
+// Correlated latest-status subquery (mirrors modules/leads/queries.ts LATEST_STATUS).
+// `lead_id = leads.id` correlates strictly to the outer row, which is itself already
+// tenant/partner-scoped by `baseWhere` below — the subquery inherits that scope rather
+// than widening it. Portal is always "kept", so no mlsStatus branch (cf. admin STATUS_EXPR).
+const LATEST_STATUS = sql`(select status from lead_status_history where lead_id = ${schema.leads.id} order by created_at desc limit 1)`;
+const STATUS_EXPR = sql<string>`coalesce(${LATEST_STATUS}, 'New')`;
+const STATUS_ORDER = sql`case ${STATUS_EXPR} when 'New' then 0 when 'Contacted' then 1 when 'Appointment' then 2 when 'Under contract' then 3 when 'Closed' then 4 when 'Dead' then 5 else 6 end`;
+
 async function statusMap(
   db: ReturnType<typeof getDb>,
   scope: ScopeContext,
@@ -62,20 +88,48 @@ async function statusMap(
   return map;
 }
 
-/** Server-side paginated list of the partner's own kept leads (PTL-02, FEP-03). */
-export async function listPartnerLeads(scope: ScopeContext, page = 1): Promise<PartnerLeadPage> {
+/** Server-side paginated, sortable, status-filterable list of the partner's own kept
+ *  leads (PTL-02, FEP-03; WP-PW-3 Task 1). Back-compat: `opts` fully optional, and the
+ *  no-opts call is byte-identical to the pre-WP-PW-3 behavior (received/desc, no
+ *  filter, pageSize 50) — existing callers (route default path, portal-scope tests,
+ *  void tests) are unaffected. */
+export async function listPartnerLeads(scope: ScopeContext, opts: ListPartnerLeadsOpts = {}): Promise<PartnerLeadPage> {
   const db = getDb();
-  const pageSize = PARTNER_LEADS_PAGE_SIZE;
-  const current = Math.max(1, Math.floor(page) || 1);
+  const pageSize = (PORTAL_PAGE_SIZES as readonly number[]).includes(opts.pageSize as number)
+    ? (opts.pageSize as number)
+    : PARTNER_LEADS_PAGE_SIZE;
+  const current = Math.max(1, Math.floor(opts.page ?? 1) || 1);
   const offset = (current - 1) * pageSize;
+
+  // Whitelist-validated sort + dir (PRN-08: DISPLAY-ONLY, never reaches a `where`).
+  // An unmatched/unknown `sort` degrades to "received" — no throw, no scope leak.
+  const sort = (PORTAL_LEAD_SORT_FIELDS as readonly string[]).includes(opts.sort as string)
+    ? (opts.sort as PortalLeadSort)
+    : "received";
+  const dir = opts.dir === "asc" ? "asc" : "desc";
+  const dirFn = dir === "asc" ? asc : desc;
+  const sortCol =
+    sort === "status" ? STATUS_ORDER :
+    sort === "city" ? sql`lower(${schema.leads.city})` :
+    sort === "state" ? schema.leads.state :
+    sort === "ref" ? schema.leads.refId :
+    sql`coalesce(${schema.leads.firstMatchedAt}, ${schema.leads.createdAt})`;
+
+  // Status filter values are whitelisted against the seeded 6 and always BOUND
+  // (`${s}`), never string-concatenated.
+  const statusFilters = (opts.statuses ?? []).filter((s) => (PORTAL_STATUS_FILTERS as readonly string[]).includes(s));
+
   // WP-J2: exclude soft-deleted (recalled/voided-run) leads — every partner-facing read must.
   // Distribution hold: exclude leads still within their import's hold window (partner-visible only
-  // once released; self-releasing, no cron dependency).
+  // once released; self-releasing, no cron dependency). The status filter is pushed INTO this
+  // shared baseWhere so the row select and the count(*) below stay identically scoped/filtered
+  // (count-consistency) — never a JS filter-after-fetch.
   const baseWhere = and(
     leadWhere(scope),
     eq(schema.leads.mlsStatus, "kept"),
     isNull(schema.leads.deletedAt),
     scope.role === "partner" ? releasedLeads() : undefined,
+    statusFilters.length > 0 ? or(...statusFilters.map((s) => sql`${STATUS_EXPR} = ${s}`)) : undefined,
   );
 
   const [rows, totalRows] = await Promise.all([
@@ -95,7 +149,7 @@ export async function listPartnerLeads(scope: ScopeContext, page = 1): Promise<P
       })
       .from(schema.leads)
       .where(baseWhere)
-      .orderBy(desc(schema.leads.createdAt))
+      .orderBy(dirFn(sortCol), desc(schema.leads.createdAt))
       .limit(pageSize)
       .offset(offset),
     db.select({ total: sql<number>`count(*)::int` }).from(schema.leads).where(baseWhere),
