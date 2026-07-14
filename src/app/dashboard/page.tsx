@@ -21,6 +21,7 @@ import {
   Tr,
   Td,
   usePageHeader,
+  HeroKpi,
 } from "@/components";
 import { formatContactTime, AVG_CONTACT_DEFINITION, type RangeKey } from "@/modules/analytics/ranges";
 import { matchRate, formatMatchRatePct, MATCH_RATE_DEFINITION } from "@/modules/analytics/match-rate";
@@ -66,12 +67,6 @@ const fmtBucket = (iso: string, bucket: "day" | "month") => {
 // color in the legend + tooltip (PRN-14).
 const SOURCE_COLORS = ["var(--brand)", "var(--warn)", "var(--danger)", "var(--text-3)", "var(--brand-strong)"];
 
-function Delta({ delta }: { delta: number | null }) {
-  if (delta === null) return <span className={`num ${label13} text-text-3`}>all time</span>;
-  const arrow = delta > 0 ? "↑" : delta < 0 ? "↓" : "·";
-  return <span className={`num ${label13} text-text-3`}>{arrow} {delta === 0 ? "same" : Math.abs(delta)} vs prior</span>;
-}
-
 // A dotted underline is the whole affordance (no ⓘ glyph) — subtler, and it matches
 // the match-rate figure. tabIndex=0 keeps the tooltip keyboard-reachable (Tooltip
 // opens on focus; a bare span is never focusable). Still satisfies ANA-03/UXQ-05.
@@ -85,24 +80,6 @@ function HeaderTip({ label, tip }: { label: string; tip: string }) {
         {label}
       </span>
     </Tooltip>
-  );
-}
-
-// Hero KPI cell — Fraunces numeral, 13px label, optional prior-window delta. Each
-// cell is self-labeled, so the tone tint (Distributed = brand-ink, Unmatched = warn)
-// is redundant, not the sole signal. `tip` is the ANA-03 calculation tooltip. Used
-// for both the primary KPIs (with deltas) and the partner-stat tier (no prior window,
-// so `delta` is omitted).
-function HeroKpi({ label, value, delta, tone, tip }: { label: string; value: number; delta?: number | null; tone?: "brand" | "warn"; tip?: string }) {
-  const color = tone === "brand" ? "text-brand-ink" : tone === "warn" ? "text-warn" : "text-text";
-  return (
-    <div className="bg-surface px-4 py-3">
-      <div className={`font-display text-2xl font-semibold leading-none tabular-nums ${color}`}>{value.toLocaleString()}</div>
-      <div className={`mt-1 font-medium uppercase tracking-[.05em] text-text-3 ${label13}`}>
-        {tip ? <HeaderTip label={label} tip={tip} /> : label}
-      </div>
-      {delta !== undefined && <div className="mt-0.5"><Delta delta={delta} /></div>}
-    </div>
   );
 }
 
