@@ -6,7 +6,7 @@ import { releasedLeads } from "../run/hold-filter";
 import { computeRunSummary, type RunSummary } from "../analytics/run-summary";
 import { partnerPerformanceDetail } from "../analytics/partner-performance";
 import { buildPartnerTerritory, type PartnerTerritory } from "../coverage/partner-territory";
-import type { RangeKey } from "../analytics/ranges";
+import { deltaOf, type RangeKey } from "../analytics/ranges";
 import type { ExportLead, PartnerInfo } from "../export/render";
 import { currentStatus, SEED_LEAD_STATUSES } from "./statuses";
 
@@ -245,13 +245,28 @@ export interface PartnerDashboardStats {
   contacted: number;
   closed: number;
   untouched: number;
+  leadsDelta: number | null;
+  untouchedDelta: number | null;
+  contactedDelta: number | null;
+  closedDelta: number | null;
 }
 
-/** WP-F.3: the caller's OWN dashboard KPIs (PRN-08). Numbers come from analytics (PRN-15). */
+/** WP-F.3/WP-PW-2b: the caller's OWN dashboard KPIs + prior-window deltas (PRN-08). Numbers
+ *  come from analytics (PRN-15); deltas reuse the one `deltaOf` definition. */
 export async function partnerDashboardStats(scope: ScopeContext, range: RangeKey): Promise<PartnerDashboardStats> {
-  if (!scope.partnerId) return { range, leads: 0, contacted: 0, closed: 0, untouched: 0 };
+  if (!scope.partnerId) return { range, leads: 0, contacted: 0, closed: 0, untouched: 0, leadsDelta: null, untouchedDelta: null, contactedDelta: null, closedDelta: null };
   const perf = await partnerPerformanceDetail(scope, scope.partnerId, range);
-  return { range, leads: perf.stats.given, contacted: perf.stats.contacted, closed: perf.stats.closed, untouched: perf.stats.untouched };
+  return {
+    range,
+    leads: perf.stats.given,
+    contacted: perf.stats.contacted,
+    closed: perf.stats.closed,
+    untouched: perf.stats.untouched,
+    leadsDelta: deltaOf(perf.stats.given, perf.prior?.given ?? null),
+    untouchedDelta: deltaOf(perf.stats.untouched, perf.prior?.untouched ?? null),
+    contactedDelta: deltaOf(perf.stats.contacted, perf.prior?.contacted ?? null),
+    closedDelta: deltaOf(perf.stats.closed, perf.prior?.closed ?? null),
+  };
 }
 
 /** WP-F.3: the caller's OWN state territory, everyone else anonymized (PRN-08). */

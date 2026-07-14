@@ -151,10 +151,10 @@ export function PortalDashboard() {
                 ))
               ) : (
                 <>
-                  <HeroKpi dense label="Leads" value={s.leads} tip="Kept leads routed to you in the selected range." />
-                  <HeroKpi dense label="New" value={s.untouched} tip="Leads you've received but not yet actioned — get to these first." />
-                  <HeroKpi dense label="Contacted" value={s.contacted} tip="Leads you actioned (a status change or note) in the selected range." />
-                  <HeroKpi dense label="Closed" value={s.closed} tip="Leads whose latest status became Closed in the selected range." />
+                  <HeroKpi dense label="Leads" value={s.leads} delta={s.leadsDelta} tip="Kept leads routed to you in the selected range." />
+                  <HeroKpi dense label="New" value={s.untouched} delta={s.untouchedDelta} tip="Leads you've received but not yet actioned — get to these first." />
+                  <HeroKpi dense label="Contacted" value={s.contacted} delta={s.contactedDelta} tip="Leads you actioned (a status change or note) in the selected range." />
+                  <HeroKpi dense label="Closed" value={s.closed} delta={s.closedDelta} tip="Leads whose latest status became Closed in the selected range." />
                 </>
               )}
             </div>
@@ -203,10 +203,10 @@ export function PortalDashboard() {
                   ))
                 ) : (
                   <>
-                    <HeroKpi label="Leads" value={s.leads} tip="Kept leads routed to you in the selected range." />
-                    <HeroKpi label="New" value={s.untouched} tip="Leads you've received but not yet actioned — get to these first." />
-                    <HeroKpi label="Contacted" value={s.contacted} tip="Leads you actioned (a status change or note) in the selected range." />
-                    <HeroKpi label="Closed" value={s.closed} tip="Leads whose latest status became Closed in the selected range." />
+                    <HeroKpi label="Leads" value={s.leads} delta={s.leadsDelta} tip="Kept leads routed to you in the selected range." />
+                    <HeroKpi label="New" value={s.untouched} delta={s.untouchedDelta} tip="Leads you've received but not yet actioned — get to these first." />
+                    <HeroKpi label="Contacted" value={s.contacted} delta={s.contactedDelta} tip="Leads you actioned (a status change or note) in the selected range." />
+                    <HeroKpi label="Closed" value={s.closed} delta={s.closedDelta} tip="Leads whose latest status became Closed in the selected range." />
                   </>
                 )}
               </div>

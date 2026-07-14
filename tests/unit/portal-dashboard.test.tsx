@@ -16,7 +16,29 @@ vi.mock("next/dynamic", () => ({
   },
 }));
 
-const STATS = { range: "30d", leads: 42, contacted: 17, closed: 9, untouched: 5 };
+const STATS = {
+  range: "30d",
+  leads: 42,
+  contacted: 17,
+  closed: 9,
+  untouched: 5,
+  leadsDelta: 5,
+  untouchedDelta: -2,
+  contactedDelta: 0,
+  closedDelta: 3,
+};
+// WP-PW-2b Task 2: "all" range — analytics returns null deltas (no prior window to compare).
+const STATS_ALL_TIME = {
+  range: "all",
+  leads: 42,
+  contacted: 17,
+  closed: 9,
+  untouched: 5,
+  leadsDelta: null,
+  untouchedDelta: null,
+  contactedDelta: null,
+  closedDelta: null,
+};
 const TERRITORY = {
   states: [],
   ownStateCount: 3,
@@ -134,6 +156,38 @@ describe("WP-PW-2 PortalDashboard (desktop hero + recent-leads)", () => {
       // ...but the independent territory query still resolves and its map/tag render.
       expect((await screen.findAllByText(/3 states?/i)).length).toBeGreaterThan(0);
       expect(screen.getAllByTestId("map-stub").length).toBeGreaterThan(0);
+    });
+  });
+
+  describe("WP-PW-2b Task 2: prior-window deltas on the KPI tiles", () => {
+    afterEach(() => {
+      vi.mocked(apiGet).mockImplementation(async (url: string) => {
+        if (url.startsWith("/api/portal/dashboard")) return STATS;
+        if (url.startsWith("/api/portal/territory")) return TERRITORY;
+        if (url.startsWith("/api/portal/leads")) return LEADS_PAGE;
+        throw new Error(`unexpected apiGet url in test: ${url}`);
+      });
+    });
+
+    it("PW2B-07: renders 'vs prior' delta text on KPI tiles (both breakpoints) when deltas are numeric", async () => {
+      renderDashboard();
+      // 4 KPI tiles x 2 breakpoints (mobile dense + desktop) = up to 8 instances in jsdom
+      // (no compiled CSS, so both `lg:hidden` and `hidden lg:grid` blocks are in the DOM).
+      const deltas = await screen.findAllByText(/vs prior/i);
+      expect(deltas.length).toBeGreaterThan(0);
+    });
+
+    it("PW2B-07: renders 'all time' on KPI tiles (both breakpoints) when range=all and deltas are null", async () => {
+      vi.mocked(apiGet).mockImplementation(async (url: string) => {
+        if (url.startsWith("/api/portal/dashboard")) return STATS_ALL_TIME;
+        if (url.startsWith("/api/portal/territory")) return TERRITORY;
+        if (url.startsWith("/api/portal/leads")) return LEADS_PAGE;
+        throw new Error(`unexpected apiGet url in test: ${url}`);
+      });
+      renderDashboard();
+      const allTime = await screen.findAllByText(/all time/i);
+      expect(allTime.length).toBeGreaterThan(0);
+      expect(screen.queryAllByText(/vs prior/i).length).toBe(0);
     });
   });
 });

@@ -21,6 +21,11 @@ export interface PartnerPerformance {
   range: { key: RangeKey; start: string; end: string; bucket: "day" | "month" };
   stats: { given: number; contacted: number; closed: number; untouched: number; avgContactHours: number | null };
   history: { bucketStart: string; given: number; contacted: number; closed: number }[];
+  /** Same counts as `stats` (minus avgContactHours), over the immediately-preceding
+   *  equal-length window (rangeWindow's prevStart/prevEnd). `null` for range "all" (no
+   *  prior window). `untouched` is measured as-of-`now`, identically to the current
+   *  window — no prior-only special-casing (ASN-02). */
+  prior: { given: number; contacted: number; closed: number; untouched: number } | null;
 }
 
 const HOUR = 3_600_000;
@@ -61,30 +66,40 @@ function seriesKeys(loMs: number, hiMs: number, bucket: "day" | "month"): string
   return keys;
 }
 
+/** PURE — the given/contacted/closed/untouched counters for one [startMs, endMs) window,
+ *  shared by the current-window and prior-window aggregation (PRN-01/PRN-15). */
+function accumulate(facts: readonly PartnerLeadFact[], startMs: number, endMs: number): { given: number; contacted: number; closed: number; untouched: number } {
+  let given = 0;
+  let contacted = 0;
+  let closed = 0;
+  let untouched = 0;
+  for (const f of facts) {
+    if (inRange(f.receivedAt, startMs, endMs)) {
+      given += 1;
+      if (f.firstTouchAt === null) untouched += 1; // in-range lead with no partner action yet
+    }
+    if (inRange(f.firstTouchAt, startMs, endMs)) contacted += 1;
+    if (inRange(f.closedAt, startMs, endMs)) closed += 1;
+  }
+  return { given, contacted, closed, untouched };
+}
+
 /** PURE (ANA-02/03). `now` is injected; the single home of these numbers (PRN-15). */
 export function buildPartnerPerformance(range: RangeKey, now: Date, facts: readonly PartnerLeadFact[]): PartnerPerformance {
   const w = rangeWindow(range, now);
   const startMs = w.start.getTime();
   const endMs = w.end.getTime();
 
-  let given = 0;
-  let contacted = 0;
-  let closed = 0;
-  let untouched = 0;
+  const current = accumulate(facts, startMs, endMs);
   let touchSumH = 0;
   for (const f of facts) {
-    if (inRange(f.receivedAt, startMs, endMs)) {
-      given += 1;
-      if (f.firstTouchAt === null) untouched += 1; // in-range lead with no partner action yet
-    }
     if (inRange(f.firstTouchAt, startMs, endMs)) {
-      contacted += 1;
       touchSumH += (new Date(f.firstTouchAt!).getTime() - new Date(f.receivedAt).getTime()) / HOUR;
     }
-    if (inRange(f.closedAt, startMs, endMs)) closed += 1;
   }
-  const avgContactHours = contacted === 0 ? null : Math.round((touchSumH / contacted) * 10) / 10;
-  const stats = { given, contacted, closed, untouched, avgContactHours };
+  const avgContactHours = current.contacted === 0 ? null : Math.round((touchSumH / current.contacted) * 10) / 10;
+  const stats = { ...current, avgContactHours };
+  const prior = w.prevStart && w.prevEnd ? accumulate(facts, w.prevStart.getTime(), w.prevEnd.getTime()) : null;
   const meta = { key: range, start: w.start.toISOString(), end: w.end.toISOString(), bucket: w.bucket };
 
   // Series bounds: fixed windows span the whole window (zero-filled edges); all-time
@@ -96,7 +111,7 @@ export function buildPartnerPerformance(range: RangeKey, now: Date, facts: reado
       .flatMap((f) => [f.receivedAt, f.firstTouchAt, f.closedAt])
       .filter((x): x is string => Boolean(x))
       .map((x) => new Date(x).getTime());
-    if (times.length === 0) return { range: meta, stats, history: [] };
+    if (times.length === 0) return { range: meta, stats, history: [], prior };
     loMs = Math.min(...times);
     hiMs = Math.max(...times);
   }
@@ -108,7 +123,7 @@ export function buildPartnerPerformance(range: RangeKey, now: Date, facts: reado
     if (inRange(f.firstTouchAt, startMs, endMs)) { const b = idx.get(truncKey(f.firstTouchAt!, w.bucket)); if (b) b.contacted += 1; }
     if (inRange(f.closedAt, startMs, endMs)) { const b = idx.get(truncKey(f.closedAt!, w.bucket)); if (b) b.closed += 1; }
   }
-  return { range: meta, stats, history: keys.map((k) => idx.get(k)!) };
+  return { range: meta, stats, history: keys.map((k) => idx.get(k)!), prior };
 }
 
 /** SQL-scoped per-partner facts + the pure aggregate (PRN-15). Effective owner =
