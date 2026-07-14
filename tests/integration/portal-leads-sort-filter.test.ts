@@ -270,4 +270,13 @@ suite("WP-PW-3 Task 1: listPartnerLeads sort + status filter (PRN-08)", () => {
       await cleanupSlugs([SLUG_T3]);
     }
   });
+
+  it("F1-01: sort=status + statuses=['Closed'] returns the same scoped rows/count as the unsorted filter (WP-F1 tenant-scoped subquery is behavior-preserving)", async () => {
+    const filtered = await listPartnerLeads(partnerX(), { statuses: ["Closed"] });
+    const sortedFiltered = await listPartnerLeads(partnerX(), { sort: "status", dir: "asc", statuses: ["Closed"] });
+    expect(sortedFiltered.leads.map((l) => l.refId).sort()).toEqual(filtered.leads.map((l) => l.refId).sort());
+    expect(sortedFiltered.total).toBe(filtered.total);
+    expect(sortedFiltered.total).toBe(2);
+    expect(sortedFiltered.leads.every((l) => l.status === "Closed")).toBe(true);
+  });
 });

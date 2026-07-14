@@ -37,6 +37,12 @@ Exemplars: `src/app/api/uploads/route.ts`, `src/app/api/admin/partners/route.ts`
   are documented in an ADR (ADR-0010).
 - `TODO(owner)`: evaluate `FORCE ROW LEVEL SECURITY` + a non-owner app role with
   session-GUC tenant pinning as defense-in-depth (target: before Phase 5 multi-tenant).
+- Correlated child subqueries in a WHERE/ORDER BY/SELECT expression must carry their
+  own tenant scope via `tenantWhere(childTable, scope)`, not rely solely on a
+  correlation key. Defence-in-depth per ADR-0013 (no RLS): a single dropped predicate
+  must not be able to widen scope. Conforming: the `lead_status_history` latest-status
+  subqueries (portal + leads) and the latest-at subquery (leads) in
+  `src/modules/portal/queries.ts` and `src/modules/leads/queries.ts` (WP-F1).
 
 ## 3. Modules, purity, ports (PRN-01, §4)
 

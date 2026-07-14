@@ -46,12 +46,28 @@ export interface GlobalLeadsPage {
 
 // Correlated latest-status subquery — the current workflow status + when it last
 // changed, per lead. Indexed by lead_status_history(lead_id).
-const LATEST_STATUS = sql`(select status from lead_status_history where lead_id = ${schema.leads.id} order by created_at desc limit 1)`;
-const LATEST_AT = sql`(select created_at from lead_status_history where lead_id = ${schema.leads.id} order by created_at desc limit 1)`;
+// Scope-aware builders (ADR-0013 defence-in-depth, WP-F1): each caller passes the
+// live ScopeContext so the subqueries below carry their own explicit tenant predicate.
+function latestStatus(scope: ScopeContext) {
+  // self-scoped (ADR-0013 defence-in-depth): correlation key leads.id is globally unique, but
+  // carry an explicit tenant predicate too so no single dropped predicate can widen scope.
+  return sql`(select status from lead_status_history where lead_id = ${schema.leads.id} and ${tenantWhere(schema.leadStatusHistory, scope)} order by created_at desc limit 1)`;
+}
+function latestAt(scope: ScopeContext) {
+  // self-scoped (ADR-0013 defence-in-depth): correlation key leads.id is globally unique, but
+  // carry an explicit tenant predicate too so no single dropped predicate can widen scope.
+  return sql`(select created_at from lead_status_history where lead_id = ${schema.leads.id} and ${tenantWhere(schema.leadStatusHistory, scope)} order by created_at desc limit 1)`;
+}
 // The displayed status: removed leads read "Removed MLS"; else current or New.
-const STATUS_EXPR = sql<string>`case when ${schema.leads.mlsStatus} = 'removed' then 'Removed MLS' else coalesce(${LATEST_STATUS}, 'New') end`;
-const MODIFIED_EXPR = sql<Date | null>`coalesce(${LATEST_AT}, ${schema.leads.manualAssignedAt})`;
-const STATUS_ORDER = sql`case ${STATUS_EXPR} when 'New' then 0 when 'Contacted' then 1 when 'Appointment' then 2 when 'Under contract' then 3 when 'Closed' then 4 when 'Dead' then 5 else 6 end`;
+function statusExpr(scope: ScopeContext) {
+  return sql<string>`case when ${schema.leads.mlsStatus} = 'removed' then 'Removed MLS' else coalesce(${latestStatus(scope)}, 'New') end`;
+}
+function modifiedExpr(scope: ScopeContext) {
+  return sql<Date | null>`coalesce(${latestAt(scope)}, ${schema.leads.manualAssignedAt})`;
+}
+function statusOrder(scope: ScopeContext) {
+  return sql`case ${statusExpr(scope)} when 'New' then 0 when 'Contacted' then 1 when 'Appointment' then 2 when 'Under contract' then 3 when 'Closed' then 4 when 'Dead' then 5 else 6 end`;
+}
 
 export async function listLeads(scope: ScopeContext, query: LeadsQuery): Promise<GlobalLeadsPage> {
   const db = getDb();
@@ -67,8 +83,14 @@ export async function listLeads(scope: ScopeContext, query: LeadsQuery): Promise
   if (query.source) conds.push(eq(schema.leads.campaign, query.source));
   if (query.dateFrom) conds.push(gte(schema.leads.createdAt, new Date(`${query.dateFrom}T00:00:00Z`)));
   if (query.dateTo) conds.push(lte(schema.leads.createdAt, new Date(`${query.dateTo}T23:59:59Z`)));
+  // Built once per call so the status filter, sort column, and select projection below
+  // all share the identical scope-aware subqueries (ADR-0013 defence-in-depth, WP-F1).
+  const sExpr = statusExpr(scope);
+  const mExpr = modifiedExpr(scope);
+  const sOrder = statusOrder(scope);
+
   if (query.statuses.length > 0) {
-    conds.push(or(...query.statuses.map((s) => sql`${STATUS_EXPR} = ${s}`))!);
+    conds.push(or(...query.statuses.map((s) => sql`${sExpr} = ${s}`))!);
   }
   if (query.q) {
     const like = `%${query.q}%`;
@@ -82,8 +104,8 @@ export async function listLeads(scope: ScopeContext, query: LeadsQuery): Promise
   const where = and(...conds);
 
   const sortCol =
-    query.sort === "modified" ? MODIFIED_EXPR :
-    query.sort === "status" ? STATUS_ORDER :
+    query.sort === "modified" ? mExpr :
+    query.sort === "status" ? sOrder :
     query.sort === "partner" ? sql`${schema.partners.name}` :
     query.sort === "seller" ? sql`lower(${schema.leads.sellerLast})` :
     schema.leads.createdAt;
@@ -102,8 +124,8 @@ export async function listLeads(scope: ScopeContext, query: LeadsQuery): Promise
         campaign: schema.leads.campaign,
         mlsStatus: schema.leads.mlsStatus,
         createdAt: schema.leads.createdAt,
-        status: STATUS_EXPR,
-        modifiedAt: MODIFIED_EXPR,
+        status: sExpr,
+        modifiedAt: mExpr,
         pId: schema.partners.id,
         pName: schema.partners.name,
         pRef: schema.partners.refId,
