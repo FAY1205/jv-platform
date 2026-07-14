@@ -1,15 +1,25 @@
 "use client";
 
-import * as React from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { apiGet } from "@/lib/api";
-import { csrfHeaders } from "@/lib/csrf-client";
 import { Card, CardBody, Button, LinkCard, Skeleton, EmptyState } from "@/components";
 import { initialsFromEmail } from "@/lib/identity";
+import { useIsDesktop } from "@/lib/use-media-query";
+import { useSignOut } from "@/lib/use-sign-out";
+import { AccountDesktop } from "./account-desktop";
 
-// WP-F.2: the portal "Account" tab body. Identity from /api/me (PRN-08 — caller's own
-// row only), links to the other account surfaces, and the portal's first sign-out
-// (AUT-14: server-side revoke, then a full navigation that drops the client cache).
+// WP-F.2 (mobile body) / WP-PW-4 Task 2 (desktop gate): the portal "Account" tab.
+// PortalAccount is now the useIsDesktop() gate — unconditional hook, before any return —
+// so exactly one of the two bodies mounts: mobile (< lg) is AccountMobile, extracted
+// verbatim from the pre-WP-PW-4 body (the ONE sanctioned non-verbatim change: sign-out
+// now goes through the shared useSignOut() hook instead of an inline copy — identical
+// runtime behavior, AUT-14 intact); desktop (>= lg) is the two-column AccountDesktop grid
+// (account-desktop.tsx). PortalAccount itself returns whatever its child returns — a
+// <div>, never a <main> — the server component (/portal/page.tsx) owns the page's <main>.
+// INTENTIONAL asymmetry (same as leads/activity): the portal shell switches chrome (rail
+// vs. bottom nav) at md (768), but this content gates at lg (1024, useIsDesktop) for
+// portal-wide consistency — so 768-1024 shows desktop chrome + the mobile body. Don't
+// "fix" this to md.
 interface Me {
   email: string;
   role: string;
@@ -23,24 +33,13 @@ const LINKS = [
 ];
 
 export function PortalAccount() {
-  const qc = useQueryClient();
-  const { data, isPending, error } = useQuery({ queryKey: ["me"], queryFn: () => apiGet<Me>("/api/me") });
-  const [signingOut, setSigningOut] = React.useState(false);
+  const isDesktop = useIsDesktop();
+  return isDesktop ? <AccountDesktop /> : <AccountMobile />;
+}
 
-  async function signOut() {
-    setSigningOut(true);
-    try {
-      await fetch("/api/auth/logout", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", ...csrfHeaders() },
-        body: JSON.stringify({ scope: "local" }),
-      });
-    } catch {
-      // Navigate away regardless — the session cookie is HttpOnly + server-revoked.
-    }
-    qc.clear();
-    window.location.assign("/portal/login");
-  }
+function AccountMobile() {
+  const { data, isPending, error } = useQuery({ queryKey: ["me"], queryFn: () => apiGet<Me>("/api/me") });
+  const { signOut, signingOut } = useSignOut();
 
   return (
     <div className="flex flex-col gap-4">

@@ -62,3 +62,4 @@ export { ThemeToggle } from "./ThemeToggle";
 export { CoverageMap, type CoverageMapProps } from "./CoverageMap";
 export { CountyCoverageMap, type CountyCoverageMapProps } from "./CountyCoverageMap";
 export { HeroKpi } from "./HeroKpi";
+export { PortalDevices } from "./PortalDevices";

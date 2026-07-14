@@ -10,9 +10,27 @@ import { PortalAccount } from "@/app/portal/portal-account";
 
 const assign = vi.fn();
 
+// WP-PW-4 Task 2: PortalAccount now calls useIsDesktop() (src/lib/use-media-query.ts,
+// window.matchMedia + useSyncExternalStore) as its unconditional desktop/mobile gate,
+// which jsdom does not implement by default. Stub it (matches=false -> mobile, i.e. the
+// AccountMobile body this test exercises) so the hook resolves instead of throwing.
 beforeEach(() => {
   assign.mockReset();
   Object.defineProperty(window, "location", { value: { assign }, writable: true });
+  Object.defineProperty(window, "matchMedia", {
+    writable: true,
+    configurable: true,
+    value: vi.fn().mockImplementation((query: string) => ({
+      matches: false,
+      media: query,
+      onchange: null,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    })),
+  });
 });
 
 function renderAccount() {
