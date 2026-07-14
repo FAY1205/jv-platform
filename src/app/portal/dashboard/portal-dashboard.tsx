@@ -59,7 +59,7 @@ export function PortalDashboard() {
     <div className="flex flex-col gap-4">
       <div className="flex items-center justify-between gap-2">
         {/* Static page heading — always present so AT has a landmark across load/error (SC 1.3.1/2.4.6). */}
-        <h1 className={`font-semibold uppercase tracking-[.08em] text-text-3 ${label13}`}>Your dashboard</h1>
+        <h1 className={`font-semibold uppercase tracking-[.08em] text-text-3 md:hidden ${label13}`}>Your dashboard</h1>
         <SegmentedControl<RangeKey> ariaLabel="Time range" value={range} onValueChange={setRange} options={RANGE_SEGMENTS} />
       </div>
 

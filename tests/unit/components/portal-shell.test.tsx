@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 let mockPath = "/portal/leads";
 vi.mock("next/navigation", () => ({ usePathname: () => mockPath }));
+vi.mock("@/lib/api", () => ({ apiGet: vi.fn(async () => ({ email: "ops@meridianbuyers.com", role: "partner", workspace: { name: "Meridian Buyers" } })) }));
 
 import { PortalShell } from "@/components";
 
@@ -19,29 +20,47 @@ function renderShell() {
   );
 }
 
+// WP-PW-1 note: at md+ the shell renders BOTH a desktop rail nav and the mobile bottom-tab
+// nav (each labeled "Portal") in one single-render tree — jsdom applies no compiled Tailwind
+// CSS, so `md:hidden` / `hidden md:flex` don't actually hide either. Assertions below use
+// getAllByRole and check every match rather than assuming a single landmark/link.
 describe("PortalShell", () => {
   it("F-66: renders the four bottom tabs as a labeled nav", () => {
     mockPath = "/portal/dashboard";
     renderShell();
-    expect(screen.getByRole("navigation", { name: "Portal" })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Dashboard" })).toHaveAttribute("href", "/portal/dashboard");
-    expect(screen.getByRole("link", { name: "Leads" })).toHaveAttribute("href", "/portal/leads");
-    expect(screen.getByRole("link", { name: "Activity" })).toHaveAttribute("href", "/portal/activity");
-    expect(screen.getByRole("link", { name: "Account" })).toHaveAttribute("href", "/portal");
+    expect(screen.getAllByRole("navigation", { name: "Portal" }).length).toBeGreaterThan(0);
+    for (const [name, href] of [
+      ["Dashboard", "/portal/dashboard"],
+      ["Leads", "/portal/leads"],
+      ["Activity", "/portal/activity"],
+      ["Account", "/portal"],
+    ] as const) {
+      const links = screen.getAllByRole("link", { name });
+      expect(links.length).toBeGreaterThan(0);
+      for (const link of links) expect(link).toHaveAttribute("href", href);
+    }
   });
 
   it("WP-F.3: marks the Dashboard tab current on /portal/dashboard", () => {
     mockPath = "/portal/dashboard";
     renderShell();
-    expect(screen.getByRole("link", { name: "Dashboard" })).toHaveAttribute("aria-current", "page");
-    expect(screen.getByRole("link", { name: "Leads" })).not.toHaveAttribute("aria-current");
+    for (const link of screen.getAllByRole("link", { name: "Dashboard" })) {
+      expect(link).toHaveAttribute("aria-current", "page");
+    }
+    for (const link of screen.getAllByRole("link", { name: "Leads" })) {
+      expect(link).not.toHaveAttribute("aria-current");
+    }
   });
 
   it("marks the active tab from the URL", () => {
     mockPath = "/portal/leads";
     renderShell();
-    expect(screen.getByRole("link", { name: "Leads" })).toHaveAttribute("aria-current", "page");
-    expect(screen.getByRole("link", { name: "Activity" })).not.toHaveAttribute("aria-current");
+    for (const link of screen.getAllByRole("link", { name: "Leads" })) {
+      expect(link).toHaveAttribute("aria-current", "page");
+    }
+    for (const link of screen.getAllByRole("link", { name: "Activity" })) {
+      expect(link).not.toHaveAttribute("aria-current");
+    }
   });
 
   it("hides the shell chrome on the pre-auth login route", () => {

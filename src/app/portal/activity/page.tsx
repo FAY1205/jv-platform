@@ -19,7 +19,7 @@ export default function PortalActivityPage() {
 
   return (
     <main className="mx-auto w-full flex-1 p-4">
-      <h1 className="mb-4 font-display text-xl font-semibold tracking-tight text-text">Your activity</h1>
+      <h1 className="mb-4 font-display text-xl font-semibold tracking-tight text-text md:hidden">Your activity</h1>
       <Card>
         <CardBody>
           {error ? (

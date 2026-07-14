@@ -22,7 +22,7 @@ export default async function PortalHome() {
 
   return (
     <main className="mx-auto w-full flex-1 p-4">
-      <h1 className="mb-4 font-display text-xl font-semibold tracking-tight text-text">Your account</h1>
+      <h1 className="mb-4 font-display text-xl font-semibold tracking-tight text-text md:hidden">Your account</h1>
       <PortalAccount />
     </main>
   );

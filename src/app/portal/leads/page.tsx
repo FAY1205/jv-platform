@@ -45,7 +45,7 @@ export default function PortalLeadsPage() {
     <main className="mx-auto w-full flex-1 p-4">
       <div className="mb-4 flex items-end justify-between gap-3">
         <div>
-          <h1 className="font-display text-xl font-semibold tracking-tight text-text">Your leads</h1>
+          <h1 className="font-display text-xl font-semibold tracking-tight text-text md:hidden">Your leads</h1>
           {total > 0 && <p className="text-step-1 text-text-3">{total} total</p>}
         </div>
         <a href="/api/portal/leads/export" download>
