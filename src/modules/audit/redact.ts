@@ -14,14 +14,26 @@
 
 /**
  * Lead columns treated as consumer PII in the audit trail (SEC-05). Their values are
- * masked out of audit before/after. Property/routing fields (address, city, state,
- * zip, campaign) are intentionally NOT here: they drive routing + dedupe, so their
- * old→new values are the audit-relevant part of an edit (DM-04).
+ * masked out of audit before/after.
  *
- * CONTRACT (ADR-0021): the retention sweep (WP-GL-B) redacts these same lead columns
- * on the `leads` table. Keep the two sets in lockstep — a column that is purge-worthy
- * on `leads` must be mask-worthy here, or PII re-enters the permanent trail. The
- * sweep should import this set, never re-list it.
+ * COARSE location (`city`/`state`/`zip`) and `campaign` are deliberately NOT here:
+ * they are not personally identifying, they drive routing, so their old→new IS the
+ * audit-relevant part of an edit (DM-04) — and the retention sweep keeps them on the
+ * lead for exactly that reason.
+ *
+ * The STREET `address` IS here, despite being a property field. The retention sweep
+ * (src/modules/retention/purge.ts, redactionPatch) nulls it and keeps only the coarse
+ * location, calling city/state/zip "not personally identifying" — which makes the
+ * street address precisely what is. It is editable (EDITABLE_COLUMNS), so it reached
+ * before/after; unmasked, editing then voiding a lead left the street address in the
+ * append-only trail forever, which is the exact leak this module exists to stop.
+ * Routing legibility survives without it: assignment keys off zip5 + state, both raw.
+ *
+ * CONTRACT (ADR-0021): the retention sweep redacts these same lead columns on the
+ * `leads` table. Keep the two sets in lockstep — a column that is purge-worthy on
+ * `leads` must be mask-worthy here, or PII re-enters the permanent trail. That
+ * contract was stated but never enforced, and `address` had already broken it; the
+ * lockstep is now pinned by tests/unit/audit-redact.test.ts.
  */
 export const AUDIT_PII_LEAD_FIELDS: ReadonlySet<string> = new Set([
   "sellerFirst",
@@ -32,6 +44,7 @@ export const AUDIT_PII_LEAD_FIELDS: ReadonlySet<string> = new Set([
   "motivation",
   "timeToSell",
   "notes",
+  "address",
 ]);
 
 /** The sentinel written in place of a present PII value. Carries no input data. */

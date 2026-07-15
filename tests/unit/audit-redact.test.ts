@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest";
+import { redactionPatch } from "@/modules/retention/purge";
+import { EDITABLE_COLUMNS } from "@/modules/leads/commands";
 import {
   AUDIT_PII_LEAD_FIELDS,
   REDACTED,
@@ -50,8 +52,12 @@ describe("SEC-05 / DM-04: audit PII field classification", () => {
     }
   });
 
-  it("DM-04: property/routing fields are NOT masked — their old→new drives audit value", () => {
-    for (const f of ["address", "city", "state", "zip", "campaign"]) {
+  it("DM-04: COARSE location + campaign are NOT masked — their old→new drives audit value", () => {
+    // `address` was in this list until the lockstep check below caught it: the retention
+    // sweep nulls the street address as PII, so leaving it raw let it survive forever in
+    // the append-only trail. Coarse location is not personally identifying and still
+    // shows a routing change (assignment keys off zip5 + state).
+    for (const f of ["city", "state", "zip", "campaign"]) {
       expect(isAuditPiiLeadField(f), `${f} must stay raw`).toBe(false);
     }
   });
@@ -59,5 +65,51 @@ describe("SEC-05 / DM-04: audit PII field classification", () => {
   it("an unknown field name is treated as non-PII (explicit allow-list, not guesswork)", () => {
     expect(isAuditPiiLeadField("partnerId")).toBe(false);
     expect(isAuditPiiLeadField("")).toBe(false);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ADR-0021's contract, enforced instead of merely stated: "a column that is
+// purge-worthy on `leads` must be mask-worthy here, or PII re-enters the permanent
+// trail." Nothing checked it, and it was already broken — `address` is editable
+// (so it reaches audit before/after) and the retention sweep nulls it as PII, but it
+// was not masked. Edit a lead's address, void it, purge it: the street address still
+// sat in audit_log forever. This test is the lockstep the ADR asked for.
+// ─────────────────────────────────────────────────────────────────────────────
+describe("LGL-02/SEC-05: audit masking stays in lockstep with the retention sweep", () => {
+  // DERIVED, not hand-copied. Both sides come from the real modules, so adding a
+  // purge-worthy column to the sweep (or a new editable column) fails this test until
+  // it is classified — the list can never silently drift out of lockstep again. A
+  // hand-copied list is exactly what let `address` slip through in the first place.
+  const purgeWorthy = Object.keys(redactionPatch());
+  const editable = EDITABLE_COLUMNS as readonly string[];
+  const mustBeMasked = purgeWorthy.filter((f) => editable.includes(f));
+
+  it("LGL-02: the derivation actually finds columns (guards against a vacuous pass)", () => {
+    // If a refactor renamed things, an empty list would make every case below trivially
+    // pass and the lockstep would silently stop being checked.
+    expect(mustBeMasked.length).toBeGreaterThanOrEqual(8);
+    expect(mustBeMasked).toContain("address");
+  });
+
+  it.each(mustBeMasked)(
+    "LGL-02: %s is purge-worthy on leads AND editable, so it must be masked in the trail",
+    (field: string) => {
+      expect(isAuditPiiLeadField(field)).toBe(true);
+    },
+  );
+
+  it("DM-04: coarse location + campaign stay RAW — their old→new is the audit's point", () => {
+    // The sweep deliberately KEEPS these on the lead (not personally identifying), so
+    // they carry no PII into the trail and remain legible evidence of a routing change.
+    for (const field of ["city", "state", "zip", "campaign"]) {
+      expect(purgeWorthy).not.toContain(field);
+      expect(isAuditPiiLeadField(field)).toBe(false);
+    }
+  });
+
+  it("SEC-05: a street address is masked to the sentinel, never partially leaked", () => {
+    expect(maskAuditValue("848 Caton Ave")).toBe(REDACTED);
+    expect(maskAuditValue("848 Caton Ave")).not.toContain("Caton");
   });
 });

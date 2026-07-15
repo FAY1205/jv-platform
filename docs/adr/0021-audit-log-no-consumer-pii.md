@@ -44,10 +44,20 @@ purge the audit rows later via the escape hatch.
   value is recorded as the sentinel `"[redacted]"` when it held a value and `null`
   when empty. An auditor still sees *which* PII field changed and whether it was
   added / cleared / changed — never the value.
-- `lead.edited` keeps **raw** before/after for property/routing fields (`address`,
-  `city`, `state`, `zip`, `campaign`): these drive routing + dedupe, so their
-  old→new values are the audit-relevant part of an edit (DM-04). PII fields are
-  masked. `note.edited` masks the body.
+- `lead.edited` keeps **raw** before/after for **coarse** location + `campaign`
+  (`city`, `state`, `zip`): these are not personally identifying and they drive
+  routing, so their old→new values are the audit-relevant part of an edit (DM-04).
+  PII fields are masked. `note.edited` masks the body.
+- The **street `address` is masked**, despite being a property field. An earlier draft
+  of this ADR kept it raw alongside the coarse location; that broke this ADR's own
+  lockstep rule (below) and was caught when the rule was finally enforced by a test.
+  The retention sweep (`src/modules/retention/purge.ts`, `redactionPatch`) nulls the
+  street address and keeps only `city`/`state`/`zip`, which it calls "not personally
+  identifying" — that makes the street address precisely what is. It is editable, so
+  it reached `before`/`after`: unmasked, editing then voiding a lead left the street
+  address in the append-only trail permanently — the exact leak this ADR exists to
+  prevent. Routing legibility survives without it, since assignment keys off zip5 +
+  state, both still raw.
 - The append-only invariant is untouched: no schema change, no migration, and app
   code still never mutates a written row. The `app.audit_log_purge` hatch remains
   reserved for test teardown and the future retention sweep.

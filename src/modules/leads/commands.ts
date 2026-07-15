@@ -141,7 +141,13 @@ export interface EditLeadInput {
   partner: PartnerEdit;
 }
 
-const EDITABLE_COLUMNS = [
+/**
+ * The lead columns an admin edit may change — and therefore the only ones that can
+ * ever reach the append-only audit trail's before/after. Exported so the ADR-0021
+ * lockstep test can DERIVE which purge-worthy columns must be masked, instead of
+ * re-listing them by hand (a hand-copied list is what let `address` slip through).
+ */
+export const EDITABLE_COLUMNS = [
   "sellerFirst",
   "sellerLast",
   "phone",
