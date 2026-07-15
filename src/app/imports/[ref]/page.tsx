@@ -252,7 +252,7 @@ function RunView({ detail }: { detail: RunDetail }) {
         {delivered.length === 0 ? (
           <CardBody><EmptyState title="Nothing distributed" description="No leads matched partner coverage in this import." /></CardBody>
         ) : (
-          <Table>
+          <Table ariaLabel="Distributed leads">
             <THead>
               <Tr>
                 <Th>Lead ID</Th>
@@ -282,7 +282,7 @@ function RunView({ detail }: { detail: RunDetail }) {
           {removed.length === 0 ? (
             <CardBody><EmptyState title="Nothing removed" description="No leads matched an MLS-listed pattern." /></CardBody>
           ) : (
-            <Table>
+            <Table ariaLabel="Removed leads">
               <THead><Tr><Th>Lead ID</Th><Th>Property</Th><Th>Matched pattern</Th></Tr></THead>
               <TBody>
                 {removed.map((l) => (
@@ -305,7 +305,7 @@ function RunView({ detail }: { detail: RunDetail }) {
           {unmatched.length === 0 ? (
             <CardBody><EmptyState title="Full coverage" description="Every lead routed to a partner." /></CardBody>
           ) : (
-            <Table>
+            <Table ariaLabel="Unmatched leads">
               <THead><Tr><Th>Lead ID</Th><Th>Property</Th><Th>State</Th><Th align="right">ZIP</Th></Tr></THead>
               <TBody>
                 {unmatched.map((l) => (

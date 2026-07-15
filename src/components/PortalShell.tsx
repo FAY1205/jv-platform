@@ -141,6 +141,9 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                 key={t.href}
                 href={t.href}
                 aria-current={on ? "page" : undefined}
+                // D2 (SC 4.1.2 polish, matches AppShell): the count lives on the LINK's
+                // accessible name; the badge below is aria-hidden.
+                aria-label={t.badge && count > 0 ? `${t.label}, ${count.toLocaleString()}` : undefined}
                 className={
                   "group flex items-center gap-3 rounded-md px-3 py-2.5 text-sm font-medium transition-all duration-150 " +
                   (on
@@ -158,7 +161,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                 </span>
                 {t.label}
                 {t.badge && count > 0 && (
-                  <span className="num ml-auto rounded-full bg-surface-3 px-1.5 py-0.5 text-step-1 font-semibold text-text-2" aria-label={`${count} leads`}>
+                  <span className="num ml-auto rounded-full bg-surface-3 px-1.5 py-0.5 text-step-1 font-semibold text-text-2" aria-hidden="true">
                     {count.toLocaleString()}
                   </span>
                 )}

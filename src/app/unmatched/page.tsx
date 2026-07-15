@@ -236,7 +236,9 @@ function UnmatchedBody() {
               <div className="w-full max-w-[300px]">
                 <Input value={qInput} onChange={(e) => setQInput(e.target.value)} placeholder="Search seller, address, ZIP, lead ID…" aria-label="Search unmatched leads" />
               </div>
-              {listQ.data && (
+              {/* Suppressed at zero and on error (D2): the EmptyState announces those settles —
+                  stale `data` can coexist with `error` on a failed background refetch. */}
+              {listQ.data && listQ.data.total > 0 && !listQ.error && (
                 <p className="text-step-1 text-text-3" aria-live="polite">
                   <span className="num font-semibold text-text-2">{listQ.data.total.toLocaleString()}</span>{" "}
                   {listQ.data.total === 1 ? "lead" : "leads"}{hasFilters ? " match the filters" : ""}

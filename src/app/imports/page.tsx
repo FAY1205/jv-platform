@@ -53,7 +53,10 @@ function ImportsBody() {
           <div className="w-52">
             <DateRangePicker value={range} onChange={setRange} placeholder="Processed range" />
           </div>
-          {data && (
+          {/* Suppressed at zero and on error (D2): the EmptyState announces those settles —
+              and a failed background refetch keeps stale `data` while `error` is set, so
+              without !error the stale count and the error state would announce together. */}
+          {data && data.total > 0 && !error && (
             <p className="pb-2 text-step-1 text-text-3" aria-live="polite">
               <span className="num font-semibold text-text-2">{data.total.toLocaleString()}</span>{" "}
               {data.total === 1 ? "import" : "imports"}{hasFilter ? " in this range" : ""}

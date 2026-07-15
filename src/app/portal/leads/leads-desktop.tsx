@@ -101,8 +101,10 @@ export function LeadsDesktop() {
         </a>
       </div>
 
-      {/* Live result count (admin T2 copy) — re-announces as the filter narrows the set. */}
-      {data && (
+      {/* Live result count (admin T2 copy) — re-announces as the filter narrows the set.
+          Suppressed at zero and on error (D2): the EmptyState announces those settles —
+          stale `data` can coexist with `error` on a failed background refetch. */}
+      {data && data.total > 0 && !leadsQ.error && (
         <p className="mb-2 text-step-1 text-text-3" aria-live="polite">
           <span className="num font-semibold text-text-2">{data.total.toLocaleString()}</span>{" "}
           {data.total === 1 ? "lead" : "leads"}{statuses.length ? " match the filters" : ""}
@@ -117,9 +119,8 @@ export function LeadsDesktop() {
             ))}
           </div>
         ) : leadsQ.error ? (
-          // role="status" (SC 4.1.3): the count line above only announces when data exists,
-          // so a query failure must announce itself (the compact EmptyState used to carry this).
-          <div className="p-6" role="status">
+          // EmptyState itself announces (role="status" on the primitive since D2, SC 4.1.3).
+          <div className="p-6">
             <EmptyState title="Couldn't load your leads" description={(leadsQ.error as Error).message} />
           </div>
         ) : data!.leads.length === 0 ? (

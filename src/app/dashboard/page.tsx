@@ -296,7 +296,7 @@ function DashboardBody() {
             {d!.partners.length === 0 ? (
               <p className="py-4 text-sm text-text-3">No leads distributed {rangeLabel}.</p>
             ) : (
-              <Table className="mt-3 min-w-[560px]">
+              <Table className="mt-3 min-w-[560px]" ariaLabel="Partner performance">
                 <THead>
                   <Tr>
                     <Th>Partner</Th>
@@ -336,7 +336,7 @@ function DashboardBody() {
             {d!.sources.length === 0 ? (
               <p className="py-4 text-sm text-text-3">No leads imported {rangeLabel}.</p>
             ) : (
-              <Table className="mt-3 min-w-[420px]">
+              <Table className="mt-3 min-w-[420px]" ariaLabel="Lead source performance">
                 <THead>
                   <Tr>
                     <Th>Source</Th>

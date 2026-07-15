@@ -392,7 +392,9 @@ function PartnersBody() {
               options={US_STATES.map((s) => ({ value: s.code, label: `${s.name} (${s.code})` }))}
             />
           </div>
-          {data && (
+          {/* Suppressed at zero and on error (D2): the EmptyState announces those settles —
+              stale `data` can coexist with `error` on a failed background refetch. */}
+          {data && roster.length > 0 && !error && (
             <p className="pb-2 text-step-1 text-text-3" aria-live="polite">
               <span className="num font-semibold text-text-2">{roster.length}</span>{" "}
               {roster.length === 1 ? "partner" : "partners"}{stateFilter ? (roster.length === 1 ? " covers this state" : " cover this state") : ""}

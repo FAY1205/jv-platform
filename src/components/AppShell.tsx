@@ -150,12 +150,18 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             </div>
             {section.items.map((item) => {
               const on = isActive(item.href);
+              // D2 (SC 4.1.2 polish): the count belongs to the LINK's accessible name
+              // ("Leads, 412"), not the badge's — a badge-level aria-label composed the
+              // redundant "Leads 412 leads". The badge is aria-hidden (its number is
+              // carried by the link name).
+              const badgeCount = item.badge === "unmatched" ? unmatchedCount : item.badge === "leads" ? leadsTotal : 0;
               return (
                 <Link
                   key={item.href}
                   href={item.href}
                   onClick={onNavigate}
                   aria-current={on ? "page" : undefined}
+                  aria-label={badgeCount > 0 ? `${item.label}, ${badgeCount.toLocaleString()}` : undefined}
                   className={
                     "group flex items-center gap-3 rounded-md px-3 py-2.5 text-sm font-medium transition-all duration-150 " +
                     (on
@@ -173,12 +179,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                   </span>
                   {item.label}
                   {item.badge === "unmatched" && unmatchedCount > 0 && (
-                    <span className="num ml-auto rounded-full bg-warn-soft px-1.5 py-0.5 text-step-1 font-semibold text-warn" aria-label={`${unmatchedCount} unmatched`}>
+                    <span className="num ml-auto rounded-full bg-warn-soft px-1.5 py-0.5 text-step-1 font-semibold text-warn" aria-hidden="true">
                       {unmatchedCount}
                     </span>
                   )}
                   {item.badge === "leads" && leadsTotal > 0 && (
-                    <span className="num ml-auto rounded-full bg-surface-3 px-1.5 py-0.5 text-step-1 font-semibold text-text-2" aria-label={`${leadsTotal} leads`}>
+                    <span className="num ml-auto rounded-full bg-surface-3 px-1.5 py-0.5 text-step-1 font-semibold text-text-2" aria-hidden="true">
                       {leadsTotal.toLocaleString()}
                     </span>
                   )}

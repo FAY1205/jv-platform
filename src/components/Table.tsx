@@ -1,16 +1,34 @@
 import * as React from "react";
 import { cn } from "@/lib/cn";
 
-/** Table — scroll container + table element with sticky-capable headers (DSN-07). */
+/** Table — scroll container + table element with sticky-capable headers (DSN-07).
+ *  The scroll container is keyboard-focusable (D2, SC 2.1.1): a wide table's
+ *  horizontal overflow must be scrollable without a pointer, and browsers don't
+ *  auto-focus scrollers that contain focusable children (the sortable Th buttons).
+ *  tabIndex + role="region" + an accessible name is the canonical pattern; the
+ *  global :focus-visible outline provides the visible focus state. Pass `ariaLabel`
+ *  to name the region for pages with several tables (defaults to "Table"). */
 export function Table({
   className,
   children,
   maxHeight,
+  ariaLabel,
+  "aria-labelledby": ariaLabelledBy,
   ...rest
-}: React.HTMLAttributes<HTMLTableElement> & { maxHeight?: number }) {
+}: React.HTMLAttributes<HTMLTableElement> & { maxHeight?: number; ariaLabel?: string }) {
   return (
-    <div className="overflow-auto" style={maxHeight ? { maxHeight } : undefined}>
-      <table className={cn("w-full border-collapse text-sm", className)} {...rest}>
+    <div
+      className="overflow-auto"
+      style={maxHeight ? { maxHeight } : undefined}
+      tabIndex={0}
+      role="region"
+      // A caller's aria-labelledby names the REGION too (it would otherwise be shadowed
+      // by the generic default — the mls-phrases WCAG 1.3.1 pattern); ariaLabel is the
+      // explicit name for pages with several tables. Default keeps single-table pages cheap.
+      aria-labelledby={ariaLabelledBy}
+      aria-label={ariaLabelledBy ? undefined : ariaLabel ?? "Table"}
+    >
+      <table className={cn("w-full border-collapse text-sm", className)} aria-labelledby={ariaLabelledBy} {...rest}>
         {children}
       </table>
     </div>

@@ -29,7 +29,11 @@ describe("DSN-06: EmptyState", () => {
     );
     expect(screen.getByTestId("icon")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Add" })).toBeTruthy();
-    // Default layout is not a status live-region.
-    expect(screen.queryByRole("status")).toBeNull();
+  });
+
+  it("ES-04 (D2, SC 4.1.3): BOTH variants announce as a status region — an EmptyState replaces loaded content after an async settle", () => {
+    render(<EmptyState title="Couldn't load leads" description="boom" />);
+    expect(screen.getByRole("status")).toBeTruthy();
+    expect(screen.getByText("Couldn't load leads")).toBeTruthy();
   });
 });

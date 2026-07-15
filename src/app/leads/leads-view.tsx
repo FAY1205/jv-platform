@@ -222,8 +222,11 @@ function LeadsTable({
 
   return (
     <>
-      {/* Live result count (owner note #2) — re-announces as filters narrow the set. */}
-      {data && (
+      {/* Live result count (owner note #2) — re-announces as filters narrow the set.
+          Suppressed at zero and on error (D2): the EmptyState below announces those
+          settles; a "0 leads" line would double-announce, and a failed background
+          refetch keeps stale `data` while the error branch renders. */}
+      {data && data.total > 0 && !leadsQ.error && (
         <p className="mb-2 text-step-1 text-text-3" aria-live="polite">
           <span className="num font-semibold text-text-2">{data.total.toLocaleString()}</span>{" "}
           {data.total === 1 ? "lead" : "leads"}{hasFilters ? " match the filters" : ""}

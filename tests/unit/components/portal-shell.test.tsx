@@ -92,17 +92,22 @@ describe("PortalShell T7a admin parity", () => {
     expect(screen.getByText("Partner portal")).toBeInTheDocument();
   });
 
-  it("T7a: the Leads rail item shows the scoped count badge", async () => {
+  it("T7a/D2: the Leads rail item carries the count in ITS accessible name ('Leads, 412'), badge aria-hidden", async () => {
     mockPath = "/portal/dashboard";
     mockCount = { count: 412 };
     renderShell();
-    expect(await screen.findByLabelText("412 leads")).toHaveTextContent("412");
+    // D2 accname polish: the count composes into the link name, not a badge label.
+    const rail = await screen.findByRole("link", { name: "Leads, 412" });
+    expect(rail).toHaveAttribute("href", "/portal/leads");
+    // The mobile tab (no badge) keeps the plain name.
+    expect(screen.getAllByRole("link", { name: "Leads" })).toHaveLength(1);
   });
 
-  it("T7a: a zero count renders no badge", () => {
+  it("T7a: a zero count renders no badge and leaves the plain link name", () => {
     mockPath = "/portal/dashboard";
     renderShell();
-    expect(screen.queryByLabelText(/leads$/)).toBeNull();
+    expect(screen.queryByRole("link", { name: /Leads, \d/ })).toBeNull();
+    expect(screen.getAllByRole("link", { name: "Leads" }).length).toBeGreaterThan(0);
   });
 
   it("T7a: the desktop top bar has the rail collapse toggle (admin pattern)", () => {
