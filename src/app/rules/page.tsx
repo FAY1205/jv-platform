@@ -4,7 +4,7 @@ import * as React from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiGet } from "@/lib/api";
 import { csrfHeaders } from "@/lib/csrf-client";
-import { Card, CardBody, Skeleton, EmptyState, ToastProvider, useToast, AppShell, usePageHeader } from "@/components";
+import { Card, CardBody, Skeleton, EmptyState, useToast, AppShell, usePageHeader } from "@/components";
 import { LockedNote, MlsPhrasesCard, type MlsPhrase } from "./mls-phrases";
 
 // WS-6 · CVG-02: the Rules area — MLS filter phrases only. Phrases are view + on/off +
@@ -59,10 +59,8 @@ function RulesBody() {
 
 export default function RulesPage() {
   return (
-    <ToastProvider>
-      <AppShell>
-        <RulesBody />
-      </AppShell>
-    </ToastProvider>
+    <AppShell>
+      <RulesBody />
+    </AppShell>
   );
 }
