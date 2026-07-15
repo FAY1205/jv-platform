@@ -7,7 +7,7 @@ import { apiGet } from "@/lib/api";
 import { csrfHeaders } from "@/lib/csrf-client";
 import {
   AppShell, Card, Badge, Button, Dialog, Select, Input, EmptyState, Skeleton,
-  ToastProvider, useToast, Table, THead, TBody, Th, Tr, Td, Pagination,
+  useToast, Table, THead, TBody, Th, Tr, Td, Pagination,
   RowOpenButton, DEFAULT_PAGE_SIZE, usePageHeader,
 } from "@/components";
 import type { StateCoverage } from "@/modules/coverage/map";
@@ -297,9 +297,5 @@ function UnmatchedBody() {
 }
 
 export default function UnmatchedPage() {
-  return (
-    <ToastProvider>
-      <UnmatchedInner />
-    </ToastProvider>
-  );
+  return <UnmatchedInner />;
 }

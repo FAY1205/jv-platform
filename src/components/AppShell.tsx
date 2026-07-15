@@ -12,6 +12,7 @@ import { ProfileMenu } from "./ProfileMenu";
 import { PageHeaderProvider, PageHeaderSlot } from "./PageHeader";
 import { SearchExpand } from "./SearchExpand";
 import { ThemeToggle } from "./ThemeToggle";
+import { ToastProvider } from "./Toast";
 import { IconButton } from "./IconButton";
 import { usePreferences, setPreferences, useApplyTheme } from "@/lib/preferences";
 
@@ -23,6 +24,12 @@ const AssistantWidget = dynamic(() => import("./assistant/AssistantWidget"), { s
 // The admin app shell (DSN): a minimal sidebar + a clean top bar. Every admin page
 // renders its content inside <AppShell>; the active nav item is derived from the URL.
 // All color/spacing comes from semantic tokens (PRN-12).
+//
+// ADR-0030: the shell owns the ToastProvider, so no admin page has to mount one. useToast
+// is reachable from shared leaves (LeadDialog, StatusSelect) that a page composes without
+// any signal it has taken on a provider requirement — leaving the mount to pages shipped
+// /imports/[ref] and /partners/[id] broken. Pages must NOT nest a second provider: it
+// would render a duplicate live region and double-announce.
 
 type IconName = "dashboard" | "leads" | "unmatched" | "runs" | "partners" | "coverage" | "analytics" | "rules" | "activity" | "settings" | "menu";
 
@@ -201,7 +208,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   );
 
   return (
-    <PageHeaderProvider>
+    <ToastProvider>
+      <PageHeaderProvider>
       <div className={"grid min-h-screen grid-cols-1 " + (navOpen ? "md:grid-cols-[236px_1fr]" : "md:grid-cols-1")}>
       {/* Desktop rail — a grid column, collapsible, pinned while content scrolls. */}
       <aside
@@ -260,6 +268,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <AssistantWidget />
       </div>
       </div>
-    </PageHeaderProvider>
+      </PageHeaderProvider>
+    </ToastProvider>
   );
 }

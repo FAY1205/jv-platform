@@ -24,7 +24,6 @@ import {
   PartnerTag,
   EmptyState,
   Skeleton,
-  ToastProvider,
   useToast,
   usePageHeader,
 } from "@/components";
@@ -479,9 +478,5 @@ function PartnersBody() {
 }
 
 export default function PartnersPage() {
-  return (
-    <ToastProvider>
-      <PartnersInner />
-    </ToastProvider>
-  );
+  return <PartnersInner />;
 }

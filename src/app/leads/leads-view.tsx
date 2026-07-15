@@ -7,7 +7,7 @@ import { apiGet } from "@/lib/api";
 import { LEAD_STATUS_FILTERS, type LeadSortField } from "@/modules/leads/schema";
 import {
   AppShell, Card, Table, THead, TBody, Th, Tr, Td, PartnerTag, EmptyState, Skeleton,
-  ToastProvider, Input, Select, Combobox, DateRangePicker, Pagination, RowOpenButton, StatusSelect,
+  Input, Select, Combobox, DateRangePicker, Pagination, RowOpenButton, StatusSelect,
   DEFAULT_PAGE_SIZE, usePageHeader, FilterPill,
 } from "@/components";
 import { US_STATES } from "@/lib/us-states";
@@ -41,11 +41,9 @@ const SOURCE_ALL = "__all__";
 
 export function LeadsView({ initialQ }: { initialQ: string }) {
   return (
-    <ToastProvider>
-      <AppShell>
-        <LeadsBody initialQ={initialQ} />
-      </AppShell>
-    </ToastProvider>
+    <AppShell>
+      <LeadsBody initialQ={initialQ} />
+    </AppShell>
   );
 }
 
