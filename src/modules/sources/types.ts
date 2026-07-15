@@ -56,4 +56,12 @@ export interface SourceProfile {
   /** Canonical fields whose source column MUST be present (else hard block). */
   requiredColumns: CanonicalField[];
   strictness: Strictness;
+  /**
+   * Optional derived-extraction seam (SEAM): the NAME of a transform registered in
+   * ./transforms.ts, run after column mapping. Data names it, code implements it —
+   * the same split as MLS patterns. Needed when canonical fields cannot be reached
+   * by column mapping alone (a name to split, an address to decompose, fields buried
+   * in a notes blob). Unknown name ⇒ applyProfile throws (never a silent skip).
+   */
+  transform?: string;
 }

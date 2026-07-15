@@ -83,5 +83,11 @@ export function buildConfirmedProfile(input: BuildProfileInput): SourceProfile {
     mapping,
     requiredColumns,
     strictness: input.strictness,
+    // A new VERSION inherits the base's derivation (WP-LS1): a drift is a column
+    // rename, never a change of format identity. Dropping this would silently ingest
+    // every later upload with no address, no seller name and un-stripped skip-trace
+    // notes (SEC-05) — no error, just wrong data. A brand-new format (no base) has no
+    // transform: no registered code exists to derive an unknown shape.
+    transform: input.base?.transform,
   };
 }

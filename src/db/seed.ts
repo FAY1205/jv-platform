@@ -89,7 +89,8 @@ async function main() {
       })),
     );
 
-    // Source profiles: InvestorFuse v1 (WP-013, the real source) + Generic fallback (WP-010).
+    // Source profiles: Lead Source 1 v1 — the only ingestable format (WP-LS1).
+    // `transform` must be persisted or a saved profile silently loses its derivation.
     await db.insert(schema.sourceProfiles).values(
       SEED_SOURCE_PROFILES.map((p) => ({
         tenantId,
@@ -99,6 +100,7 @@ async function main() {
         mapping: p.mapping,
         requiredColumns: p.requiredColumns,
         strictness: p.strictness,
+        transform: p.transform ?? null,
       })),
     );
 

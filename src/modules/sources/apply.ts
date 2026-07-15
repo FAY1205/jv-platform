@@ -1,9 +1,12 @@
 import { CANONICAL_FIELDS, type CanonicalField, type SourceProfile } from "./types";
 import { normalizeHeader } from "./signature";
+import { getTransform } from "./transforms";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Apply a Source Profile to a parsed row (ING-03/04). Maps source columns to
-// canonical fields; the full source row is preserved as raw (DM-02 raw_json).
+// canonical fields, then runs the profile's named transform (if any) for fields
+// that mapping alone cannot reach; the full source row is preserved as raw
+// (DM-02 raw_json). PURE (PRN-01) — transforms are required to be pure too.
 // ─────────────────────────────────────────────────────────────────────────────
 
 export interface AppliedRow {
@@ -19,15 +22,17 @@ export function applyProfile(row: Record<string, unknown>, profile: SourceProfil
     lookup.set(normalizeHeader(key), value);
   }
 
-  const canonical: Partial<Record<CanonicalField, string>> = {};
+  const mapped: Partial<Record<CanonicalField, string>> = {};
   for (const field of CANONICAL_FIELDS) {
     const col = profile.mapping[field];
     if (!col) continue;
     const value = lookup.get(normalizeHeader(col));
     if (value != null && String(value).trim() !== "") {
-      canonical[field] = String(value);
+      mapped[field] = String(value);
     }
   }
+
+  const canonical = profile.transform ? getTransform(profile.transform)(row, mapped) : mapped;
 
   return { canonical, raw: row };
 }

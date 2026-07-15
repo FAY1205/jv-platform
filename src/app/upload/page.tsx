@@ -7,6 +7,9 @@ import { parseWorkbookInWorker } from "@/lib/xlsx-client";
 import { Card, CardBody, Button, Badge, Input, NativeSelect, AppShell } from "@/components";
 import { csrfHeaders } from "@/lib/csrf-client";
 import { validateUploadFile } from "@/lib/upload-guard";
+// Client-safe: seed-profiles is pure data (its only import is a type, erased at build) —
+// no DB/server chain reaches the bundle through it.
+import { LEAD_SOURCE_1_PROFILE } from "@/modules/sources/seed-profiles";
 
 interface Parsed {
   filename: string;
@@ -34,7 +37,10 @@ interface MappingNeed {
   canonicalFields: string[];
 }
 
-const TEMPLATE_HREF = "/api/templates/investorfuse";
+// WP-LS1: the only ingestable format. The retired investorfuse/generic ids left the
+// seed list, and the template route resolves ids from it — so this MUST track the seed
+// or the download 404s (it did; caught by driving the real upload page, not by a test).
+const TEMPLATE_HREF = `/api/templates/${LEAD_SOURCE_1_PROFILE.id}`;
 
 async function post(url: string, body: unknown) {
   const res = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json", ...csrfHeaders() }, body: JSON.stringify(body) });

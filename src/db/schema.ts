@@ -177,6 +177,11 @@ export const sourceProfiles = pgTable(
     mapping: jsonb("mapping").notNull(),
     requiredColumns: jsonb("required_columns").notNull(),
     strictness: strictnessEnum("strictness").notNull().default("flexible"),
+    // WP-LS1 (SEAM): names a PURE transform registered in src/modules/sources/transforms.ts,
+    // run after column mapping for fields mapping cannot reach. MUST persist: detection
+    // prefers saved rows over the code seeds, so a row that lost its transform would
+    // silently ingest leads with no address/name and un-stripped notes (SEC-05).
+    transform: text("transform"),
     createdAt: createdAt(),
   },
   (t) => [index("source_profiles_tenant_idx").on(t.tenantId)],

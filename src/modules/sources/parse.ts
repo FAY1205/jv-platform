@@ -20,7 +20,14 @@ export interface ParsedWorkbook {
 
 export function parseWorkbook(data: ArrayBuffer | Uint8Array): ParsedWorkbook {
   const bytes = data instanceof Uint8Array ? data : new Uint8Array(data);
-  const wb = XLSX.read(bytes, { type: "array", cellDates: false });
+  // ING-01 determinism: PIN the decoder to UTF-8. Left to guess, SheetJS decodes a
+  // BOM-less CSV as Windows-1252 and a BOM'd one as UTF-8 — so the SAME logical export
+  // yields two different header sets depending on a 3-byte prefix. The real export's
+  // headers contain emoji ("⚠️ Dispo Key Notes"), which decoded to mojibake
+  // ("â ï¸ Dispo Key Notes") and got pinned into the Lead Source 1 signature; the day the
+  // CRM added a BOM, 21 columns would have read as a format change and the ING-08
+  // diff-and-confirm gate would have drowned in phantom drift. Never infer an encoding.
+  const wb = XLSX.read(bytes, { type: "array", cellDates: false, codepage: 65001 });
 
   const firstSheet = wb.SheetNames[0];
   if (!firstSheet) return { headers: [], rows: [] };

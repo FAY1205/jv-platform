@@ -23,6 +23,8 @@ function rowToProfile(r: typeof schema.sourceProfiles.$inferSelect): SourceProfi
     mapping: r.mapping as Partial<Record<CanonicalField, string>>,
     requiredColumns: r.requiredColumns as CanonicalField[],
     strictness: r.strictness as Strictness,
+    // WP-LS1: must round-trip, else a saved profile silently loses its derivation.
+    transform: r.transform ?? undefined,
   };
 }
 
@@ -52,6 +54,7 @@ export async function saveProfileVersion(db: DB, scope: ScopeContext, profile: S
       mapping: profile.mapping,
       requiredColumns: profile.requiredColumns,
       strictness: profile.strictness,
+      transform: profile.transform ?? null,
     })
     .returning({ id: schema.sourceProfiles.id });
   await db.insert(schema.auditLog).values({

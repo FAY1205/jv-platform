@@ -6,7 +6,7 @@ import { randomUUID } from "node:crypto";
 import * as schema from "@/db/schema";
 import { purgeAuditLog } from "../helpers/audit";
 import { detectProfile } from "@/modules/sources";
-import { INVESTORFUSE_PROFILE } from "@/modules/sources/seed-profiles";
+import { LEAD_SOURCE_1_PROFILE } from "@/modules/sources/seed-profiles";
 import { suggestMapping, buildConfirmedProfile } from "@/modules/sources/mapping";
 import { loadProfilesForDetection, saveProfileVersion, findProfileById } from "@/modules/sources/profile-store";
 import type { ScopeContext } from "@/lib/scope";
@@ -43,35 +43,41 @@ suite("WP-032b-2: format drift + versioned profiles (ING-02/08, DM-08)", () => {
   });
 
   it("ING-08/DM-08: a confirmed drift saves a new version; the same file then matches EXACTLY", async () => {
-    const zipHeader = INVESTORFUSE_PROFILE.mapping.zip!;
-    const drifted = INVESTORFUSE_PROFILE.headerSignature.map((h) => (h === zipHeader ? "Property Postal Code" : h));
+    // WP-LS1: exercises the LIVE seed. The CRM renames a mapped column week to week,
+    // so this is the real drift path, not a hypothetical one.
+    const notesHeader = LEAD_SOURCE_1_PROFILE.mapping.notes!;
+    const drifted = LEAD_SOURCE_1_PROFILE.headerSignature.map((h) => (h === notesHeader ? "Lead Notes" : h));
 
     // Before confirming: detection sees drift against the seed.
     const before = await loadProfilesForDetection(db, scope);
     const d0 = detectProfile(drifted, before);
     expect(d0.status).toBe("drift");
-    expect(d0.profile?.name).toBe("InvestorFuse");
+    expect(d0.profile?.name).toBe("Lead Source 1");
 
     // Suggested mapping follows the rename, then we confirm → save v2.
     const mapping = suggestMapping(d0.profile ?? null, drifted);
-    expect(mapping.zip).toBe("Property Postal Code");
+    expect(mapping.notes).toBe("Lead Notes");
     const v2 = buildConfirmedProfile({ base: d0.profile!, name: d0.profile!.name, uploadHeaders: drifted, mapping, strictness: "flexible" });
-    expect(v2.version).toBe(INVESTORFUSE_PROFILE.version + 1);
+    expect(v2.version).toBe(LEAD_SOURCE_1_PROFILE.version + 1);
+    // SEAM: the derivation must survive the confirm — see the unit test for why.
+    expect(v2.transform).toBe("lead-source-1");
     await saveProfileVersion(db, scope, v2);
 
     // After: the saved v2 replaces the seed for that name, and the file matches exactly.
     const after = await loadProfilesForDetection(db, scope);
-    expect(after.filter((p) => p.name === "InvestorFuse")).toHaveLength(1); // v2 only
+    expect(after.filter((p) => p.name === "Lead Source 1")).toHaveLength(1); // v2 only
     const d1 = detectProfile(drifted, after);
     expect(d1.status).toBe("exact");
     expect(d1.profile?.version).toBe(2);
+    // …and the round-tripped v2 still derives (SEC-05 + PRN-03 depend on it).
+    expect(d1.profile?.transform).toBe("lead-source-1");
 
     const audits = await db.select().from(schema.auditLog).where(eq(schema.auditLog.tenantId, scope.tenantId));
     expect(audits.some((a) => a.action === "source_profile.saved")).toBe(true);
   });
 
   it("findProfileById resolves a seed slug (not a uuid) without a DB type error", async () => {
-    expect((await findProfileById(db, scope, "investorfuse"))?.name).toBe("InvestorFuse");
+    expect((await findProfileById(db, scope, "lead-source-1"))?.name).toBe("Lead Source 1");
     expect(await findProfileById(db, scope, "not-a-uuid")).toBeNull();
   });
 
