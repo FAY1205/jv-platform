@@ -1,11 +1,14 @@
 // @vitest-environment jsdom
+import * as React from "react";
 import { describe, expect, it, afterEach, beforeEach, vi } from "vitest";
-import { render, screen, cleanup, waitFor } from "@testing-library/react";
-import { CoverageMap } from "@/components/CoverageMap";
+import { render, screen, cleanup, waitFor, fireEvent } from "@testing-library/react";
 import { CountyCoverageMap } from "@/components/CountyCoverageMap";
 import { PARTNER_FILL_OPACITY, DIMMED_FILL_OPACITY } from "@/components/map";
-import { contrastText } from "@/lib/contrast";
 import type { StateCoverage } from "@/modules/coverage/map";
+
+// D1 (2026-07-15): the hex-cartogram CoverageMap (and its describe block here) was
+// retired — the county choropleth below is the app's one map (owner map-consistency
+// call, T3). Its hover tooltip, hatch, opacity, and caption behavior are pinned here.
 
 function stateRow(over: Partial<StateCoverage> & Pick<StateCoverage, "code" | "name">): StateCoverage {
   return {
@@ -19,62 +22,6 @@ function stateRow(over: Partial<StateCoverage> & Pick<StateCoverage, "code" | "n
     gap: over.gap ?? false,
   };
 }
-
-const COVERED = stateRow({
-  code: "CA",
-  name: "California",
-  partnerId: "p1",
-  partnerName: "Acme",
-  refId: "PR-001",
-  color: "#5B7A9E",
-  leadCount: 3,
-});
-const GAP = stateRow({ code: "TX", name: "Texas", gap: true, leadCount: 5 });
-
-afterEach(() => cleanup());
-
-describe("MAP-01: CoverageMap (hex) — Survey reskin", () => {
-  it("MAP-01: defines the uncovered hatch pattern", () => {
-    const { container } = render(<CoverageMap states={[COVERED, GAP]} />);
-    expect(container.querySelector("pattern")).toBeInTheDocument();
-  });
-
-  it("MAP-01: fills uncovered states with the hatch (url reference)", () => {
-    const { container } = render(<CoverageMap states={[COVERED, GAP]} />);
-    const hatched = [...container.querySelectorAll("polygon")].filter((p) =>
-      (p.getAttribute("fill") || "").startsWith("url(#"),
-    );
-    expect(hatched.length).toBeGreaterThan(0);
-  });
-
-  it("MAP-01: keeps the warn ring + marker dot on gap states only", () => {
-    const { container } = render(<CoverageMap states={[COVERED, GAP]} />);
-    const dashed = [...container.querySelectorAll("polygon")].filter((p) => p.getAttribute("stroke-dasharray"));
-    expect(dashed.length).toBe(1); // only TX gap
-    expect(container.querySelector("circle")).toBeInTheDocument(); // marker dot
-  });
-
-  it("MAP-01: labels covered states via the shared contrast picker (F-19)", () => {
-    const { container } = render(<CoverageMap states={[COVERED, GAP]} />);
-    const ca = [...container.querySelectorAll("text")].find((t) => t.textContent === "CA")!;
-    // jsdom serializes inline style.fill to rgb(); tie the assertion to the picker's choice.
-    const asRgb = (hex: "#111111" | "#ffffff") => (hex === "#ffffff" ? "rgb(255, 255, 255)" : "rgb(17, 17, 17)");
-    expect(ca.style.fill).toBe(asRgb(contrastText("#5B7A9E")));
-  });
-
-  it("MAP-01: exposes role=img with a descriptive label", () => {
-    render(<CoverageMap states={[COVERED, GAP]} />);
-    expect(screen.getByRole("img", { name: /coverage map/i })).toBeInTheDocument();
-  });
-
-  it("MAP-01: renders the caption plate only when a caption is provided", () => {
-    const { rerender } = render(<CoverageMap states={[COVERED]} />);
-    expect(screen.queryByText("United States")).toBeNull();
-    rerender(<CoverageMap states={[COVERED]} caption={{ title: "United States", subtitle: "50 states" }} />);
-    expect(screen.getByText("United States")).toBeInTheDocument();
-    expect(screen.getByText("50 states")).toBeInTheDocument();
-  });
-});
 
 describe("MAP-01: CountyCoverageMap (county) — Survey reskin", () => {
   const GEO = {
@@ -97,9 +44,14 @@ describe("MAP-01: CountyCoverageMap (county) — Survey reskin", () => {
     cleanup();
   });
 
+  async function renderMap(props: Partial<React.ComponentProps<typeof CountyCoverageMap>> & { states: readonly StateCoverage[] }) {
+    const view = render(<CountyCoverageMap {...props} />);
+    await waitFor(() => expect(view.container.querySelectorAll("path[data-fips]").length).toBe(2));
+    return view;
+  }
+
   it("MAP-01: defines the hatch and fills uncovered counties with it", async () => {
-    const { container } = render(<CountyCoverageMap states={[]} />);
-    await waitFor(() => expect(container.querySelectorAll("path[data-fips]").length).toBe(2));
+    const { container } = await renderMap({ states: [] });
     expect(container.querySelector("pattern")).toBeInTheDocument();
     const hatched = [...container.querySelectorAll("path[data-fips]")].filter((p) =>
       (p.getAttribute("fill") || "").startsWith("url(#"),
@@ -111,8 +63,7 @@ describe("MAP-01: CountyCoverageMap (county) — Survey reskin", () => {
     const states: StateCoverage[] = [
       stateRow({ code: "CA", name: "California", partnerId: "p1", partnerName: "Acme", refId: "PR-001", color: "#5B7A9E" }),
     ];
-    const { container } = render(<CountyCoverageMap states={states} />);
-    await waitFor(() => expect(container.querySelectorAll("path[data-fips]").length).toBe(2));
+    const { container } = await renderMap({ states });
     const covered = container.querySelector('path[data-fips="06001"]')!;
     expect(covered.getAttribute("fill-opacity")).toBe(String(PARTNER_FILL_OPACITY));
     const uncovered = container.querySelector('path[data-fips="48001"]')!;
@@ -124,8 +75,7 @@ describe("MAP-01: CountyCoverageMap (county) — Survey reskin", () => {
       stateRow({ code: "CA", name: "California", partnerId: "p1", partnerName: "A", refId: "PR-001", color: "#5B7A9E" }),
       stateRow({ code: "TX", name: "Texas", partnerId: "p2", partnerName: "B", refId: "PR-002", color: "#6E8B5E" }),
     ];
-    const { container } = render(<CountyCoverageMap states={states} selectedPartnerId="p1" />);
-    await waitFor(() => expect(container.querySelectorAll("path[data-fips]").length).toBe(2));
+    const { container } = await renderMap({ states, selectedPartnerId: "p1" });
     const selected = container.querySelector('path[data-fips="06001"]')!; // CA / p1
     const other = container.querySelector('path[data-fips="48001"]')!; // TX / p2 → dimmed
     expect(selected.getAttribute("fill-opacity")).toBe(String(PARTNER_FILL_OPACITY));
@@ -136,5 +86,36 @@ describe("MAP-01: CountyCoverageMap (county) — Survey reskin", () => {
     render(<CountyCoverageMap states={[]} caption={{ title: "United States", subtitle: "county coverage" }} />);
     expect(await screen.findByRole("img", { name: /county coverage map/i })).toBeInTheDocument();
     expect(screen.getByText("United States")).toBeInTheDocument();
+  });
+
+  // ── uncoveredHoverLabel (T3: the Unmatched gap map overrides the coverage wording) ──
+
+  it("MAP-01: hovering an uncovered state's county shows the default coverage wording", async () => {
+    const states: StateCoverage[] = [stateRow({ code: "TX", name: "Texas" })]; // present, no partner
+    const { container } = await renderMap({ states });
+    fireEvent.pointerMove(container.querySelector('path[data-fips="48001"]')!);
+    expect(await screen.findByText("No partner covers Texas")).toBeInTheDocument();
+  });
+
+  it("T3/MAP-01: uncoveredHoverLabel overrides the uncovered wording (gap-map semantics)", async () => {
+    const states: StateCoverage[] = [stateRow({ code: "TX", name: "Texas" })];
+    const { container } = await renderMap({
+      states,
+      uncoveredHoverLabel: (name) => `No unmatched leads in ${name}`,
+    });
+    fireEvent.pointerMove(container.querySelector('path[data-fips="48001"]')!);
+    expect(await screen.findByText("No unmatched leads in Texas")).toBeInTheDocument();
+    expect(screen.queryByText("No partner covers Texas")).toBeNull();
+  });
+
+  it("MAP-01: a covered county's hover shows the partner token, never the uncovered wording", async () => {
+    const states: StateCoverage[] = [
+      stateRow({ code: "CA", name: "California", partnerId: "p1", partnerName: "Acme", refId: "PR-001", color: "#5B7A9E" }),
+    ];
+    const { container } = await renderMap({ states, uncoveredHoverLabel: (n) => `custom ${n}` });
+    fireEvent.pointerMove(container.querySelector('path[data-fips="06001"]')!);
+    expect(await screen.findByText("Acme")).toBeInTheDocument(); // PartnerTag (PRN-14: name + ref)
+    expect(screen.getByText("PR-001")).toBeInTheDocument();
+    expect(screen.queryByText(/custom/)).toBeNull();
   });
 });

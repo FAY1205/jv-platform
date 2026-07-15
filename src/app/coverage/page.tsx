@@ -8,7 +8,7 @@ import { AppShell, CountyCoverageMap, PartnerTag, EmptyState, Skeleton, usePageH
 import { MapHatch } from "@/components/map";
 import type { StateCoverage, CoveragePartner } from "@/modules/coverage/map";
 
-// MAP-01. Read-only coverage overview: the hex map colors each state by its
+// MAP-01. Read-only coverage overview: the county map colors each state by its
 // partner; the legend and gap panel make ownership and holes explicit (PRN-14).
 interface CoverageResponse {
   states: StateCoverage[];

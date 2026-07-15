@@ -1,13 +1,13 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // Coverage-map view model (MAP-01). PURE — no I/O, no Date.now() (PRN-01).
 //
-// Colors each of the 51 hex states (50 + DC) by its state-fallback partner
+// Colors each of the 51 states (50 + DC) by its state-fallback partner
 // (state_rules; ASN-01), flags coverage gaps (leads from a state nobody owns),
 // and builds the PRN-14 legend (partner name + partner ref accompany every color).
 // The caller (queries.ts) fetches the rows; this only shapes them.
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { US_HEX_STATES } from "@/lib/geo/us-hexgrid";
+import { US_STATE_DATA } from "@/lib/us-states";
 
 export interface StateRuleInput {
   state: string;
@@ -82,16 +82,16 @@ export function buildStateCoverage(
   let coveredCount = 0;
   let gapCount = 0;
 
-  const states: StateCoverage[] = US_HEX_STATES.map((hex) => {
-    const partnerId = ruleByState.get(hex.code) ?? null;
+  const states: StateCoverage[] = US_STATE_DATA.map((st) => {
+    const partnerId = ruleByState.get(st.code) ?? null;
     const partner = partnerId ? partnerById.get(partnerId) : undefined;
-    const leadCount = leadsByState.get(hex.code) ?? 0;
+    const leadCount = leadsByState.get(st.code) ?? 0;
     const gap = partnerId === null && leadCount > 0;
     if (partnerId) coveredCount += 1;
     if (gap) gapCount += 1;
     return {
-      code: hex.code,
-      name: hex.name,
+      code: st.code,
+      name: st.name,
       partnerId,
       partnerName: partner?.name ?? null,
       refId: partner?.refId ?? null,

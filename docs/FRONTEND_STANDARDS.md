@@ -17,9 +17,9 @@ Canonicalizes the frontend patterns this codebase follows. Authority order:
 
 ## 2. Components (DSN, §6.17)
 
-- All UI is composed from `src/components` (20 primitives — incl. `IconButton`,
-  the shared 44px chrome icon button, and `LinkCard`, the shared tappable-card
-  link — + `PartnerTag`, `NotificationBell`, `NotesPanel`, `ListingBadge`).
+- All UI is composed from `src/components` — the living roster is the barrel
+  (`src/components/index.ts`); every primitive also appears in `/gallery` (D1: the
+  prose count kept drifting, so the barrel is now the source of truth).
   Repeated ad-hoc markup means: promote a primitive first, then use it.
 - Every interactive component implements **default / hover / focus-visible / active /
   disabled / loading**. `/gallery` is the living showcase — new components appear there
@@ -28,9 +28,10 @@ Canonicalizes the frontend patterns this codebase follows. Authority order:
   `text-step-0` = 12px). No arbitrary `text-[…]` font-size literals in app source —
   guarded by `tests/unit/type-scale.test.ts`.
   - **Exception (glyph-fit, not type-scale):** the `NotificationBell` unread-count badge
-    (`text-[.6rem]`, fits a 16px circle) and the `CoverageMap` on-polygon 2-letter hex
-    labels (raw `fontSize:11`) are sized to their container, not to a reading step — kept
-    sub-floor by design and excluded from the ladder (and from the guard's ban list).
+    (`text-[.6rem]`, fits a 16px circle) is sized to its container, not to a reading
+    step — kept sub-floor by design and excluded from the ladder (and from the guard's
+    ban list). (The hex map's on-polygon labels — the second former carve-out — retired
+    with the hex `CoverageMap`, D1 2026-07-15.)
 - Known debt: `TODO(owner)` a `Checkbox` primitive (notification prefs use styled inputs).
 
 ## 3. Tokens & theming (PRN-12, SEAM-08)
@@ -82,10 +83,9 @@ Canonicalizes the frontend patterns this codebase follows. Authority order:
 
 - Color never carries meaning alone: partner name + `JV-###` accompany every color —
   bars, rails, legends, exports (SC 1.4.1). Fills keep AA text contrast (SC 1.4.3) in
-  both themes. **Carve-out (ADR-0024):** small (≤~12px) 2-letter labels drawn on
-  partner-tint *map* fills may fall below 4.5:1 **only** when they carry a contrasting
-  halo AND every label is redundantly identified at solid AA on the same surface (the
-  map tooltip + the companion list). No other fill+text is exempt.
+  both themes, **no exceptions**. (The former ADR-0024 carve-out for on-fill map labels
+  was retired with the hex `CoverageMap` — ADR-0029; the county map never draws
+  on-fill text.)
 - Keyboard: modals trap focus, Esc closes, focus returns to the opener; menus/selects
   operable without a pointer (SC 2.1.1); `focus-visible` styling on every interactive
   element (SC 2.4.7).

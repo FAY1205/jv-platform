@@ -1,6 +1,7 @@
 # ADR-0024: On-fill map label contrast — documented SC 1.4.3 carve-out (WP-D)
 
-- **Status:** Accepted (owner-approved in the WP-D build session, 2026-07-11)
+- **Status:** Superseded by ADR-0029 (was: Accepted, owner-approved in the WP-D build
+  session, 2026-07-11)
 - **Date:** 2026-07-11
 - **Phase / WP:** Phase 2 · Survey identity WS-1.5 · WP-D (maps)
 - **Refines:** ADR-0022 (Survey visual identity) · `docs/FRONTEND_STANDARDS.md` §7

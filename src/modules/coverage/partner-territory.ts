@@ -1,4 +1,4 @@
-import { US_HEX_STATES } from "@/lib/geo/us-hexgrid";
+import { US_STATE_DATA } from "@/lib/us-states";
 import type { StateCoverage } from "./map";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -22,11 +22,11 @@ export interface PartnerTerritory {
 
 export function buildPartnerTerritory(input: PartnerTerritoryInput): PartnerTerritory {
   const owned = new Set(input.ownStates);
-  const states: StateCoverage[] = US_HEX_STATES.map((hex) => {
-    const mine = owned.has(hex.code);
+  const states: StateCoverage[] = US_STATE_DATA.map((st) => {
+    const mine = owned.has(st.code);
     return {
-      code: hex.code,
-      name: hex.name,
+      code: st.code,
+      name: st.name,
       partnerId: mine ? input.partner.id : null,
       partnerName: mine ? input.partner.name : null,
       refId: mine ? input.partner.refId : null,

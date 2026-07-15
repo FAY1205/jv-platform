@@ -5,11 +5,11 @@ import { join } from "node:path";
 // DSN-11 (WP-K + WP-P): once the ladder is swept, none of these arbitrary
 // text-size literal spellings may reappear in app source. WP-P (slice B2)
 // resolved the 4 readable sub-12px sites (.62/.66/.7rem) to text-step-0 and
-// added them here as a regression floor. The 2 GLYPH-FIT carve-outs remain by
-// design and are intentionally NOT banned: the NotificationBell unread-count
-// badge (text-[.6rem], fits a 16px circle) and the CoverageMap on-polygon hex
-// labels (raw fontSize:11) — sized to their container, not to a reading step
-// (FRONTEND_STANDARDS §2, glyph-fit exemption).
+// added them here as a regression floor. ONE GLYPH-FIT carve-out remains by
+// design and is intentionally NOT banned: the NotificationBell unread-count
+// badge (text-[.6rem], fits a 16px circle) — sized to its container, not to a
+// reading step (FRONTEND_STANDARDS §2, glyph-fit exemption). (The other
+// carve-out, the hex map's on-polygon labels, retired with the hex map — D1.)
 const BANNED = [
   "text-[13px]",
   "text-[.8125rem]",
