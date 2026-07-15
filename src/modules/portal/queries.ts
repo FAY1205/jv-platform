@@ -297,7 +297,9 @@ export async function partnerDashboardStats(scope: ScopeContext, range: RangeKey
 /** WP-F.3: the caller's OWN state territory, everyone else anonymized (PRN-08). */
 export async function partnerTerritory(scope: ScopeContext): Promise<PartnerTerritory> {
   const db = getDb();
-  const empty = { id: "", name: "", refId: "", color: "#000000" };
+  // Sentinel for a scope with no partner: never rendered (consumers gate on a truthy
+  // partner.name), so it carries no real color (D4 — keeps app code hex-free, PRN-12).
+  const empty = { id: "", name: "", refId: "", color: "" };
   if (!scope.partnerId) return buildPartnerTerritory({ ownStates: [], partner: empty });
   const [partner] = await db
     .select({ id: schema.partners.id, name: schema.partners.name, refId: schema.partners.refId, color: schema.partners.color })

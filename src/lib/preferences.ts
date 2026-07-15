@@ -14,9 +14,13 @@ export const THEME_PREFS: readonly ThemePref[] = ["system", "light", "dark"];
 export interface Preferences {
   theme: ThemePref;
   navCollapsed: boolean;
+  /** D4: the PORTAL rail's collapse is its own preference — one person driving both
+   *  apps in one browser (the owner's testing setup) shouldn't collapse both rails
+   *  with one click. Admin keeps `navCollapsed`. */
+  navCollapsedPortal: boolean;
 }
 
-export const DEFAULT_PREFERENCES: Preferences = { theme: "system", navCollapsed: false };
+export const DEFAULT_PREFERENCES: Preferences = { theme: "system", navCollapsed: false, navCollapsedPortal: false };
 
 const STORAGE_KEY = "jv.prefs";
 
@@ -32,6 +36,7 @@ export function parsePreferences(raw: string | null): Preferences {
     return {
       theme: isThemePref(o.theme) ? o.theme : DEFAULT_PREFERENCES.theme,
       navCollapsed: o.navCollapsed === true,
+      navCollapsedPortal: o.navCollapsedPortal === true,
     };
   } catch {
     return DEFAULT_PREFERENCES;

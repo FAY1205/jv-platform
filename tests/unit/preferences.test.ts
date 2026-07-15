@@ -16,7 +16,7 @@ describe("parsePreferences", () => {
   });
 
   it("fills missing keys from defaults", () => {
-    expect(parsePreferences(JSON.stringify({ theme: "dark" }))).toEqual({ theme: "dark", navCollapsed: false });
+    expect(parsePreferences(JSON.stringify({ theme: "dark" }))).toEqual({ theme: "dark", navCollapsed: false, navCollapsedPortal: false });
   });
 
   it("falls back to the default theme when the stored value isn't a valid ThemePref", () => {
@@ -26,6 +26,13 @@ describe("parsePreferences", () => {
   it("coerces navCollapsed to a boolean", () => {
     expect(parsePreferences(JSON.stringify({ navCollapsed: true })).navCollapsed).toBe(true);
     expect(parsePreferences(JSON.stringify({ navCollapsed: "yes" })).navCollapsed).toBe(false);
+  });
+
+  it("D4: navCollapsedPortal is independent of the admin navCollapsed", () => {
+    const p = parsePreferences(JSON.stringify({ navCollapsed: true }));
+    expect(p.navCollapsed).toBe(true);
+    expect(p.navCollapsedPortal).toBe(false); // collapsing the admin rail never collapses the portal's
+    expect(parsePreferences(JSON.stringify({ navCollapsedPortal: true })).navCollapsedPortal).toBe(true);
   });
 });
 

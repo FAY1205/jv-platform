@@ -80,10 +80,11 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
   const path = usePathname() ?? "";
   const bare = path === "/portal/login" || path === "/portal/tos";
   const title = portalTitleForPath(path);
-  // Desktop rail collapse — the same persisted preference as the admin shell (one
-  // "my rail is collapsed" choice; admin and partner are separate logins in practice).
-  const { navCollapsed } = usePreferences();
-  const navOpen = !navCollapsed;
+  // Desktop rail collapse — the portal's OWN persisted preference (D4): one person
+  // driving admin + portal in the same browser (the owner's testing setup) shouldn't
+  // collapse both rails with one click. Admin keeps `navCollapsed`.
+  const { navCollapsedPortal } = usePreferences();
+  const navOpen = !navCollapsedPortal;
   // Nav badge count (mirrors the admin rail badges) — cheap, cached, from the scoped
   // count endpoint (PRN-15: never derived client-side from a page of rows).
   const leadsCount = useQuery({
@@ -185,7 +186,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
         {/* Desktop top bar (≥ md) — collapse toggle + page title + tools (admin recipe) */}
         <header className="hidden md:flex sticky top-0 z-20 items-center gap-3 border-b border-border-soft bg-bg/80 px-7 py-2 backdrop-blur-md">
           <IconButton
-            onClick={() => setPreferences({ navCollapsed: navOpen })}
+            onClick={() => setPreferences({ navCollapsedPortal: navOpen })}
             aria-label="Toggle navigation"
             aria-expanded={navOpen}
           >

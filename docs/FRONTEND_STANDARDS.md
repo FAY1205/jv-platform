@@ -38,11 +38,12 @@ Canonicalizes the frontend patterns this codebase follows. Authority order:
 
 - No hex, font, logo, or product name outside `src/lib/tokens` + `src/app/globals.css`.
   Components consume semantic tokens (`text-text-2`, `bg-surface`, …).
-  - **Exception (algorithmic, not brand):** `src/lib/contrast.ts` and
-    `src/modules/export/render.ts` contain literal `#000000`/`#FFFFFF`/`#111111` as WCAG contrast
-    *endpoints* (the black/white the relative-luminance pick compares against), not brand identity.
-    These two files are accepted PRN-12 exceptions alongside the token homes — never route them
-    through theme tokens, which would break the ratio math.
+  - **Exception (algorithmic, not brand):** `src/modules/export/render.ts` contains literal
+    `#000000`/`#FFFFFF` (and their bare ExcelJS ARGB forms) as WCAG contrast *endpoints* (the
+    black/white the relative-luminance pick compares against), not brand identity — never route
+    it through theme tokens, which would break the ratio math. (`src/lib/contrast.ts` carries
+    no hex literals since D1 retired `contrastText`/`contrastHalo`; it is pure `hex: string`
+    math and no longer an exception.) Enforced by `tests/unit/token-sweep.test.ts` (D4).
   - **Exception (canvas paint, not brand):** `src/components/assistant/Orb.tsx` renders a
     theme-aware plasma orb on a `<canvas>`; canvas 2D cannot consume CSS `var(--token)`, so its
     glass/ribbon paint palette holds raw color values (the orb's visual identity, like the SVG

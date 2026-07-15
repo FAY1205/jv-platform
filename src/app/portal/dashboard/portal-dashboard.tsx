@@ -164,6 +164,8 @@ export function PortalDashboard() {
                   <div key={i} className="bg-surface px-3 py-3">
                     <Skeleton className="h-7 w-12" />
                     <Skeleton className="mt-2 h-3 w-16" />
+                    {/* D4: third line ≈ the delta line, so the tile doesn't grow on load */}
+                    <Skeleton className="mt-1 h-3 w-20" />
                   </div>
                 ))
               ) : (
@@ -234,6 +236,8 @@ export function PortalDashboard() {
                     <div key={i} className="bg-surface px-4 py-3">
                       <Skeleton className="h-7 w-12" />
                       <Skeleton className="mt-2 h-3 w-16" />
+                      {/* D4: third line ≈ the delta line, so the tile doesn't grow on load */}
+                      <Skeleton className="mt-1 h-3 w-20" />
                     </div>
                   ))
                 ) : (

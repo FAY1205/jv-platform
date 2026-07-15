@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { readdirSync, readFileSync, statSync } from "node:fs";
-import { join } from "node:path";
+import { readFileSync } from "node:fs";
+import { walkSrc } from "../helpers/walk-src";
 
 // DSN-11 (WP-K + WP-P): once the ladder is swept, none of these arbitrary
 // text-size literal spellings may reappear in app source. WP-P (slice B2)
@@ -26,18 +26,10 @@ const BANNED = [
   "text-[0.7rem]",
 ];
 
-function walk(dir: string): string[] {
-  return readdirSync(dir).flatMap((name) => {
-    const p = join(dir, name);
-    if (statSync(p).isDirectory()) return walk(p);
-    return /\.(ts|tsx)$/.test(p) ? [p] : [];
-  });
-}
-
 describe("DSN-11 type-scale sweep", () => {
   it("DSN-11: no swept text-size literals remain in src/", () => {
     const offenders: string[] = [];
-    for (const file of walk("src")) {
+    for (const file of walkSrc("src")) {
       const lines = readFileSync(file, "utf8").split("\n");
       lines.forEach((line, i) => {
         for (const b of BANNED) {
