@@ -195,6 +195,7 @@ suite("TST-01: tenant & partner isolation", () => {
         phone: "(856) 555-0100",
         email: "jane.doe@gmail.com",
         reasonForSelling: "Relocating for work",
+        address: "848 Caton Ave",
         city: "Cherry Hill",
       })
       .returning({ id: schema.leads.id });
@@ -202,17 +203,18 @@ suite("TST-01: tenant & partner isolation", () => {
     // Change two PII fields (one edited, one cleared) and one routing field.
     await editLead(adminA(), {
       ref: "LD-26-00012",
-      fields: { phone: "(555) 555-9999", email: "", reasonForSelling: "Divorce", city: "Camden" },
+      fields: { phone: "(555) 555-9999", email: "", reasonForSelling: "Divorce", address: "12 Elm St", city: "Camden" },
       partner: { action: "keep" },
     });
 
     // The leads row keeps the REAL new values (only the audit payload is masked).
     const [row] = await db
-      .select({ phone: schema.leads.phone, email: schema.leads.email, city: schema.leads.city })
+      .select({ phone: schema.leads.phone, email: schema.leads.email, address: schema.leads.address, city: schema.leads.city })
       .from(schema.leads)
       .where(eq(schema.leads.id, seed.id));
     expect(row.phone).toBe("(555) 555-9999");
     expect(row.email).toBeNull(); // cleared
+    expect(row.address).toBe("12 Elm St"); // the real value lives on the lead, not the trail
     expect(row.city).toBe("Camden");
 
     const [edit] = await db
@@ -235,12 +237,25 @@ suite("TST-01: tenant & partner isolation", () => {
     expect(after.email).toBeNull();
     expect(before.reasonForSelling).toBe(REDACTED);
     expect(after.reasonForSelling).toBe(REDACTED);
-    // Routing field: raw old→new preserved (its change is the audit-relevant part).
+    // SEC-05/LGL-02: the STREET ADDRESS is PII (the retention sweep nulls it), so it is
+    // masked too — this is the exact field that shipped unmasked and would otherwise sit
+    // in the append-only trail forever after a void+purge.
+    expect(before.address).toBe(REDACTED);
+    expect(after.address).toBe(REDACTED);
+    // COARSE location: raw old→new preserved (its change is the audit-relevant part).
     expect(before.city).toBe("Cherry Hill");
     expect(after.city).toBe("Camden");
     // SEC-05 / LGL-02: no raw seller PII anywhere in the append-only payload.
     const payload = JSON.stringify({ before, after });
-    for (const leak of ["(856) 555-0100", "jane.doe@gmail.com", "Relocating for work", "(555) 555-9999", "Divorce"]) {
+    for (const leak of [
+      "(856) 555-0100",
+      "jane.doe@gmail.com",
+      "Relocating for work",
+      "(555) 555-9999",
+      "Divorce",
+      "848 Caton Ave", // the OLD street address — the field that shipped unmasked
+      "12 Elm St", // and the new one
+    ]) {
       expect(payload, `raw PII leaked into audit_log: ${leak}`).not.toContain(leak);
     }
   });
