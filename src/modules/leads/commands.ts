@@ -3,6 +3,7 @@ import { getDb } from "@/db";
 import * as schema from "@/db/schema";
 import { tenantWhere, type ScopeContext } from "@/lib/scope";
 import { computeDedupeKey, normalizeAddress } from "@/modules/pipeline/normalize";
+import { isAuditPiiLeadField, maskAuditValue } from "@/modules/audit/redact";
 
 // ADM / ASN-03 write side. Manual assignment is ADDITIVE (PRN-05: the import
 // snapshot — partnerId / matchMethod — is never rewritten). Only a currently
@@ -178,8 +179,17 @@ export async function editLead(
       const clean = next.trim() === "" ? null : next.trim();
       if (clean !== (lead[col] ?? null)) {
         patch[col] = clean;
-        before[col] = lead[col] ?? null;
-        after[col] = clean;
+        // SEC-05 (ADR-0021): the leads row keeps the real value via `patch`, but the
+        // append-only audit trail must never hold raw consumer PII — mask PII fields to
+        // a presence sentinel. Routing/property fields stay raw: their old→new is the
+        // audit-relevant part of an edit (DM-04).
+        if (isAuditPiiLeadField(col)) {
+          before[col] = maskAuditValue(lead[col]);
+          after[col] = maskAuditValue(clean);
+        } else {
+          before[col] = lead[col] ?? null;
+          after[col] = clean;
+        }
       }
     }
 

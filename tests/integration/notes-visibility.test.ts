@@ -8,6 +8,7 @@ import { purgeAuditLog } from "../helpers/audit";
 import type { ScopeContext } from "@/lib/scope";
 import { listLeadNotes, addLeadNote, editLeadNote, LeadNotFoundError } from "@/modules/notes/notes";
 import { releaseTenantLeads } from "../helpers/hold";
+import { REDACTED } from "@/modules/audit/redact";
 
 // TST-08 / PRN-13 (live): admin and partner note streams are mutually invisible.
 // Self-skips without DATABASE_URL. Run with node --env-file=.env.local.
@@ -80,20 +81,27 @@ suite("PRN-13/NTS: two-stream note visibility", () => {
     await expect(addLeadNote(partnerX(), "LD-26-00002", "sneaky")).rejects.toBeInstanceOf(LeadNotFoundError);
   });
 
-  it("NTS-02: editing a note is audited (before/after)", async () => {
+  it("NTS-02 / SEC-05: a note edit is audited, but the body is redacted — never the raw text", async () => {
     const { id: noteId } = await addLeadNote(partnerX(), "LD-26-00001", "first draft");
     await editLeadNote(partnerX(), noteId, "revised text");
+    // The real bodies live on lead_notes (subject to the retention sweep), not the audit trail.
     const bodies = (await listLeadNotes(partnerX(), "LD-26-00001")).map((n) => n.body);
     expect(bodies).toContain("revised text");
     expect(bodies).not.toContain("first draft");
+
     const audits = await db
       .select({ action: schema.auditLog.action, before: schema.auditLog.before, after: schema.auditLog.after })
       .from(schema.auditLog)
       .where(inArray(schema.auditLog.tenantId, [id.tenant]));
     const edit = audits.find((a) => a.action === "note.edited");
-    expect(edit).toBeTruthy();
-    expect((edit!.before as { body: string }).body).toBe("first draft");
-    expect((edit!.after as { body: string }).body).toBe("revised text");
+    expect(edit, "the edit is still audited (DM-04)").toBeTruthy();
+    // SEC-05 (ADR-0021): the append-only trail records that the body changed, masked.
+    expect((edit!.before as { body: string }).body).toBe(REDACTED);
+    expect((edit!.after as { body: string }).body).toBe(REDACTED);
+    // No raw note text leaks into audit_log anywhere in the payload.
+    const payload = JSON.stringify({ before: edit!.before, after: edit!.after });
+    expect(payload).not.toContain("first draft");
+    expect(payload).not.toContain("revised text");
   });
 
   it("a partner cannot edit an admin note (cross-stream)", async () => {

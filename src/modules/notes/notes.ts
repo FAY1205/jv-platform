@@ -3,6 +3,7 @@ import { getDb } from "@/db";
 import * as schema from "@/db/schema";
 import { leadWhere, noteWhere, type ScopeContext } from "@/lib/scope";
 import { releasedLeads } from "../run/hold-filter";
+import { maskAuditValue } from "@/modules/audit/redact";
 
 // WP-J2: a partner can't note/read a recalled (soft-deleted) lead; admin keeps access — voided
 // leads stay visible to admin in the import history. Distribution hold: nor a still-held lead.
@@ -88,7 +89,9 @@ export async function addLeadNote(scope: ScopeContext, leadRefId: string, body: 
 /**
  * Edit a note the caller authored, within their own stream (NTS-02). The note must
  * be visible under noteWhere AND authored by the caller — a partner can never touch
- * an admin note even with its id. The change is audited (before/after).
+ * an admin note even with its id. The change is audited — but the note body is
+ * consumer PII, so the append-only trail records only that the body changed, never
+ * the text (SEC-05, ADR-0021). The real current body lives on lead_notes.body.
  */
 export async function editLeadNote(
   scope: ScopeContext,
@@ -116,8 +119,8 @@ export async function editLeadNote(
       action: "note.edited",
       entityType: "lead_note",
       entityRef: noteId,
-      before: { body: note.body },
-      after: { body },
+      before: { body: maskAuditValue(note.body) },
+      after: { body: maskAuditValue(body) },
       traceId: traceId ?? null,
     });
   });
