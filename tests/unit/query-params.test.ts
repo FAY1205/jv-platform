@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { pageParam, pageSizeParam, PORTAL_MAX_PAGE } from "@/lib/query-params";
+import { pageParam, pageSizeParam, dateParam, PORTAL_MAX_PAGE } from "@/lib/query-params";
 
 describe("query-params primitives", () => {
   it("FEP-03: pageParam coerces to a floored int >= 1, else 1", () => {
@@ -31,5 +31,18 @@ describe("query-params primitives", () => {
     expect(s.parse("37")).toBe(20);
     expect(s.parse(null)).toBe(20);
     expect(s.parse(undefined)).toBe(20);
+  });
+
+  // D3 (tenancy-audit F-1): the canonical date boundary, pinned at its own level — three
+  // consumers (leads + activity schemas, runs route) ride this one definition.
+  it("D3: dateParam keeps a real YYYY-MM-DD, degrades everything else to undefined (no filter)", () => {
+    const d = dateParam();
+    expect(d.parse("2026-01-15")).toBe("2026-01-15");
+    expect(d.parse("2026-02-31")).toBeUndefined(); // round-trip guard: shape-valid, impossible
+    expect(d.parse("2026-13-01")).toBeUndefined(); // month out of range
+    expect(d.parse("01/15/2026")).toBeUndefined(); // wrong shape
+    expect(d.parse(null)).toBeUndefined();
+    expect(d.parse(undefined)).toBeUndefined();
+    expect(d.parse(12345)).toBeUndefined(); // non-string
   });
 });

@@ -6,6 +6,7 @@ import {
   Button,
   IconButton,
   LinkCard,
+  FilterPill,
   Badge,
   Card,
   CardHeader,
@@ -314,6 +315,25 @@ function Gallery() {
               <Badge variant="success" dot>Kept</Badge>
               <Badge variant="neutral">Unknown</Badge>
               <Badge variant="outline">heuristic</Badge>
+            </CardBody>
+          </Card>
+        </Section>
+
+        <Section title="FilterPill — toggleable filter chips (DSN-03, D3)">
+          <Card>
+            <CardBody className="flex flex-col gap-3">
+              <div className="flex flex-wrap items-center gap-1.5">
+                <span className="mr-1 text-xs font-semibold text-text-3">Status</span>
+                <FilterPill active>Contacted</FilterPill>
+                <FilterPill>New</FilterPill>
+                <FilterPill>Under contract</FilterPill>
+                <FilterPill disabled>Dead</FilterPill>
+              </div>
+              <p className="text-step-1 text-text-3">
+                Promoted from two byte-identical hand-rolled copies (admin Leads + portal Leads).
+                Carries <code className="num">aria-pressed</code> itself; active = brand fill, idle = bordered surface,
+                press scale + disabled per DSN-03; focus ring from the global outline.
+              </p>
             </CardBody>
           </Card>
         </Section>

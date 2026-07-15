@@ -8,7 +8,8 @@ const parse = (input: Record<string, unknown>) => LeadsQuerySchema.parse(input);
 
 describe("LeadsQuerySchema", () => {
   it("applies defaults: page 1, pageSize 20, received-desc sort, empty filters", () => {
-    expect(parse({})).toEqual({ q: "", page: 1, pageSize: 20, partnerId: null, state: "", statuses: [], source: "", dateFrom: "", dateTo: "", sort: "received", dir: "desc" });
+    // D3: dateFrom/dateTo ride the shared dateParam() — missing/invalid → undefined (was "").
+    expect(parse({})).toEqual({ q: "", page: 1, pageSize: 20, partnerId: null, state: "", statuses: [], source: "", dateFrom: undefined, dateTo: undefined, sort: "received", dir: "desc" });
   });
 
   it("FEP-03: whitelists pageSize to {10,20,50}, else 20", () => {
@@ -49,9 +50,12 @@ describe("LeadsQuerySchema", () => {
     expect(parse({ statuses: "" }).statuses).toEqual([]);
   });
 
-  it("validates date range as YYYY-MM-DD, else empty", () => {
+  it("validates date range as a REAL YYYY-MM-DD date, else no filter (shared dateParam, D3)", () => {
     expect(parse({ dateFrom: "2026-01-15" }).dateFrom).toBe("2026-01-15");
-    expect(parse({ dateFrom: "01/15/2026" }).dateFrom).toBe("");
+    expect(parse({ dateFrom: "01/15/2026" }).dateFrom).toBeUndefined();
+    // The round-trip guard the shared primitive adds: shape-valid but impossible dates degrade too.
+    expect(parse({ dateFrom: "2026-02-31" }).dateFrom).toBeUndefined();
+    expect(parse({ dateTo: "2026-02-31" }).dateTo).toBeUndefined(); // both fields ride the same primitive
   });
 
   it("restricts sort field + direction to known values", () => {

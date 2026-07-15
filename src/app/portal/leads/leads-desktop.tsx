@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
 import { apiGet } from "@/lib/api";
 import {
-  Button, Card, Table, THead, TBody, Th, Tr, Td, Pagination, DEFAULT_PAGE_SIZE, Skeleton, EmptyState,
+  Button, Card, FilterPill, Table, THead, TBody, Th, Tr, Td, Pagination, DEFAULT_PAGE_SIZE, Skeleton, EmptyState,
 } from "@/components";
 import { statusPillClass } from "@/lib/status-pill";
 // leads-contract, NOT ./queries: this is a "use client" component and a VALUE import
@@ -29,12 +29,6 @@ const DEFAULT_DIR: Record<PortalLeadSort, "asc" | "desc"> = {
 
 function fmtDate(iso: string): string {
   return new Date(iso).toLocaleDateString();
-}
-
-function pillClass(active: boolean): string {
-  return active
-    ? "rounded-full border border-brand bg-brand-soft px-2.5 py-0.5 text-xs font-semibold text-brand-ink"
-    : "rounded-full border border-border bg-surface px-2.5 py-0.5 text-xs font-medium text-text-2 transition-colors hover:border-brand-line hover:text-text";
 }
 
 export function LeadsDesktop() {
@@ -80,19 +74,17 @@ export function LeadsDesktop() {
       {/* T7a: admin list-page order — filters row (pills left, in-body action right),
           live result count, then the table in a Card (the admin leads-view idiom). */}
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+        {/* D3: the shared FilterPill primitive (the second former copy of the recipe). */}
         <div className="flex flex-wrap items-center gap-1.5">
           <span className="mr-1 text-xs font-semibold text-text-3">Status</span>
-          <button type="button" onClick={() => setStatuses([])} aria-pressed={statuses.length === 0} className={pillClass(statuses.length === 0)}>
+          <FilterPill active={statuses.length === 0} onClick={() => setStatuses([])}>
             All
-          </button>
-          {PORTAL_STATUS_FILTERS.map((s) => {
-            const active = statuses.includes(s);
-            return (
-              <button key={s} type="button" onClick={() => toggleStatus(s)} aria-pressed={active} className={pillClass(active)}>
-                {s}
-              </button>
-            );
-          })}
+          </FilterPill>
+          {PORTAL_STATUS_FILTERS.map((s) => (
+            <FilterPill key={s} active={statuses.includes(s)} onClick={() => toggleStatus(s)}>
+              {s}
+            </FilterPill>
+          ))}
         </div>
         <a href="/api/portal/leads/export" download>
           <Button variant="secondary" size="lg">

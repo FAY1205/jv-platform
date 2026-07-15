@@ -8,7 +8,8 @@ const parse = (o: unknown) => ActivityQuerySchema.parse(o);
 
 describe("ActivityQuerySchema (ACT-01)", () => {
   it("ACT-01: fills safe defaults for an empty query", () => {
-    expect(parse({})).toEqual({ page: 1, pageSize: 20, category: "all", actor: "", q: "", dateFrom: "", dateTo: "", dir: "desc" });
+    // D3: dateFrom/dateTo ride the shared dateParam() — missing/invalid → undefined (was "").
+    expect(parse({})).toEqual({ page: 1, pageSize: 20, category: "all", actor: "", q: "", dateFrom: undefined, dateTo: undefined, dir: "desc" });
   });
 
   it("ACT-01: whitelists pageSize to {10,20,50}", () => {
@@ -29,10 +30,11 @@ describe("ActivityQuerySchema (ACT-01)", () => {
     expect(parse({ actor: "not-a-uuid" }).actor).toBe("");
   });
 
-  it("ACT-01: dir is asc or desc (default desc); dates must be yyyy-mm-dd", () => {
+  it("ACT-01: dir is asc or desc (default desc); dates must be REAL yyyy-mm-dd (shared dateParam, D3)", () => {
     expect(parse({ dir: "asc" }).dir).toBe("asc");
     expect(parse({ dir: "sideways" }).dir).toBe("desc");
-    expect(parse({ dateFrom: "2026-07-01", dateTo: "bad" })).toMatchObject({ dateFrom: "2026-07-01", dateTo: "" });
+    expect(parse({ dateFrom: "2026-07-01", dateTo: "bad" })).toMatchObject({ dateFrom: "2026-07-01", dateTo: undefined });
+    expect(parse({ dateFrom: "2026-02-31" }).dateFrom).toBeUndefined(); // round-trip guard
   });
 
   it("ACT-01: trims + caps the search string", () => {

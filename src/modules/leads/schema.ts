@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { pageParam, pageSizeParam } from "@/lib/query-params";
+import { pageParam, pageSizeParam, dateParam } from "@/lib/query-params";
 
 // Global leads list query params (ADM). Zod-normalizes everything to canonical
 // values so the query layer never sees raw user input; invalid shapes fall back
@@ -18,7 +18,6 @@ const csv = (v: unknown, allowed: readonly string[]): string[] => {
   const raw = typeof v === "string" ? v.split(",") : Array.isArray(v) ? v.map(String) : [];
   return raw.map((s) => s.trim()).filter((s) => allowed.includes(s));
 };
-const dateOr = (v: unknown): string => (typeof v === "string" && /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : "");
 
 export const LeadsQuerySchema = z.object({
   q: z.unknown().optional().transform((v) => (typeof v === "string" ? v.trim().slice(0, 120) : "")),
@@ -30,8 +29,11 @@ export const LeadsQuerySchema = z.object({
   statuses: z.unknown().optional().transform((v) => csv(v, LEAD_STATUS_FILTERS)),
   /** Lead-source / campaign exact match. */
   source: z.unknown().optional().transform((v) => (typeof v === "string" ? v.trim().slice(0, 80) : "")),
-  dateFrom: z.unknown().optional().transform(dateOr),
-  dateTo: z.unknown().optional().transform(dateOr),
+  // D3: the shared dateParam() (lib/query-params) — same YYYY-MM-DD shape check plus
+  // the round-trip guard ("2026-02-31" degrades to no-filter instead of flowing into
+  // the query layer); invalid/missing → undefined (was ""), same falsy contract.
+  dateFrom: dateParam(),
+  dateTo: dateParam(),
   sort: z.unknown().optional().transform((v) => (SORT_FIELDS.includes(v as LeadSortField) ? (v as LeadSortField) : "received")),
   dir: z.unknown().optional().transform((v) => (v === "asc" ? "asc" : "desc")),
 });

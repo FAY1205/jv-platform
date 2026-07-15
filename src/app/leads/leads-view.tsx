@@ -8,7 +8,7 @@ import { LEAD_STATUS_FILTERS, type LeadSortField } from "@/modules/leads/schema"
 import {
   AppShell, Card, Table, THead, TBody, Th, Tr, Td, PartnerTag, EmptyState, Skeleton,
   ToastProvider, Input, Select, Combobox, DateRangePicker, Pagination, RowOpenButton, StatusSelect,
-  DEFAULT_PAGE_SIZE, usePageHeader,
+  DEFAULT_PAGE_SIZE, usePageHeader, FilterPill,
 } from "@/components";
 import { US_STATES } from "@/lib/us-states";
 import { googleSearchUrl } from "@/lib/search-links";
@@ -178,19 +178,15 @@ const LeadsFilterBar = React.memo(function LeadsFilterBar({ seedQ, onChange }: {
         )}
       </div>
 
+      {/* D3: the shared FilterPill primitive (was a hand-rolled recipe duplicated in the
+          portal leads table — FRONTEND_STANDARDS §2 promotion rule). */}
       <div className="mb-4 flex flex-wrap items-center gap-1.5">
         <span className="mr-1 text-xs font-semibold text-text-3">Status</span>
-        {LEAD_STATUS_FILTERS.map((s) => {
-          const active = statuses.includes(s);
-          return (
-            <button key={s} type="button" onClick={() => toggleStatus(s)} aria-pressed={active}
-              className={active
-                ? "rounded-full border border-brand bg-brand-soft px-2.5 py-0.5 text-xs font-semibold text-brand-ink"
-                : "rounded-full border border-border bg-surface px-2.5 py-0.5 text-xs font-medium text-text-2 transition-colors hover:border-brand-line hover:text-text"}>
-              {s}
-            </button>
-          );
-        })}
+        {LEAD_STATUS_FILTERS.map((s) => (
+          <FilterPill key={s} active={statuses.includes(s)} onClick={() => toggleStatus(s)}>
+            {s}
+          </FilterPill>
+        ))}
       </div>
     </>
   );
