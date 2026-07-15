@@ -9,7 +9,7 @@
 // Instead we store a presence-preserving MASK: a changed PII field reads REDACTED
 // when it held a value and null when empty, so an auditor still sees added vs cleared
 // vs changed — just never the value. PURE (PRN-01-friendly): no I/O, same input ⇒
-// same output. See ADR-0021.
+// same output. See ADR-0031.
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
@@ -29,7 +29,7 @@
  * append-only trail forever, which is the exact leak this module exists to stop.
  * Routing legibility survives without it: assignment keys off zip5 + state, both raw.
  *
- * CONTRACT (ADR-0021): the retention sweep redacts these same lead columns on the
+ * CONTRACT (ADR-0031): the retention sweep redacts these same lead columns on the
  * `leads` table. Keep the two sets in lockstep — a column that is purge-worthy on
  * `leads` must be mask-worthy here, or PII re-enters the permanent trail. That
  * contract was stated but never enforced, and `address` had already broken it; the

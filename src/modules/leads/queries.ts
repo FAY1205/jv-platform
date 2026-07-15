@@ -216,7 +216,6 @@ export interface AdminLeadDetail {
   partner: AdminLeadPartner | null;
   assignment: {
     manual: boolean;
-    reason: string;
     assignedAt: string | null;
     matchMethod: string;
     /** The pipeline-routed partner, shown when a manual assignment overrode it. */
@@ -287,7 +286,7 @@ export async function getAdminLeadDetail(scope: ScopeContext, refId: string): Pr
       kind: "assigned",
       at: lead.manualAssignedAt.toISOString(),
       actor: manualActor,
-      label: lead.manualReason ? `Assigned to ${effPartner.name} · ${lead.manualReason}` : `Assigned to ${effPartner.name}`,
+      label: `Assigned to ${effPartner.name}`,
     });
   }
   for (const h of hist) {
@@ -318,7 +317,6 @@ export async function getAdminLeadDetail(scope: ScopeContext, refId: string): Pr
     partner: effPartner,
     assignment: {
       manual: Boolean(lead.manualPartnerId),
-      reason: lead.manualReason ?? "",
       assignedAt: lead.manualAssignedAt ? lead.manualAssignedAt.toISOString() : null,
       matchMethod: lead.matchMethod,
       original: lead.manualPartnerId ? origPartner : null,

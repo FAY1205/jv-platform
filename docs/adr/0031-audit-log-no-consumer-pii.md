@@ -1,4 +1,4 @@
-# ADR-0021: The audit trail never stores raw consumer PII
+# ADR-0031: The audit trail never stores raw consumer PII
 
 - **Status:** Accepted
 - **Date:** 2026-07-13

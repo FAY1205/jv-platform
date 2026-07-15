@@ -69,7 +69,7 @@ describe("SEC-05 / DM-04: audit PII field classification", () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// ADR-0021's contract, enforced instead of merely stated: "a column that is
+// ADR-0031's contract, enforced instead of merely stated: "a column that is
 // purge-worthy on `leads` must be mask-worthy here, or PII re-enters the permanent
 // trail." Nothing checked it, and it was already broken — `address` is editable
 // (so it reaches audit before/after) and the retention sweep nulls it as PII, but it
@@ -111,5 +111,42 @@ describe("LGL-02/SEC-05: audit masking stays in lockstep with the retention swee
   it("SEC-05: a street address is masked to the sentinel, never partially leaked", () => {
     expect(maskAuditValue("848 Caton Ave")).toBe(REDACTED);
     expect(maskAuditValue("848 Caton Ave")).not.toContain("Caton");
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// FAIL-CLOSED. The intersection check above is necessary but not sufficient: it only
+// fires when a column is in BOTH lists. The classifier is an ALLOW-LIST, so anything
+// unlisted defaults to RAW — meaning a new editable PII column that someone forgets
+// to add to the retention sweep too would reach the permanent trail in the clear with
+// zero test failures. That is exactly how `address` slipped through. This makes the
+// default deny: every editable column must be consciously classified as PII or
+// explicitly named safe, so a new one cannot pass by being forgotten twice.
+// ─────────────────────────────────────────────────────────────────────────────
+describe("SEC-05: every editable column is consciously classified (allow-list, fail-closed)", () => {
+  // Reviewed and named safe: not personally identifying, and their old→new is the
+  // audit-relevant signal for a routing change (DM-04). Adding to this set is a
+  // deliberate act a reviewer can see in the diff — which is the whole point.
+  const KNOWN_SAFE_NON_PII = new Set(["city", "state", "zip", "campaign"]);
+
+  it.each(EDITABLE_COLUMNS as readonly string[])(
+    "SEC-05: %s is classified — masked as PII, or explicitly reviewed as non-PII",
+    (field: string) => {
+      const classified = isAuditPiiLeadField(field) || KNOWN_SAFE_NON_PII.has(field);
+      expect(
+        classified,
+        `"${field}" is editable and therefore reaches audit_log's before/after, but it is ` +
+          `neither in AUDIT_PII_LEAD_FIELDS nor in KNOWN_SAFE_NON_PII. Classify it: if it can ` +
+          `carry consumer PII, add it to AUDIT_PII_LEAD_FIELDS (and to the retention sweep's ` +
+          `redactionPatch); if it genuinely cannot, add it here with a reason. Leaving it ` +
+          `unclassified writes it to the append-only trail in the clear, permanently.`,
+      ).toBe(true);
+    },
+  );
+
+  it("SEC-05: the two sets are disjoint — a column can't be both PII and 'safe'", () => {
+    for (const field of KNOWN_SAFE_NON_PII) {
+      expect(isAuditPiiLeadField(field)).toBe(false);
+    }
   });
 });

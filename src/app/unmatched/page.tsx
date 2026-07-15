@@ -47,14 +47,13 @@ function AssignModal({ refId, onClose }: { refId: string; onClose: () => void })
   const toast = useToast();
   const roster = useQuery({ queryKey: ["partners"], queryFn: () => apiGet<{ partners: Partner[] }>("/api/admin/partners") });
   const [partnerId, setPartnerId] = React.useState(PARTNER_PLACEHOLDER);
-  const [reason, setReason] = React.useState("");
 
   const assign = useMutation({
     mutationFn: async () => {
       const res = await fetch(`/api/leads/${refId}/assign`, {
         method: "POST",
         headers: { "Content-Type": "application/json", ...csrfHeaders() },
-        body: JSON.stringify({ partnerId, reason: reason.trim() || undefined }),
+        body: JSON.stringify({ partnerId }),
       });
       const b = await res.json();
       if (!res.ok) throw new Error(b?.message ?? "Assign failed.");
@@ -95,7 +94,6 @@ function AssignModal({ refId, onClose }: { refId: string; onClose: () => void })
             ...(roster.data?.partners ?? []).map((p) => ({ value: p.id, label: `${p.name} (${p.refId})` })),
           ]}
         />
-        <Input label="Reason (optional)" value={reason} onChange={(e) => setReason(e.target.value)} placeholder="e.g. covers this metro off-book" />
         <p className="text-step-1 text-text-3">Recorded in the activity log. The lead&apos;s original &ldquo;unmatched&rdquo; record is kept — history isn&apos;t rewritten (PRN-05).</p>
       </div>
     </Dialog>

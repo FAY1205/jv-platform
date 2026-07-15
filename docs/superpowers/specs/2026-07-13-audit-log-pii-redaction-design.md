@@ -18,7 +18,7 @@ against SEC-05.
 Redact consumer PII **at write time** — it never enters `audit_log`. Rejected the
 retention-sweep-purge alternative: it keeps raw PII in the log for the whole
 retention window and hands app code a privileged mutation capability over the
-compliance table. Full rationale in ADR-0021.
+compliance table. Full rationale in ADR-0031.
 
 ## Design
 

@@ -250,18 +250,17 @@ suite("TST-01: tenant & partner isolation", () => {
     // Unmatched-base lead manually assigned to X (partnerId=null, overlay=X). Effective owner is X.
     const [seed] = await db
       .insert(schema.leads)
-      .values({ tenantId: id.tenantA, refId: "LD-26-00013", uploadId: id.uploadA, dedupeKey: "un|00013", rawJson: {}, partnerId: null, matchMethod: "none", mlsStatus: "kept", manualPartnerId: id.partnerX, manualAssignedAt: new Date(), manualAssignedBy: id.adminUser, manualReason: "gap fill" })
+      .values({ tenantId: id.tenantA, refId: "LD-26-00013", uploadId: id.uploadA, dedupeKey: "un|00013", rawJson: {}, partnerId: null, matchMethod: "none", mlsStatus: "kept", manualPartnerId: id.partnerX, manualAssignedAt: new Date(), manualAssignedBy: id.adminUser })
       .returning({ id: schema.leads.id });
 
     await editLead(adminA(), { ref: "LD-26-00013", fields: {}, partner: { action: "unassign" } });
 
     const [row] = await db
-      .select({ partnerId: schema.leads.partnerId, matchMethod: schema.leads.matchMethod, manualPartnerId: schema.leads.manualPartnerId, manualAssignedAt: schema.leads.manualAssignedAt, manualReason: schema.leads.manualReason })
+      .select({ partnerId: schema.leads.partnerId, matchMethod: schema.leads.matchMethod, manualPartnerId: schema.leads.manualPartnerId, manualAssignedAt: schema.leads.manualAssignedAt })
       .from(schema.leads)
       .where(eq(schema.leads.id, seed.id));
     expect(row.manualPartnerId).toBeNull(); // overlay cleared → no effective owner
     expect(row.manualAssignedAt).toBeNull();
-    expect(row.manualReason).toBeNull();
     expect(row.partnerId).toBeNull(); // PRN-05: import snapshot untouched (was null)
     expect(row.matchMethod).toBe("none"); // PRN-05: import snapshot untouched
 

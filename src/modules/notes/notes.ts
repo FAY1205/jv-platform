@@ -91,7 +91,7 @@ export async function addLeadNote(scope: ScopeContext, leadRefId: string, body: 
  * be visible under noteWhere AND authored by the caller — a partner can never touch
  * an admin note even with its id. The change is audited — but the note body is
  * consumer PII, so the append-only trail records only that the body changed, never
- * the text (SEC-05, ADR-0021). The real current body lives on lead_notes.body.
+ * the text (SEC-05, ADR-0031). The real current body lives on lead_notes.body.
  */
 export async function editLeadNote(
   scope: ScopeContext,

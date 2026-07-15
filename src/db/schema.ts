@@ -271,7 +271,6 @@ export const leads = pgTable(
     manualPartnerId: uuid("manual_partner_id").references(() => partners.id),
     manualAssignedAt: timestamp("manual_assigned_at", { withTimezone: true }),
     manualAssignedBy: uuid("manual_assigned_by"),
-    manualReason: text("manual_reason"),
     deletedAt: timestamp("deleted_at", { withTimezone: true }), // soft delete (DM-09)
     // WP-GL-B: stamped when the retention sweep redacts this soft-deleted lead's seller PII
     // (DM-09 hard-delete-via-retention / LGL-02 grace). NULL = not yet purged; the sweep's

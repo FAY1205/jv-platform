@@ -95,7 +95,7 @@ suite("PRN-13/NTS: two-stream note visibility", () => {
       .where(inArray(schema.auditLog.tenantId, [id.tenant]));
     const edit = audits.find((a) => a.action === "note.edited");
     expect(edit, "the edit is still audited (DM-04)").toBeTruthy();
-    // SEC-05 (ADR-0021): the append-only trail records that the body changed, masked.
+    // SEC-05 (ADR-0031): the append-only trail records that the body changed, masked.
     expect((edit!.before as { body: string }).body).toBe(REDACTED);
     expect((edit!.after as { body: string }).body).toBe(REDACTED);
     // No raw note text leaks into audit_log anywhere in the payload.
