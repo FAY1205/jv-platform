@@ -106,6 +106,29 @@ describe("WP-017: processRun orchestrates history → plan → stamp → persist
     expect(store.persisted!.leads[0].firstMatchedAt).toBe(CLOCK);
   });
 
+  it("ING-07: a saved profile's uuid id and version are passed to the store for the upload row", async () => {
+    const store = new FakeStore(new Map(), PARTNERS);
+    const saved = { ...GENERIC_PROFILE, id: "3f2504e0-4f89-11d3-9a0c-0305e82c3301", version: 4 };
+    await processRun(
+      { tenantId: "t1", filename: "w.xlsx", rows: ROWS, profile: saved, rules: RULES, snapshotInput: SNAPSHOT_INPUT, year: 2026, colorCoding: true },
+      deps(store),
+    );
+    expect(store.persisted!.sourceProfileId).toBe("3f2504e0-4f89-11d3-9a0c-0305e82c3301");
+    expect(store.persisted!.sourceProfileVersion).toBe(4);
+  });
+
+  it("ING-07: a seed profile's slug id is nulled so it never reaches the uuid column", async () => {
+    const store = new FakeStore(new Map(), PARTNERS);
+    await processRun(
+      { tenantId: "t1", filename: "w.xlsx", rows: ROWS, profile: GENERIC_PROFILE, rules: RULES, snapshotInput: SNAPSHOT_INPUT, year: 2026, colorCoding: true },
+      deps(store),
+    );
+    // "generic" is not a uuid — the FK stays null, but the version still pins the format.
+    expect(GENERIC_PROFILE.id).toBe("generic");
+    expect(store.persisted!.sourceProfileId).toBeNull();
+    expect(store.persisted!.sourceProfileVersion).toBe(GENERIC_PROFILE.version);
+  });
+
   it("PRN-05: a previously-matched lead keeps the historical first_matched_at + original partner", async () => {
     const history = new Map<string, HistoryEntry>([
       ["2 b st|29601", { partnerId: "p-original", matchMethod: "zip", firstMatchedAt: "2026-05-01T00:00:00.000Z", phoneNorm: "8565550100" }],

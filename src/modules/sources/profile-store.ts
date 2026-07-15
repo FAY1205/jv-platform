@@ -3,7 +3,7 @@ import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import * as schema from "@/db/schema";
 import { tenantWhere, type ScopeContext } from "@/lib/scope";
 import { SEED_SOURCE_PROFILES } from "./seed-profiles";
-import type { CanonicalField, SourceProfile, Strictness } from "./types";
+import { isSavedProfileId, type CanonicalField, type SourceProfile, type Strictness } from "./types";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Source Profile persistence (ING-07, SET-12, DM-08). Detection reads the tenant's
@@ -94,14 +94,12 @@ export async function listProfiles(db: DB, scope: ScopeContext): Promise<Profile
   return [...saved, ...builtins];
 }
 
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
 /** Find a profile by id among seeds (slug ids) + saved (uuid ids) — for the confirm base. */
 export async function findProfileById(db: DB, scope: ScopeContext, id: string): Promise<SourceProfile | null> {
   const seed = SEED_SOURCE_PROFILES.find((p) => p.id === id);
   if (seed) return seed;
   // Saved profiles use uuid ids; never query the uuid column with a non-uuid slug.
-  if (!UUID_RE.test(id)) return null;
+  if (!isSavedProfileId(id)) return null;
   // PRN-08 (F-32): the tenant predicate belongs in the WHERE, never a post-fetch check.
   const [row] = await db
     .select()

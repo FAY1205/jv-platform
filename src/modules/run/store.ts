@@ -95,6 +95,8 @@ export class DrizzleRunStore implements RunStore {
           rowCount: input.leads.length,
           rulesHash: input.rulesHash,
           rulesSnapshot: input.rulesSnapshot as object,
+          sourceProfileId: input.sourceProfileId,
+          sourceProfileVersion: input.sourceProfileVersion,
         })
         .returning({ id: schema.uploads.id });
 
