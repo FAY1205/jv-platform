@@ -1,10 +1,11 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { drizzle, type PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
-import { eq, inArray, sql } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import * as schema from "@/db/schema";
 import { purgeAuditLog } from "../helpers/audit";
+import { REDACTED } from "@/modules/audit/redact";
 import { tenantWhere, leadWhere, noteWhere, type ScopeContext } from "@/lib/scope";
 import { listPartnerActivity } from "@/modules/activity/queries";
 import { findProfileById } from "@/modules/sources/profile-store";
@@ -176,23 +177,105 @@ suite("TST-01: tenant & partner isolation", () => {
     expect(row.manualPartnerId).toBe(id.partnerY); // overlay moved
   });
 
+  it("SEC-05 / LGL-02: lead.edited masks seller PII in the append-only trail but keeps routing fields raw (DM-04)", async () => {
+    const { editLead } = await import("@/modules/leads/commands");
+    const [seed] = await db
+      .insert(schema.leads)
+      .values({
+        tenantId: id.tenantA,
+        refId: "LD-26-00012",
+        uploadId: id.uploadA,
+        dedupeKey: "pii|00012",
+        rawJson: {},
+        partnerId: id.partnerX,
+        matchMethod: "zip",
+        mlsStatus: "kept",
+        sellerFirst: "Jane",
+        sellerLast: "Doe",
+        phone: "(856) 555-0100",
+        email: "jane.doe@gmail.com",
+        reasonForSelling: "Relocating for work",
+        address: "848 Caton Ave",
+        city: "Cherry Hill",
+      })
+      .returning({ id: schema.leads.id });
+
+    // Change two PII fields (one edited, one cleared) and one routing field.
+    await editLead(adminA(), {
+      ref: "LD-26-00012",
+      fields: { phone: "(555) 555-9999", email: "", reasonForSelling: "Divorce", address: "12 Elm St", city: "Camden" },
+      partner: { action: "keep" },
+    });
+
+    // The leads row keeps the REAL new values (only the audit payload is masked).
+    const [row] = await db
+      .select({ phone: schema.leads.phone, email: schema.leads.email, address: schema.leads.address, city: schema.leads.city })
+      .from(schema.leads)
+      .where(eq(schema.leads.id, seed.id));
+    expect(row.phone).toBe("(555) 555-9999");
+    expect(row.email).toBeNull(); // cleared
+    expect(row.address).toBe("12 Elm St"); // the real value lives on the lead, not the trail
+    expect(row.city).toBe("Camden");
+
+    const [edit] = await db
+      .select({ before: schema.auditLog.before, after: schema.auditLog.after })
+      .from(schema.auditLog)
+      .where(
+        and(
+          eq(schema.auditLog.tenantId, id.tenantA),
+          eq(schema.auditLog.action, "lead.edited"),
+          eq(schema.auditLog.entityRef, "LD-26-00012"),
+        ),
+      );
+    const before = edit.before as Record<string, unknown>;
+    const after = edit.after as Record<string, unknown>;
+
+    // PII fields: masked to a presence sentinel — changed → REDACTED, cleared → null.
+    expect(before.phone).toBe(REDACTED);
+    expect(after.phone).toBe(REDACTED);
+    expect(before.email).toBe(REDACTED);
+    expect(after.email).toBeNull();
+    expect(before.reasonForSelling).toBe(REDACTED);
+    expect(after.reasonForSelling).toBe(REDACTED);
+    // SEC-05/LGL-02: the STREET ADDRESS is PII (the retention sweep nulls it), so it is
+    // masked too — this is the exact field that shipped unmasked and would otherwise sit
+    // in the append-only trail forever after a void+purge.
+    expect(before.address).toBe(REDACTED);
+    expect(after.address).toBe(REDACTED);
+    // COARSE location: raw old→new preserved (its change is the audit-relevant part).
+    expect(before.city).toBe("Cherry Hill");
+    expect(after.city).toBe("Camden");
+    // SEC-05 / LGL-02: no raw seller PII anywhere in the append-only payload.
+    const payload = JSON.stringify({ before, after });
+    for (const leak of [
+      "(856) 555-0100",
+      "jane.doe@gmail.com",
+      "Relocating for work",
+      "(555) 555-9999",
+      "Divorce",
+      "848 Caton Ave", // the OLD street address — the field that shipped unmasked
+      "12 Elm St", // and the new one
+    ]) {
+      expect(payload, `raw PII leaked into audit_log: ${leak}`).not.toContain(leak);
+    }
+  });
+
   it("ADM/PRN-05: unassign clears the manual overlay of an unmatched-base lead, leaving no effective owner (snapshot untouched)", async () => {
     const { editLead } = await import("@/modules/leads/commands");
     // Unmatched-base lead manually assigned to X (partnerId=null, overlay=X). Effective owner is X.
     const [seed] = await db
       .insert(schema.leads)
-      .values({ tenantId: id.tenantA, refId: "LD-26-00013", uploadId: id.uploadA, dedupeKey: "un|00013", rawJson: {}, partnerId: null, matchMethod: "none", mlsStatus: "kept", manualPartnerId: id.partnerX, manualAssignedAt: new Date(), manualAssignedBy: id.adminUser, manualReason: "gap fill" })
+      .values({ tenantId: id.tenantA, refId: "LD-26-00013", uploadId: id.uploadA, dedupeKey: "un|00013", rawJson: {}, partnerId: null, matchMethod: "none", mlsStatus: "kept", manualPartnerId: id.partnerX, manualAssignedAt: new Date(), manualAssignedBy: id.adminUser })
       .returning({ id: schema.leads.id });
 
     await editLead(adminA(), { ref: "LD-26-00013", fields: {}, partner: { action: "unassign" } });
 
     const [row] = await db
-      .select({ partnerId: schema.leads.partnerId, matchMethod: schema.leads.matchMethod, manualPartnerId: schema.leads.manualPartnerId, manualAssignedAt: schema.leads.manualAssignedAt, manualReason: schema.leads.manualReason })
+      .select({ partnerId: schema.leads.partnerId, matchMethod: schema.leads.matchMethod, manualPartnerId: schema.leads.manualPartnerId, manualAssignedAt: schema.leads.manualAssignedAt })
       .from(schema.leads)
       .where(eq(schema.leads.id, seed.id));
     expect(row.manualPartnerId).toBeNull(); // overlay cleared → no effective owner
     expect(row.manualAssignedAt).toBeNull();
-    expect(row.manualReason).toBeNull();
     expect(row.partnerId).toBeNull(); // PRN-05: import snapshot untouched (was null)
     expect(row.matchMethod).toBe("none"); // PRN-05: import snapshot untouched
 

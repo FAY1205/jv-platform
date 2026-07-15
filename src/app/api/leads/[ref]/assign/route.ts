@@ -15,7 +15,6 @@ import { jsonOk, jsonError, jsonServerError } from "@/lib/http";
 const RefSchema = z.string().regex(/^LD-\d{2}-\d{5,}$/);
 const BodySchema = z.object({
   partnerId: z.string().uuid(),
-  reason: z.string().trim().max(280).optional(),
 });
 
 // ASN-03: manually assign an unmatched lead to a partner. Admin-only; CSRF-guarded;
@@ -33,7 +32,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ ref
     const parsed = BodySchema.safeParse(await request.json().catch(() => null));
     if (!parsed.success) return jsonError("invalid_input", parsed.error.issues[0]?.message ?? "Invalid input.", 400);
 
-    const result = await manuallyAssignLead(scope, { leadRef: ref, partnerId: parsed.data.partnerId, reason: parsed.data.reason });
+    const result = await manuallyAssignLead(scope, { leadRef: ref, partnerId: parsed.data.partnerId });
     // F-40: tell the receiving partner (best-effort, in-app; ADR-0020 / ADR-0014).
     try {
       await notifyLeadAssigned(getDb(), scope, { leadRef: ref, partnerId: parsed.data.partnerId });

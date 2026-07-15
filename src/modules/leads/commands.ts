@@ -3,6 +3,7 @@ import { getDb } from "@/db";
 import * as schema from "@/db/schema";
 import { tenantWhere, type ScopeContext } from "@/lib/scope";
 import { computeDedupeKey, normalizeAddress } from "@/modules/pipeline/normalize";
+import { isAuditPiiLeadField, maskAuditValue } from "@/modules/audit/redact";
 
 // ADM / ASN-03 write side. Manual assignment is ADDITIVE (PRN-05: the import
 // snapshot — partnerId / matchMethod — is never rewritten). Only a currently
@@ -36,7 +37,6 @@ export class CannotUnassignRoutedLeadError extends Error {
 export interface ManualAssignInput {
   leadRef: string;
   partnerId: string;
-  reason?: string;
 }
 
 /** Manually route an unmatched lead to a partner (fills the gap, never rewrites
@@ -82,7 +82,6 @@ export async function manuallyAssignLead(scope: ScopeContext, input: ManualAssig
         manualPartnerId: partner.id,
         manualAssignedAt: new Date(),
         manualAssignedBy: scope.userId,
-        manualReason: input.reason?.trim() || null,
       })
       .where(eq(schema.leads.id, lead.id));
 
@@ -93,7 +92,11 @@ export async function manuallyAssignLead(scope: ScopeContext, input: ManualAssig
       entityType: "lead",
       entityRef: lead.refId,
       before: { partnerId: null, state: lead.state, zip: lead.zip },
-      after: { manualPartnerId: partner.id, partnerRefId: partner.refId, reason: input.reason?.trim() || null },
+      // No free text here (owner decision 2026-07-15): the reason field was removed
+      // rather than masked. Admin free text is where humans paste seller PII, and this
+      // trail is append-only — a field that cannot hold PII cannot leak it. WHO routed
+      // WHICH lead to WHOM, and when, is the audit-relevant part (DM-04).
+      after: { manualPartnerId: partner.id, partnerRefId: partner.refId },
       traceId: globalThis.crypto.randomUUID(),
     });
 
@@ -140,7 +143,13 @@ export interface EditLeadInput {
   partner: PartnerEdit;
 }
 
-const EDITABLE_COLUMNS = [
+/**
+ * The lead columns an admin edit may change — and therefore the only ones that can
+ * ever reach the append-only audit trail's before/after. Exported so the ADR-0031
+ * lockstep test can DERIVE which purge-worthy columns must be masked, instead of
+ * re-listing them by hand (a hand-copied list is what let `address` slip through).
+ */
+export const EDITABLE_COLUMNS = [
   "sellerFirst",
   "sellerLast",
   "phone",
@@ -178,8 +187,17 @@ export async function editLead(
       const clean = next.trim() === "" ? null : next.trim();
       if (clean !== (lead[col] ?? null)) {
         patch[col] = clean;
-        before[col] = lead[col] ?? null;
-        after[col] = clean;
+        // SEC-05 (ADR-0031): the leads row keeps the real value via `patch`, but the
+        // append-only audit trail must never hold raw consumer PII — mask PII fields to
+        // a presence sentinel. Routing/property fields stay raw: their old→new is the
+        // audit-relevant part of an edit (DM-04).
+        if (isAuditPiiLeadField(col)) {
+          before[col] = maskAuditValue(lead[col]);
+          after[col] = maskAuditValue(clean);
+        } else {
+          before[col] = lead[col] ?? null;
+          after[col] = clean;
+        }
       }
     }
 
@@ -227,7 +245,6 @@ export async function editLead(
       patch.manualPartnerId = null;
       patch.manualAssignedAt = null;
       patch.manualAssignedBy = null;
-      patch.manualReason = null;
       partnerAudit = { from: lead.manualPartnerId, to: lead.partnerId, reverted: true };
     } else if (input.partner.action === "unassign") {
       // PRN-05: only the additive manual overlay can be cleared — the pipeline snapshot
@@ -239,8 +256,7 @@ export async function editLead(
         patch.manualPartnerId = null;
         patch.manualAssignedAt = null;
         patch.manualAssignedBy = null;
-        patch.manualReason = null;
-        partnerAudit = { from: currentEffective, to: null, unassigned: true };
+          partnerAudit = { from: currentEffective, to: null, unassigned: true };
       }
       // else: partnerId and manualPartnerId both null → already owner-less; no-op.
     }

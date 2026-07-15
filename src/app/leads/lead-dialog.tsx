@@ -60,7 +60,6 @@ interface LeadDetail {
   partner: DetailPartner | null;
   assignment: {
     manual: boolean;
-    reason: string;
     assignedAt: string | null;
     matchMethod: string;
     original: DetailPartner | null;
