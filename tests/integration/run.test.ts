@@ -29,6 +29,8 @@ suite("WP-017b: run persistence (DrizzleRunStore)", () => {
     if (tids.length === 0) return;
     await db.delete(schema.leads).where(inArray(schema.leads.tenantId, tids));
     await db.delete(schema.uploads).where(inArray(schema.uploads.tenantId, tids));
+    // After uploads: source_profile_id is an FK from uploads (no cascade).
+    await db.delete(schema.sourceProfiles).where(inArray(schema.sourceProfiles.tenantId, tids));
     await db.delete(schema.refCounters).where(inArray(schema.refCounters.tenantId, tids));
     await db.delete(schema.partners).where(inArray(schema.partners.tenantId, tids));
     await db.delete(schema.tenants).where(inArray(schema.tenants.id, tids));
@@ -176,5 +178,68 @@ suite("WP-017b: run persistence (DrizzleRunStore)", () => {
     expect(byKey.size).toBe(3);
     expect(byKey.get(keys[0])!).toBeLessThan(byKey.get(keys[1])!);
     expect(byKey.get(keys[1])!).toBeLessThan(byKey.get(keys[2])!);
+  });
+
+  // ── Source Profile provenance on the upload row (ING-07, DM-08) ──
+  // The run's profile is already pinned inside rules_snapshot; these cases prove the
+  // dedicated uploads columns are populated too, so provenance is joinable rather than
+  // recoverable only by parsing the snapshot JSON.
+
+  it("ING-07: a saved profile's id and version are recorded on the upload row", async () => {
+    const [saved] = await db
+      .insert(schema.sourceProfiles)
+      .values({
+        tenantId,
+        name: "Saved Format",
+        version: 3,
+        headerSignature: GENERIC_PROFILE.headerSignature,
+        mapping: GENERIC_PROFILE.mapping,
+        requiredColumns: GENERIC_PROFILE.requiredColumns,
+        strictness: "flexible",
+      })
+      .returning({ id: schema.sourceProfiles.id });
+
+    const profile = { ...GENERIC_PROFILE, id: saved.id, name: "Saved Format", version: 3 };
+    const result = await processRun(
+      {
+        tenantId,
+        filename: "saved-profile.xlsx",
+        rows: [row({ Address: "30 Delta St", State: "NJ", Zip: "08034" })],
+        profile,
+        rules: rules(),
+        snapshotInput: { ...snapshotInput(), sourceProfile: { id: profile.id, version: profile.version } },
+        year: 2026,
+        colorCoding: true,
+      },
+      { store, clock: () => "2026-07-29T00:00:00.000Z" },
+    );
+
+    const [upload] = await db.select().from(schema.uploads).where(eq(schema.uploads.refId, result.uploadRefId));
+    expect(upload.sourceProfileId).toBe(saved.id);
+    expect(upload.sourceProfileVersion).toBe(3);
+  });
+
+  it("ING-07: a built-in seed profile records its version with a null id (slug ids are not uuids)", async () => {
+    // Seeds like GENERIC_PROFILE carry slug ids ("generic") and have no source_profiles
+    // row, so the uuid FK column must stay NULL — the version still pins the format.
+    const result = await processRun(
+      {
+        tenantId,
+        filename: "seed-profile.xlsx",
+        rows: [row({ Address: "31 Echo St", State: "NJ", Zip: "08034" })],
+        profile: GENERIC_PROFILE,
+        rules: rules(),
+        snapshotInput: snapshotInput(),
+        year: 2026,
+        colorCoding: true,
+      },
+      { store, clock: () => "2026-07-30T00:00:00.000Z" },
+    );
+
+    const [upload] = await db.select().from(schema.uploads).where(eq(schema.uploads.refId, result.uploadRefId));
+    expect(upload.sourceProfileId).toBeNull();
+    expect(upload.sourceProfileVersion).toBe(GENERIC_PROFILE.version);
+    // The snapshot keeps the slug id, so the format is still identifiable.
+    expect((upload.rulesSnapshot as { sourceProfile: { id: string } }).sourceProfile.id).toBe("generic");
   });
 });

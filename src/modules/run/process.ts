@@ -3,7 +3,7 @@ import { buildRulesSnapshot, type RulesSnapshotInput } from "./snapshot";
 import type { RunSummary } from "../analytics/run-summary";
 import { renderExport, type ExportLead, type PartnerInfo } from "../export/render";
 import type { HistoryEntry } from "../pipeline/dedupe";
-import type { SourceProfile } from "../sources/index";
+import { isSavedProfileId, type SourceProfile } from "../sources/index";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Run orchestration (WP-017). The IMPURE conductor: it loads history/partners,
@@ -22,6 +22,13 @@ export interface PersistRunInput {
   filename: string;
   rulesHash: string;
   rulesSnapshot: unknown;
+  /**
+   * The source_profiles FK, or null for a built-in seed (slug id, no row to point at).
+   * Resolved by the caller — the store writes it verbatim into a uuid column.
+   */
+  sourceProfileId: string | null;
+  /** The profile version this run used; set for seeds and saved profiles alike (ING-07). */
+  sourceProfileVersion: number;
   year: number;
   leads: StampedLead[];
 }
@@ -100,11 +107,16 @@ export async function processRun(input: RunInput, deps: RunDeps): Promise<RunRes
 
   const { hash, snapshot } = buildRulesSnapshot(input.snapshotInput);
 
+  // Profile provenance (ING-07): the snapshot pins id+version for reproducibility; the
+  // upload columns record the same thing relationally so provenance is joinable without
+  // parsing the snapshot blob. Seeds have slug ids and no row, so only the version lands.
   const persisted = await deps.store.persistRun({
     tenantId: input.tenantId,
     filename: input.filename,
     rulesHash: hash,
     rulesSnapshot: snapshot,
+    sourceProfileId: isSavedProfileId(input.profile.id) ? input.profile.id : null,
+    sourceProfileVersion: input.profile.version,
     year: input.year,
     leads: stamped,
   });

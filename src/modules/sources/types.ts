@@ -44,6 +44,18 @@ export const CANONICAL_FIELDS: readonly CanonicalField[] = [
  */
 export type Strictness = "flexible" | "strict";
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Saved profiles are source_profiles rows and carry a uuid id; built-in seeds carry
+ * slug ids ("generic"). Only a saved id may go into a uuid FK column — a slug there
+ * is a type error at the DB, so callers writing uploads.source_profile_id must gate
+ * on this and store NULL for seeds.
+ */
+export function isSavedProfileId(id: string): boolean {
+  return UUID_RE.test(id);
+}
+
 export interface SourceProfile {
   id: string;
   name: string;
