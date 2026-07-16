@@ -1,7 +1,7 @@
 import { sendEmail, type EmailMessage, type EmailTransport } from "@/modules/notify/email";
-import { DevMailboxTransport } from "@/modules/notify/dev-mailbox";
+import { resolveEmailTransport } from "@/modules/notify/transport";
 import { escapeHtml, emailButton, renderEmailDocument, EMAIL_COLORS, EMAIL_FONTS } from "@/modules/notify/email-template";
-import { adminAllowlist } from "@/lib/env";
+import { adminAllowlist, env, isProduction } from "@/lib/env";
 import { APP_NAME } from "@/lib/app";
 import { logError } from "@/lib/observability";
 
@@ -36,15 +36,14 @@ function authNotice(opts: {
   });
 }
 
-// AUT-03/04 transactional security email. Routed through the SEC-07 sink guard in
-// non-production. The dev stand-in records every captured message into the dev
-// mailbox so the non-prod /dev/emails viewer can surface OTP codes / invite +
-// reset links (the owner has no real inbox in dev). WP-028 swaps in the Resend
-// transport + outbox (NTF-03) behind the same sendEmail seam.
-
-let devTransport: EmailTransport | null = null;
+// AUT-03/04 transactional security email, plus the PTL-01 partner OTP/invite. These are
+// INSTANT (sent directly at action time, never via the 5-min outbox cron — an OTP can't
+// wait on a batch). SEC-07: guardOutbound redirects to the sink in non-production, and
+// resolveEmailTransport (NTF-03) returns the real Resend transport ONLY in production —
+// so dev/preview capture to the /dev/emails mailbox and can never reach a real recipient,
+// while production actually delivers. Same resolver the outbox uses; no drift.
 function transport(): EmailTransport {
-  return (devTransport ??= new DevMailboxTransport());
+  return resolveEmailTransport({ isProduction, resendKey: env.RESEND_API_KEY, emailFrom: env.EMAIL_FROM });
 }
 
 export function buildLockoutEmail(identifier: string): EmailMessage {

@@ -7,8 +7,7 @@ import { releaseCutoff } from "../run/hold-window";
 import { APP_NAME } from "@/lib/app";
 import { logError } from "@/lib/observability";
 import { sendEmail, type EmailTransport } from "./email";
-import { DevMailboxTransport } from "./dev-mailbox";
-import { ResendTransport } from "./resend";
+import { resolveEmailTransport } from "./transport";
 import { renderEmailDocument, escapeHtml, EMAIL_COLORS, EMAIL_FONTS } from "./email-template";
 import { buildPartnerDigest, buildAdminRunSummary, type PartnerDigestLead } from "./digests";
 import { createNotification } from "./notifications";
@@ -38,8 +37,7 @@ const errMessage = (e: unknown): string => (e instanceof Error ? e.message : Str
 
 /** In production with a key configured, send for real; otherwise capture to the dev mailbox. */
 export function resolveOutboxTransport(): EmailTransport {
-  if (isProduction && env.RESEND_API_KEY) return new ResendTransport(env.RESEND_API_KEY, env.EMAIL_FROM);
-  return new DevMailboxTransport();
+  return resolveEmailTransport({ isProduction, resendKey: env.RESEND_API_KEY, emailFrom: env.EMAIL_FROM });
 }
 
 export interface EnqueueEmailInput {

@@ -18,6 +18,11 @@ const optionalString = z
   .transform((v) => (v.trim() === "" ? undefined : v))
   .optional();
 
+// The dev/preview placeholder sender. Production must override it (see the refine below):
+// Resend rejects sends from an unverified example.test domain, so leaving it here would
+// make every OTP/invite/reset silently fail per-send. Named so default + guard can't drift.
+const DEFAULT_EMAIL_FROM = "JV Platform <noreply@example.test>";
+
 const EnvSchema = z.object({
   APP_ENV: AppEnvSchema.default("development"),
   APP_NAME: z.string().min(1).default(APP_NAME),
@@ -31,7 +36,12 @@ const EnvSchema = z.object({
   RESEND_API_KEY: optionalString,
   // The verified sending identity used in production (NTF-03). Never used in
   // non-production — all dev/preview mail is intercepted to the sink (SEC-07).
-  EMAIL_FROM: z.string().default("JV Platform <noreply@example.test>"),
+  // Empty or unset both collapse to the placeholder, so the production refine below catches
+  // a blank EMAIL_FROM the same as a missing one (a blank sender is just as broken).
+  EMAIL_FROM: z
+    .string()
+    .default(DEFAULT_EMAIL_FROM)
+    .transform((v) => (v.trim() === "" ? DEFAULT_EMAIL_FROM : v)),
   EMAIL_SINK_ADDRESS: z.email().default("dev-sink@example.test"),
   SENTRY_DSN: optionalString,
   ADMIN_ALLOWLIST: optionalString,
@@ -57,6 +67,17 @@ const EnvSchema = z.object({
   // would email real partners digest links pointing at localhost (audit-api-contract F-2).
   (v) => v.APP_ENV !== "production" || v.APP_URL !== "http://localhost:3000",
   { message: "APP_URL must be set to the production origin (release-cron digest links).", path: ["APP_URL"] },
+).refine(
+  // NTF-03: production sends transactional email (OTP/invite/reset) for real via Resend. Without a
+  // key the transport falls back to the dev mailbox, which is 404'd in production — so every code
+  // is silently black-holed. Fail loud at boot instead (mirrors the APP_URL guard).
+  (v) => v.APP_ENV !== "production" || !!v.RESEND_API_KEY,
+  { message: "RESEND_API_KEY is required in production (transactional email delivery).", path: ["RESEND_API_KEY"] },
+).refine(
+  // NTF-03: Resend rejects sends from an unverified domain, so a placeholder EMAIL_FROM makes every
+  // production email fail per-send (best-effort, no boot error). Require a real verified sender.
+  (v) => v.APP_ENV !== "production" || v.EMAIL_FROM !== DEFAULT_EMAIL_FROM,
+  { message: "EMAIL_FROM must be a verified sender on your domain in production.", path: ["EMAIL_FROM"] },
 );
 
 export type Env = z.infer<typeof EnvSchema>;
