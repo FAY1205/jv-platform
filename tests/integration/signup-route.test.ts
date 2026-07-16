@@ -7,6 +7,18 @@ import { AuthAttemptsStore } from "@/lib/auth/attempts-store";
 import { recentDevEmails, clearDevMailbox } from "@/modules/notify/dev-mailbox";
 import { jsonRequest } from "./_route-harness";
 
+// AUT-05/WP-SU-1: `after()` does not flush on a direct route invocation in a test — mock it to
+// collect callbacks so the test can flush them explicitly, and prove the work is deferred.
+const afterCallbacks: Array<() => unknown | Promise<unknown>> = [];
+vi.mock("next/server", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("next/server")>();
+  return { ...actual, after: (fn: () => unknown | Promise<unknown>) => { afterCallbacks.push(fn); } };
+});
+async function flushAfter() {
+  const cbs = afterCallbacks.splice(0);
+  for (const cb of cbs) await cb();
+}
+
 // AUT-05/ADR-0034/AUT-03 (live): the public signup endpoint ties turnstile
 // (ADR-0034), rate-limiting (AUT-03), password strength (AUT-02), enumeration-safe
 // timing (AUT-05), and provisioning (SCP-02/ADR-0033) together. Self-skips
@@ -65,6 +77,7 @@ suite("POST /api/auth/signup", () => {
     turnstileOk = true;
     createUserCalls.length = 0;
     deleteUserCalls.length = 0;
+    afterCallbacks.length = 0;
     clearDevMailbox();
   });
 
@@ -95,6 +108,7 @@ suite("POST /api/auth/signup", () => {
       tosAccepted: true,
     });
     const res = await POST(req);
+    await flushAfter();
 
     expect(res.status).toBe(200);
     const body = await res.json();
@@ -124,6 +138,57 @@ suite("POST /api/auth/signup", () => {
     expect(verifyEmail!.links.some((l) => l.includes("/signup/verify?token="))).toBe(true);
   });
 
+  it("AUT-05: the heavy provisioning work is DEFERRED (not on the response path)", async () => {
+    const email = `signup-${randomUUID()}@example.test`;
+    identifiersToClear.push(email.toLowerCase());
+    const workspaceName = `Acme ${randomUUID().slice(0, 8)}`;
+
+    const req = jsonRequest("POST", "/api/auth/signup", {
+      email,
+      password: strongPassword(),
+      workspaceName,
+      captchaToken: "captcha-token",
+      tosAccepted: true,
+    });
+    const res = await POST(req);
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body).toEqual({
+      code: "signup_check_email",
+      message: "If that email can be used, we've sent a link to finish signing up.",
+    });
+
+    // BEFORE flushing: no tenant/user row exists yet and no verify email has been sent —
+    // proves the heavy provisioning work never ran on the response path.
+    const userRowsBefore = await db
+      .select()
+      .from(schema.users)
+      .where(sql`lower(${schema.users.email}) = ${email.toLowerCase()}`);
+    expect(userRowsBefore).toHaveLength(0);
+    expect(
+      recentDevEmails().find((e) => e.kind === "signup_verify" && e.intendedTo.includes(email.toLowerCase())),
+    ).toBeUndefined();
+
+    await flushAfter();
+
+    const userRowsAfter = await db
+      .select()
+      .from(schema.users)
+      .where(sql`lower(${schema.users.email}) = ${email.toLowerCase()}`);
+    expect(userRowsAfter).toHaveLength(1);
+    userIds.push(userRowsAfter[0].id);
+    tenantIds.push(userRowsAfter[0].tenantId);
+
+    const tenantRows = await db.select().from(schema.tenants).where(eq(schema.tenants.id, userRowsAfter[0].tenantId));
+    expect(tenantRows).toHaveLength(1);
+
+    const verifyEmail = recentDevEmails().find(
+      (e) => e.kind === "signup_verify" && e.intendedTo.includes(email.toLowerCase()),
+    );
+    expect(verifyEmail).toBeTruthy();
+  });
+
   it("AUT-05: an already-registered email returns the IDENTICAL 200 envelope, creates NO new tenant, and sends an already_registered email", async () => {
     const email = `signup-${randomUUID()}@example.test`;
     identifiersToClear.push(email.toLowerCase());
@@ -148,6 +213,7 @@ suite("POST /api/auth/signup", () => {
       tosAccepted: true,
     });
     const res = await POST(req);
+    await flushAfter();
 
     expect(res.status).toBe(200);
     const body = await res.json();
@@ -314,6 +380,7 @@ suite("POST /api/auth/signup", () => {
         tosAccepted: true,
       });
       const res = await failingPost(req);
+      await flushAfter();
 
       expect(res.status).toBe(200);
       const body = await res.json();

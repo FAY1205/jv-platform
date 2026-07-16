@@ -97,3 +97,11 @@ that is hard to make atomic and testable (design spec, Approach B).
   500 only on the new-email path would itself be an enumeration oracle. (This supersedes
   the design spec's original "return a 500 with traceId" wording — see the design spec's
   Error handling section.)
+- **Enumeration timing (resolved, WP-SU-1):** heavy per-branch signup work (provisioning +
+  emails) now runs via Next `after()` after the response; only the symmetric
+  attempt-record + existence check are in-request, so the uniform floor equalizes both
+  branches. **Trade-off:** provisioning is now best-effort *after* the acknowledged 200 —
+  if the `after()` callback is evicted/times out, a "check your email" 200 can leave no
+  tenant/user with only a `logError` signal (best case). The abandoned-signup cleanup
+  sweep (above) must therefore also **alert** when a signup returned 200 but no
+  `signup_verifications` row exists after a grace window — not just clean up.

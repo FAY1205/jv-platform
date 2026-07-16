@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { NextResponse, after } from "next/server";
 import { z } from "zod";
 import { getDb } from "@/db";
 import { env, isSignupEnabled } from "@/lib/env";
@@ -83,31 +83,36 @@ export async function POST(request: Request) {
     async () => {
       await attempts.record(email, ip, KIND, false);
       const existing = await emailExistsGlobally(db, email);
+      // WP-SU-1: the heavy, branch-specific work runs AFTER the response is sent, so its cost is
+      // off the measured wire time. Both branches' in-request work is now the symmetric
+      // record+lookup, which the uniform floor equalizes — no AUT-05 timing oracle.
       if (existing) {
-        await notifyAlreadyRegistered(email);
+        // notifyAlreadyRegistered is best-effort and self-logging (never throws) — no wrapper needed.
+        after(() => notifyAlreadyRegistered(email));
         return;
       }
-      try {
-        const { userId } = await provisionSignup(getSupabaseAdmin(), db, {
-          email,
-          password: parsed.data.password,
-          workspaceName: parsed.data.workspaceName,
-        });
-        const { token, record } = issueSignupToken(userId, now);
-        await new SignupStore(db).persist(record);
-        await notifySignupVerify(email, `${origin}/signup/verify?token=${token}`);
-      } catch (e) {
-        if (e instanceof SignupEmailExistsError) {
-          await notifyAlreadyRegistered(email); // orphan/race → treat as existing
-          return;
+      after(async () => {
+        try {
+          const { userId } = await provisionSignup(getSupabaseAdmin(), db, {
+            email,
+            password: parsed.data.password,
+            workspaceName: parsed.data.workspaceName,
+          });
+          const { token, record } = issueSignupToken(userId, Date.now());
+          await new SignupStore(db).persist(record);
+          await notifySignupVerify(email, `${origin}/signup/verify?token=${token}`);
+        } catch (e) {
+          if (e instanceof SignupEmailExistsError) {
+            await notifyAlreadyRegistered(email); // self-logging, never throws (orphan/race → treat as existing)
+            return;
+          }
+          // SEC-05: log the failure (reaches Sentry, ADR-0032) without the password/token.
+          logError("signup_provision_failed", { message: e instanceof Error ? e.message : String(e) });
         }
-        // SEC-05: log the failure (reaches Sentry, ADR-0032) WITHOUT the password/token; keep the uniform response.
-        logError("signup_provision_failed", { message: e instanceof Error ? e.message : String(e) });
-      }
+      });
     },
     (ms) => new Promise((r) => setTimeout(r, ms)),
     () => performance.now(),
   );
-
   return NextResponse.json({ ...UNIFORM });
 }
