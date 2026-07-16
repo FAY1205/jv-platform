@@ -1,6 +1,7 @@
 # ADR-0021: Observability seam — single request traceId, Sentry deferred
 
-- **Status:** Accepted (REDESIGN-R3 decision, WS-10)
+- **Status:** Accepted (REDESIGN-R3 decision, WS-10); decision 3 (Sentry deferred)
+  **amended by ADR-0032** (2026-07-16, Phase A go-live) — decisions 1 and 2 stand
 - **Date:** 2026-07-10
 - **Phase / WP:** Phase 2 · REDESIGN-R3 WS-10 (Pre-deploy gate)
 

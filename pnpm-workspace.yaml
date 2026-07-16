@@ -4,6 +4,14 @@
 #   sharp          — Next.js image optimization
 #   unrs-resolver  — eslint-config-next's import resolver
 allowBuilds:
+  # ADR-0032: @sentry/nextjs depends transitively on @sentry/cli (via
+  # @sentry/bundler-plugins) for source-map upload. Denying the build only skips
+  # @sentry/cli's own postinstall CDN-fallback download — the platform binary
+  # (@sentry/cli-win32-x64, ~12 MB) still installs via optionalDependencies either way.
+  # What actually keeps it inert is that next.config.ts is NOT wrapped with
+  # withSentryConfig, so the bundler plugin never invokes it. Flip to true only together
+  # with adding withSentryConfig + SENTRY_AUTH_TOKEN to ship source maps to Sentry.
+  '@sentry/cli': false
   esbuild: true
   sharp: true
   unrs-resolver: true

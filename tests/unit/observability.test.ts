@@ -1,6 +1,23 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import { logError } from "@/lib/observability";
 import { jsonServerError } from "@/lib/http";
+import * as Sentry from "@sentry/nextjs";
+import { env } from "@/lib/env";
+
+// ADR-0032: Sentry is the error transport behind logError. Server-only, activated
+// solely by SENTRY_DSN, and it must never be able to break a request.
+vi.mock("@sentry/nextjs", () => ({ captureMessage: vi.fn() }));
+
+const captureMessage = vi.mocked(Sentry.captureMessage);
+// SENTRY_DSN is the activation switch — flip it per test rather than the whole module.
+const setDsn = (dsn: string | undefined) => {
+  (env as { SENTRY_DSN?: string }).SENTRY_DSN = dsn;
+};
+
+beforeEach(() => {
+  captureMessage.mockReset();
+  setDsn(undefined);
+});
 
 // F-42: one request traceId correlates the error envelope with the server log line.
 describe("F-42: logError traceId", () => {
@@ -25,6 +42,64 @@ describe("F-42: logError traceId", () => {
     const circular: Record<string, unknown> = {};
     circular.self = circular;
     expect(() => logError("boom", circular, "t")).not.toThrow();
+    spy.mockRestore();
+  });
+});
+
+describe("ADR-0032: Sentry transport behind logError", () => {
+  it("ADR-0032: sends nothing when SENTRY_DSN is unset (console-only, today's behavior)", () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    logError("boom", { count: 2 }, "trace-123");
+    expect(captureMessage).not.toHaveBeenCalled();
+    spy.mockRestore();
+  });
+
+  it("ADR-0032: sends the code, traceId and detail to Sentry when SENTRY_DSN is set", () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    setDsn("https://key@o1.ingest.sentry.io/1");
+    logError("cron_drain_tenant_failed", { tenantId: "t-1" }, "trace-123");
+    expect(captureMessage).toHaveBeenCalledWith("cron_drain_tenant_failed", {
+      level: "error",
+      tags: { traceId: "trace-123" },
+      extra: { tenantId: "t-1" },
+    });
+    spy.mockRestore();
+  });
+
+  it("ADR-0032: omits the traceId tag entirely when none is given", () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    setDsn("https://key@o1.ingest.sentry.io/1");
+    logError("boom");
+    expect(captureMessage).toHaveBeenCalledWith("boom", { level: "error", extra: {} });
+    spy.mockRestore();
+  });
+
+  it("ADR-0032: never throws when the Sentry send itself throws (best-effort contract)", () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    setDsn("https://key@o1.ingest.sentry.io/1");
+    captureMessage.mockImplementation(() => {
+      throw new Error("sentry transport is down");
+    });
+    expect(() => logError("boom", { count: 1 }, "t")).not.toThrow();
+    spy.mockRestore();
+  });
+
+  it("ADR-0032: still emits the structured console line when Sentry is active", () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    setDsn("https://key@o1.ingest.sentry.io/1");
+    logError("boom", { count: 2 }, "trace-123");
+    const line = JSON.parse(spy.mock.calls[0][0] as string);
+    expect(line).toMatchObject({ level: "error", code: "boom", traceId: "trace-123", count: 2 });
+    spy.mockRestore();
+  });
+
+  it("ADR-0032: a console failure does not suppress the Sentry send", () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    setDsn("https://key@o1.ingest.sentry.io/1");
+    const circular: Record<string, unknown> = {};
+    circular.self = circular; // JSON.stringify throws — the console line is lost
+    expect(() => logError("boom", circular, "t")).not.toThrow();
+    expect(captureMessage).toHaveBeenCalled(); // ...but the error still reaches Sentry
     spy.mockRestore();
   });
 });
