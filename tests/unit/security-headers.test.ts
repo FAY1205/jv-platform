@@ -42,4 +42,32 @@ describe("F-06: security headers", () => {
     expect(csp).toContain("connect-src 'self'");
     expect(csp).not.toContain("wss:");
   });
+
+  // Turnstile (signup CAPTCHA) allowlist — without these the widget never renders
+  // and /signup's submit button never enables.
+  it("F-06: allowlists the Turnstile origin in script-src, frame-src, and connect-src", () => {
+    const csp = byKey().get("Content-Security-Policy")!;
+    expect(csp).toContain("script-src 'self' 'unsafe-inline' https://challenges.cloudflare.com");
+    expect(csp).toContain("frame-src https://challenges.cloudflare.com");
+    expect(csp).toContain("connect-src 'self' https://challenges.cloudflare.com");
+  });
+
+  it("F-06: Turnstile allowlisting leaves the other directives unchanged (regression guard)", () => {
+    const csp = byKey().get("Content-Security-Policy")!;
+    expect(csp).toContain("default-src 'self'");
+    expect(csp).toContain("base-uri 'self'");
+    expect(csp).toContain("object-src 'none'");
+    expect(csp).toContain("frame-ancestors 'none'");
+    expect(csp).toContain("form-action 'self'");
+    expect(csp).toContain("style-src 'self' 'unsafe-inline'");
+    expect(csp).toContain("img-src 'self' data:");
+    expect(csp).toContain("font-src 'self'");
+  });
+
+  it("F-06: Turnstile origin is appended after the Supabase origin in connect-src", () => {
+    const csp = byKey({ supabaseUrl: "https://abc.supabase.co" }).get("Content-Security-Policy")!;
+    expect(csp).toContain(
+      "connect-src 'self' https://abc.supabase.co wss://abc.supabase.co https://challenges.cloudflare.com",
+    );
+  });
 });

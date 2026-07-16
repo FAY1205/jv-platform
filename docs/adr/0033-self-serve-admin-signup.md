@@ -70,3 +70,30 @@ that is hard to make atomic and testable (design spec, Approach B).
   is still invite-only. Anyone reading SCP-02 should also read this ADR.
 - Reopens only if the product retreats from self-serve (unlikely) — in which case a
   further ADR would re-close the signup surface.
+
+## Post-review clarifications
+
+- **Scope driver:** isolation is enforced by the `users` row (keyed by the verified auth
+  uid) that `scope.ts` reads; `app_metadata.tenant_id` mirrors it as the RLS backstop.
+  `provisionSignup` writes both to the same fresh tenant id. (Corrects the Context/Decision
+  wording above that said `app_metadata` "drives" scope.)
+- **`signup_verifications` table:** enrolled in the closed pre-tenant, tenant-less
+  auth-table exception set (with `auth_attempts`/`reset_tokens`/`otp_challenges`);
+  isolation is by token capability (hash lookup + single-use), not tenant scope — no
+  `tenant_id` column, deny-by-default RLS.
+- **Verification token in URL:** the `/signup/verify?token=` link carries the token in the
+  query string, mirroring the accepted `/reset?token=` pattern; mitigated by single-use +
+  24h TTL + no third-party script on the verify page. Accepted residual risk.
+- **ToS/Privacy consent:** captured at signup (required checkbox) and recorded via
+  `recordTosAcceptance` in the provisioning transaction, satisfying LGL-01's
+  acceptance-at-provisioning. Enforcing re-acceptance for self-serve admins at the guard
+  layer is a follow-up WP (the shared `requireTosResponse` admin exemption is left intact
+  to avoid locking out the script-provisioned owner admin, which has no ToS record).
+- **Kill-switch:** public signup is gated by `SIGNUP_ENABLED` (off by default in
+  production) so code-merge is decoupled from public go-live; flip on only after the
+  ToS/Privacy text and subprocessor page (ADR-0034) are ready.
+- **Provisioning-failure handling:** a provisioning failure is logged (`logError` →
+  Sentry, no PII) and returns the SAME uniform "check your email" response — NOT a 500. A
+  500 only on the new-email path would itself be an enumeration oracle. (This supersedes
+  the design spec's original "return a 500 with traceId" wording — see the design spec's
+  Error handling section.)

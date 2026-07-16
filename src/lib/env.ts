@@ -44,10 +44,16 @@ const EnvSchema = z.object({
     .transform((v) => (v.trim() === "" ? DEFAULT_EMAIL_FROM : v)),
   EMAIL_SINK_ADDRESS: z.email().default("dev-sink@example.test"),
   SENTRY_DSN: optionalString,
+  // ADR-0034: Cloudflare Turnstile — signup bot protection. SITE_KEY is public (client
+  // widget); SECRET_KEY is server-only and required in production (refine below).
+  TURNSTILE_SITE_KEY: optionalString,
+  TURNSTILE_SECRET_KEY: optionalString,
   ADMIN_ALLOWLIST: optionalString,
   // F-07: shared secret Vercel Cron presents as `Authorization: Bearer <CRON_SECRET>`.
   // The scheduled outbox drain refuses to run without it (a cron route must never be open).
   CRON_SECRET: optionalString,
+  // ADR-0034: public signup kill-switch. Unset ⇒ default (OFF in production, ON elsewhere).
+  SIGNUP_ENABLED: z.enum(["true", "false"]).optional(),
   // ADR-0027: Vercel AI Gateway key (default provider) and the data-terms tier
   // guard. LGL-04: Gemini's FREE tier trains on submitted content, so "free-dev"
   // is only lawful against dev's synthetic data (SEC-07); the chat route
@@ -78,6 +84,15 @@ const EnvSchema = z.object({
   // production email fail per-send (best-effort, no boot error). Require a real verified sender.
   (v) => v.APP_ENV !== "production" || v.EMAIL_FROM !== DEFAULT_EMAIL_FROM,
   { message: "EMAIL_FROM must be a verified sender on your domain in production.", path: ["EMAIL_FROM"] },
+).refine(
+  // ADR-0034: public signup must never ship without server-side CAPTCHA verification.
+  (v) => v.APP_ENV !== "production" || !!v.TURNSTILE_SECRET_KEY,
+  { message: "TURNSTILE_SECRET_KEY is required in production (signup bot protection).", path: ["TURNSTILE_SECRET_KEY"] },
+).refine(
+  // ADR-0034: the public Turnstile SITE key must be present in production or the widget never
+  // renders and signup is unusable (mirrors the SECRET_KEY guard).
+  (v) => v.APP_ENV !== "production" || !!v.TURNSTILE_SITE_KEY,
+  { message: "TURNSTILE_SITE_KEY is required in production (signup CAPTCHA widget).", path: ["TURNSTILE_SITE_KEY"] },
 );
 
 export type Env = z.infer<typeof EnvSchema>;
@@ -101,8 +116,11 @@ export function readEnv(source: Record<string, string | undefined> = process.env
     EMAIL_FROM: source.EMAIL_FROM,
     EMAIL_SINK_ADDRESS: source.EMAIL_SINK_ADDRESS,
     SENTRY_DSN: source.SENTRY_DSN,
+    TURNSTILE_SITE_KEY: source.NEXT_PUBLIC_TURNSTILE_SITE_KEY,
+    TURNSTILE_SECRET_KEY: source.TURNSTILE_SECRET_KEY,
     ADMIN_ALLOWLIST: source.ADMIN_ALLOWLIST,
     CRON_SECRET: source.CRON_SECRET,
+    SIGNUP_ENABLED: source.SIGNUP_ENABLED,
     AI_GATEWAY_API_KEY: source.AI_GATEWAY_API_KEY,
     AI_TIER: source.AI_TIER,
     AI_PROVIDER: source.AI_PROVIDER,
@@ -114,6 +132,10 @@ export const env = readEnv();
 
 export const isProduction = env.APP_ENV === "production";
 export const isNonProduction = !isProduction;
+
+// Public signup is OFF by default in production (compliance kill-switch — flip on only after
+// ToS/Privacy + subprocessor page are ready) and ON by default in non-production for testing.
+export const isSignupEnabled = env.SIGNUP_ENABLED != null ? env.SIGNUP_ENABLED === "true" : !isProduction;
 
 /** Lowercased admin email allowlist (V1 has no admin self-signup — SCP-02). */
 export const adminAllowlist: readonly string[] = (env.ADMIN_ALLOWLIST ?? "")

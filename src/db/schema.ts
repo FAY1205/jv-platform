@@ -577,6 +577,26 @@ export const resetTokens = pgTable(
   ],
 );
 
+// ── Signup email-verification tokens (SCP-02/AUT-06): single-use, hashed at rest, ──
+// 24-hour expiry. Keyed to the auth user id; server-managed (service role), RLS
+// deny-by-default. Only the SHA-256 hash is stored — the secret goes out once in
+// the verification email; consuming it activates the account.
+export const signupVerifications = pgTable(
+  "signup_verifications",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id").notNull(), // the Supabase auth user id to confirm
+    tokenHash: text("token_hash").notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    usedAt: timestamp("used_at", { withTimezone: true }),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    uniqueIndex("signup_verifications_hash_idx").on(t.tokenHash),
+    index("signup_verifications_user_idx").on(t.userId),
+  ],
+);
+
 // ── Partner email-OTP challenges (PTL-01): 6-digit code, hashed at rest. ──
 // Not tenant-scoped (issued before the session exists); server-managed, RLS
 // deny-by-default. Constant-time verify (AUT-09); attempt_count caps guessing.

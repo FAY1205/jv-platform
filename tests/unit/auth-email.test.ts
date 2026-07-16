@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { buildInviteEmail, buildOtpEmail, buildResetEmail, buildPasswordChangedEmail } from "@/lib/auth/notify";
+import {
+  buildInviteEmail,
+  buildOtpEmail,
+  buildResetEmail,
+  buildPasswordChangedEmail,
+  buildSignupVerifyEmail,
+  buildAlreadyRegisteredEmail,
+} from "@/lib/auth/notify";
 
 // WP-G: partner-facing auth emails gain a branded HTML alternative. The plain-text
 // body must keep the code / raw link so the dev-mailbox extraction (CODE_RE / LINK_RE)
@@ -26,5 +33,18 @@ describe("WP-G: auth emails carry branded HTML without breaking the text contrac
 
   it("password-changed: html present, honest revocation copy preserved", () => {
     expect(buildPasswordChangedEmail("p@x.test", true).html).toContain("signed out");
+  });
+
+  it("signup verify: html + text both carry the link; kind is signup_verify", () => {
+    const m = buildSignupVerifyEmail("new@x.test", "https://app.test/signup/verify?token=abc");
+    expect(m.html).toContain("https://app.test/signup/verify?token=abc");
+    expect(m.text).toContain("https://app.test/signup/verify?token=abc");
+    expect(m.meta?.kind).toBe("signup_verify");
+  });
+
+  it("already-registered: points to login, carries no token/password; kind is already_registered", () => {
+    const m = buildAlreadyRegisteredEmail("dupe@x.test");
+    expect(m.text!.toLowerCase()).toContain("log in");
+    expect(m.meta?.kind).toBe("already_registered");
   });
 });

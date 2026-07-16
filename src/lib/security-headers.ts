@@ -5,6 +5,12 @@
 // base-uri, form-action) while keeping 'unsafe-inline' for script/style — the Next App
 // Router injects inline bootstrap without nonce plumbing, and nonce-based tightening
 // needs a served build to verify (flagged WS-10 follow-up).
+//
+// script-src/frame-src/connect-src additionally allowlist challenges.cloudflare.com
+// site-wide: the Turnstile widget on /signup loads a script + iframe from that origin
+// and posts telemetry back to it. Without this the CAPTCHA never renders and signup's
+// submit button never enables. Site-wide is intentional/simplest — no other directive
+// is weakened.
 
 export const HSTS_MAX_AGE = 63_072_000; // 2 years, in seconds
 
@@ -19,6 +25,8 @@ export interface HeaderPair {
   value: string;
 }
 
+const TURNSTILE_ORIGIN = "https://challenges.cloudflare.com";
+
 function contentSecurityPolicy(supabaseUrl?: string): string {
   const connect = ["'self'"];
   if (supabaseUrl) {
@@ -29,14 +37,15 @@ function contentSecurityPolicy(supabaseUrl?: string): string {
       // Malformed URL: leave connect-src at 'self' rather than emit a broken directive.
     }
   }
+  connect.push(TURNSTILE_ORIGIN);
   const directives: [string, string][] = [
     ["default-src", "'self'"],
     ["base-uri", "'self'"],
     ["object-src", "'none'"],
     ["frame-ancestors", "'none'"],
-    ["frame-src", "'none'"],
+    ["frame-src", TURNSTILE_ORIGIN],
     ["form-action", "'self'"],
-    ["script-src", "'self' 'unsafe-inline'"],
+    ["script-src", `'self' 'unsafe-inline' ${TURNSTILE_ORIGIN}`],
     ["style-src", "'self' 'unsafe-inline'"],
     ["img-src", "'self' data:"],
     ["font-src", "'self'"],

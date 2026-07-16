@@ -128,8 +128,10 @@ posture, and low user friction.
 - All endpoints return the uniform `{code,message,traceId}` envelope; `logError` carries
   the traceId (and now reaches Sentry per ADR-0032) — never a password, token, or the
   new user's email in a way that violates SEC-05.
-- Provisioning failure compensates (orphan auth-user deletion) and returns a 500 with a
-  traceId; the client shows a retryable error.
+- Provisioning failure logs the failure (`logError` → Sentry, no PII) and returns the
+  **same uniform response** as success — a 500 only on the new-email path would leak
+  account existence (enumeration). Orphan compensation (auth-user deletion) still runs
+  inside `provisionSignup`.
 - Turnstile/`siteverify` failure → 400 "verification failed," no account work done.
 - Rate-limit → 429 with `Retry-After`.
 

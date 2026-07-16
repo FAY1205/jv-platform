@@ -66,3 +66,10 @@ export const OTP_THROTTLE: ThrottleConfig = {
   perIdentifier: { limit: 6, windowMs: 900_000 }, // 6 / 15min per email
   perIp: { limit: 30, windowMs: 900_000 }, // 30 / 15min per IP
 };
+
+// Public signup (ADR-0034) — rarer and costlier (provisioning + email) than login,
+// same shape/values as RESET_THROTTLE.
+export const SIGNUP_THROTTLE: ThrottleConfig = {
+  perIdentifier: { limit: 5, windowMs: 900_000 }, // 5 / 15min per email
+  perIp: { limit: 20, windowMs: 900_000 }, // 20 / 15min per IP
+};

@@ -198,6 +198,49 @@ export async function notifyLockout(identifier: string): Promise<void> {
   }
 }
 
+export function buildSignupVerifyEmail(email: string, link: string): EmailMessage {
+  return {
+    to: email,
+    subject: `Verify your email to finish setting up ${APP_NAME}`,
+    text: `Welcome to ${APP_NAME}. Confirm your email to activate your workspace — open this link within 24 hours:\n\n${link}\n\nIf you didn't sign up, you can ignore this email.`,
+    html: authNotice({
+      title: `Verify your email`,
+      paragraphs: [`Welcome to ${APP_NAME}. Confirm your email to activate your workspace. This link expires in 24 hours; if you didn't sign up, ignore this email.`],
+      cta: { href: link, label: "Verify your email →" },
+    }),
+    meta: { kind: "signup_verify" },
+  };
+}
+
+export function buildAlreadyRegisteredEmail(email: string): EmailMessage {
+  const copy = `Someone (maybe you) tried to sign up with this email, but an account already exists. If it was you, just log in — no new account is needed. If you forgot your password, use the reset link on the login page.`;
+  return {
+    to: email,
+    subject: `You already have a ${APP_NAME} account`,
+    text: copy,
+    html: authNotice({ title: `You already have an account`, paragraphs: [copy] }),
+    meta: { kind: "already_registered" },
+  };
+}
+
+/** Email a signup verification link (PTL/SCP-02). Best-effort; failure logged (never the token). */
+export async function notifySignupVerify(email: string, link: string): Promise<void> {
+  try {
+    await sendEmail(buildSignupVerifyEmail(email, link), transport());
+  } catch (e) {
+    logError("notify_signup_verify_failed", { message: errMessage(e) });
+  }
+}
+
+/** Notify a would-be signup that they already have an account. Best-effort; failure logged. */
+export async function notifyAlreadyRegistered(email: string): Promise<void> {
+  try {
+    await sendEmail(buildAlreadyRegisteredEmail(email), transport());
+  } catch (e) {
+    logError("notify_already_registered_failed", { message: errMessage(e) });
+  }
+}
+
 /** Alert admins to sustained auth abuse (AUT-03). Best-effort; failure logged. */
 export async function notifyAuthAnomaly(detail: string): Promise<void> {
   if (adminAllowlist.length === 0) return;

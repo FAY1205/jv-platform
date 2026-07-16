@@ -19,7 +19,7 @@ A deterministic lead-routing platform for real-estate JV (joint-venture) network
 | ID | Constraint |
 | -- | ---------- |
 | SCP-01 | Single-org operation in V1; `tenant_id` on every table; every query tenant-scoped. Productizing MUST NOT require a migration. |
-| SCP-02 | Roles: **admin** (owner — full control) and **partner** (portal: own leads, statuses, own notes, export). No partner self-signup; admin invites. Admin self-signup closed in V1 (accounts provisioned). |
+| SCP-02 | Roles: **admin** (owner — full control) and **partner** (portal: own leads, statuses, own notes, export). No partner self-signup; admin invites. **Public self-serve admin signup is open (ADR-0033): a new customer signs up → their own isolated tenant + admin; partner accounts remain invite-only.** |
 | SCP-03 | External dependencies: Supabase (US region — Postgres/Auth/Storage), Vercel, Resend, one pluggable listing-check provider, and (AI phase only) one LLM provider behind a gateway. |
 | SCP-04 | **Web only, responsive.** No native app in V1. Partners will primarily use phones: every portal surface MUST be fully usable at 375 px width with ≥ 44 px touch targets. The app SHOULD ship a PWA manifest + icons so it can be installed to a home screen (no offline mode). |
 | SCP-05 | Files .xlsx/.csv ≤ 10 MB / 10k rows. ~100 leads/week; optimize for correctness and auditability, never throughput. |
@@ -286,7 +286,7 @@ Tables: `tenants, users, partners, coverage_zips, state_rules, mls_patterns, cam
 | AUT-02 | **Password strength (admin):** minimum length 12, zxcvbn score ≥ 3, checked against known-breach corpus via k-anonymity API at set/change; clear inline strength feedback (FRM-01). |
 | AUT-03 | **Login rate limiting:** sliding-window limits keyed on IP + identifier for login, OTP, and reset endpoints (API-05); anomaly alert to admin on sustained abuse. |
 | AUT-04 | **Account lockout:** progressive delays after repeated failures (never a silent permanent lock); the account owner is notified by email on lockout; admin can unlock. |
-| AUT-05 | **Enumeration resistance:** login, invite, OTP, and reset endpoints return uniform messages and uniform timing whether or not the account exists ("If an account exists, we've sent a code."). |
+| AUT-05 | **Enumeration resistance:** login, invite, OTP, reset, and public signup endpoints return uniform messages and uniform timing whether or not the account exists ("If an account exists, we've sent a code."). |
 | AUT-06 | **Secure password reset:** single-use token, hashed at rest, 30-minute expiry; all sessions revoked on successful reset; notification email sent ("your password was changed"). |
 | AUT-07 | **Session fixation protection:** fresh session tokens issued at every authentication event including MFA step-up; session identifiers are never accepted from the client. |
 | AUT-08 | **MFA:** TOTP available for admin with recovery codes (SET-10); partner email-OTP login is possession-based by design (PTL-01). Sensitive operations (change email, disable MFA, revoke sessions) require recent re-authentication; email change additionally requires verification of the NEW address and a notification to the OLD address. |

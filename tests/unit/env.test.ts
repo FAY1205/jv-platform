@@ -17,6 +17,8 @@ describe("SEC-07: environment config", () => {
     APP_URL: "https://app.example.com",
     RESEND_API_KEY: "re_live_key",
     EMAIL_FROM: "JV Platform <noreply@jv.example>",
+    TURNSTILE_SECRET_KEY: "1x0000000000000000000000000000000AA",
+    NEXT_PUBLIC_TURNSTILE_SITE_KEY: "1x00000000000000000000AA",
   } as const;
 
   it("parses a fully-configured production environment", () => {
@@ -40,6 +42,14 @@ describe("SEC-07: environment config", () => {
 
   it("NTF-03: a BLANK EMAIL_FROM is rejected in production the same as a missing one", () => {
     expect(() => readEnv({ ...PROD, EMAIL_FROM: "  " })).toThrow();
+  });
+
+  it("ADR-0034: refuses to boot in production without TURNSTILE_SECRET_KEY (public signup needs bot protection)", () => {
+    expect(() => readEnv({ ...PROD, TURNSTILE_SECRET_KEY: undefined })).toThrow();
+  });
+
+  it("ADR-0034: refuses to boot in production without TURNSTILE_SITE_KEY (signup CAPTCHA widget never renders)", () => {
+    expect(() => readEnv({ ...PROD, NEXT_PUBLIC_TURNSTILE_SITE_KEY: undefined })).toThrow();
   });
 
   it("treats blank strings as unset (no false URL/email validation failures)", () => {
