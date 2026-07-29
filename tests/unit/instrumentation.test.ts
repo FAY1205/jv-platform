@@ -8,9 +8,17 @@ import { env } from "@/lib/env";
 // __Host- session cookie (AUT-12), the CRON_SECRET bearer, raw lead uploads, and
 // seller fields sitting in an editLead frame. Every one is pinned off here, because a
 // default flipping back on is a silent PII leak to a third party.
-vi.mock("@sentry/nextjs", () => ({ init: vi.fn() }));
+// consoleIntegration/httpIntegration are used for their SDK-reported NAMES (so an upstream
+// rename can't silently re-enable those ingestion paths) and to re-add Http with request
+// body capture disabled.
+vi.mock("@sentry/nextjs", () => ({
+  init: vi.fn(),
+  consoleIntegration: vi.fn(() => ({ name: "Console" })),
+  httpIntegration: vi.fn(() => ({ name: "Http" })),
+}));
 
 const init = vi.mocked(Sentry.init);
+const httpIntegration = vi.mocked(Sentry.httpIntegration);
 const setDsn = (dsn: string | undefined) => {
   (env as { SENTRY_DSN?: string }).SENTRY_DSN = dsn;
 };
@@ -110,6 +118,63 @@ describe("ADR-0032: Sentry server init", () => {
     const register = await loadRegister();
     await register();
     expect(init.mock.calls[0][0]).toMatchObject({ dataCollection: { genAI: { inputs: false, outputs: false } } });
+  });
+
+  // WP-SU-3: beforeSend is the only path EVERY event takes — logError's scrub does not
+  // cover the global uncaught-exception / unhandled-rejection handlers init() installs.
+  it("SEC-05: beforeSend scrubs extra, message, exception values and breadcrumbs", async () => {
+    setDsn("https://key@o1.ingest.sentry.io/1");
+    const register = await loadRegister();
+    await register();
+    const beforeSend = beforeSendFn();
+    const scrubbed = beforeSend(
+      {
+        extra: { message: "mail to seller@example.com" },
+        message: "failed for seller@example.com",
+        exception: { values: [{ value: 'Failed query: insert into "leads"\nparams: Jane,5551234567' }] },
+        breadcrumbs: [{ message: "console: seller@example.com", data: { arguments: ["seller@example.com"] } }],
+      } as never,
+      {},
+    ) as unknown as Record<string, unknown>;
+    expect(JSON.stringify(scrubbed)).not.toContain("seller@example.com");
+    expect(JSON.stringify(scrubbed)).not.toContain("5551234567");
+    expect(JSON.stringify(scrubbed)).not.toContain("Jane");
+  });
+
+  it("SEC-05: deletes the captured request body — password/OTP/reset-token ride on it", async () => {
+    setDsn("https://key@o1.ingest.sentry.io/1");
+    const register = await loadRegister();
+    await register();
+    const scrubbed = beforeSendFn()(
+      { request: { url: "https://app.test/api/auth/login", data: '{"password":"hunter2"}' } } as never,
+      {},
+    ) as unknown as { request?: { data?: unknown } };
+    expect(scrubbed.request?.data).toBeUndefined();
+  });
+
+  it("ADR-0032: does NOT scrub the event title — it is our own alert code, and 17 would collapse into one issue", async () => {
+    setDsn("https://key@o1.ingest.sentry.io/1");
+    const register = await loadRegister();
+    await register();
+    const out = beforeSendFn()({ message: "cron_drain_tenant_failed" } as never, {}) as unknown as {
+      message?: string;
+    };
+    expect(out.message).toBe("cron_drain_tenant_failed");
+  });
+
+  it("SEC-05: drops console + body-capturing http integrations, matched by SDK-reported name", async () => {
+    setDsn("https://key@o1.ingest.sentry.io/1");
+    const register = await loadRegister();
+    await register();
+    const integrations = init.mock.calls[0][0].integrations as (
+      d: { name: string }[],
+    ) => { name: string }[];
+    const kept = integrations([{ name: "Console" }, { name: "Http" }, { name: "OnUncaughtException" }]);
+    expect(kept.map((i) => i.name)).toEqual(["OnUncaughtException", "Http"]); // Http re-added, bodies off
+    expect(httpIntegration).toHaveBeenCalledWith({
+      disableIncomingRequestSpans: true,
+      maxIncomingRequestBodySize: "none",
+    });
   });
 
   it("ADR-0032: buys error transport, not APM — no performance tracing", async () => {

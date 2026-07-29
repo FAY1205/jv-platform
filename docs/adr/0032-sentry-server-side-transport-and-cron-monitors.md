@@ -159,3 +159,70 @@ ADR-0026 hold release, whose failure mode is silent and legal.
   DSN is never logged; `audit-devops` verifies env separation (silent without a DSN) and
   that the monitor schedules match `vercel.json`; `pr-reviewer` flags any Sentry import
   outside `observability.ts`, the instrumentation files, and the two cron routes.
+
+### Amended by WP-SU-3 (2026-07-17) — caller `detail` is scrubbed at the seam
+
+This ADR states that `beforeSend` and `dataCollection` are the enforcement point, "never
+the caller contract alone." Those two controls govern what the **SDK collects on its own**
+— they do not touch what a caller passes as `detail`, which becomes the event's `extra`.
+That left one uncovered path, and it is the busiest: 29 of the 40 `logError` call sites
+pass `{ message: e.message }`, a string this codebase does not author (Postgres embeds the
+offending literal in constraint errors; providers echo recipient addresses).
+
+WP-SU-3 adds a third control — `detail` is scrubbed in `observability.ts` before it is
+handed to `captureMessage`. Recorded here because two implementation choices were
+security-relevant and are not obvious from the plan text:
+
+- **Markers are typed** (`[redacted-email]` / `[redacted-token]`) rather than a single
+  `[redacted]`, so triage can tell what class of value was removed.
+- **UUID-shaped runs are exempt** from the token pattern. A UUID is also a 24+ character
+  run, and `traceId` / `tenantId` / `userId` are precisely what this seam exists to
+  correlate — blind redaction would destroy F-42 while protecting nothing. Verified safe:
+  real secrets in this repo (`randomBytes(32).toString("base64url")` reset/signup/refresh
+  tokens) never take the hyphenated UUID shape.
+- **BOTH sinks are scrubbed.** The first draft of this WP redacted only the Sentry payload
+  and left the console line verbatim, on the theory that stdout is first-party. Review
+  refuted that on three counts, and the owner overrode the original plan accordingly:
+  SEC-05 says "excluded from **logs**" without qualification; the hosting provider retains
+  stdout and is a subprocessor exactly as Sentry is; and, decisively, Sentry's
+  `consoleIntegration` is **default-on** and attaches raw `console.*` arguments as a
+  breadcrumb — so an unscrubbed console line was being re-delivered to Sentry on the very
+  event whose `extra` had just been redacted, making the redaction cosmetic. That
+  integration is now filtered out of the defaults as well.
+- **The scrub runs at `beforeSend`, not only at the seam.** This ADR already said the seam
+  is a convenience and `beforeSend` is the enforcement point; the first draft nonetheless
+  put the control at the seam. Global uncaught-exception and unhandled-rejection handlers
+  never pass through `logError`, so `beforeSend` now scrubs `extra`, `message`,
+  `exception.values[].value` and `breadcrumbs`. The seam still scrubs too, as defence in
+  depth and because the console line needs it before it is ever written.
+- **Patterns cover what the code actually emits, not what we assumed.** Drizzle wraps every
+  failed query as `Failed query: <sql>\nparams: <every bound parameter>` — for the batched
+  lead insert that is every seller name, phone, address and raw row — so such a message is
+  replaced wholesale, and phone numbers are redacted (SEC-05 names seller phone; the
+  original email-only pattern set caught one field of the leak). Accepted trade: a bare
+  10-digit epoch is indistinguishable from a bare 10-digit phone and is redacted too.
+- **A THIRD SDK quirk, of the same shape as the two above: `dataCollection.httpBodies` does
+  not stop incoming request bodies.** `requestdata.js` hardcodes `include.data = true`
+  ("httpBodies gates write-time, not read-time"), and the write-time gate is actually
+  `maxRequestBodySize`, which defaults to capturing 10KB of every request. So the login
+  password, the OTP code, the live reset token and the first 10KB of a lead upload were
+  riding on any event raised during those requests — on the very events whose `extra` was
+  being carefully redacted. Fixed at both ends: the HTTP integration is re-registered with
+  `maxIncomingRequestBodySize: "none"`, and `beforeSend` deletes `request.data` anyway.
+  Integration names are read from the SDK (`Sentry.consoleIntegration().name`) rather than
+  hardcoded, so an upstream rename cannot silently re-enable either ingestion path.
+- **Redaction is entropy-aware, not length-based.** A pure `{24,}` rule matched 17 of this
+  repo's own `logError` codes — every cron and signup alert — which Sentry would have
+  grouped into a single untriageable issue, destroying the alerting this ADR bought.
+  Structured identifiers (alphabetic words joined by `_`/`-`) are exempt; real secrets
+  carry digits mixed into the run and never take that shape.
+- **Redaction never reduces the payload.** Colliding scrubbed keys are disambiguated rather
+  than overwriting each other, and `Map`/`Set`/binary values render instead of silently
+  flattening to `{}`.
+- **Strings are clamped before any regex runs.** The original unbounded email pattern was
+  quadratic — measured 1.7s on 50KB and 78s on 200KB — and the Drizzle message above can
+  reach megabytes, so the scrub itself would have become a denial-of-service on the request
+  path. Quantifiers are now bounded and input is clamped (CWE-1333).
+- **Fails closed twice:** past the recursion depth cap a subtree becomes `[truncated]`
+  rather than being emitted unvisited, and a throw inside the scrubber replaces the entire
+  payload with `{ scrub_failed: true }` rather than falling back to the raw object.

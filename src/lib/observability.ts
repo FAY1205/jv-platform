@@ -1,5 +1,6 @@
 import * as Sentry from "@sentry/nextjs";
 import { env } from "@/lib/env";
+import { scrubDetail } from "@/lib/scrub";
 
 // ADR-0032: this module pulls the Sentry SDK in, so importing it from client code would
 // bundle Sentry into the browser — the consumer-PII leak ADR-0031 exists to prevent.
@@ -13,10 +14,12 @@ if (typeof window !== "undefined") {
 // Structured error-log seam and the single error chokepoint. Best-effort by
 // construction: it MUST NOT throw and MUST NOT change control flow.
 //
-// SEC-05: callers MUST NOT pass secrets — no passwords, tokens, OTP/reset codes,
-// or seller PII in `detail`. Pass identifiers, error messages, IPs, counts only.
-// ADR-0032 leans on that contract: whatever reaches `detail` reaches Sentry, so
-// this seam is the boundary that keeps consumer PII out of a third party.
+// SEC-05: callers SHOULD still pass identifiers, messages and counts — never secrets —
+// but that contract is no longer what enforces it. `detail` is redacted (WP-SU-3) before
+// it reaches EITHER sink, because 29 of 40 call sites pass `{ message: e.message }`, a
+// string we do not author: Drizzle embeds every bound parameter of a failed query, and
+// providers echo recipient addresses. Both sinks are third-party stores — Sentry, and the
+// hosting provider's log retention — so "excluded from logs" (SEC-05) means both.
 //
 // F-42: pass the request's `traceId` so the log line correlates 1:1 with the
 // `{code, message, traceId}` error envelope the caller returned for the same request
@@ -25,9 +28,23 @@ if (typeof window !== "undefined") {
 // ADR-0032: Sentry is the real transport, wired behind this seam — server-only, and
 // activated solely by SENTRY_DSN. Unset (dev/test/CI) ⇒ console-only, as before.
 export function logError(code: string, detail: Record<string, unknown> = {}, traceId?: string): void {
+  // Scrub ONCE, use at both sinks: the console line is not a private channel (the host
+  // retains it) and Sentry's default console integration would re-ship it as a breadcrumb
+  // on the very event whose `extra` we redact — so an unscrubbed line here would defeat
+  // the redaction entirely.
+  // Its own try: scrubDetail catches internally, but logError's never-throws contract must
+  // not depend on another module's internals staying that way.
+  let safe: Record<string, unknown>;
+  try {
+    safe = scrubDetail(detail);
+  } catch {
+    safe = { scrub_failed: true };
+  }
   try {
     console.error(
-      JSON.stringify({ level: "error", scope: "server", code, ...(traceId ? { traceId } : {}), ...detail }),
+      // `safe` FIRST: a caller detail key named `code`/`level`/`traceId` would otherwise
+      // overwrite the envelope and break the F-42 1:1 correlation this seam exists for.
+      JSON.stringify({ ...safe, level: "error", scope: "server", code, ...(traceId ? { traceId } : {}) }),
     );
   } catch {
     // Logging must never break a request.
@@ -39,7 +56,7 @@ export function logError(code: string, detail: Record<string, unknown> = {}, tra
       Sentry.captureMessage(code, {
         level: "error",
         ...(traceId ? { tags: { traceId } } : {}),
-        extra: detail,
+        extra: safe,
       });
     }
   } catch {

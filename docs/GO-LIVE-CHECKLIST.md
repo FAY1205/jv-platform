@@ -52,7 +52,11 @@ Roughly in dependency order:
 - `RESEND_API_KEY` — email sending
 - `EMAIL_FROM` — your verified sender, e.g. `TerritoryDesk <noreply@yourdomain.com>`
 - `ADMIN_ALLOWLIST` — your admin email(s), comma-separated
-- `CRON_SECRET` — any long random string (the crons already enforce it)
+- `CRON_SECRET` — **32+ chars of `[A-Za-z0-9_-]`, and not a UUID.** The format is enforced
+  at boot (SEC-05: the log scrubber must always be able to redact it, and it preserves
+  UUID-shaped values as correlation ids). Note `openssl rand -base64 32` alone emits `+`,
+  `/` and `=` and will FAIL the check — generate with:
+  `openssl rand -base64 32 | tr '+/' '-_' | tr -d '='`
 - `SENTRY_DSN` — from item 7 (only does something after code item A ships)
 - `NEXT_PUBLIC_APP_NAME` — optional; product name
 

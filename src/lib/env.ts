@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { scrubString } from "@/lib/scrub";
 import { APP_NAME } from "@/lib/app";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -51,7 +52,20 @@ const EnvSchema = z.object({
   ADMIN_ALLOWLIST: optionalString,
   // F-07: shared secret Vercel Cron presents as `Authorization: Bearer <CRON_SECRET>`.
   // The scheduled outbox drain refuses to run without it (a cron route must never be open).
-  CRON_SECRET: optionalString,
+  // SEC-05 (WP-SU-3): constrained so it is REDACTABLE BY CONSTRUCTION. The log scrubber
+  // redacts long opaque runs but deliberately preserves UUIDs (traceId/tenantId
+  // correlation), so a UUID-shaped secret — a very common ops habit — would survive into
+  // logs, as would a short passphrase with punctuation (it fragments below the threshold).
+  // 32+ chars from the base64url alphabet is exactly what the scrubber always catches.
+  // The charset alone is not enough: base64url legitimately contains `-`, so a UUID is
+  // also 36 "valid" chars — it must be excluded by shape, not by alphabet.
+  // Validated BY the scrubber, not by a restatement of its rules — the two drifted once
+  // already (a passphrase-shaped secret satisfies the charset rule but the scrubber treats
+  // it as a structured identifier and leaves it in clear).
+  CRON_SECRET: optionalString.refine((v) => v == null || (v.length >= 32 && scrubString(v) === "[redacted-token]"), {
+    message:
+      "CRON_SECRET must be 32+ chars that the log scrubber fully redacts (base64url-style; not a UUID, not a passphrase).",
+  }),
   // ADR-0034: public signup kill-switch. Unset ⇒ default (OFF in production, ON elsewhere).
   SIGNUP_ENABLED: z.enum(["true", "false"]).optional(),
   // ADR-0027: Vercel AI Gateway key (default provider) and the data-terms tier

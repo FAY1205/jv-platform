@@ -40,6 +40,23 @@ describe("SEC-07: environment config", () => {
     expect(() => readEnv({ ...PROD, EMAIL_FROM: undefined })).toThrow();
   });
 
+  // SEC-05/WP-SU-3: the log scrubber redacts long opaque runs but deliberately preserves
+  // UUIDs (traceId/tenantId correlation). An operator who pastes a UUID as CRON_SECRET
+  // would therefore have it survive into logs. Constrain the format so every
+  // operator-supplied secret is redactable by construction, not by hope.
+  it("SEC-05: rejects a CRON_SECRET that the log scrubber could not redact (UUID-shaped)", () => {
+    expect(() => readEnv({ ...PROD, CRON_SECRET: "550e8400-e29b-41d4-a716-446655440000" })).toThrow();
+  });
+
+  it("SEC-05: rejects a too-short CRON_SECRET", () => {
+    expect(() => readEnv({ ...PROD, CRON_SECRET: "short-secret" })).toThrow();
+  });
+
+  it("SEC-05: accepts a long opaque CRON_SECRET (redactable by the scrubber)", () => {
+    const secret = "K7fQ2xZm9pL4vR8sT1nW6yB3cD5gH0jA";
+    expect(readEnv({ ...PROD, CRON_SECRET: secret }).CRON_SECRET).toBe(secret);
+  });
+
   it("NTF-03: a BLANK EMAIL_FROM is rejected in production the same as a missing one", () => {
     expect(() => readEnv({ ...PROD, EMAIL_FROM: "  " })).toThrow();
   });
