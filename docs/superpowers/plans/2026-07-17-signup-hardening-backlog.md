@@ -124,8 +124,14 @@ contract preserved).
 
 ## WP-SU-4 — Trusted-proxy client IP  [affects all auth endpoints]
 
-**Why:** `clientIp` trusts the first `x-forwarded-for`, which a client can spoof, so per-IP
-rate-limits (login/reset/OTP/signup) are bypassable — abuse-bounding leans on CAPTCHA alone.
+**Why:** ⚠️ CORRECTED during implementation (2026-07-17), verified against Vercel's live docs:
+on Vercel `x-forwarded-for` is **overwritten by the platform and is NOT client-spoofable**
+("we currently overwrite the X-Forwarded-For header and do not forward external IPs … to
+prevent IP spoofing"), so per-IP limits held and the original finding was overstated. The
+real gap is portability plus the proxy-on-top / Enterprise trusted-proxy case, where XFF can
+carry a customer-supplied value — prefer the platform header so the trust assumption
+survives those deployments. Abuse-bounding on public signup is still weak, but for a
+different reason: both throttle keys are attacker-chosen (see WP-SU-8 below).
 
 **Files:** Modify `src/lib/auth/client-ip.ts`; create `tests/unit/client-ip.test.ts`.
 
@@ -224,6 +230,29 @@ auth user is created once (outside the retry); only the tx retries. Keep the com
 - [ ] Implement the bounded retry. [ ] Gate + lint. **Reviews:** pr-reviewer + audit-data.
 
 ---
+
+---
+
+## Follow-up WPs surfaced by the review gates (NOT built; owner to schedule)
+
+- **WP-SU-8 — global signup ceiling + surge alert + IP bucketing.** Both signup throttle keys
+  are attacker-chosen: a fresh email defeats the per-identifier limit, and a rotated IP
+  defeats the per-IP one (free over IPv6 — mitigated in WP-SU-4 by /64 bucketing — cheap
+  otherwise). What actually remains is Turnstile alone. Add a global rolling-hour ceiling
+  across all identifiers, a surge alert mirroring `notifyAuthAnomaly` (signup has none
+  today, unlike login), and a per-recipient cap on `notifyAlreadyRegistered` so a victim
+  cannot be mail-bombed.
+- **WP-SU-9 — atomic throttle decision + `reset/confirm` throttle.** `evaluateThrottle` is
+  read-then-write: `snapshot()` decides, `record()` happens later, so N concurrent requests
+  all observe the same pre-burst state and all pass (TOCTOU, CWE-367). For signup each pass
+  provisions a user + tenant and sends mail. Make the rate-window decision transactional
+  (`INSERT … RETURNING` then count, or insert-guarded-by-count). Also wire a throttle to
+  `/api/auth/reset/confirm`, the one credential endpoint with none.
+- **WP-SU-10 — `onRequestError` wiring.** App Router handler errors never reach Sentry today
+  (no `onRequestError` export), and uncaught errors printed by the framework reach the host
+  log store before any of our code runs — the one path WP-SU-3's redaction cannot cover.
+- **WP-OBS-1 — cron `maxRuntime` vs `maxDuration`.** Monitors declare 5 minutes; the routes
+  cap at 60s (`maxDuration`). Pre-existing across all three crons.
 
 ## Sequencing & notes
 
