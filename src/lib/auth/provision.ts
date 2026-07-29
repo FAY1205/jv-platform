@@ -61,7 +61,10 @@ export async function provisionAdmin(
     }
     userId = existing.id;
     wasCreated = false;
-    const upd = await admin.auth.admin.updateUserById(userId, { password, app_metadata });
+    // email_confirm:true unconditionally (AUT-05, WP-SU-2 item 3): provisionSignup is the ONLY
+    // path that leaves an auth user unconfirmed, and the sweep's "unconfirmed + signup marker ⇒
+    // delete" discriminator rests on that. A re-provisioned admin must never linger unconfirmed.
+    const upd = await admin.auth.admin.updateUserById(userId, { password, email_confirm: true, app_metadata });
     if (upd.error) throw upd.error;
   }
 
@@ -108,7 +111,9 @@ export async function provisionPartnerUser(
     }
     userId = existing.id;
     wasCreated = false;
-    const upd = await admin.auth.admin.updateUserById(userId, { app_metadata });
+    // email_confirm:true unconditionally (AUT-05, WP-SU-2 item 3): partners are OTP-only, so a
+    // re-provisioned partner must stay confirmed and never become a false sweep candidate.
+    const upd = await admin.auth.admin.updateUserById(userId, { email_confirm: true, app_metadata });
     if (upd.error) throw upd.error;
   }
 

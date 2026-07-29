@@ -39,6 +39,12 @@ export const CRON_MONITORS: Record<string, CronMonitor> = {
     checkinMargin: 10,
     maxRuntime: 5,
   },
+  "/api/cron/signup-sweep": {
+    slug: "signup-sweep",
+    schedule: "30 3 * * *",
+    checkinMargin: 10,
+    maxRuntime: 5,
+  },
 };
 
 // Upsert shape for Sentry.withMonitor — the monitor is defined from code, so it cannot

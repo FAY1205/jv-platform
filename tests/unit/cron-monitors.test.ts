@@ -34,6 +34,19 @@ describe("ACT-05: cron monitors match the real Vercel schedule", () => {
     expect(new Set(slugs).size).toBe(slugs.length); // slugs identify the monitor — no collisions
   });
 
+  // WP-SU-2: pins the signup-sweep monitor's declared shape so a future edit can't silently
+  // drift it from what vercel.json actually schedules (the two generic tests above already
+  // prove no path is missing a monitor; this proves THIS monitor's fields are the exact
+  // owner-approved values from the WP-SU-2 brief, not just "defined").
+  it("WP-SU-2: signup-sweep monitor matches the owner-approved slug/schedule/margins", () => {
+    expect(CRON_MONITORS["/api/cron/signup-sweep"]).toEqual({
+      slug: "signup-sweep",
+      schedule: "30 3 * * *",
+      checkinMargin: 10,
+      maxRuntime: 5,
+    });
+  });
+
   // The wiring tests mock Sentry, so they prove we CALL withMonitor — not that the real
   // one behaves. Everywhere without a DSN (dev, CI, preview) Sentry is uninitialised, and
   // both cron routes now run their entire body inside withMonitor. If an uninitialised

@@ -63,6 +63,7 @@ describe("ADR-0032: Sentry never reaches the browser", () => {
         "src/instrumentation.ts", // server + edge init
         "src/app/api/cron/drain-outbox/route.ts", // ACT-05 check-in
         "src/app/api/cron/retention-sweep/route.ts", // ACT-05 check-in
+        "src/app/api/cron/signup-sweep/route.ts", // ACT-05 check-in (WP-SU-2)
       ].map((p) => resolve(root, p)),
     );
     const importers = sourceFiles().filter((f) => /from\s+["']@sentry\//.test(readFileSync(f, "utf8")));

@@ -134,6 +134,14 @@ ADR-0026 hold release, whose failure mode is silent and legal.
   best-effort and surfaces only as `logError` error events — so also alert on the codes
   `cron_drain_failed`, `cron_retention_failed`, `cron_release_tenant_failed`,
   `cron_drain_tenant_failed`, `cron_retention_tenant_failed`.
+  WP-SU-2 (signup-sweep) adds the same class of codes: `cron_signup_sweep_failed`,
+  `cron_signup_sweep_tenant_failed`, and `cron_signup_sweep_tenant_fk_blocked` (a tenant
+  purge blocked by an unexpected residual row — a distinct, actionable stop). It also adds
+  three `logError` **success** signals — `signup_orphan_reconciled`,
+  `signup_partial_provision_reconciled`, and `signup_orphan_reconcile_paging_truncated` —
+  which are the "abandoned/dropped signups are accumulating (or exceed one run's paging
+  bound)" alerts WP-SU-2 exists to raise: a healthy sweep is silent, so a non-zero count
+  here is the signal, not an error. Alert on all six.
 - **Client-side errors remain unreported.** Accepted trade, stated plainly so it is not
   mistaken for an oversight. **Reopening this requires a follow-up ADR that first defines
   a PII scrubbing policy** (`beforeSend`) — never a default wizard install, which is the
