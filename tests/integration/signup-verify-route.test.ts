@@ -5,6 +5,7 @@ import { getDb } from "@/db";
 import * as schema from "@/db/schema";
 import { SignupStore } from "@/lib/auth/signup-store";
 import { issueSignupToken } from "@/lib/auth/signup-token";
+import { AuthAttemptsStore } from "@/lib/auth/attempts-store";
 import { jsonRequest } from "./_route-harness";
 
 // SCP-02/ADR-0033 (live): the signup email-verification endpoint consumes a
@@ -35,6 +36,8 @@ suite("POST /api/auth/signup/verify", () => {
   let db: ReturnType<typeof getDb>;
   const userIds: string[] = [];
 
+  const ipsToClear: string[] = [];
+
   beforeAll(() => {
     db = getDb();
   });
@@ -46,6 +49,9 @@ suite("POST /api/auth/signup/verify", () => {
   afterAll(async () => {
     if (userIds.length) {
       await db.delete(schema.signupVerifications).where(inArray(schema.signupVerifications.userId, userIds));
+    }
+    if (ipsToClear.length) {
+      await db.delete(schema.authAttempts).where(inArray(schema.authAttempts.ip, ipsToClear));
     }
   });
 
@@ -100,5 +106,21 @@ suite("POST /api/auth/signup/verify", () => {
     const body = await res.json();
     expect(body.code).toBe("signup_verify_invalid");
     expect(updateUserByIdCalls).toHaveLength(0);
+  });
+  it("AUT-03: the verify endpoint is rate-limited per IP (token guessing / DB load)", async () => {
+    // The only credential endpoint that had no throttle. Token entropy (32 random bytes)
+    // makes guessing infeasible, so this caps DB + Auth-API load and restores the
+    // "every credential endpoint wires a throttle kind" invariant.
+    const ip = `198.51.100.${Math.floor(Math.random() * 200) + 1}`;
+    const attempts = new AuthAttemptsStore(getDb());
+    ipsToClear.push(ip);
+    for (let i = 0; i < 25; i++) await attempts.record("verify", ip, "signup_verify", false);
+
+    const req = jsonRequest("POST", "/api/auth/signup/verify", { token: "a".repeat(43) });
+    req.headers.set("x-vercel-forwarded-for", ip);
+    const res = await POST(req);
+
+    expect(res.status).toBe(429);
+    expect(res.headers.get("Retry-After")).toBeTruthy();
   });
 });

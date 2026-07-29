@@ -125,4 +125,122 @@ suite("SCP-02: provisionSignup", () => {
     expect(deleteUserCalls).toHaveLength(1);
     expect(deleteUserCalls[0]).toBe(createdUserIds[0]);
   });
+
+  it("SCP-02 (WP-SU-7): a slug UNIQUE violation is retried, not surfaced as a failed signup", async () => {
+    // The real gap is the RACE, not a pre-existing slug: the clash check is read-then-insert,
+    // so two concurrent signups for the same workspace name both see "no clash" and the
+    // second violates tenants.slug UNIQUE at INSERT time. Squatting the base slug does NOT
+    // reproduce that (the check catches it and suffixes) — the conflict has to come from the
+    // insert itself, so it is injected here. Without a retry this throws, fires the
+    // compensating auth-user delete, and the user sees a generic failure.
+    const { admin, deleteUserCalls } = makeFakeAdmin();
+    const insertedSlugs: string[] = [];
+    let attempts = 0;
+    const pgUnique = Object.assign(new Error("duplicate key value violates unique constraint"), {
+      cause: { code: "23505", constraint_name: "tenants_slug_unique" },
+    });
+    const stubDb = {
+      select: () => ({ from: () => ({ where: async () => [] }) }), // clash check finds nothing
+      transaction: async (fn: (tx: unknown) => Promise<void>) => {
+        attempts += 1;
+        if (attempts === 1) throw pgUnique; // the concurrent insert won the race
+        // values() is awaited directly at some call sites and chained with
+        // .onConflictDoNothing() at others (recordTosAcceptance) — so return a thenable
+        // that also carries the chain method. Values are CAPTURED, not discarded: without
+        // that, deleting the fresh-suffix regeneration still passes, and the retry would
+        // re-insert the identical slug forever against a real DB.
+        const chain = (v: unknown) => {
+          if (v && typeof v === "object" && "slug" in v) insertedSlugs.push((v as { slug: string }).slug);
+          return Object.assign(Promise.resolve(undefined), {
+            onConflictDoNothing: () => Promise.resolve(undefined),
+          });
+        };
+        await fn({ insert: () => ({ values: chain }) });
+      },
+    } as unknown as PostgresJsDatabase<typeof schema>;
+
+    const result = await provisionSignup(admin, stubDb, {
+      email: `race-${randomUUID()}@example.com`,
+      password: "correct horse battery staple 1!",
+      workspaceName: "Race Realty",
+    });
+
+    expect(attempts).toBe(2); // retried rather than giving up
+    expect(result.tenantId).toBeTruthy();
+    expect(deleteUserCalls).toHaveLength(0); // the auth user survives — no compensation needed
+    // The retry must use a DIFFERENT slug: re-inserting the same one would conflict forever.
+    expect(insertedSlugs).toHaveLength(1); // attempt 1 threw before its insert landed
+    expect(insertedSlugs[0]).not.toBe("race-realty");
+    expect(insertedSlugs[0].startsWith("race-realty-")).toBe(true);
+  });
+
+  it("SCP-02 (WP-SU-7): retries are BOUNDED — persistent collisions give up and compensate", async () => {
+    const { admin, createdUserIds, deleteUserCalls } = makeFakeAdmin();
+    let attempts = 0;
+    const slugConflict = Object.assign(new Error("duplicate key"), {
+      cause: { code: "23505", constraint_name: "tenants_slug_unique" },
+    });
+    const stubDb = {
+      select: () => ({ from: () => ({ where: async () => [] }) }),
+      transaction: async () => {
+        attempts += 1;
+        throw slugConflict; // never resolves
+      },
+    } as unknown as PostgresJsDatabase<typeof schema>;
+
+    await expect(
+      provisionSignup(admin, stubDb, {
+        email: `bounded-${randomUUID()}@example.com`,
+        password: "correct horse battery staple 1!",
+        workspaceName: "Bounded Realty",
+      }),
+    ).rejects.toThrow();
+
+    expect(attempts).toBe(3); // SLUG_RETRIES, not an unbounded loop
+    expect(deleteUserCalls).toEqual([createdUserIds[0]]); // still compensates
+  });
+
+  it("SCP-02 (WP-SU-7): a DIFFERENT unique violation is rethrown at once, never retried", async () => {
+    // Retrying a non-slug conflict would mask a real bug behind 3 pointless transactions.
+    const { admin, createdUserIds, deleteUserCalls } = makeFakeAdmin();
+    let attempts = 0;
+    const emailConflict = Object.assign(new Error("duplicate key"), {
+      cause: { code: "23505", constraint_name: "users_tenant_email_idx" },
+    });
+    const stubDb = {
+      select: () => ({ from: () => ({ where: async () => [] }) }),
+      transaction: async () => {
+        attempts += 1;
+        throw emailConflict;
+      },
+    } as unknown as PostgresJsDatabase<typeof schema>;
+
+    await expect(
+      provisionSignup(admin, stubDb, {
+        email: `other-${randomUUID()}@example.com`,
+        password: "correct horse battery staple 1!",
+        workspaceName: "Other Realty",
+      }),
+    ).rejects.toThrow();
+
+    expect(attempts).toBe(1); // no retry
+    expect(deleteUserCalls).toEqual([createdUserIds[0]]);
+  });
+
+  it("SCP-02 (WP-SU-7): a real tenants.slug 23505 has the {cause:{code,constraint_name}} shape the retry matches on", async () => {
+    // The retry's correctness rests on drizzle wrapping the postgres error exactly one level
+    // deep. A version bump that adds a layer would make the matcher miss, silently reverting
+    // to the old always-fail behaviour — and the stub-driven test above would still pass.
+    // This pins the real driver contract against the live DB.
+    const slug = `pin-${randomUUID().slice(0, 8)}`;
+    const first = randomUUID();
+    await db.insert(schema.tenants).values({ id: first, name: "Pin", slug });
+    try {
+      await expect(
+        db.insert(schema.tenants).values({ id: randomUUID(), name: "Pin2", slug }),
+      ).rejects.toMatchObject({ cause: { code: "23505", constraint_name: expect.stringContaining("slug") } });
+    } finally {
+      await db.delete(schema.tenants).where(eq(schema.tenants.id, first));
+    }
+  });
 });

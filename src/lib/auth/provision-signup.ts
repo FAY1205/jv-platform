@@ -7,6 +7,8 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import * as schema from "../../db/schema";
 import { recordTosAcceptance } from "./tos-store";
 import { CURRENT_TOS_VERSION } from "@/lib/legal/tos";
+import { logError } from "@/lib/observability";
+import { pgErrorInfo } from "@/lib/db/pg-error";
 
 type DB = PostgresJsDatabase<typeof schema>;
 
@@ -19,6 +21,50 @@ function slugify(name: string): string {
     .replace(/^-+|-+$/g, "")
     .slice(0, 40);
   return base || "workspace";
+}
+
+// WP-SU-7: the clash check above is a read-then-insert, so two concurrent signups for the
+// same workspace name both see "no clash" and the second violates tenants.slug UNIQUE at
+// INSERT time. Without this the whole signup fails, the compensating delete removes the
+// auth user, and the person is told something generic went wrong — for a name collision
+// the app can simply resolve itself.
+//
+// Only a slug-unique violation is retried, with a fresh suffix each time. Any other error
+// (including a unique violation on a DIFFERENT constraint, e.g. the user's email) is
+// rethrown immediately so real failures still compensate.
+const SLUG_RETRIES = 3;
+
+function isSlugUniqueViolation(e: unknown): boolean {
+  // Shared cause-chain walker (src/lib/db/pg-error.ts) rather than a local two-level check:
+  // WP-SU-2 already established that a shallow read misses a drizzle-wrapped driver error,
+  // and having two unwrap strategies for one problem is exactly the drift to avoid.
+  const { code, constraint } = pgErrorInfo(e);
+  if (code !== "23505") return false;
+  // Exact, no "unknown ⇒ assume slug" fallback: postgres.js always populates the constraint
+  // name for a server-side 23505, so guessing here would be a fail-open default sitting
+  // inside a compensating saga.
+  return (constraint ?? "").includes("slug");
+}
+
+async function insertWithSlugRetry(
+  db: DB,
+  initialSlug: string,
+  run: (tx: Parameters<Parameters<DB["transaction"]>[0]>[0], slug: string) => Promise<void>,
+): Promise<void> {
+  let slug = initialSlug;
+  for (let attempt = 1; ; attempt++) {
+    try {
+      await db.transaction(async (tx) => run(tx, slug));
+      return;
+    } catch (e) {
+      if (attempt >= SLUG_RETRIES || !isSlugUniqueViolation(e)) throw e;
+      // The recoverable branch neither rethrows nor logs otherwise — so a real collision
+      // (this fix actually firing) would leave no trace at all. No slug or workspace name:
+      // that is user-supplied content, and the attempt number is the diagnostic (SEC-05).
+      logError("signup_slug_collision_retried", { attempt });
+      slug = `${slugify(initialSlug)}-${randomBytes(3).toString("hex")}`;
+    }
+  }
 }
 
 export interface ProvisionSignupParams {
@@ -58,11 +104,11 @@ export async function provisionSignup(
     let slug = slugify(workspaceName);
     const clash = await db.select({ id: schema.tenants.id }).from(schema.tenants).where(eq(schema.tenants.slug, slug));
     if (clash.length) slug = `${slug}-${randomBytes(3).toString("hex")}`;
-    await db.transaction(async (tx) => {
+    await insertWithSlugRetry(db, slug, async (tx, finalSlug) => {
       // selfServe marks this tenant as PUBLICLY self-registered (LGL-01, WP-SU-5): its admin
       // accepted the ToS below, so it is subject to re-acceptance on a version bump — unlike
       // owner/script-provisioned tenants, which have no acceptance record and stay exempt.
-      await tx.insert(schema.tenants).values({ id: tenantId, name: workspaceName, slug, selfServe: true });
+      await tx.insert(schema.tenants).values({ id: tenantId, name: workspaceName, slug: finalSlug, selfServe: true });
       await tx.insert(schema.users).values({ id: userId, tenantId, email, role: "admin" });
       // Compliance: audit the highest-privilege public action (creating a whole tenant). B2B/self
       // contact data (like partner.created) — no consumer-PII redaction needed.
@@ -71,15 +117,19 @@ export async function provisionSignup(
         // selfServe is in the snapshot because it is what decides whether this tenant's
         // admins are ever ToS-re-gated — an auditor must be able to answer "which tenants
         // were subject to that, and since when" from the trail alone (DM-04).
-        entityType: "tenant", entityRef: tenantId, after: { name: workspaceName, slug, selfServe: true },
+        entityType: "tenant", entityRef: tenantId, after: { name: workspaceName, slug: finalSlug, selfServe: true },
       });
       // LGL-01: record ToS/Privacy acceptance captured at signup, atomically with provisioning.
       await recordTosAcceptance(tx, userId, CURRENT_TOS_VERSION);
     });
     return { userId, tenantId };
   } catch (e) {
-    // Compensate: the DB rows never landed, so the auth user must not survive.
-    await admin.auth.admin.deleteUser(userId);
+    // Compensate: the DB rows never landed, so the auth user must not survive. The admin
+    // client RETURNS {error} rather than throwing, so discarding the result would make a
+    // failed compensation invisible — the abandoned-signup sweep would later have to
+    // discover the orphan instead of merely confirming a known one.
+    const { error: deleteError } = await admin.auth.admin.deleteUser(userId);
+    if (deleteError) logError("signup_compensation_failed", { userId });
     throw e;
   }
 }

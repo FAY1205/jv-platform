@@ -1,6 +1,11 @@
 import { z } from "zod";
+import { NextResponse } from "next/server";
 import { getDb } from "@/db";
-import { jsonOk, jsonError } from "@/lib/http";
+import { jsonOk, jsonError, newTraceId } from "@/lib/http";
+import { clientIp } from "@/lib/auth/client-ip";
+import { AuthAttemptsStore } from "@/lib/auth/attempts-store";
+import { VERIFY_THROTTLE } from "@/lib/auth/throttle";
+import { rateDecision } from "@/lib/auth/rate-limit";
 import { assertCsrf } from "@/lib/auth/guard";
 import { sha256Hex } from "@/lib/auth/hash";
 import { verifySignupToken } from "@/lib/auth/signup-token";
@@ -11,6 +16,7 @@ import { logError } from "@/lib/observability";
 // SCP-02/ADR-0033: complete signup by verifying the single-use email token and
 // activating login (email_confirm:true). Uniform invalid/expired/used response.
 const Input = z.object({ token: z.string().min(10) });
+const VERIFY_KIND = "signup_verify";
 
 export async function POST(request: Request) {
   if (!assertCsrf(request, { requireToken: false })) {
@@ -20,22 +26,55 @@ export async function POST(request: Request) {
   if (!parsed.success) return jsonError("invalid_input", "A token is required.", 400);
   const { token } = parsed.data;
   const now = Date.now();
-
   const db = getDb();
-  const store = new SignupStore(db);
-  const record = await store.findByHash(sha256Hex(token));
-  if (!record || !verifySignupToken(token, record, now).ok) {
-    return jsonError("signup_verify_invalid", "This link is invalid or has expired.", 400);
+
+  // AUT-03 (WP-SU-6): this was the only credential endpoint without a throttle. The token
+  // is 32 random bytes, so guessing is already infeasible — this caps DB + Auth-API load
+  // and restores the "every credential endpoint wires a throttle kind" invariant.
+  // The identifier is a truncated hash, never the token itself (SEC-05).
+  const tokenKey = sha256Hex(token).slice(0, 16);
+  const ip = clientIp(request);
+  const attempts = new AuthAttemptsStore(db);
+  const snap = await attempts.snapshot(tokenKey, ip, VERIFY_KIND, now, VERIFY_THROTTLE);
+  // Sliding window ONLY — deliberately not evaluateThrottle. That composes AUT-04's
+  // progressive account-lockout ladder, whose two escape hatches (owner notification and
+  // an admin `clearFailures`) are both unreachable for a key derived from a token that
+  // exists only in the user's inbox. The ladder would also fire at 5 failures, making the
+  // configured per-token limit dead config, and would turn an honest "this link expired"
+  // into a "wait and try again" that waiting never fixes.
+  const byToken = rateDecision(snap.attempts, now, VERIFY_THROTTLE.perIdentifier);
+  const byIp = rateDecision(snap.ipAttempts, now, VERIFY_THROTTLE.perIp);
+  if (!byToken.allowed || !byIp.allowed) {
+    const retryAfterSec = Math.ceil(Math.max(byToken.retryAfterMs, byIp.retryAfterMs) / 1000);
+    return NextResponse.json(
+      { code: "too_many_requests", message: "Too many attempts. Please wait and try again.", traceId: newTraceId() },
+      { status: 429, headers: { "Retry-After": String(retryAfterSec) } },
+    );
   }
+  // try/finally so EVERY post-gate exit consumes budget exactly once — including the
+  // Supabase Admin error branch and any thrown error. Recording on only some exits would
+  // leave the most expensive path (an outbound Auth API call) outside the budget this
+  // throttle exists to enforce. The real outcome is what lands, so a genuine success is
+  // never counted as a failure.
+  let verified = false;
+  try {
+    const store = new SignupStore(db);
+    const record = await store.findByHash(sha256Hex(token));
+    if (!record || !verifySignupToken(token, record, now).ok) {
+      return jsonError("signup_verify_invalid", "This link is invalid or has expired.", 400);
+    }
 
-  const { error } = await getSupabaseAdmin().auth.admin.updateUserById(record.userId, { email_confirm: true });
-  if (error) {
-    logError("signup_verify_update_failed", { message: error.message });
-    return jsonError("signup_verify_failed", "Could not verify your email. Please try again.", 400);
+    const { error } = await getSupabaseAdmin().auth.admin.updateUserById(record.userId, { email_confirm: true });
+    if (error) {
+      logError("signup_verify_update_failed", { message: error.message });
+      return jsonError("signup_verify_failed", "Could not verify your email. Please try again.", 400);
+    }
+
+    // Mark used only AFTER a successful activation, so a transient failure lets the user retry.
+    await store.markUsed(record.id, now);
+    verified = true;
+    return jsonOk({ code: "signup_verified", message: "Your email is verified. You can now log in." });
+  } finally {
+    await attempts.record(tokenKey, ip, VERIFY_KIND, verified);
   }
-
-  // Mark used only AFTER a successful activation, so a transient failure lets the user retry.
-  await store.markUsed(record.id, now);
-
-  return jsonOk({ code: "signup_verified", message: "Your email is verified. You can now log in." });
 }

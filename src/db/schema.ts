@@ -553,7 +553,7 @@ export const authAttempts = pgTable(
     id: uuid("id").primaryKey().defaultRandom(),
     identifier: text("identifier").notNull(), // lowercased email
     ip: text("ip"),
-    kind: text("kind").notNull(), // 'login' | 'reset' | 'change_password'
+    kind: text("kind").notNull(), // 'login' | 'reset' | 'change_password' | 'otp' | 'signup' | 'signup_verify'
     success: boolean("success").notNull().default(false),
     createdAt: createdAt(),
   },

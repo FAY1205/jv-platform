@@ -67,6 +67,17 @@ export const OTP_THROTTLE: ThrottleConfig = {
   perIp: { limit: 30, windowMs: 900_000 }, // 30 / 15min per IP
 };
 
+// Signup email-verification (WP-SU-6, AUT-03). Token entropy already makes guessing
+// infeasible, so this is a load cap and a consistency fix — it was the one credential
+// endpoint with no throttle kind. The identifier is a truncated hash of the presented
+// token (never the token itself — SEC-05), which bounds retries of the SAME link; the
+// per-IP limit is what bounds guessing across different tokens, so it is the looser of
+// the two by design.
+export const VERIFY_THROTTLE: ThrottleConfig = {
+  perIdentifier: { limit: 10, windowMs: 900_000 }, // 10 / 15min per token
+  perIp: { limit: 20, windowMs: 900_000 }, // 20 / 15min per IP
+};
+
 // Public signup (ADR-0034) — rarer and costlier (provisioning + email) than login,
 // same shape/values as RESET_THROTTLE.
 export const SIGNUP_THROTTLE: ThrottleConfig = {

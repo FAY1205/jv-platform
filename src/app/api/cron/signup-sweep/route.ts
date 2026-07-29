@@ -8,25 +8,13 @@ import { logError } from "@/lib/observability";
 import { jsonOk, jsonError, jsonServerError } from "@/lib/http";
 import * as Sentry from "@sentry/nextjs";
 import { CRON_MONITORS, monitorConfig } from "@/lib/cron-monitors";
+import { pgErrorCode } from "@/lib/db/pg-error";
 
 // WP-SU-2: bound the scheduled function's runtime (mirrors retention-sweep).
 export const maxDuration = 60;
 
 // ACT-05 (ADR-0032): this job's Sentry check-in identity + schedule.
 const MONITOR = CRON_MONITORS["/api/cron/signup-sweep"];
-
-// A per-tenant purge whose tenants delete is FK-blocked surfaces as Postgres 23503. drizzle
-// (0.45) wraps the driver error in DrizzleQueryError with the postgres-js error on `.cause`,
-// so walk the cause chain defensively rather than reading `.code` off the top-level error.
-function pgErrorCode(e: unknown): string | undefined {
-  let cur: unknown = e;
-  for (let depth = 0; cur && depth < 5; depth++) {
-    const code = (cur as { code?: unknown }).code;
-    if (typeof code === "string") return code;
-    cur = (cur as { cause?: unknown }).cause;
-  }
-  return undefined;
-}
 
 // GET /api/cron/signup-sweep — scheduled cleanup of abandoned public signups (WP-SU-2,
 // ADR-0033's WP-SU-1 note). Authorized by the CRON_SECRET bearer, NOT a session/CSRF.
