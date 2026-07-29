@@ -59,13 +59,19 @@ export async function provisionSignup(
     const clash = await db.select({ id: schema.tenants.id }).from(schema.tenants).where(eq(schema.tenants.slug, slug));
     if (clash.length) slug = `${slug}-${randomBytes(3).toString("hex")}`;
     await db.transaction(async (tx) => {
-      await tx.insert(schema.tenants).values({ id: tenantId, name: workspaceName, slug });
+      // selfServe marks this tenant as PUBLICLY self-registered (LGL-01, WP-SU-5): its admin
+      // accepted the ToS below, so it is subject to re-acceptance on a version bump — unlike
+      // owner/script-provisioned tenants, which have no acceptance record and stay exempt.
+      await tx.insert(schema.tenants).values({ id: tenantId, name: workspaceName, slug, selfServe: true });
       await tx.insert(schema.users).values({ id: userId, tenantId, email, role: "admin" });
       // Compliance: audit the highest-privilege public action (creating a whole tenant). B2B/self
       // contact data (like partner.created) — no consumer-PII redaction needed.
       await tx.insert(schema.auditLog).values({
         tenantId, actorUserId: userId, action: "tenant.signup_provisioned",
-        entityType: "tenant", entityRef: tenantId, after: { name: workspaceName, slug },
+        // selfServe is in the snapshot because it is what decides whether this tenant's
+        // admins are ever ToS-re-gated — an auditor must be able to answer "which tenants
+        // were subject to that, and since when" from the trail alone (DM-04).
+        entityType: "tenant", entityRef: tenantId, after: { name: workspaceName, slug, selfServe: true },
       });
       // LGL-01: record ToS/Privacy acceptance captured at signup, atomically with provisioning.
       await recordTosAcceptance(tx, userId, CURRENT_TOS_VERSION);

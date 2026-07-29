@@ -105,3 +105,29 @@ that is hard to make atomic and testable (design spec, Approach B).
   tenant/user with only a `logError` signal (best case). The abandoned-signup cleanup
   sweep (above) must therefore also **alert** when a signup returned 200 but no
   `signup_verifications` row exists after a grace window — not just clean up.
+
+### WP-SU-5a (2026-07-17) — admin ToS re-acceptance, and why the owner is exempt
+
+The ToS guard exempted every admin. That was correct while an admin could only be created
+by the owner running `scripts/provision-admin.ts`, and wrong from the moment this ADR let a
+stranger self-register as one. WP-SU-5a adds `tenants.self_serve` (migration 0026, default
+false) — set true only by `provisionSignup` — and gates admins whose tenant carries it.
+
+**The owner/vendor exemption is deliberate and permanent, not an oversight.** Script- and
+seed-provisioned tenants have no acceptance record at all, so gating every admin would lock
+the owner out of their own application on the first `CURRENT_TOS_VERSION` bump. The owner
+operates the product rather than contracting for it, so LGL-01's "acceptance at
+provisioning" is not the same obligation there.
+
+Rejected: having `scripts/provision-admin.ts` record an acceptance on the owner's behalf.
+It would satisfy the letter of LGL-01 and close the ambiguity in one line — but it would
+write a consent record for terms nobody was shown, which is a worse compliance position
+than a documented exemption.
+
+**Known and accepted for now:** the gate is NOT inert. The shared lead-notes routes already
+call `requireTosResponse`, and the admin app renders that panel — so after a version bump, a
+*self-serve* admin loses admin notes until they re-accept, and WP-SU-5b (the admin
+enforcement point + acceptance screen) is what gives them the way to do it. The owner's own
+tenant is `self_serve = false` and therefore unaffected; production signup is disabled, so
+no self-serve tenant exists there yet. The failure is at least visible now rather than
+silent — `NotesPanel` renders a real error instead of an empty list.

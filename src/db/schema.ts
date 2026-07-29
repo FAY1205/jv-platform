@@ -54,6 +54,11 @@ export const tenants = pgTable("tenants", {
   name: text("name").notNull(),
   slug: text("slug").notNull().unique(),
   timezone: text("timezone").notNull().default("America/New_York"),
+  // LGL-01 (WP-SU-5): true when this tenant was created by PUBLIC self-serve signup, whose
+  // admin accepted the ToS at provisioning. Owner/script-provisioned tenants are false and
+  // stay exempt from the admin ToS gate — they have no acceptance record, so gating every
+  // admin would lock the owner out of their own app.
+  selfServe: boolean("self_serve").notNull().default(false),
   createdAt: createdAt(),
 });
 

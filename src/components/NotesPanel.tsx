@@ -26,7 +26,10 @@ interface Note {
 export function NotesPanel({ leadRef, title, headingLevel = "h3" }: { leadRef: string; title: string; headingLevel?: "h2" | "h3" }) {
   const qc = useQueryClient();
   const key = ["lead-notes", leadRef];
-  const { data, isLoading } = useQuery({
+  // `error` is destructured deliberately: without it a failed load renders as "No notes
+  // yet.", so a 403 (e.g. the LGL-01 ToS gate) is indistinguishable from an empty list —
+  // the reader sees no notes and no reason.
+  const { data, isLoading, isError } = useQuery({
     queryKey: key,
     queryFn: () => apiGet<{ notes: Note[] }>(`/api/leads/${leadRef}/notes`),
   });
@@ -80,6 +83,14 @@ export function NotesPanel({ leadRef, title, headingLevel = "h3" }: { leadRef: s
       <CardBody className="flex flex-col gap-4">
         {isLoading ? (
           <p className="text-sm text-text-3">Loading…</p>
+        ) : isError ? (
+          <p role="alert" className="text-sm text-danger">
+            Notes could not be loaded. You may need to{" "}
+            <a href="/tos" className="underline">
+              accept the current Terms of Service
+            </a>
+            , or you no longer have access to this lead.
+          </p>
         ) : notes.length === 0 ? (
           <p className="text-sm text-text-3">No notes yet.</p>
         ) : (

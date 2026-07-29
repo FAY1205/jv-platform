@@ -28,6 +28,7 @@ suite("F-04: portal data routes are ToS-gated", () => {
   let db: ReturnType<typeof getDb>;
   let tenantId: string;
   let partnerUserId: string;
+  let partnerId: string;
 
   async function cleanup() {
     const t = await db.select({ id: schema.tenants.id }).from(schema.tenants).where(eq(schema.tenants.slug, SLUG));
@@ -47,6 +48,7 @@ suite("F-04: portal data routes are ToS-gated", () => {
     const [t] = await db.insert(schema.tenants).values({ name: "ToS Gate", slug: SLUG }).returning({ id: schema.tenants.id });
     tenantId = t.id;
     const [p] = await db.insert(schema.partners).values({ tenantId, refId: "JV-001", name: "PX", color: "#111111", status: "active" }).returning({ id: schema.partners.id });
+    partnerId = p.id;
     partnerUserId = randomUUID();
     await db.insert(schema.users).values({ id: partnerUserId, tenantId, email: "px@tos.test", role: "partner", partnerId: p.id });
     const [u] = await db.insert(schema.uploads).values({ tenantId, refId: "IM-26-001", filename: "a.xlsx", status: "processed" }).returning({ id: schema.uploads.id });
@@ -73,6 +75,30 @@ suite("F-04: portal data routes are ToS-gated", () => {
     const res = await notesGet(jsonRequest("GET", "/api/leads/LD-26-00001/notes"), routeParams({ ref: "LD-26-00001" }));
     expect(res.status).toBe(403);
     expect((await res.json()).code).toBe("tos_required");
+  });
+
+  it("LGL-01: a SELF-SERVE ADMIN with a stale acceptance is refused on the shared notes ROUTE", async () => {
+    // The notes routes are shared admin+partner surfaces, so WP-SU-5a's guard change is
+    // live for admins today — not inert until 5b, as first reported. Exercised through the
+    // real route handler (not the guard function) because that is the path the admin app's
+    // Notes panel actually takes.
+    const adminUserId = randomUUID();
+    await db.update(schema.tenants).set({ selfServe: true }).where(eq(schema.tenants.id, tenantId));
+    await db.insert(schema.users).values({ id: adminUserId, tenantId, email: "admin@tos.test", role: "admin" });
+    setRouteScope({ tenantId, role: "admin", userId: adminUserId });
+    try {
+      const res = await notesGet(
+        jsonRequest("GET", "/api/leads/LD-26-00001/notes"),
+        routeParams({ ref: "LD-26-00001" }),
+      );
+      expect(res.status).toBe(403);
+      expect((await res.json()).code).toBe("tos_required");
+    } finally {
+      // Restore for the remaining partner-path assertions.
+      await db.update(schema.tenants).set({ selfServe: false }).where(eq(schema.tenants.id, tenantId));
+      await db.delete(schema.users).where(eq(schema.users.id, adminUserId));
+      setRouteScope({ tenantId, role: "partner", userId: partnerUserId, partnerId: partnerId });
+    }
   });
 
   it("F-04/T7A-02: the leads-count route (nav badge) is gated too", async () => {

@@ -18,7 +18,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ re
   if (!parsed.success) return jsonError("invalid_input", "A note body is required.", 400);
   try {
     const scope = await getServerScope();
-    const tos = await requireTosResponse(getDb(), scope); // F-04: partners must have accepted ToS
+    const tos = await requireTosResponse(getDb(), scope); // F-04/LGL-01: partners, and self-serve admins, must have accepted the current ToS
     if (tos) return tos;
     await editLeadNote(scope, noteId, parsed.data.body, newTraceId());
     return jsonOk({ code: "ok", message: "Note updated." });

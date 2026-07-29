@@ -16,7 +16,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ ref: st
   if (!RefSchema.safeParse(ref).success) return jsonError("invalid_ref", "Invalid lead reference.", 400);
   try {
     const scope = await getServerScope();
-    const tos = await requireTosResponse(getDb(), scope); // F-04: partners must have accepted ToS
+    const tos = await requireTosResponse(getDb(), scope); // F-04/LGL-01: partners, and self-serve admins, must have accepted the current ToS
     if (tos) return tos;
     const notes = await listLeadNotes(scope, ref);
     return jsonOk({ notes });
@@ -36,7 +36,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ ref
   if (!parsed.success) return jsonError("invalid_input", "A note body is required.", 400);
   try {
     const scope = await getServerScope();
-    const tos = await requireTosResponse(getDb(), scope); // F-04: partners must have accepted ToS
+    const tos = await requireTosResponse(getDb(), scope); // F-04/LGL-01: partners, and self-serve admins, must have accepted the current ToS
     if (tos) return tos;
     const result = await addLeadNote(scope, ref, parsed.data.body);
     return jsonOk(result);

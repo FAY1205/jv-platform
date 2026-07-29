@@ -67,6 +67,9 @@ suite("SCP-02: provisionSignup", () => {
       expect(tenantRows).toHaveLength(1);
       expect(tenantRows[0].name).toBe("Acme Realty");
       expect(tenantRows[0].slug).toBeTruthy();
+      // LGL-01 (WP-SU-5): marks the tenant as publicly self-registered, which is what makes
+      // its admin subject to ToS re-acceptance. Without this the gate never applies to anyone.
+      expect(tenantRows[0].selfServe).toBe(true);
 
       const userRows = await db.select().from(schema.users).where(eq(schema.users.id, userId));
       expect(userRows).toHaveLength(1);

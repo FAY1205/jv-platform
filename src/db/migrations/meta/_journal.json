@@ -183,6 +183,13 @@
       "when": 1784211508266,
       "tag": "0025_swift_robbie_robertson",
       "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1785342688951,
+      "tag": "0026_self_serve_tenant",
+      "breakpoints": true
     }
   ]
 }
