@@ -52,11 +52,27 @@ export async function register(): Promise<void> {
         delete event.request.cookies;
         delete event.request.headers;
       }
+      // WP-SU-10: captureRequestError (the onRequestError path below) puts the request PATH in a
+      // CONTEXT — event.contexts.nextjs.request_path — not in event.request.url, so the query-strip
+      // above misses it. Reset and signup-verify links carry a live single-use token in the query,
+      // which is an account-takeover credential in a third party's store (SEC-05, same reasoning as
+      // request.url). Strip it here too; scrub the rest of the context for free.
+      const nextjs = event.contexts?.nextjs as Record<string, unknown> | undefined;
+      if (nextjs) {
+        const path = nextjs.request_path;
+        if (typeof path === "string") nextjs.request_path = path.split("?")[0];
+        event.contexts!.nextjs = scrubDetail(nextjs);
+      }
       if (event.extra) event.extra = scrubDetail(event.extra);
       // Safe to scrub now that the token rule exempts structured identifiers: a
       // length-only rule collapsed 17 distinct alert codes into ONE Sentry issue, which
       // would have destroyed the alerting this ADR exists to buy. Codes round-trip; prose
       // messages (which we do not author) are still redacted.
+      // WP-SU-10 (audit-security F-1): captureRequestError sets event.transaction to
+      // `${method} ${routePath}`. routePath is the compile-time route TEMPLATE today (no live
+      // token), so this is defense-in-depth — but the doctrine here is "scrub every string field,
+      // don't trust a framework not to put a concrete path there tomorrow".
+      if (event.transaction) event.transaction = scrubString(event.transaction);
       if (event.message) event.message = scrubString(event.message);
       for (const ex of event.exception?.values ?? []) if (ex.value) ex.value = scrubString(ex.value);
       if (event.breadcrumbs) {
@@ -111,4 +127,43 @@ export async function register(): Promise<void> {
       stackFrameVariables: false, // no-op in v10 (see includeLocalVariables); set for v11
     },
   });
+}
+
+/**
+ * WP-SU-10 / ACT-03: Next calls this for every error thrown out of a route handler, server
+ * component render, or server action. Without it, App Router handler errors reached NO sink of
+ * ours — `logError` only sees the errors we catch ourselves, so an uncaught throw out of a route
+ * was invisible (instrumentation.ts previously exported only `register`).
+ *
+ * Delegates to the SDK rather than re-implementing capture, so the exception arrives with its
+ * stack and Next's routing context. Everything it produces still passes through the `beforeSend`
+ * above, which is where the scrubbing happens — including request_path (see the note there; that
+ * field is the reason this WP touched beforeSend at all).
+ *
+ * Gated on SENTRY_DSN to mirror `register`: without init, capture is a silent no-op anyway, but an
+ * explicit gate is testable and says what we mean (SEC-07: inert in dev/test/CI/preview).
+ *
+ * Types come from the SDK, not from `next`: Next 16 does not re-export the `Instrumentation`
+ * namespace from the package root, and a deep import into next/dist/server/... is not a stable
+ * contract to bind to.
+ *
+ * ACCEPTED RESIDUAL (ADR-0032): uncaught errors PRINTED by Next/Node still reach the hosting
+ * provider's log store before any of our code runs. This closes the Sentry gap, not that one.
+ */
+type CaptureArgs = Parameters<typeof Sentry.captureRequestError>;
+
+export function onRequestError(error: unknown, request: CaptureArgs[1], context: CaptureArgs[2]): void {
+  if (!env.SENTRY_DSN) return;
+  try {
+    Sentry.captureRequestError(error, request, context);
+  } catch {
+    // Error reporting must never break error handling — but leave ONE first-party trace that the
+    // transport itself failed (pr-reviewer F-1, mirroring logError's console-then-Sentry split).
+    // Console only, no Sentry retry: Sentry is the thing that just threw. Static payload, no PII.
+    try {
+      console.error(JSON.stringify({ level: "error", scope: "server", code: "sentry_capture_request_error_failed" }));
+    } catch {
+      // A console failure must not break error handling either.
+    }
+  }
 }

@@ -15,6 +15,7 @@ vi.mock("@sentry/nextjs", () => ({
   init: vi.fn(),
   consoleIntegration: vi.fn(() => ({ name: "Console" })),
   httpIntegration: vi.fn(() => ({ name: "Http" })),
+  captureRequestError: vi.fn(),
 }));
 
 const init = vi.mocked(Sentry.init);
@@ -139,6 +140,35 @@ describe("ADR-0032: Sentry server init", () => {
     expect(JSON.stringify(scrubbed)).not.toContain("seller@example.com");
     expect(JSON.stringify(scrubbed)).not.toContain("5551234567");
     expect(JSON.stringify(scrubbed)).not.toContain("Jane");
+  });
+
+  // WP-SU-10: captureRequestError writes request.path into contexts.nextjs.request_path — a field
+  // the url-stripping above does NOT cover. We email /reset?token=<live token>, so a throw during
+  // that request would ship an account-takeover credential (SEC-05).
+  it("SEC-05: beforeSend strips the query from contexts.nextjs.request_path", async () => {
+    setDsn("https://key@o1.ingest.sentry.io/1");
+    const register = await loadRegister();
+    await register();
+    const out = beforeSendFn()(
+      { contexts: { nextjs: { request_path: "/reset?token=SUPER_SECRET_RESET_TOKEN", route_type: "route" } } } as never,
+      {},
+    ) as unknown as { contexts?: { nextjs?: { request_path?: string } } };
+    expect(out.contexts?.nextjs?.request_path).toBe("/reset");
+    expect(JSON.stringify(out)).not.toContain("SUPER_SECRET_RESET_TOKEN");
+  });
+
+  // WP-SU-10: captureRequestError sets event.transaction to `${method} ${routePath}`. Defense-in-
+  // depth — routePath is a template today, but every string field gets scrubbed on principle. Use
+  // an email (which scrubString reliably redacts) to prove the scrub is actually applied here.
+  it("SEC-05: beforeSend scrubs event.transaction", async () => {
+    setDsn("https://key@o1.ingest.sentry.io/1");
+    const register = await loadRegister();
+    await register();
+    const out = beforeSendFn()(
+      { transaction: "POST /admin seller@example.com" } as never,
+      {},
+    ) as unknown as { transaction?: string };
+    expect(out.transaction).not.toContain("seller@example.com");
   });
 
   it("SEC-05: deletes the captured request body — password/OTP/reset-token ride on it", async () => {

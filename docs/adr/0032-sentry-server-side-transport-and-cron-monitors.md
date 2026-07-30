@@ -192,6 +192,35 @@ ADR-0026 hold release, whose failure mode is silent and legal.
   mistaken for an oversight. **Reopening this requires a follow-up ADR that first defines
   a PII scrubbing policy** (`beforeSend`) — never a default wizard install, which is the
   exact path that would breach ADR-0031.
+
+### Amendment (WP-SU-10, 2026-07-30): `onRequestError` wiring
+
+`src/instrumentation.ts` originally exported only `register`, so `Sentry.init`'s global
+uncaught-exception / unhandled-rejection handlers were the only route to Sentry — and errors
+thrown out of an **App Router route handler, server component render, or server action** are
+caught by Next's framework and never reach those handlers, so they reached **no sink of ours**
+(`logError` only sees the errors we catch ourselves). WP-SU-10 exports `onRequestError`, the
+hook Next calls for exactly those errors, delegating to `Sentry.captureRequestError`
+(verified present in both the server and edge builds of `@sentry/nextjs` 10.65). It is gated on
+`SENTRY_DSN` and never throws, mirroring `register`.
+
+That hook introduced **one new PII path, now closed**: `captureRequestError` writes the request
+path into `contexts.nextjs.request_path` — a *context*, not `event.request.url`, so the existing
+query-strip missed it — and reset / signup-verify links carry a live single-use token in the
+query. `beforeSend` now strips and scrubs that context too.
+
+A review pass (audit-security F-1) additionally found that `captureRequestError` sets
+`event.transaction` to `${method} ${routePath}`; it is scrubbed as defense-in-depth even though
+`routePath` is a compile-time route *template* today (no live value), on the same "scrub every
+string field, don't trust a framework not to change" doctrine as the rest of `beforeSend`. And
+`onRequestError`'s own catch (pr-reviewer F-1) leaves one first-party `console.error` code —
+`sentry_capture_request_error_failed`, no PII — if the SDK call itself throws, so a transport
+failure is never fully silent.
+
+**Still residual, unchanged:** uncaught errors *printed* by Next/Node reach the hosting
+provider's log store before any of our code runs — the one path `beforeSend` and WP-SU-3's
+redaction cannot cover. No in-app hook closes it; it is bounded by choosing a host whose log
+retention we accept.
 - **Owner deliverables created (both Gate 2, neither blocking this code):** a US-region
   Sentry DSN, and Sentry added to the subprocessor page. Until the DSN is set, the wiring
   ships inert and behaves exactly as today — so this WP can land, be reviewed, and merge
