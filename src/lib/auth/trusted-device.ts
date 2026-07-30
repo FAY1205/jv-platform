@@ -111,6 +111,19 @@ export class TrustedDeviceService {
     return { result, email: u?.email };
   }
 
+  /** Resolve the family a presented token belongs to WITHOUT loading/rotating it. Lets the route
+   *  throttle /api/auth/trust/refresh per family before the insert-heavy rotate (WP-SU-14). Returns
+   *  null for an unknown token — nothing to throttle, and rotate would insert nothing either. */
+  async familyForToken(presented: string): Promise<string | null> {
+    const T = schema.trustedDevices;
+    const [row] = await this.db
+      .select({ familyId: T.familyId })
+      .from(T)
+      .where(eq(T.tokenHash, sha256Hex(presented)))
+      .limit(1);
+    return row?.familyId ?? null;
+  }
+
   /** Revoke an entire device family (per-device or admin revoke — ACC-02). */
   async revokeFamily(familyId: string, now: number): Promise<void> {
     await this.db

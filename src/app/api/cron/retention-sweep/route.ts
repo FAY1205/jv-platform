@@ -8,6 +8,7 @@ import {
   sweepOtpChallenges,
   sweepResetTokens,
   sweepSignupVerifications,
+  sweepTrustedDevices,
 } from "@/modules/retention/auth-tables";
 import { logError } from "@/lib/observability";
 import { jsonOk, jsonError, jsonServerError } from "@/lib/http";
@@ -74,9 +75,10 @@ export async function GET(request: Request) {
       // Promise.all makes wall-clock the SLOWEST pass, not their sum. Each still catches its own
       // failure, so one pass's throw cannot reject the others. The tenant PII purge stays sequential
       // and FIRST: it is the legal promise this monitor exists for, and must not contend for the pool
-      // with hygiene work. (trusted_devices is deliberately NOT swept here — its retention needs
-      // family-liveness-aware pruning to preserve AUT-10 reuse detection; tracked as its own WP.)
-      const [authAttempts, otpChallenges, resetTokens, signupVerifications] = await Promise.all([
+      // with hygiene work. trusted_devices is now swept here too (WP-SU-14) — but CANARY-SAFE: it
+      // prunes a row only when its family has no live head, so an active family's reuse canaries
+      // survive (AUT-10 preserved).
+      const [authAttempts, otpChallenges, resetTokens, signupVerifications, trustedDevices] = await Promise.all([
         sweepAuthAttempts(db)
           .then((r) => r.deleted)
           .catch((e) => {
@@ -101,9 +103,15 @@ export async function GET(request: Request) {
             logError("cron_signup_verifications_sweep_failed", { message: e instanceof Error ? e.message : String(e) });
             return 0;
           }),
+        sweepTrustedDevices(db)
+          .then((r) => r.deleted)
+          .catch((e) => {
+            logError("cron_trusted_devices_sweep_failed", { message: e instanceof Error ? e.message : String(e) });
+            return 0;
+          }),
       ]);
 
-      return { tenants: swept, purged, authAttempts, otpChallenges, resetTokens, signupVerifications };
+      return { tenants: swept, purged, authAttempts, otpChallenges, resetTokens, signupVerifications, trustedDevices };
     },
     monitorConfig(MONITOR),
   ).then(

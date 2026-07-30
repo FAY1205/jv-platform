@@ -554,6 +554,7 @@ export const authAttempts = pgTable(
     identifier: text("identifier").notNull(), // lowercased email
     ip: text("ip"),
     // 'login' | 'reset' | 'reset_confirm' | 'change_password' | 'otp' | 'signup' | 'signup_verify'
+    // | 'trust_refresh' (WP-SU-14, per-family trusted-device rotation cap)
     // plus two WP-SU-8 notification budgets that are NOT throttles: 'signup_notice', 'signup_alert'
     kind: text("kind").notNull(),
     // WP-SU-9: written `true` by reserve() and stamped with the real outcome by settle(). Only

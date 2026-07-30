@@ -180,10 +180,14 @@ ADR-0026 hold release, whose failure mode is silent and legal.
   rows-deleted counts ride in the 200 response. Alert on all three, or these tables silently resume
   growing with raw third-party emails (otp_challenges) and token hashes in them. WP-SU-13 also
   right-sizes the auth_attempts `signup_notice` cutoff (F-3): those rows now drain at ~8 days, not
-  ~31 — no new code path, the same `cron_auth_attempts_sweep_failed` covers a failure. (trusted_devices
-  was in WP-SU-13's original scope but was pulled: naive age-pruning narrows AUT-10 reuse detection —
-  it needs family-liveness-aware pruning in a dedicated WP. So no `cron_trusted_devices_sweep_failed`
-  code is wired yet.)
+  ~31 — no new code path, the same `cron_auth_attempts_sweep_failed` covers a failure.
+  WP-SU-14 adds one more of the same class — `cron_trusted_devices_sweep_failed` — for the
+  canary-safe `trusted_devices` retention pass now hung off this daily sweep (ADR-0035). Caught, not
+  propagated, for the identical reason: this monitor answers "did the LGL-02 consumer-PII purge run",
+  so a data-minimisation hygiene failure must not fail its check-in. A healthy run is silent; the
+  rows-deleted count rides in the 200 response. Alert on it, or `trusted_devices` silently resumes
+  retaining abandoned-device IPs. Unlike the naive prune WP-SU-13 rejected, this pass is
+  family-liveness-aware, so it preserves AUT-10 reuse detection for active families (ADR-0035).
 - **Client-side errors remain unreported.** Accepted trade, stated plainly so it is not
   mistaken for an oversight. **Reopening this requires a follow-up ADR that first defines
   a PII scrubbing policy** (`beforeSend`) — never a default wizard install, which is the

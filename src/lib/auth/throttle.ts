@@ -105,6 +105,19 @@ export const SIGNUP_THROTTLE: ThrottleConfig = {
   perIp: { limit: 20, windowMs: 900_000 }, // 20 / 15min per IP
 };
 
+// WP-SU-14 (AUT-10 growth bound): /api/auth/trust/refresh inserts a trusted_devices row per
+// SUCCESSFUL rotation and was the one insert-per-call auth endpoint with no throttle (audit-data
+// F-1). The growth vector is chain-rotation — each call presents the LATEST token — so the key is
+// the FAMILY (stable across the chain), not the per-call token, plus per-IP defence-in-depth.
+// Wired sliding-window-ONLY at the call site (like RESET_CONFIRM/VERIFY): AUT-04 lockout's escape
+// hatches (owner notify, admin clearFailures) don't apply to a non-inbox key, and lockout would turn
+// a benign "please sign in again" into a wait that never fixes it. Limits sit far above any real
+// device's rotation cadence (a few/day) and far below an insert-flood.
+export const TRUST_REFRESH_THROTTLE: ThrottleConfig = {
+  perIdentifier: { limit: 10, windowMs: 900_000 }, // 10 rotations / 15min per family
+  perIp: { limit: 30, windowMs: 900_000 }, // 30 / 15min per IP
+};
+
 // WP-SU-8: a GLOBAL rolling-hour ceiling across every identifier and IP. Both keys above
 // are attacker-chosen — a fresh email defeats perIdentifier, a rotated IP defeats perIp —
 // so without this, distributed signup abuse is bounded by Turnstile alone.

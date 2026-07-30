@@ -1,4 +1,5 @@
-import { and, isNotNull, lte } from "drizzle-orm";
+import { and, eq, gt, isNotNull, isNull, lte, notExists } from "drizzle-orm";
+import { alias } from "drizzle-orm/pg-core";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import * as schema from "@/db/schema";
 import { OTP_TTL_MS } from "@/lib/auth/otp";
@@ -12,7 +13,8 @@ import { batchedDeleteByAge } from "./batched-delete";
 // named and WP-SU-11 closed for auth_attempts — these tables hold raw third-party emails
 // (otp_challenges.identifier) and token hashes on dead rows that nothing prunes. Each cutoff
 // is DERIVED from that table's own live read window; a restated literal is a bug (ADR-0010).
-// (trusted_devices was in scope but was pulled out — see the note at the bottom of this file.)
+// (trusted_devices is ALSO swept here — WP-SU-14, at the bottom of this file. It differs: it HAS a
+// tenant_id and needs family-liveness-aware pruning to preserve AUT-10 reuse detection.)
 // ─────────────────────────────────────────────────────────────────────────────
 
 type DB = PostgresJsDatabase<typeof schema>;
@@ -106,12 +108,43 @@ export async function sweepSignupVerifications(
   });
 }
 
-// ── trusted_devices is deliberately NOT swept here (WP-SU-13 review, audit-security F-1 +
-// audit-data F-1). Naive expiresAt-based pruning would delete the old, already-rotated rows of a
-// STILL-ACTIVE family — but rotate() (refresh.ts) checks token REUSE *before* it checks expiry, so
-// deleting those rows silently narrows AUT-10 reuse detection: a leaked old token replayed after
-// its expiry + margin returns "invalid" instead of "reuse_revoked", losing the family revoke + owner
-// notify. Correct pruning must be family-liveness-aware (keep any rotated row while its family has a
-// live head). Separately, its insert path (/api/auth/trust/refresh) is unthrottled, so retention
-// alone does not bound its growth. Both belong in a dedicated WP, not this delete-only pass. The
-// three tables above are genuinely pre-tenant and safe to prune by age.
+// ── trusted_devices (AUT-10 / ACC-02) — CANARY-SAFE, family-liveness-aware (WP-SU-14). Unlike the
+// three siblings above, this table HAS a tenant_id; the age-predicate delete is nonetheless
+// tenant-agnostic SYSTEM MAINTENANCE — a documented PRN-08 exception, same class as the cron
+// tenant-list read — NOT a pre-tenant table. Anchored on the STORED expiresAt (the 30d
+// REFRESH_ABSOLUTE_MS is already baked in at issue/rotate time), so no lifetime literal is restated
+// (ADR-0010).
+//
+// A row is pruned ONLY when its family has NO LIVE HEAD — no row with rotatedTo IS NULL AND revokedAt
+// IS NULL AND expiresAt > now (the exact live-head definition in TrustedDeviceService.listForUser). This is
+// load-bearing for AUT-10: rotate() (refresh.ts:66-79) checks token REUSE *before* expiry, so an
+// ACTIVE family's old rotated rows are its reuse canaries — deleting them turns a leaked-token replay
+// from "reuse_revoked" (revoke family + notify) into "invalid". Keeping every row while a live head
+// exists preserves that canary; once the family is fully dead, its rows past expiresAt + margin are
+// pruned, dropping the abandoned device's IP/label. Accepted residual (ADR-0035): a fully-dead family
+// loses its canary after the margin — acceptable, no access is granted (all tokens expired/rotated/
+// revoked) and no live session exists to protect.
+export function trustedDevicesCutoff(now: Date): Date {
+  return new Date(now.getTime() - AUTH_TABLE_RETENTION_MARGIN_MS);
+}
+
+export async function sweepTrustedDevices(
+  db: DB,
+  opts: { now?: Date; limit?: number } = {},
+): Promise<{ deleted: number }> {
+  const now = opts.now ?? new Date();
+  const T = schema.trustedDevices;
+  const h = alias(schema.trustedDevices, "h");
+  // Correlated NOT EXISTS: is there a LIVE HEAD in this row's family?
+  const liveHead = db
+    .select({ id: h.id })
+    .from(h)
+    .where(and(eq(h.familyId, T.familyId), isNull(h.rotatedTo), isNull(h.revokedAt), gt(h.expiresAt, now)));
+  return batchedDeleteByAge(db, {
+    table: T,
+    id: T.id,
+    orderBy: T.expiresAt,
+    where: and(lte(T.expiresAt, trustedDevicesCutoff(now)), notExists(liveHead))!,
+    limit: opts.limit ?? AUTH_TABLE_SWEEP_BATCH,
+  });
+}

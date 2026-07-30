@@ -27,6 +27,9 @@ const h = vi.hoisted(() => ({
   resetTokensDeleted: 0,
   signupVerificationsDeleted: 0,
   otpChallengesThrows: false,
+  // retention-sweep only (WP-SU-14): the canary-safe trusted_devices pass's count, and whether it throws.
+  trustedDevicesDeleted: 0,
+  trustedDevicesThrows: false,
 }));
 
 vi.mock("@sentry/nextjs", () => ({
@@ -90,6 +93,10 @@ vi.mock("@/modules/retention/auth-tables", () => ({
   }),
   sweepResetTokens: vi.fn(async () => ({ deleted: h.resetTokensDeleted })),
   sweepSignupVerifications: vi.fn(async () => ({ deleted: h.signupVerificationsDeleted })),
+  sweepTrustedDevices: vi.fn(async () => {
+    if (h.trustedDevicesThrows) throw new Error("trusted_devices pass down");
+    return { deleted: h.trustedDevicesDeleted };
+  }),
 }));
 
 vi.mock("@/modules/retention/signup-sweep", () => ({
@@ -125,6 +132,8 @@ beforeEach(() => {
   h.resetTokensDeleted = 0;
   h.signupVerificationsDeleted = 0;
   h.otpChallengesThrows = false;
+  h.trustedDevicesDeleted = 0;
+  h.trustedDevicesThrows = false;
 });
 
 describe("ACT-05: each cron route checks in with its Sentry monitor", () => {
@@ -258,6 +267,36 @@ describe("ACT-05: each cron route checks in with its Sentry monitor", () => {
       .find((l) => typeof l === "string" && l.includes("cron_otp_challenges_sweep_failed"));
     expect(line).toBeDefined();
     expect(JSON.parse(line!)).toMatchObject({ code: "cron_otp_challenges_sweep_failed" });
+    errSpy.mockRestore();
+  });
+
+  // ── WP-SU-14 (AUT-10): the canary-safe trusted_devices pass on the same daily sweep. ──
+
+  it("WP-SU-14: retention-sweep runs the trusted_devices pass and reports what it deleted", async () => {
+    h.trustedDevicesDeleted = 7;
+    const { GET } = await import("@/app/api/cron/retention-sweep/route");
+    const res = await GET(authed());
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ code: "ok", trustedDevices: 7 });
+    expect(h.outcomes).toEqual([{ slug: "retention-sweep", ok: true }]);
+  });
+
+  it("WP-SU-14: a failing trusted_devices pass is best-effort — logs its code, does NOT fail the PII purge check-in", async () => {
+    h.trustedDevicesThrows = true;
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const { GET } = await import("@/app/api/cron/retention-sweep/route");
+    const res = await GET(authed());
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ code: "ok", trustedDevices: 0 });
+    expect(h.outcomes).toEqual([{ slug: "retention-sweep", ok: true }]);
+
+    const line = errSpy.mock.calls
+      .map((c) => c[0] as string)
+      .find((l) => typeof l === "string" && l.includes("cron_trusted_devices_sweep_failed"));
+    expect(line).toBeDefined();
+    expect(JSON.parse(line!)).toMatchObject({ code: "cron_trusted_devices_sweep_failed" });
     errSpy.mockRestore();
   });
 
