@@ -8,6 +8,8 @@ import { jsonOk, jsonError } from "@/lib/http";
 import { assertCsrf } from "@/lib/auth/guard";
 import { AuthAttemptsStore } from "@/lib/auth/attempts-store";
 import { evaluateThrottle, OTP_THROTTLE } from "@/lib/auth/throttle";
+import { lockoutState } from "@/lib/auth/lockout";
+import { notifyLockout } from "@/lib/auth/notify";
 import { clientIp } from "@/lib/auth/client-ip";
 import { OtpStore } from "@/lib/auth/otp-store";
 import { otpOutcome } from "@/lib/auth/otp-verify";
@@ -71,8 +73,17 @@ export async function POST(request: Request) {
     // ONLY a genuinely wrong code is a credential failure that feeds the lockout ladder (settle
     // false). expired / too_many / consumed count toward the rate cap only (settle true).
     await attempts.settle(attemptId, outcome !== "wrong");
-    if (outcome === "wrong") await store.incrementAttempt(challenge.id);
-    else if (outcome === "too_many" || outcome === "expired") await store.consume(challenge.id, now);
+    if (outcome === "wrong") {
+      await store.incrementAttempt(challenge.id);
+      // AUT-04 (WP-SU-15): notify the account owner the moment repeated wrong codes trip the
+      // lock — mirroring login/route.ts. `snap` predates the settle(false) above (reserve wrote
+      // this row success:true, invisible to snapshot's failures), so failures.length + 1 counts
+      // this failure. Only a genuine wrong code reaches here (WP-SU-12), so it never fires on a
+      // credential-less verify or a successful sign-in. Best-effort; never blocks the response.
+      if (lockoutState(snap.failures.length + 1).shouldNotify) await notifyLockout(email);
+    } else if (outcome === "too_many" || outcome === "expired") {
+      await store.consume(challenge.id, now);
+    }
     return jsonError(INVALID.code, INVALID.message, 400);
   }
 
