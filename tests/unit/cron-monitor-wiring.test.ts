@@ -21,6 +21,12 @@ const h = vi.hoisted(() => ({
   // retention-sweep only (WP-SU-11): the auth_attempts pass's result, and whether it throws.
   authAttemptsDeleted: 0,
   authAttemptsThrows: false,
+  // retention-sweep only (WP-SU-13): the three sibling passes' deleted counts, and whether the
+  // first one throws (to exercise the best-effort log path).
+  otpChallengesDeleted: 0,
+  resetTokensDeleted: 0,
+  signupVerificationsDeleted: 0,
+  otpChallengesThrows: false,
 }));
 
 vi.mock("@sentry/nextjs", () => ({
@@ -73,6 +79,19 @@ vi.mock("@/modules/retention/auth-attempts", () => ({
   }),
 }));
 
+// WP-SU-13: the retention route's four sibling-table passes. Mocked for the same reason as the
+// auth_attempts pass above — this file proves ROUTE wiring (does each pass run best-effort, does its
+// count reach the response); the sweeps' own semantics are proven against the real tables in
+// tests/integration/auth-tables-retention.test.ts.
+vi.mock("@/modules/retention/auth-tables", () => ({
+  sweepOtpChallenges: vi.fn(async () => {
+    if (h.otpChallengesThrows) throw new Error("otp_challenges pass down");
+    return { deleted: h.otpChallengesDeleted };
+  }),
+  sweepResetTokens: vi.fn(async () => ({ deleted: h.resetTokensDeleted })),
+  sweepSignupVerifications: vi.fn(async () => ({ deleted: h.signupVerificationsDeleted })),
+}));
+
 vi.mock("@/modules/retention/signup-sweep", () => ({
   sweepAbandonedSignups: vi.fn(async () => {
     if (h.sweepError) throw h.sweepError;
@@ -102,6 +121,10 @@ beforeEach(() => {
   h.sweepError = null;
   h.authAttemptsDeleted = 0;
   h.authAttemptsThrows = false;
+  h.otpChallengesDeleted = 0;
+  h.resetTokensDeleted = 0;
+  h.signupVerificationsDeleted = 0;
+  h.otpChallengesThrows = false;
 });
 
 describe("ACT-05: each cron route checks in with its Sentry monitor", () => {
@@ -198,6 +221,43 @@ describe("ACT-05: each cron route checks in with its Sentry monitor", () => {
       .find((l) => typeof l === "string" && l.includes("cron_auth_attempts_sweep_failed"));
     expect(line).toBeDefined();
     expect(JSON.parse(line!)).toMatchObject({ code: "cron_auth_attempts_sweep_failed" });
+    errSpy.mockRestore();
+  });
+
+  // ── WP-SU-13 (ADR-0010): the four auth SIBLING-table passes on the same daily sweep. ──
+
+  it("WP-SU-13: retention-sweep runs the three sibling passes and reports what each deleted", async () => {
+    h.otpChallengesDeleted = 1;
+    h.resetTokensDeleted = 2;
+    h.signupVerificationsDeleted = 3;
+    const { GET } = await import("@/app/api/cron/retention-sweep/route");
+    const res = await GET(authed());
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({
+      code: "ok",
+      otpChallenges: 1,
+      resetTokens: 2,
+      signupVerifications: 3,
+    });
+    expect(h.outcomes).toEqual([{ slug: "retention-sweep", ok: true }]);
+  });
+
+  it("WP-SU-13: a failing sibling pass is best-effort — logs its code, does NOT fail the PII purge check-in", async () => {
+    h.otpChallengesThrows = true;
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const { GET } = await import("@/app/api/cron/retention-sweep/route");
+    const res = await GET(authed());
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ code: "ok", otpChallenges: 0 });
+    expect(h.outcomes).toEqual([{ slug: "retention-sweep", ok: true }]);
+
+    const line = errSpy.mock.calls
+      .map((c) => c[0] as string)
+      .find((l) => typeof l === "string" && l.includes("cron_otp_challenges_sweep_failed"));
+    expect(line).toBeDefined();
+    expect(JSON.parse(line!)).toMatchObject({ code: "cron_otp_challenges_sweep_failed" });
     errSpy.mockRestore();
   });
 

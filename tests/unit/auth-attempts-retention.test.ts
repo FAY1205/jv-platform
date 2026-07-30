@@ -2,11 +2,15 @@ import { describe, it, expect } from "vitest";
 import { LOCKOUT_WINDOW_MS } from "@/lib/auth/attempts-store";
 import { ALREADY_REGISTERED_CAP } from "@/lib/auth/throttle";
 import * as throttleModule from "@/lib/auth/throttle";
+import { NOTICE_KIND } from "@/lib/auth/notice-budget";
+import { AUTH_TABLE_RETENTION_MARGIN_MS } from "@/modules/retention/auth-tables";
 import {
   AUTH_ATTEMPTS_MAX_READ_WINDOW_MS,
   AUTH_ATTEMPTS_RETENTION_MARGIN_MS,
   AUTH_ATTEMPTS_RETENTION_MS,
   authAttemptsCutoff,
+  SIGNUP_NOTICE_RETENTION_MS,
+  authAttemptsRetentionForKind,
 } from "@/modules/retention/auth-attempts";
 
 // WP-SU-11 (ADR-0010): the auth_attempts retention cutoff. ADR-0010 deferred the sweep and
@@ -81,5 +85,22 @@ describe("WP-SU-11: auth_attempts retention cutoff (ADR-0010)", () => {
         `${w.name} (${w.windowMs}ms) exceeds AUTH_ATTEMPTS_MAX_READ_WINDOW_MS — the retention sweep would delete rows this window still reads. Add it to the max, or lengthen the retention margin.`,
       ).toBeLessThanOrEqual(AUTH_ATTEMPTS_MAX_READ_WINDOW_MS);
     }
+  });
+});
+
+describe("WP-SU-13 F-3: auth_attempts kind-specific retention", () => {
+  it("SU-13-F3-01: signup_notice retention is the live 24h cap window plus the shared margin (derived)", () => {
+    expect(SIGNUP_NOTICE_RETENTION_MS).toBe(ALREADY_REGISTERED_CAP.windowMs + AUTH_TABLE_RETENTION_MARGIN_MS);
+  });
+  it("SU-13-F3-02: signup_notice retention still covers its 24h read window", () => {
+    expect(SIGNUP_NOTICE_RETENTION_MS).toBeGreaterThanOrEqual(ALREADY_REGISTERED_CAP.windowMs);
+  });
+  it("SU-13-F3-03: the refinement bites — signup_notice is retained STRICTLY less than the default", () => {
+    expect(SIGNUP_NOTICE_RETENTION_MS).toBeLessThan(AUTH_ATTEMPTS_RETENTION_MS);
+  });
+  it("SU-13-F3-04: the map returns the short window for signup_notice and the default for others", () => {
+    expect(authAttemptsRetentionForKind(NOTICE_KIND)).toBe(SIGNUP_NOTICE_RETENTION_MS);
+    expect(authAttemptsRetentionForKind("login")).toBe(AUTH_ATTEMPTS_RETENTION_MS);
+    expect(authAttemptsRetentionForKind("otp")).toBe(AUTH_ATTEMPTS_RETENTION_MS);
   });
 });

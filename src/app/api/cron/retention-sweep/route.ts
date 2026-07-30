@@ -4,6 +4,11 @@ import { env } from "@/lib/env";
 import { isAuthorizedCron } from "@/lib/auth/cron-auth";
 import { sweepTenantPii } from "@/modules/retention/sweep";
 import { sweepAuthAttempts } from "@/modules/retention/auth-attempts";
+import {
+  sweepOtpChallenges,
+  sweepResetTokens,
+  sweepSignupVerifications,
+} from "@/modules/retention/auth-tables";
 import { logError } from "@/lib/observability";
 import { jsonOk, jsonError, jsonServerError } from "@/lib/http";
 import * as Sentry from "@sentry/nextjs";
@@ -50,23 +55,55 @@ export async function GET(request: Request) {
         }
       }
 
-      // WP-SU-11 (ADR-0010): prune auth_attempts. Cross-tenant by construction — the table has no
-      // tenant_id (auth runs before the tenant is known), so there is nothing to loop over; it is
-      // one age-predicate delete, hung off this daily job rather than given a cron of its own.
+      // WP-SU-11 + WP-SU-13 (ADR-0010): prune the pre-tenant auth tables — auth_attempts and the
+      // three sibling token tables (otp_challenges, reset_tokens, signup_verifications). None carries
+      // a tenant_id (auth runs before a tenant is known), so each is a single age-predicate delete
+      // with nothing to loop over, hung off this daily job rather than given a cron of its own.
       //
-      // BEST-EFFORT, deliberately, and NOT the treatment signup-sweep's reconcile pass gets. This
-      // monitor's check-in answers one question — did the LGL-02 consumer-PII purge run. Letting a
-      // data-minimisation pass fail it would both raise a legal-grade alarm for a hygiene problem
-      // and report a purge that DID run as failed. The dedicated code below is the alert instead
-      // (ADR-0032); unbounded growth returning silently is exactly what it exists to prevent.
-      let authAttempts = 0;
-      try {
-        authAttempts = (await sweepAuthAttempts(db)).deleted;
-      } catch (e) {
-        logError("cron_auth_attempts_sweep_failed", { message: e instanceof Error ? e.message : String(e) });
-      }
+      // Each pass is BEST-EFFORT behind its OWN alert code, deliberately — NOT the treatment
+      // signup-sweep's reconcile pass gets. This monitor answers one question: did the LGL-02
+      // consumer-PII purge run. Letting a data-minimisation hygiene pass fail its check-in would
+      // raise a legal-grade alarm for a hygiene problem AND report a purge that DID run as failed
+      // (ADR-0032). The dedicated codes are the alert instead; unbounded growth returning silently is
+      // exactly what they prevent.
+      //
+      // CONCURRENT (audit-devops, WP-SU-13 review): these passes share no state and no transaction,
+      // and each is an unindexed seq-scan (see auth-tables.ts "ACCEPTED COST"). Run sequentially,
+      // their scan times stacked additively against this function's 60s maxDuration, behind the
+      // tenant PII loop above — so the newest pass was the first to be starved on a tight run.
+      // Promise.all makes wall-clock the SLOWEST pass, not their sum. Each still catches its own
+      // failure, so one pass's throw cannot reject the others. The tenant PII purge stays sequential
+      // and FIRST: it is the legal promise this monitor exists for, and must not contend for the pool
+      // with hygiene work. (trusted_devices is deliberately NOT swept here — its retention needs
+      // family-liveness-aware pruning to preserve AUT-10 reuse detection; tracked as its own WP.)
+      const [authAttempts, otpChallenges, resetTokens, signupVerifications] = await Promise.all([
+        sweepAuthAttempts(db)
+          .then((r) => r.deleted)
+          .catch((e) => {
+            logError("cron_auth_attempts_sweep_failed", { message: e instanceof Error ? e.message : String(e) });
+            return 0;
+          }),
+        sweepOtpChallenges(db)
+          .then((r) => r.deleted)
+          .catch((e) => {
+            logError("cron_otp_challenges_sweep_failed", { message: e instanceof Error ? e.message : String(e) });
+            return 0;
+          }),
+        sweepResetTokens(db)
+          .then((r) => r.deleted)
+          .catch((e) => {
+            logError("cron_reset_tokens_sweep_failed", { message: e instanceof Error ? e.message : String(e) });
+            return 0;
+          }),
+        sweepSignupVerifications(db)
+          .then((r) => r.deleted)
+          .catch((e) => {
+            logError("cron_signup_verifications_sweep_failed", { message: e instanceof Error ? e.message : String(e) });
+            return 0;
+          }),
+      ]);
 
-      return { tenants: swept, purged, authAttempts };
+      return { tenants: swept, purged, authAttempts, otpChallenges, resetTokens, signupVerifications };
     },
     monitorConfig(MONITOR),
   ).then(

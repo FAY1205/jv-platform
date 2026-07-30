@@ -172,6 +172,18 @@ ADR-0026 hold release, whose failure mode is silent and legal.
   alert on it, or `auth_attempts` silently resumes growing unbounded with third-party emails and
   IPs in it, which is the state ADR-0010 deferred and WP-SU-11 closed. A healthy run is silent;
   the rows-deleted count rides in the route's 200 response, not in a log line.
+  WP-SU-13 adds three more of the same class — `cron_otp_challenges_sweep_failed`,
+  `cron_reset_tokens_sweep_failed`, `cron_signup_verifications_sweep_failed` — the auth SIBLING-table
+  retention passes hung off this daily sweep. Each is caught, not propagated, for the identical reason
+  as `cron_auth_attempts_sweep_failed`: this monitor answers "did the LGL-02 consumer-PII purge run",
+  so a data-minimisation hygiene failure must not fail its check-in. A healthy run is silent; the
+  rows-deleted counts ride in the 200 response. Alert on all three, or these tables silently resume
+  growing with raw third-party emails (otp_challenges) and token hashes in them. WP-SU-13 also
+  right-sizes the auth_attempts `signup_notice` cutoff (F-3): those rows now drain at ~8 days, not
+  ~31 — no new code path, the same `cron_auth_attempts_sweep_failed` covers a failure. (trusted_devices
+  was in WP-SU-13's original scope but was pulled: naive age-pruning narrows AUT-10 reuse detection —
+  it needs family-liveness-aware pruning in a dedicated WP. So no `cron_trusted_devices_sweep_failed`
+  code is wired yet.)
 - **Client-side errors remain unreported.** Accepted trade, stated plainly so it is not
   mistaken for an oversight. **Reopening this requires a follow-up ADR that first defines
   a PII scrubbing policy** (`beforeSend`) — never a default wizard install, which is the

@@ -5,7 +5,8 @@ import { getDb } from "@/db";
 import * as schema from "@/db/schema";
 import { AuthAttemptsStore, LOCKOUT_WINDOW_MS } from "@/lib/auth/attempts-store";
 import { ALREADY_REGISTERED_CAP } from "@/lib/auth/throttle";
-import { authAttemptsCutoff, sweepAuthAttempts } from "@/modules/retention/auth-attempts";
+import { NOTICE_KIND } from "@/lib/auth/notice-budget";
+import { authAttemptsCutoff, signupNoticeCutoff, sweepAuthAttempts } from "@/modules/retention/auth-attempts";
 
 // WP-SU-11 (ADR-0010): the auth_attempts retention pass. Two properties matter and they pull in
 // opposite directions — it must actually DELETE old rows (data minimisation: the table holds the
@@ -138,5 +139,31 @@ suite("WP-SU-11: auth_attempts retention sweep (ADR-0010)", () => {
       .limit(1);
     expect(row).toBeUndefined();
     expect(await remainingIdentifiers()).toEqual(KEEPERS); // ...and the live-window rows survived
+  });
+
+  it("SU-13-F3-05: a signup_notice row older than its SHORT cutoff is swept though the default would keep it", async () => {
+    const nCut = signupNoticeCutoff(now);
+    // Sanity: the short cutoff is more recent than the default cutoff, so a row between them is
+    // deletable ONLY by the kind-specific pass.
+    expect(nCut.getTime()).toBeGreaterThan(cutoff.getTime());
+
+    const id = `su13-f3-${randomUUID()}@example.test`;
+    await db.insert(schema.authAttempts).values({
+      identifier: id,
+      ip: null,
+      kind: NOTICE_KIND,
+      success: false,
+      createdAt: new Date(nCut.getTime() - 60_000), // 1 min past the short cutoff, still inside the default window
+    });
+
+    await sweepAuthAttempts(db, { now });
+    const [row] = await db
+      .select({ id: schema.authAttempts.id })
+      .from(schema.authAttempts)
+      .where(eq(schema.authAttempts.identifier, id));
+    expect(row).toBeUndefined();
+
+    // Self-clean (this row is NOT the suite's KIND, so afterAll won't remove it).
+    await db.delete(schema.authAttempts).where(eq(schema.authAttempts.identifier, id));
   });
 });

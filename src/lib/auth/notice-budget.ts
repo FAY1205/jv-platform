@@ -17,7 +17,7 @@ import { logError } from "@/lib/observability";
 
 type Db = PostgresJsDatabase<typeof schema>;
 
-const NOTICE_KIND = "signup_notice";
+export const NOTICE_KIND = "signup_notice";
 const ALERT_KIND = "signup_alert";
 
 /**

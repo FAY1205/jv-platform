@@ -1,8 +1,11 @@
-import { asc, inArray, lte } from "drizzle-orm";
+import { and, eq, lte, ne } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import * as schema from "@/db/schema";
 import { LOCKOUT_WINDOW_MS } from "@/lib/auth/attempts-store";
 import { ALREADY_REGISTERED_CAP } from "@/lib/auth/throttle";
+import { NOTICE_KIND } from "@/lib/auth/notice-budget";
+import { AUTH_TABLE_RETENTION_MARGIN_MS } from "@/modules/retention/auth-tables";
+import { batchedDeleteByAge } from "./batched-delete";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // auth_attempts retention pass (WP-SU-11) — the pruning ADR-0010 deferred.
@@ -60,12 +63,40 @@ export function authAttemptsCutoff(now: Date): Date {
   return new Date(now.getTime() - AUTH_ATTEMPTS_RETENTION_MS);
 }
 
+/**
+ * F-3 (audit-security, WP-SU-13): signup_notice rows hold the raw email of a person an attacker
+ * merely NAMED at signup, read only within ALREADY_REGISTERED_CAP.windowMs (24h, notice-budget.ts's
+ * NOTICE_KIND). The uniform default keeps every kind ~31 days; this shortens the sharpest one to
+ * ~8 days. DERIVED from the live cap window — a restated 86_400_000 would drift the day the cap moves.
+ */
+export const SIGNUP_NOTICE_RETENTION_MS = ALREADY_REGISTERED_CAP.windowMs + AUTH_TABLE_RETENTION_MARGIN_MS;
+
+/**
+ * Retention for one auth_attempts kind. signup_notice gets the short window; EVERY other kind gets
+ * the global default — a kind not named here can never be under-retained (the safe fallback). Only
+ * NOTICE_KIND is read at 24h (verified: notice-budget.ts counts NOTICE_KIND alone; LOCKOUT_WINDOW_MS
+ * bounds all other reads at 1h), so no other kind needs the long window on its own account.
+ */
+export function authAttemptsRetentionForKind(kind: string): number {
+  return kind === NOTICE_KIND ? SIGNUP_NOTICE_RETENTION_MS : AUTH_ATTEMPTS_RETENTION_MS;
+}
+
+export function signupNoticeCutoff(now: Date): Date {
+  // Route through the map so authAttemptsRetentionForKind is the single policy source the sweep
+  // actually consumes (not a parallel definition that could drift — ADR-0010). Equals
+  // now - SIGNUP_NOTICE_RETENTION_MS by construction; the "rest" pass's authAttemptsCutoff is the
+  // map's non-notice arm (now - AUTH_ATTEMPTS_RETENTION_MS). The two-pass sweep partitions notice
+  // vs. rest, so a future THIRD distinct-retention kind would need its own pass, not just a map case.
+  return new Date(now.getTime() - authAttemptsRetentionForKind(NOTICE_KIND));
+}
+
 type DB = PostgresJsDatabase<typeof schema>;
 
-/** Max rows one run deletes. Mirrors RETENTION_SWEEP_BATCH's reasoning — bounded so a single
+/** Max rows one sweep PASS deletes. Mirrors RETENTION_SWEEP_BATCH's reasoning — bounded so a single
  *  run stays cheap and predictable under the route's maxDuration, larger because these are
- *  narrow rows with no per-row work. The sweep is idempotent, so any remainder drains on the
- *  next daily run. */
+ *  narrow rows with no per-row work. Since the F-3 split runs two passes (signup_notice + the rest),
+ *  one sweepAuthAttempts call can delete up to 2× this; the cap is per-pass, not per-call. The sweep
+ *  is idempotent, so any remainder drains on the next daily run. */
 export const AUTH_ATTEMPTS_SWEEP_BATCH = 5_000;
 
 export interface AuthAttemptsSweepResult {
@@ -108,6 +139,10 @@ export interface AuthAttemptsSweepResult {
  * (ADR-0010's "not urgent at this volume"); if abuse volume is ever observed, rate-match the
  * cadence/batch to the insert rate (a shorter cron interval, or a larger batch) before reaching
  * for the Redis swap.
+ *
+ * F-3 (WP-SU-13): split into two age-bounded passes — signup_notice drains at its own short
+ * cutoff, every other kind at the default — rather than one predicate, via the shared
+ * batchedDeleteByAge primitive (auth-tables.ts's sibling sweeps use the same shape).
  */
 export async function sweepAuthAttempts(
   db: DB,
@@ -115,30 +150,29 @@ export async function sweepAuthAttempts(
 ): Promise<AuthAttemptsSweepResult> {
   const now = opts.now ?? new Date();
   const limit = opts.limit ?? AUTH_ATTEMPTS_SWEEP_BATCH;
-  const cutoff = authAttemptsCutoff(now);
   const A = schema.authAttempts;
 
-  // Inclusive boundary (lte), matching purge.ts's isPastRetention contract. The reads this
-  // protects all use a strict `gt(createdAt, since)`, so a row exactly AT a window edge is
-  // already unreadable — and the cutoff sits 30 days beyond the largest of them regardless.
-  const stale = await db
-    .select({ id: A.id })
-    .from(A)
-    .where(lte(A.createdAt, cutoff))
-    .orderBy(asc(A.createdAt))
-    .limit(limit);
+  // F-3: signup_notice drains at its short cutoff; every other kind at the default. Two age
+  // predicates rather than one CASE — each stays a bounded, oldest-first batchedDeleteByAge.
+  // The passes partition the table exactly (kind is NOT NULL), so no row is missed or deleted twice.
+  // The notice pass's `eq(kind, …)` gives auth_attempts_kind_created_idx (migration 0027) a leading
+  // equality bound → an index scan, no sort. The rest pass's `ne(kind, …)` does NOT — a `!=` can't
+  // bound a btree range, so it plans the same seq-scan + top-N sort the pre-F-3 single pass did
+  // (verified by EXPLAIN, audit-data WP-SU-13 review). Same cost class, not a regression.
+  const notice = await batchedDeleteByAge(db, {
+    table: A,
+    id: A.id,
+    orderBy: A.createdAt,
+    where: and(eq(A.kind, NOTICE_KIND), lte(A.createdAt, signupNoticeCutoff(now)))!,
+    limit,
+  });
+  const rest = await batchedDeleteByAge(db, {
+    table: A,
+    id: A.id,
+    orderBy: A.createdAt,
+    where: and(ne(A.kind, NOTICE_KIND), lte(A.createdAt, authAttemptsCutoff(now)))!,
+    limit,
+  });
 
-  if (stale.length === 0) return { deleted: 0 };
-
-  const removed = await db
-    .delete(A)
-    .where(
-      inArray(
-        A.id,
-        stale.map((r) => r.id),
-      ),
-    )
-    .returning({ id: A.id });
-
-  return { deleted: removed.length };
+  return { deleted: notice.deleted + rest.deleted };
 }
