@@ -750,6 +750,29 @@ Verify the list contains **no** `docs/legal/` path. Then: **reviews (pr-reviewer
 
 # WP-SU-9 — Atomic throttle decision + `reset/confirm` throttle
 
+> **AS-BUILT DEVIATIONS (2026-07-30, from the plan text below + the review gate).**
+> 1. **`rateDecisionWithSelf` (new).** Reserving before deciding puts the request's own row in the
+>    window, so a plain `rateDecision` would have silently tightened every configured limit by one
+>    (login 8→7, signup 5→4). `evaluateThrottle`, `signup/verify`, and `reset/confirm` use
+>    `rateDecisionWithSelf` (= `rateDecision` with `limit + 1`). The Task 5/9 pseudocode below still
+>    shows plain `rateDecision` — the shipped code is the correct version.
+> 2. **`settle(attemptId, succeeded)`, not `settle(attemptId, !succeeded)`.** Task 9's pseudocode
+>    inverted the flag; `settle`'s parameter is the SUCCESS flag. The integration test caught it
+>    (a bogus token was being recorded as a success). Shipped code is correct.
+> 3. **`evaluateSignupSurge` takes a self-inclusive `observed` count** (refuse on `observed > limit`,
+>    warn on `observed >= surgeThreshold`), because the signup route's reservation is now counted by
+>    the ceiling — which also CLOSED the WP-SU-8 ceiling TOCTOU residual.
+> 4. **CAPTCHA moved before the reservation** (audit-security F-1). With the reservation counted by
+>    the ceiling and written up front, CAPTCHA-after-reserve turned the ceiling into a CAPTCHA-free
+>    single-IP DoS lever. `verifyTurnstile` now runs first; ADR-0034 amended. Regression test added
+>    (an invalid-CAPTCHA request writes no `signup` row).
+>
+> Deliberately NOT done: pr-reviewer F-2 suggested wrapping every route's reserve→settle in
+> try/finally for uniformity. Rejected for `login` specifically — settling `false` on an infra
+> throw would feed the AUT-04 lockout ladder, a regression. Both reviewers agreed the current
+> orphan-on-throw (reservation stays `success:true`) is fail-safe; documented in SPEC AUT-03 instead.
+> Follow-up WP filed: pre-existing stranger-lockout via OTP/reset *request* flooding (audit-sec F-3).
+
 **Why:** `evaluateThrottle` is snapshot-then-record (CWE-367). `snapshot()` reads the window, the decision is made, and `record()` writes the row *later* — so N concurrent requests all observe the same pre-burst state and all pass. On signup each pass provisions a user + tenant and sends mail. Separately, `/api/auth/reset/confirm` is now the last credential endpoint with no throttle at all.
 
 **The fix, and why it is atomic without locks or transactions:**

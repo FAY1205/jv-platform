@@ -5,7 +5,7 @@ import { jsonOk, jsonError, newTraceId } from "@/lib/http";
 import { clientIp } from "@/lib/auth/client-ip";
 import { AuthAttemptsStore } from "@/lib/auth/attempts-store";
 import { VERIFY_THROTTLE } from "@/lib/auth/throttle";
-import { rateDecision } from "@/lib/auth/rate-limit";
+import { rateDecisionWithSelf } from "@/lib/auth/rate-limit";
 import { assertCsrf } from "@/lib/auth/guard";
 import { sha256Hex } from "@/lib/auth/hash";
 import { verifySignupToken } from "@/lib/auth/signup-token";
@@ -35,6 +35,10 @@ export async function POST(request: Request) {
   const tokenKey = sha256Hex(token).slice(0, 16);
   const ip = clientIp(request);
   const attempts = new AuthAttemptsStore(db);
+  // AUT-03 (WP-SU-9): reserve before deciding (CWE-367) — the try/finally below then settles
+  // the real outcome exactly once, as it did before. A request refused AT the gate now also
+  // consumes rate budget, which is the point.
+  const attemptId = await attempts.reserve(tokenKey, ip, VERIFY_KIND);
   const snap = await attempts.snapshot(tokenKey, ip, VERIFY_KIND, now, VERIFY_THROTTLE);
   // Sliding window ONLY — deliberately not evaluateThrottle. That composes AUT-04's
   // progressive account-lockout ladder, whose two escape hatches (owner notification and
@@ -42,8 +46,10 @@ export async function POST(request: Request) {
   // exists only in the user's inbox. The ladder would also fire at 5 failures, making the
   // configured per-token limit dead config, and would turn an honest "this link expired"
   // into a "wait and try again" that waiting never fixes.
-  const byToken = rateDecision(snap.attempts, now, VERIFY_THROTTLE.perIdentifier);
-  const byIp = rateDecision(snap.ipAttempts, now, VERIFY_THROTTLE.perIp);
+  // *WithSelf: the snapshot now includes the reservation above (WP-SU-9), so a plain
+  // rateDecision would admit one fewer than the configured limit.
+  const byToken = rateDecisionWithSelf(snap.attempts, now, VERIFY_THROTTLE.perIdentifier);
+  const byIp = rateDecisionWithSelf(snap.ipAttempts, now, VERIFY_THROTTLE.perIp);
   if (!byToken.allowed || !byIp.allowed) {
     const retryAfterSec = Math.ceil(Math.max(byToken.retryAfterMs, byIp.retryAfterMs) / 1000);
     return NextResponse.json(
@@ -75,6 +81,6 @@ export async function POST(request: Request) {
     verified = true;
     return jsonOk({ code: "signup_verified", message: "Your email is verified. You can now log in." });
   } finally {
-    await attempts.record(tokenKey, ip, VERIFY_KIND, verified);
+    await attempts.settle(attemptId, verified);
   }
 }

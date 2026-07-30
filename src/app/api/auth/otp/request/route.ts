@@ -35,6 +35,11 @@ export async function POST(request: Request) {
   const db = getDb();
   const attempts = new AuthAttemptsStore(db);
 
+  // AUT-03 (WP-SU-9): reserve BEFORE deciding, so this request is inside the window it is
+  // judged against. Snapshot-then-record let N concurrent requests all read the same
+  // pre-burst state and all pass (CWE-367). The reservation is success:true, so a request
+  // refused here never feeds the AUT-04 lockout ladder.
+  const attemptId = await attempts.reserve(email, ip, KIND);
   const snap = await attempts.snapshot(email, ip, KIND, now, OTP_THROTTLE);
   const throttle = evaluateThrottle(snap, now, OTP_THROTTLE);
   if (!throttle.ok) {
@@ -44,7 +49,7 @@ export async function POST(request: Request) {
   await withUniformTiming(
     MIN_RESPONSE_MS,
     async () => {
-      await attempts.record(email, ip, KIND, false);
+      await attempts.settle(attemptId, false);
       const [user] = await db
         .select({ id: schema.users.id, role: schema.users.role })
         .from(schema.users)

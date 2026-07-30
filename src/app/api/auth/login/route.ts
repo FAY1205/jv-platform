@@ -37,6 +37,13 @@ export async function POST(request: Request) {
 
   const store = new AuthAttemptsStore(getDb());
 
+  // AUT-03 (WP-SU-9): reserve BEFORE deciding, so this request is inside the window it is
+  // judged against — snapshot-then-record let N concurrent requests all pass (CWE-367).
+  // The reservation is success:TRUE, which is load-bearing here: a request refused at this
+  // gate must not feed the AUT-04 ladder, or anyone could lock any account by hammering
+  // login. The real outcome is settled below.
+  const attemptId = await store.reserve(email, ip, KIND);
+
   // AUT-03/04: refuse before attempting when rate-limited or locked out.
   const snapshot = await store.snapshot(email, ip, KIND, now, LOGIN_THROTTLE);
   const throttle = evaluateThrottle(snapshot, now, LOGIN_THROTTLE);
@@ -62,7 +69,7 @@ export async function POST(request: Request) {
     () => performance.now(),
   );
 
-  await store.record(email, ip, KIND, success === true);
+  await store.settle(attemptId, success === true);
 
   if (success !== true) {
     // AUT-04: notify the owner exactly at the first lockout (include this failure).

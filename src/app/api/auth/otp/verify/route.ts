@@ -44,11 +44,16 @@ export async function POST(request: Request) {
   const db = getDb();
   const attempts = new AuthAttemptsStore(db);
 
+  // AUT-03 (WP-SU-9): reserve before deciding (CWE-367). success:true keeps a gate refusal
+  // out of the AUT-04 ladder; the settle below restores this route's existing behaviour of
+  // counting every admitted verify as a failure, since the OTP challenge's own
+  // incrementAttempt/consume carries the real outcome.
+  const attemptId = await attempts.reserve(email, ip, KIND);
   const snap = await attempts.snapshot(email, ip, KIND, now, OTP_THROTTLE);
   if (!evaluateThrottle(snap, now, OTP_THROTTLE).ok) {
     return NextResponse.json({ ...INVALID }, { status: 429, headers: { "Retry-After": "60" } });
   }
-  await attempts.record(email, ip, KIND, false);
+  await attempts.settle(attemptId, false);
 
   const store = new OtpStore(db);
   const challenge = await store.latestActive(email);

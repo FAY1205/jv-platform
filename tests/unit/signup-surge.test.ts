@@ -2,7 +2,10 @@ import { describe, it, expect } from "vitest";
 import { evaluateSignupSurge } from "@/lib/auth/signup-surge";
 import { SIGNUP_GLOBAL_CEILING, SIGNUP_SURGE_THRESHOLD } from "@/lib/auth/throttle";
 
-const verdict = (prior: number) => evaluateSignupSurge(prior, SIGNUP_GLOBAL_CEILING, SIGNUP_SURGE_THRESHOLD);
+// WP-SU-9: `observed` INCLUDES the request being judged — the route reserves its attempt before
+// counting, which is what closes the ceiling's read-then-decide race. So `observed === LIMIT` is
+// the LIMITth admission, not an overflow.
+const verdict = (observed: number) => evaluateSignupSurge(observed, SIGNUP_GLOBAL_CEILING, SIGNUP_SURGE_THRESHOLD);
 const LIMIT = SIGNUP_GLOBAL_CEILING.limit;
 
 describe("AUT-03 (WP-SU-8): global signup surge verdict", () => {
@@ -28,14 +31,20 @@ describe("AUT-03 (WP-SU-8): global signup surge verdict", () => {
     expect(verdict(SIGNUP_SURGE_THRESHOLD + 1).alert).toBe(
       `signup surge: ${SIGNUP_SURGE_THRESHOLD + 1} in the last hour (ceiling ${LIMIT})`,
     );
-    expect(verdict(LIMIT - 1).alert).toContain("signup surge");
-    expect(verdict(LIMIT - 1).blocked).toBe(false);
+    expect(verdict(LIMIT).alert).toContain("signup surge");
+    expect(verdict(LIMIT).blocked).toBe(false);
   });
 
-  it("AUT-03: blocks at the ceiling and escalates the alert", () => {
-    expect(verdict(LIMIT)).toEqual({
+  it("AUT-03 (WP-SU-9): admits exactly the configured ceiling, not one fewer", () => {
+    // The LIMITth request: with its own reservation counted, `observed` is LIMIT. Refusing here
+    // would silently tighten the ceiling by one.
+    expect(verdict(LIMIT).blocked).toBe(false);
+  });
+
+  it("AUT-03: blocks the request that would EXCEED the ceiling, and escalates the alert", () => {
+    expect(verdict(LIMIT + 1)).toEqual({
       blocked: true,
-      alert: `signup ceiling reached: ${LIMIT} in the last hour (ceiling ${LIMIT}) — new signups are being refused`,
+      alert: `signup ceiling reached: ${LIMIT + 1} in the last hour (ceiling ${LIMIT}) — new signups are being refused`,
     });
   });
 
@@ -53,7 +62,7 @@ describe("AUT-03 (WP-SU-8): global signup surge verdict", () => {
   });
 
   it("SEC-05 (WP-SU-8): the alert string carries no identifier, email or IP", () => {
-    const alerts = [verdict(SIGNUP_SURGE_THRESHOLD).alert, verdict(LIMIT).alert, verdict(LIMIT + 9).alert];
+    const alerts = [verdict(SIGNUP_SURGE_THRESHOLD).alert, verdict(LIMIT + 1).alert, verdict(LIMIT + 9).alert];
     for (const a of alerts) expect(a).not.toMatch(/@|\d+\.\d+\.\d+\.\d+/);
   });
 });

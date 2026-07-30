@@ -1,4 +1,4 @@
-import { rateDecision, type RateRule } from "./rate-limit";
+import { rateDecisionWithSelf, type RateRule } from "./rate-limit";
 import { lockoutGate } from "./lockout";
 
 // AUT-03/04: the throttle decision composes progressive lockout (account
@@ -6,6 +6,13 @@ import { lockoutGate } from "./lockout";
 // (abuse protection, per identifier AND per IP). Pure over a timestamp snapshot the
 // store supplies, so it stays deterministic and unit-tested; the route converts the
 // decision to 429 + Retry-After.
+//
+// WP-SU-9 CONTRACT CHANGE: `snap` now INCLUDES the attempt being judged. Callers reserve the
+// attempt row first and only then snapshot, which is what closes the CWE-367 race (N concurrent
+// requests used to read the same pre-burst window and all pass — measured 10 of 10 admitted
+// against a limit of 3). The rate comparison therefore uses rateDecisionWithSelf. Lockout is
+// unaffected: a reservation is written success:true, so it is invisible to the failure ladder
+// until the route settles a real failure.
 
 export interface AttemptSnapshot {
   /** All attempt timestamps (ms) for this identifier within the rate window. */
@@ -40,8 +47,11 @@ export function evaluateThrottle(
     return { ok: false, retryAfterSec: Math.ceil(gate.retryAfterMs / 1000), reason: "locked_out" };
   }
 
-  const byId = rateDecision(snap.attempts, now, cfg.perIdentifier);
-  const byIp = rateDecision(snap.ipAttempts, now, cfg.perIp);
+  // WP-SU-9: `snap` INCLUDES the current attempt — every caller reserves before deciding, which
+  // is what makes the decision atomic (see AuthAttemptsStore.reserve). Hence *WithSelf, or the
+  // configured limits would all quietly drop by one.
+  const byId = rateDecisionWithSelf(snap.attempts, now, cfg.perIdentifier);
+  const byIp = rateDecisionWithSelf(snap.ipAttempts, now, cfg.perIp);
   if (!byId.allowed || !byIp.allowed) {
     const retryMs = Math.max(byId.retryAfterMs, byIp.retryAfterMs);
     return { ok: false, retryAfterSec: Math.ceil(retryMs / 1000), reason: "rate_limited" };
@@ -74,6 +84,16 @@ export const OTP_THROTTLE: ThrottleConfig = {
 // per-IP limit is what bounds guessing across different tokens, so it is the looser of
 // the two by design.
 export const VERIFY_THROTTLE: ThrottleConfig = {
+  perIdentifier: { limit: 10, windowMs: 900_000 }, // 10 / 15min per token
+  perIp: { limit: 20, windowMs: 900_000 }, // 20 / 15min per IP
+};
+
+// Reset completion (WP-SU-9, AUT-03) — the last credential endpoint without a throttle.
+// Same shape and reasoning as VERIFY_THROTTLE: the identifier is a truncated hash of the
+// presented token (never the token — SEC-05), which bounds replays of ONE link; the per-IP limit
+// is what bounds guessing across different tokens. Unthrottled, each guess bought a token
+// lookup, an HIBP range fetch, a Supabase password write and a global sign-out.
+export const RESET_CONFIRM_THROTTLE: ThrottleConfig = {
   perIdentifier: { limit: 10, windowMs: 900_000 }, // 10 / 15min per token
   perIp: { limit: 20, windowMs: 900_000 }, // 20 / 15min per IP
 };

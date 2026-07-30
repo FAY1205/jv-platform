@@ -553,7 +553,12 @@ export const authAttempts = pgTable(
     id: uuid("id").primaryKey().defaultRandom(),
     identifier: text("identifier").notNull(), // lowercased email
     ip: text("ip"),
-    kind: text("kind").notNull(), // 'login' | 'reset' | 'change_password' | 'otp' | 'signup' | 'signup_verify'
+    // 'login' | 'reset' | 'reset_confirm' | 'change_password' | 'otp' | 'signup' | 'signup_verify'
+    // plus two WP-SU-8 notification budgets that are NOT throttles: 'signup_notice', 'signup_alert'
+    kind: text("kind").notNull(),
+    // WP-SU-9: written `true` by reserve() and stamped with the real outcome by settle(). Only
+    // `false` rows feed the AUT-04 lockout ladder, which is why a reservation is neutral-true —
+    // a refused request must never be able to lock the account it names.
     success: boolean("success").notNull().default(false),
     createdAt: createdAt(),
   },

@@ -65,6 +65,26 @@ export async function POST(request: Request) {
   const db = getDb();
   const attempts = new AuthAttemptsStore(db);
 
+  // ADR-0034 (WP-SU-9 review, audit-security F-1): verify CAPTCHA FIRST, before reserving.
+  // The reservation is what the throttle and the global ceiling count, and WP-SU-9 made that
+  // reservation atomic by writing it up front — so if CAPTCHA came after, an uncaptcha'd flood
+  // from one IP would fill the 60/hour global ceiling with ~60 FREE requests and refuse every
+  // honest signup for the window. Gating on CAPTCHA here keeps the ceiling a count of
+  // HUMAN-verified attempts (its WP-SU-8 property), at the cost of one Cloudflare round-trip per
+  // rejected request — the right trade to protect a global availability control. CAPTCHA is
+  // token-based, independent of whether the email exists, so this leaks nothing (AUT-05).
+  if (!(await verifyTurnstile(parsed.data.captchaToken, env.TURNSTILE_SECRET_KEY, ip ?? undefined))) {
+    return jsonError("captcha_failed", "Verification failed. Please try again.", 400);
+  }
+
+  // AUT-03 (WP-SU-9): reserve BEFORE any decision, so both the per-identifier window and the
+  // global ceiling below count this request. Snapshot-then-record let N concurrent requests all
+  // read the same pre-burst state and all pass (measured: 10 of 10 admitted against a limit of
+  // 3). The reservation is success:true, so a request refused here never feeds the AUT-04
+  // lockout ladder — otherwise a stranger could lock any account by hammering signup. Only
+  // CAPTCHA-passed requests reach here, so only they consume rate/ceiling budget.
+  const attemptId = await attempts.reserve(email, ip, KIND);
+
   // AUT-03: rate-limit signup attempts (uniform 429 like other throttled routes).
   const snap = await attempts.snapshot(email, ip, KIND, now, SIGNUP_THROTTLE);
   const throttle = evaluateThrottle(snap, now, SIGNUP_THROTTLE);
@@ -77,11 +97,14 @@ export async function POST(request: Request) {
 
   // WP-SU-8: the GLOBAL ceiling. Both keys checked above are attacker-chosen — a fresh
   // email defeats the per-identifier limit, a rotated IP defeats the per-IP one — so this
-  // is the only limit a distributed burst cannot rotate around. Checked BEFORE the CAPTCHA
-  // and password work so a burst costs us one indexed count, not a Cloudflare round-trip
-  // and an HIBP lookup each.
-  const priorHour = await attempts.kindCount(KIND, now, SIGNUP_GLOBAL_CEILING.windowMs);
-  const surge = evaluateSignupSurge(priorHour, SIGNUP_GLOBAL_CEILING, SIGNUP_SURGE_THRESHOLD);
+  // is the only limit a distributed burst cannot rotate around. Checked before the HIBP
+  // password work so a burst costs one indexed count, not a breach lookup each.
+  // WP-SU-9: this count now INCLUDES the reservation above, which closes the ceiling's own
+  // read-then-decide race (ADR-0034's former documented residual, now resolved). And because
+  // the reservation is gated on CAPTCHA above, the count is still only human-verified attempts.
+  // evaluateSignupSurge's contract moved with the self-inclusive count — see the note there.
+  const observedHour = await attempts.kindCount(KIND, now, SIGNUP_GLOBAL_CEILING.windowMs);
+  const surge = evaluateSignupSurge(observedHour, SIGNUP_GLOBAL_CEILING, SIGNUP_SURGE_THRESHOLD);
   if (surge.alert) {
     // Deferred: alerting must never sit on the measured wire time (AUT-05) and must never
     // fail the request. notifyAuthAnomaly is already best-effort and self-logging.
@@ -109,12 +132,6 @@ export async function POST(request: Request) {
     );
   }
 
-  // ADR-0034: CAPTCHA verification is independent of whether the email exists —
-  // safe to check outside the uniform-timing block.
-  if (!(await verifyTurnstile(parsed.data.captchaToken, env.TURNSTILE_SECRET_KEY, ip ?? undefined))) {
-    return jsonError("captcha_failed", "Verification failed. Please try again.", 400);
-  }
-
   // AUT-02: strength + breach gate on the new password. Also independent of
   // whether the email exists.
   const evaluation = await evaluateNewPassword(parsed.data.password, [email, parsed.data.workspaceName], hibpRangeFetcher);
@@ -123,7 +140,7 @@ export async function POST(request: Request) {
   await withUniformTiming(
     MIN_RESPONSE_MS,
     async () => {
-      await attempts.record(email, ip, KIND, false);
+      await attempts.settle(attemptId, false);
       const existing = await emailExistsGlobally(db, email);
       // WP-SU-1: the heavy, branch-specific work runs AFTER the response is sent, so its cost is
       // off the measured wire time. Both branches' in-request work is now the symmetric

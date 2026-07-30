@@ -19,6 +19,48 @@ const toMs = (rows: { t: Date }[]): number[] =>
 export class AuthAttemptsStore {
   constructor(private db: DB) {}
 
+  /**
+   * WP-SU-9 (CWE-367): reserve this attempt BEFORE the throttle decision, so the snapshot that
+   * follows counts it. Returns the row id, which `settle` later stamps with the real outcome.
+   *
+   * WHY THIS IS ATOMIC WITHOUT A LOCK OR A TRANSACTION: drizzle autocommits each statement, so
+   * the row is committed before the snapshot query begins. Every snapshot therefore sees its
+   * own row plus every row committed before it started, and two racing requests cannot both
+   * miss each other — whichever counts last sees both. With limit L and L rows already present,
+   * two racers each see at least L+1 and both refuse. The decision can OVER-block under
+   * contention and can never UNDER-block, which is the correct direction for a limiter.
+   * (Measured before this change: 10 of 10 concurrent requests were admitted against a limit
+   * of 3 — the old snapshot-then-record order made the limit entirely inoperative in a burst.)
+   *
+   * Written as success:TRUE deliberately. `success` is dual-purpose — every row feeds the rate
+   * window, but only `false` rows feed the AUT-04 progressive lockout ladder. A `false`
+   * reservation would let a stranger lock any account by hammering the endpoint, because a
+   * REFUSED request never reaches the code that would settle it.
+   */
+  async reserve(identifier: string, ip: string | null, kind: string): Promise<string> {
+    const [row] = await this.db
+      .insert(schema.authAttempts)
+      .values({ identifier: identifier.toLowerCase(), ip, kind, success: true })
+      .returning({ id: schema.authAttempts.id });
+    return row.id;
+  }
+
+  /**
+   * Record the real outcome of a reserved attempt, at the point the route previously called
+   * `record`. A COMPLETED request therefore leaves a row identical to the pre-WP-SU-9 one; only
+   * a request refused at the gate differs, and it now consumes rate budget but not lockout
+   * budget. Always writes, including `true` — an unconditional statement is cheaper to reason
+   * about than a no-op that silently depends on `reserve`'s default staying what it is.
+   */
+  async settle(id: string, success: boolean): Promise<void> {
+    await this.db.update(schema.authAttempts).set({ success }).where(eq(schema.authAttempts.id, id));
+  }
+
+  /**
+   * Record an attempt whose outcome is known up front and which is NOT part of a throttle
+   * decision (the WP-SU-8 notification budgets). Throttled endpoints use reserve/settle —
+   * using this one there reintroduces the TOCTOU that WP-SU-9 exists to close.
+   */
   async record(identifier: string, ip: string | null, kind: string, success: boolean): Promise<void> {
     await this.db
       .insert(schema.authAttempts)

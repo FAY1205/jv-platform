@@ -103,3 +103,24 @@ load-bearing for this trade-off rather than a nice-to-have.
 the count. A 1-request-per-minute trickle would then hold the count at or above the ceiling
 indefinitely, converting a one-hour refusal window into a permanent outage. If a refusal metric
 is wanted, record it under a separate kind.
+
+## Amendment (WP-SU-9, 2026-07-30): the ceiling TOCTOU is closed, and CAPTCHA must precede the reservation
+
+WP-SU-9 made the throttle decision atomic by RESERVING each attempt (an `auth_attempts` row)
+before the window is counted, across every credential endpoint. The signup route reserves up
+front, so the global ceiling's `kindCount` now includes the request being judged — the CWE-367
+residual described above ("bounds paced abuse only") is **closed**: a concurrent burst can no
+longer all read the same pre-burst count. `evaluateSignupSurge` moved to a self-inclusive
+`observed` count (refuse on `observed > limit`, warn on `observed >= surgeThreshold`).
+
+That change created, and this amendment fixes, a NEW requirement found by the WP-SU-9 security
+review (audit-security F-1): **CAPTCHA MUST be verified before the attempt is reserved.** Because
+the ceiling counts reservations, and reservations are now written up front, a reservation written
+*before* CAPTCHA would let a single IP fill the 60/hour ceiling with ~60 CAPTCHA-free requests and
+refuse every honest signup for the window — a strictly cheaper anonymous DoS than the ~60
+CAPTCHA-solved requests it cost under WP-SU-8. So `verifyTurnstile` now runs first, and only
+CAPTCHA-passed requests reserve or count. This **reverses** the WP-SU-8 ordering rationale
+("check the ceiling before the CAPTCHA so a burst costs one indexed count, not a Cloudflare
+round-trip"): protecting a global availability control is worth one Turnstile round-trip per
+rejected request. Turnstile tokens are single-use and Cloudflare-rate-limited, so the round-trip
+cannot itself be cheaply amplified.

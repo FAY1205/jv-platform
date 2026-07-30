@@ -321,6 +321,17 @@ suite("POST /api/auth/signup", () => {
     expect(userRows).toHaveLength(0);
     expect(createUserCalls).toHaveLength(0);
     expect(recentDevEmails()).toHaveLength(0);
+
+    // WP-SU-9 review (audit-security F-1): CAPTCHA is now verified BEFORE the attempt is
+    // reserved, so a request that fails CAPTCHA writes NO signup row. This is the property
+    // that stops an uncaptcha'd flood from exhausting the global hourly ceiling (which counts
+    // `signup` rows) with free requests. If the reservation ever moves back ahead of CAPTCHA,
+    // this row count becomes 1 and the ceiling becomes a CAPTCHA-free DoS lever again.
+    const attemptRows = await db
+      .select()
+      .from(schema.authAttempts)
+      .where(and(eq(schema.authAttempts.identifier, email.toLowerCase()), eq(schema.authAttempts.kind, "signup")));
+    expect(attemptRows).toHaveLength(0);
   });
 
   it("AUT-03: signup is rate-limited", async () => {

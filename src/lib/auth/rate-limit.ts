@@ -15,6 +15,22 @@ export interface RateDecision {
   retryAfterMs: number;
 }
 
+/**
+ * WP-SU-9: the same decision when the caller's OWN attempt is ALREADY in `timestampsMs`.
+ *
+ * Reserving before deciding (see AuthAttemptsStore.reserve) is what makes the decision atomic,
+ * but it also means the window now contains the request being judged. Feeding that straight to
+ * `rateDecision` would silently tighten every configured limit by one — login 8→7, signup 5→4 —
+ * because the Nth request sees N rows and is refused when N reaches the limit.
+ *
+ * Allowing while `count < limit + 1` is exactly `count <= limit`, which admits the configured
+ * number of attempts and nothing more. `remaining` and `retryAfterMs` are unaffected: the extra
+ * row is always the newest, so the oldest-in-window used for the retry hint is the same one.
+ */
+export function rateDecisionWithSelf(timestampsMs: number[], now: number, rule: RateRule): RateDecision {
+  return rateDecision(timestampsMs, now, { limit: rule.limit + 1, windowMs: rule.windowMs });
+}
+
 export function rateDecision(timestampsMs: number[], now: number, rule: RateRule): RateDecision {
   const cutoff = now - rule.windowMs;
   const inWindow = timestampsMs.filter((t) => t > cutoff).sort((a, b) => a - b);
