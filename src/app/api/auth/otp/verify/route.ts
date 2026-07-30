@@ -44,27 +44,42 @@ export async function POST(request: Request) {
   const db = getDb();
   const attempts = new AuthAttemptsStore(db);
 
-  // AUT-03 (WP-SU-9): reserve before deciding (CWE-367). success:true keeps a gate refusal
-  // out of the AUT-04 ladder; the settle below restores this route's existing behaviour of
-  // counting every admitted verify as a failure, since the OTP challenge's own
-  // incrementAttempt/consume carries the real outcome.
+  // AUT-03 (WP-SU-9): reserve before deciding (CWE-367). success:true keeps a gate refusal out of
+  // the AUT-04 ladder. AUT-04 (WP-SU-12): each post-gate exit then SETTLES the real outcome, so
+  // ONLY a genuinely wrong code on an active challenge feeds the lockout ladder — a credential-less
+  // verify (no challenge / expired / too-many) or a correct code never can, closing a stranger-DoS
+  // on the victim's sign-in. (This also fixes a latent bug: the prior unconditional settle(false)
+  // fed the victim's OWN lockout on a successful verify.)
   const attemptId = await attempts.reserve(email, ip, KIND);
   const snap = await attempts.snapshot(email, ip, KIND, now, OTP_THROTTLE);
   if (!evaluateThrottle(snap, now, OTP_THROTTLE).ok) {
     return NextResponse.json({ ...INVALID }, { status: 429, headers: { "Retry-After": "60" } });
   }
-  await attempts.settle(attemptId, false);
 
   const store = new OtpStore(db);
   const challenge = await store.latestActive(email);
-  if (!challenge) return jsonError(INVALID.code, INVALID.message, 400);
+  if (!challenge) {
+    // No code was ever issued — an admitted attempt (counts toward the AUT-03 rate cap) but NOT a
+    // credential failure. Settle success:true so a stranger can't lock a victim by verifying
+    // against a non-existent code.
+    await attempts.settle(attemptId, true);
+    return jsonError(INVALID.code, INVALID.message, 400);
+  }
 
   const outcome = otpOutcome(challenge, code, now, MAX_ATTEMPTS);
   if (outcome !== "ok") {
+    // ONLY a genuinely wrong code is a credential failure that feeds the lockout ladder (settle
+    // false). expired / too_many / consumed count toward the rate cap only (settle true).
+    await attempts.settle(attemptId, outcome !== "wrong");
     if (outcome === "wrong") await store.incrementAttempt(challenge.id);
     else if (outcome === "too_many" || outcome === "expired") await store.consume(challenge.id, now);
     return jsonError(INVALID.code, INVALID.message, 400);
   }
+
+  // Correct code: settle the successful verification (not a failure), matching the login route's
+  // success:true semantics, before we try to establish the session — an infra failure there then
+  // leaves a correctly non-lockout row.
+  await attempts.settle(attemptId, true);
 
   // Establish the session BEFORE consuming the code, so an infrastructure failure
   // here leaves the (correct) code usable for an immediate retry.

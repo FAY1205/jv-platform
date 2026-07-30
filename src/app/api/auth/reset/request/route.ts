@@ -55,7 +55,10 @@ export async function POST(request: Request) {
   await withUniformTiming(
     MIN_RESPONSE_MS,
     async () => {
-      await attempts.settle(attemptId, false);
+      // AUT-04 (WP-SU-12): a reset REQUEST is not a credential failure. Settle success:true so it
+      // counts toward the AUT-03 rate cap but never feeds the lockout ladder — otherwise a stranger
+      // could lock a victim out of password reset just by requesting resets for their address.
+      await attempts.settle(attemptId, true);
       const [user] = await db
         .select({ id: schema.users.id, email: schema.users.email })
         .from(schema.users)
