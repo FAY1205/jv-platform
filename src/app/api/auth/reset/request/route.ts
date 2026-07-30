@@ -50,7 +50,10 @@ export async function POST(request: Request) {
   await withUniformTiming(
     MIN_RESPONSE_MS,
     async () => {
-      await attempts.record(email, ip, KIND, false);
+      // AUT-04 (WP-SU-12): a reset REQUEST is not a credential failure. Record
+      // success:true so it counts toward the AUT-03 rate cap but never feeds the
+      // lockout ladder.
+      await attempts.record(email, ip, KIND, true);
       const [user] = await db
         .select({ id: schema.users.id, email: schema.users.email })
         .from(schema.users)

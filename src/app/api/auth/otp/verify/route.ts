@@ -48,18 +48,31 @@ export async function POST(request: Request) {
   if (!evaluateThrottle(snap, now, OTP_THROTTLE).ok) {
     return NextResponse.json({ ...INVALID }, { status: 429, headers: { "Retry-After": "60" } });
   }
-  await attempts.record(email, ip, KIND, false);
-
   const store = new OtpStore(db);
   const challenge = await store.latestActive(email);
-  if (!challenge) return jsonError(INVALID.code, INVALID.message, 400);
+  if (!challenge) {
+    // No code was ever issued: an admitted attempt (counts toward the AUT-03 rate
+    // cap) but NOT a credential failure — record success:true so a stranger can't
+    // lock a victim by verifying against a non-existent code (AUT-04 / WP-SU-12).
+    await attempts.record(email, ip, KIND, true);
+    return jsonError(INVALID.code, INVALID.message, 400);
+  }
 
   const outcome = otpOutcome(challenge, code, now, MAX_ATTEMPTS);
   if (outcome !== "ok") {
+    // AUT-04 (WP-SU-12): ONLY a genuinely wrong code is a credential failure that
+    // feeds the lockout ladder (record success:false). expired/too_many/consumed are
+    // recorded success:true — they count toward the rate cap only, never lockout.
+    await attempts.record(email, ip, KIND, outcome !== "wrong");
     if (outcome === "wrong") await store.incrementAttempt(challenge.id);
     else if (outcome === "too_many" || outcome === "expired") await store.consume(challenge.id, now);
     return jsonError(INVALID.code, INVALID.message, 400);
   }
+
+  // Correct code: record the successful verification (not a failure) before we try to
+  // establish the session, matching the login route's success:true semantics. Keeps
+  // exactly one recorded attempt per admitted request (rate window preserved).
+  await attempts.record(email, ip, KIND, true);
 
   // Establish the session BEFORE consuming the code, so an infrastructure failure
   // here leaves the (correct) code usable for an immediate retry.
