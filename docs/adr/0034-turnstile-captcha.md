@@ -57,3 +57,49 @@ browser-driving bot rotating IPs and mailboxes.
   app.
 - Reopens if Turnstile's terms/pricing change or abuse slips past it (e.g. add a second
   signal, or move to a paid tier) — a follow-up ADR at that point.
+
+## Amendment (WP-SU-8, 2026-07-29): global signup ceiling
+
+The per-identifier (5/15min) and per-IP (20/15min) signup throttles are both keyed on
+attacker-chosen values — a fresh email defeats the first, a rotated IP the second — so until
+this WP the only *global* bound on distributed signup abuse was Turnstile, exactly the
+single-signal position the "Reopens if abuse slips past it" clause above anticipated. A
+global rolling-hour ceiling of 60 now sits behind it, alerting at 30, plus a 3/24h
+per-recipient cap on the victim-directed "already registered" mail.
+
+**Accepted trade-off:** a global ceiling is by construction a small availability lever — an
+attacker who burns the hour's budget also refuses honest signups. This is inherent to every
+global limit, not a flaw in this one. It is accepted because the ceiling sits ~100x above
+expected volume (single digits per *day*), the alert fires at half of it, `SIGNUP_ENABLED` is
+off in production, and the alternative is unbounded tenant provisioning plus outbound mail.
+If signup ever becomes a revenue path, revisit with a per-ASN or reputation-based bound
+rather than raising this number.
+
+**Alert semantics:** the verdict reports a *persistent condition* (`>=`), and a separate
+explicit cooldown (`SIGNUP_ALERT_COOLDOWN`, 1/hour) is what makes it one email rather than one
+per request. The cooldown is keyed per threshold, so a surge alert cannot consume the hour's
+budget and silently swallow the ceiling alert that escalates it.
+
+This corrects an earlier version of this amendment, which claimed both thresholds fired on
+*equality* so that "each crossing produces one email". That was wrong in the worst direction.
+A ceiling-refused request returns 429 before the route records an attempt, so refusals never
+increment the count; the count froze at exactly the ceiling and the equality branch re-fired
+on **every subsequent refused request** — an unbounded alert flood on precisely the path the
+alert exists for, plus unbounded Resend volume and a sending-domain reputation risk at the
+worst possible moment. Measured before the fix: 3 refused requests produced 3 alerts.
+Equality also had the opposite failure — two concurrent requests stepping past the exact
+threshold value lost the alert entirely. Condition-plus-cooldown is correct in both
+directions and does not depend on how the count moves.
+
+**Accepted residual (CWE-367):** the ceiling's own admit/refuse decision reads the count, then
+decides, with no reservation, and the read is separated from the write by a Turnstile
+round-trip and an HIBP fetch — hundreds of milliseconds in which every parallel request sees
+the same pre-burst count. So **until WP-SU-9 makes the decision atomic, this ceiling bounds
+_paced_ abuse only; burst over-admission is bounded by the attacker's concurrency, not by 60.**
+The surge alert is what makes that visible, which is why the alert's correctness (above) is
+load-bearing for this trade-off rather than a nice-to-have.
+
+**One thing not to "fix":** do not make refused requests record under kind `signup` to unfreeze
+the count. A 1-request-per-minute trickle would then hold the count at or above the ceiling
+indefinitely, converting a one-hour refusal window into a permanent outage. If a refusal metric
+is wanted, record it under a separate kind.

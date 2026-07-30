@@ -1,9 +1,15 @@
-import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, afterEach, beforeEach, vi } from "vitest";
 import { randomUUID } from "node:crypto";
-import { eq, inArray, sql } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import { getDb } from "@/db";
 import * as schema from "@/db/schema";
 import { AuthAttemptsStore } from "@/lib/auth/attempts-store";
+import {
+  SIGNUP_GLOBAL_CEILING,
+  SIGNUP_SURGE_THRESHOLD,
+  SIGNUP_CEILING_RETRY_SEC,
+  ALREADY_REGISTERED_CAP,
+} from "@/lib/auth/throttle";
 import { recentDevEmails, clearDevMailbox } from "@/modules/notify/dev-mailbox";
 import { jsonRequest } from "./_route-harness";
 
@@ -54,6 +60,20 @@ const fakeAdmin = {
 };
 vi.mock("@/lib/supabase/admin", () => ({ getSupabaseAdmin: () => fakeAdmin }));
 
+// WP-SU-8: capture the surge alert without sending mail. Only notifyAuthAnomaly is
+// replaced — every other notify function stays real so the dev-mailbox assertions in this
+// suite keep exercising the genuine path.
+const anomalyCalls: string[] = [];
+vi.mock("@/lib/auth/notify", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/auth/notify")>();
+  return {
+    ...actual,
+    notifyAuthAnomaly: async (detail: string) => {
+      anomalyCalls.push(detail);
+    },
+  };
+});
+
 // Imported after the mocks are registered (Vitest hoists vi.mock above imports).
 import { POST } from "@/app/api/auth/signup/route";
 
@@ -73,13 +93,58 @@ suite("POST /api/auth/signup", () => {
     db = getDb();
   });
 
+  // WP-SU-8: identifiers seeded straight into the GLOBAL signup window. Cleared after
+  // EVERY test, not in afterAll — the global count is genuinely global, so 60 leftover
+  // rows would push every later test in this file past the ceiling.
+  const seededGlobal: string[] = [];
+
   beforeEach(() => {
     turnstileOk = true;
     createUserCalls.length = 0;
     deleteUserCalls.length = 0;
     afterCallbacks.length = 0;
+    anomalyCalls.length = 0;
     clearDevMailbox();
   });
+
+  afterEach(async () => {
+    if (seededGlobal.length) {
+      await db.delete(schema.authAttempts).where(inArray(schema.authAttempts.identifier, seededGlobal.splice(0)));
+    }
+    // WP-SU-8: the alert cooldown is GLOBAL (1/hour per threshold key), so a test that fires
+    // an alert would otherwise suppress every later test's alert for an hour. Same for the
+    // notice budget across tests that reuse a recipient.
+    await db.delete(schema.authAttempts).where(inArray(schema.authAttempts.kind, ["signup_alert", "signup_notice"]));
+  });
+
+  /**
+   * Seed the global window UP TO an exact total. Going through the route would trip the
+   * per-identifier limit (5/15min) long before the global ceiling (60/hour) — which is
+   * exactly the point of the global dimension: it is the only key an attacker cannot
+   * rotate away from, so it is the only one reachable with fresh emails and rotated IPs.
+   *
+   * Seeding to an exact TOTAL rather than adding a fixed count is load-bearing: both
+   * alerts fire on equality, not >=, so that each threshold crossing produces one email
+   * instead of one per request for the rest of the hour. Earlier tests in this file leave
+   * their own `signup` rows in the same global window, so a fixed +60 would land PAST the
+   * ceiling, where `blocked` is true but `alert` is deliberately null.
+   */
+  async function seedGlobalSignupsTo(target: number) {
+    const existing = await new AuthAttemptsStore(db).kindCount("signup", Date.now(), SIGNUP_GLOBAL_CEILING.windowMs);
+    expect(existing).toBeLessThanOrEqual(target); // else this suite cannot reach the threshold
+    const rows = Array.from({ length: target - existing }, (_, i) => {
+      const identifier = `surge-${i}-${randomUUID()}@example.test`;
+      seededGlobal.push(identifier);
+      return {
+        identifier,
+        ip: `198.51.100.${i % 250}`,
+        kind: "signup",
+        success: true,
+        createdAt: new Date(Date.now() - 60_000),
+      };
+    });
+    if (rows.length) await db.insert(schema.authAttempts).values(rows);
+  }
 
   afterAll(async () => {
     if (userIds.length) await db.delete(schema.signupVerifications).where(inArray(schema.signupVerifications.userId, userIds));
@@ -285,6 +350,188 @@ suite("POST /api/auth/signup", () => {
       .where(sql`lower(${schema.users.email}) = ${email.toLowerCase()}`);
     expect(userRows).toHaveLength(0);
     expect(createUserCalls).toHaveLength(0);
+  });
+
+  it("AUT-03 (WP-SU-8): refuses past the global hourly ceiling, with the UNIFORM body", async () => {
+    await seedGlobalSignupsTo(SIGNUP_GLOBAL_CEILING.limit);
+    const email = `fresh-${randomUUID()}@example.test`;
+    identifiersToClear.push(email.toLowerCase());
+
+    const res = await POST(
+      jsonRequest("POST", "/api/auth/signup", {
+        email,
+        password: strongPassword(),
+        workspaceName: "Surge Co",
+        captchaToken: "captcha-token",
+        tosAccepted: true,
+      }),
+    );
+
+    expect(res.status).toBe(429);
+    expect(res.headers.get("Retry-After")).toBe(String(SIGNUP_CEILING_RETRY_SEC));
+    // AUT-05: byte-identical to the per-identifier refusal — the ceiling adds no signal.
+    expect(await res.json()).toEqual({
+      code: "signup_check_email",
+      message: "If that email can be used, we've sent a link to finish signing up.",
+    });
+
+    await flushAfter();
+    expect(anomalyCalls.some((d) => d.includes("ceiling reached"))).toBe(true);
+    // AUT-03: refused before any provisioning — no auth user was created.
+    expect(createUserCalls).toHaveLength(0);
+  });
+
+  it("AUT-03 (WP-SU-8): alerts on the surge threshold WITHOUT refusing, and names no one (SEC-05)", async () => {
+    await seedGlobalSignupsTo(SIGNUP_SURGE_THRESHOLD);
+    const email = `fresh-${randomUUID()}@example.test`;
+    identifiersToClear.push(email.toLowerCase());
+
+    const res = await POST(
+      jsonRequest("POST", "/api/auth/signup", {
+        email,
+        password: strongPassword(),
+        workspaceName: `Surge Co ${randomUUID().slice(0, 8)}`,
+        captchaToken: "captcha-token",
+        tosAccepted: true,
+      }),
+    );
+    expect(res.status).toBe(200);
+
+    await flushAfter();
+    expect(anomalyCalls.some((d) => d.includes("signup surge"))).toBe(true);
+    // SEC-05: the alert is a count and a code — never the address that triggered it.
+    expect(anomalyCalls.join(" ")).not.toContain(email);
+
+    // The request was allowed through, so it provisioned — collect for cleanup.
+    const rows = await db
+      .select()
+      .from(schema.users)
+      .where(sql`lower(${schema.users.email}) = ${email.toLowerCase()}`);
+    if (rows.length) {
+      userIds.push(rows[0].id);
+      tenantIds.push(rows[0].tenantId);
+    }
+  });
+
+  // WP-SU-8 REGRESSION: the first implementation alerted when the hourly count was EXACTLY
+  // the ceiling, expecting that to fire once per crossing. It fired once per REFUSED REQUEST,
+  // because a refused request returns 429 before the route records an attempt, so the count
+  // froze at the ceiling and the equality branch stayed true forever. The original ceiling
+  // test could not see it: it asserted `.some(...)` after a single request. Assert the COUNT.
+  it("AUT-03 (WP-SU-8): a sustained refusal burst alerts AT MOST ONCE, not once per request", async () => {
+    await seedGlobalSignupsTo(SIGNUP_GLOBAL_CEILING.limit);
+    for (let i = 0; i < 3; i++) {
+      const res = await POST(
+        jsonRequest("POST", "/api/auth/signup", {
+          email: `burst-${randomUUID()}@example.test`,
+          password: strongPassword(),
+          workspaceName: "Surge Co",
+          captchaToken: "captcha-token",
+          tosAccepted: true,
+        }),
+      );
+      expect(res.status).toBe(429);
+      await flushAfter();
+    }
+    expect(anomalyCalls.filter((d) => d.includes("ceiling reached"))).toHaveLength(1);
+  });
+
+  // WP-SU-8 REGRESSION (the mirror-image failure): the first implementation returned
+  // `{blocked:true, alert:null}` for any count ABOVE the ceiling, assuming the alert had
+  // already fired exactly at it. A concurrent burst over-admits past the ceiling in one step,
+  // so that assumption put the system in a state where signups were refused for a full hour
+  // with NO alert at all — the outage and the silence together.
+  it("AUT-03 (WP-SU-8): a count ABOVE the ceiling still alerts — the outage is never silent", async () => {
+    await seedGlobalSignupsTo(SIGNUP_GLOBAL_CEILING.limit + 5);
+    const res = await POST(
+      jsonRequest("POST", "/api/auth/signup", {
+        email: `over-${randomUUID()}@example.test`,
+        password: strongPassword(),
+        workspaceName: "Surge Co",
+        captchaToken: "captcha-token",
+        tosAccepted: true,
+      }),
+    );
+    expect(res.status).toBe(429);
+    await flushAfter();
+    expect(anomalyCalls.filter((d) => d.includes("ceiling reached"))).toHaveLength(1);
+  });
+
+  /** Pre-insert a tenant + admin so `email` is already registered (the notice branch). */
+  async function seedExistingAdmin(email: string): Promise<void> {
+    const [t] = await db
+      .insert(schema.tenants)
+      .values({ name: `Existing ${randomUUID().slice(0, 8)}`, slug: `existing-${randomUUID()}` })
+      .returning({ id: schema.tenants.id });
+    tenantIds.push(t.id);
+    const userId = randomUUID();
+    await db.insert(schema.users).values({ id: userId, tenantId: t.id, email, role: "admin" });
+    userIds.push(userId);
+  }
+
+  it("SEC-05 (WP-SU-8): consumes one notice unit per delivered 'already registered' mail", async () => {
+    const email = `victim-${randomUUID()}@example.test`;
+    identifiersToClear.push(email.toLowerCase());
+    await seedExistingAdmin(email);
+
+    const res = await POST(
+      jsonRequest("POST", "/api/auth/signup", {
+        email,
+        password: strongPassword(),
+        workspaceName: "Bomb Co",
+        captchaToken: "captcha-token",
+        tosAccepted: true,
+      }),
+    );
+    expect(res.status).toBe(200);
+    await flushAfter();
+
+    expect(
+      recentDevEmails().filter((e) => e.kind === "already_registered" && e.intendedTo.includes(email.toLowerCase())),
+    ).toHaveLength(1);
+    const budget = await db
+      .select()
+      .from(schema.authAttempts)
+      .where(and(eq(schema.authAttempts.identifier, email.toLowerCase()), eq(schema.authAttempts.kind, "signup_notice")));
+    expect(budget).toHaveLength(1);
+    // AUT-04: the notice budget must never feed the lockout ladder — a stranger triggering
+    // notices must not be able to lock the victim's account.
+    expect(budget[0].success).toBe(true);
+  });
+
+  it("SEC-05 (WP-SU-8): a capped recipient gets NO further mail, and the response is unchanged", async () => {
+    const email = `victim-${randomUUID()}@example.test`;
+    identifiersToClear.push(email.toLowerCase());
+    await seedExistingAdmin(email);
+
+    // Exhaust the 3/24h notice budget directly. Driving it through the route instead would
+    // entangle this with the per-identifier signup limit and the AUT-04 lockout ladder,
+    // which are a different mechanism.
+    const attempts = new AuthAttemptsStore(db);
+    for (let i = 0; i < ALREADY_REGISTERED_CAP.limit; i++) {
+      await attempts.record(email, null, "signup_notice", true);
+    }
+
+    const res = await POST(
+      jsonRequest("POST", "/api/auth/signup", {
+        email,
+        password: strongPassword(),
+        workspaceName: "Bomb Co",
+        captchaToken: "captcha-token",
+        tosAccepted: true,
+      }),
+    );
+    // AUT-05: the cap is invisible from outside — same uniform 200 either way.
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      code: "signup_check_email",
+      message: "If that email can be used, we've sent a link to finish signing up.",
+    });
+    await flushAfter();
+
+    expect(
+      recentDevEmails().filter((e) => e.kind === "already_registered" && e.intendedTo.includes(email.toLowerCase())),
+    ).toHaveLength(0);
   });
 
   it("LGL-01: a missing tosAccepted returns 400 invalid_input and does no provisioning", async () => {

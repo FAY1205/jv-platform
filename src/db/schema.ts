@@ -560,6 +560,10 @@ export const authAttempts = pgTable(
   (t) => [
     index("auth_attempts_identifier_idx").on(t.identifier, t.kind, t.createdAt),
     index("auth_attempts_ip_idx").on(t.ip, t.kind, t.createdAt),
+    // WP-SU-8: backs the GLOBAL rolling-hour ceiling. Neither index above can serve it —
+    // both lead with an attacker-chosen column, which is precisely why a global dimension
+    // was needed. Leading with `kind` keeps the scan to one endpoint's rows.
+    index("auth_attempts_kind_created_idx").on(t.kind, t.createdAt),
   ],
 );
 

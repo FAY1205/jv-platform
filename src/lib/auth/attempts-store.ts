@@ -70,4 +70,43 @@ export class AuthAttemptsStore {
       .where(and(eq(A.ip, ip), eq(A.kind, kind), eq(A.success, false), gt(A.createdAt, new Date(now - windowMs))));
     return row?.c ?? 0;
   }
+
+  /**
+   * WP-SU-8: attempts for ONE identifier under one kind in a window.
+   *
+   * Deliberately not `snapshot()`: that always issues three queries, one of which is a
+   * `success:false` lockout scan. The notification budgets (notice-budget.ts) only ever write
+   * `success:true` rows and never consult an IP, so two of those three are structurally
+   * guaranteed to return nothing — and passing a `perIp` rule to satisfy snapshot's config
+   * type read as though an IP-scoped cap existed when none can.
+   */
+  async identifierCount(identifier: string, kind: string, now: number, windowMs: number): Promise<number> {
+    const A = schema.authAttempts;
+    const [row] = await this.db
+      .select({ c: sql<number>`count(*)::int` })
+      .from(A)
+      .where(
+        and(
+          eq(A.identifier, identifier.toLowerCase()),
+          eq(A.kind, kind),
+          gt(A.createdAt, new Date(now - windowMs)),
+        ),
+      );
+    return row?.c ?? 0;
+  }
+
+  /**
+   * WP-SU-8: total attempts of one kind across ALL identifiers and IPs in a window.
+   * The per-identifier and per-IP windows are both keyed on values an attacker picks
+   * freely (a fresh email, a rotated IP), so this is the only dimension that bounds a
+   * distributed burst. Backed by auth_attempts_kind_created_idx (migration 0027).
+   */
+  async kindCount(kind: string, now: number, windowMs: number): Promise<number> {
+    const A = schema.authAttempts;
+    const [row] = await this.db
+      .select({ c: sql<number>`count(*)::int` })
+      .from(A)
+      .where(and(eq(A.kind, kind), gt(A.createdAt, new Date(now - windowMs))));
+    return row?.c ?? 0;
+  }
 }

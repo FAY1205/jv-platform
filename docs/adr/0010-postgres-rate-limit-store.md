@@ -29,4 +29,11 @@ tenant is known) and is RLS **deny-by-default** (server-managed via the service 
   Redis behind the same snapshot interface — the pure decision code is unchanged.
 - `auth_attempts` grows unbounded without pruning; a retention sweep (Phase 3, ACT/retention)
   should delete rows older than the largest window. Not urgent at this volume.
+  **Updated by WP-SU-8 (2026-07-29):** that largest window is now **24h**
+  (`ALREADY_REGISTERED_CAP`, the per-recipient cap on the "already registered" notice mail),
+  not the 1h `LOCKOUT_WINDOW_MS` that was true when this ADR was written. Whoever builds the
+  sweep must key the cutoff off the 24h figure — read it from the constants in
+  `src/lib/auth/throttle.ts`, do not restate it (restating a rule in two places has drifted
+  in this repo before). Still not urgent: `signup_notice` rows are capped at 3 per recipient
+  per 24h and are only written when the address already exists.
 - Chosen over Upstash to avoid new infra/deps per "boring code / no new deps without an ADR".

@@ -58,13 +58,23 @@ export function buildLockoutEmail(identifier: string): EmailMessage {
   };
 }
 
-export function buildAnomalyEmail(recipients: string[], detail: string): EmailMessage {
+/** The original (and default) headline — sustained failed logins, the AUT-03 login anomaly. */
+const DEFAULT_ANOMALY_SUBJECT = "Security alert: sustained failed sign-in attempts";
+
+export function buildAnomalyEmail(
+  recipients: string[],
+  detail: string,
+  // WP-SU-8: overridable because this transport is no longer login-only. A signup-ceiling
+  // event arriving under a "failed sign-in attempts" headline invites exactly the wrong
+  // diagnosis at exactly the wrong moment.
+  subject: string = DEFAULT_ANOMALY_SUBJECT,
+): EmailMessage {
   const copy = `Automated security alert: ${detail}. Review the activity log.`;
   return {
     to: recipients,
-    subject: "Security alert: sustained failed sign-in attempts",
+    subject,
     text: copy,
-    html: authNotice({ title: "Security alert: sustained failed sign-in attempts", paragraphs: [copy] }),
+    html: authNotice({ title: subject, paragraphs: [copy] }),
     meta: { kind: "auth_anomaly" },
   };
 }
@@ -242,10 +252,17 @@ export async function notifyAlreadyRegistered(email: string): Promise<void> {
 }
 
 /** Alert admins to sustained auth abuse (AUT-03). Best-effort; failure logged. */
-export async function notifyAuthAnomaly(detail: string): Promise<void> {
-  if (adminAllowlist.length === 0) return;
+export async function notifyAuthAnomaly(detail: string, subject?: string): Promise<void> {
+  if (adminAllowlist.length === 0) {
+    // WP-SU-8: this used to return in silence, which meant a misconfigured ADMIN_ALLOWLIST
+    // produced no email AND no trace — the alert channel failing exactly as quietly as the
+    // abuse it exists to report. SEC-05: the code only; `detail` is a count, but the
+    // allowlist itself is admin PII.
+    logError("notify_anomaly_no_recipients");
+    return;
+  }
   try {
-    await sendEmail(buildAnomalyEmail([...adminAllowlist], detail), transport());
+    await sendEmail(buildAnomalyEmail([...adminAllowlist], detail, subject), transport());
   } catch (e) {
     logError("notify_anomaly_failed", { message: errMessage(e) });
   }

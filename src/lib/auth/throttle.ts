@@ -84,3 +84,46 @@ export const SIGNUP_THROTTLE: ThrottleConfig = {
   perIdentifier: { limit: 5, windowMs: 900_000 }, // 5 / 15min per email
   perIp: { limit: 20, windowMs: 900_000 }, // 20 / 15min per IP
 };
+
+// WP-SU-8: a GLOBAL rolling-hour ceiling across every identifier and IP. Both keys above
+// are attacker-chosen — a fresh email defeats perIdentifier, a rotated IP defeats perIp —
+// so without this, distributed signup abuse is bounded by Turnstile alone.
+//
+// TRADE-OFF, deliberate (ADR-0034): a global ceiling is by construction a small
+// availability lever — an attacker who burns the hour's budget also refuses honest
+// signups. Every global ceiling has this shape. It is accepted here because the limit sits
+// ~100x above expected volume (single digits per DAY), the alert fires at half of it, and
+// the alternative is unbounded tenant provisioning + outbound mail.
+//
+// ACCEPTED RESIDUAL (CWE-367): the route reads this count, decides, then records later, so
+// under concurrency the effective ceiling is "60 plus in-flight" rather than a hard 60 —
+// several requests can each read 59 and all pass. Bounded by genuine concurrency. WP-SU-9
+// closes it generally by reserving the attempt before the decision.
+export const SIGNUP_GLOBAL_CEILING: RateRule = { limit: 60, windowMs: 3_600_000 };
+
+/** Alert at half the ceiling, so a surge is visible well before signups start failing. */
+export const SIGNUP_SURGE_THRESHOLD = 30;
+
+/**
+ * Retry-After for a ceiling refusal. Flat, not computed: a count-only check has no
+ * timestamps to drain-time from, and fetching the oldest one to compute an exact value
+ * would leak global signup volume through a response header.
+ */
+export const SIGNUP_CEILING_RETRY_SEC = 300;
+
+/**
+ * WP-SU-8: per-recipient cap on the victim-directed "you already have an account" mail.
+ * Without it, the per-identifier signup limit (5/15min) lets an attacker mail-bomb a known
+ * address ~480x/day using the victim's own address as the key.
+ */
+export const ALREADY_REGISTERED_CAP: RateRule = { limit: 3, windowMs: 86_400_000 }; // 3 / 24h
+
+/**
+ * WP-SU-8: suppresses repeat surge/ceiling alert emails while a threshold condition PERSISTS.
+ *
+ * Load-bearing, not a nicety. `evaluateSignupSurge` reports a `>=` condition, which stays
+ * true for as long as the volume stays high, so without this cooldown a sustained refusal
+ * burst would email the whole ADMIN_ALLOWLIST once per refused request. Keyed per threshold
+ * (see SignupAlertKey) so a surge alert cannot swallow the ceiling alert that escalates it.
+ */
+export const SIGNUP_ALERT_COOLDOWN: RateRule = { limit: 1, windowMs: 3_600_000 }; // 1 / hour per key

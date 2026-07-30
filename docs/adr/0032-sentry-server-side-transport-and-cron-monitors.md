@@ -142,6 +142,18 @@ ADR-0026 hold release, whose failure mode is silent and legal.
   which are the "abandoned/dropped signups are accumulating (or exceed one run's paging
   bound)" alerts WP-SU-2 exists to raise: a healthy sweep is silent, so a non-zero count
   here is the signal, not an error. Alert on all six.
+  WP-SU-8 adds two more. `already_registered_mail_capped` — a recipient hit the 3/24h cap on
+  the victim-directed "you already have an account" mail; one or two is noise, a burst means
+  someone is probing a known address. `signup_alert_suppressed_duplicate` — a surge/ceiling
+  alert was suppressed by its 1/hour cooldown, i.e. the condition is STILL holding; treat a run
+  of these as "the incident is ongoing", not as an error. SEC-05: neither code carries a
+  recipient. Three failure codes accompany them and should ALL alert, because each one means a
+  safety property silently stopped being enforced: `already_registered_cap_failed` and
+  `signup_alert_cooldown_failed` (a budget check itself failed, so the guarded mail was
+  suppressed fail-closed), and `notify_anomaly_no_recipients` (**ADMIN_ALLOWLIST is empty — the
+  auth alert channel is dead**; this one is a configuration error, not a runtime blip, and it
+  applies to the login anomaly alert too). Also `already_registered_notice_failed` /
+  `signup_surge_alert_failed` from the route's `after()` guards.
 - **Client-side errors remain unreported.** Accepted trade, stated plainly so it is not
   mistaken for an oversight. **Reopening this requires a follow-up ADR that first defines
   a PII scrubbing policy** (`beforeSend`) — never a default wizard install, which is the
