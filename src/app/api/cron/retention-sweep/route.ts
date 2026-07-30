@@ -3,6 +3,7 @@ import * as schema from "@/db/schema";
 import { env } from "@/lib/env";
 import { isAuthorizedCron } from "@/lib/auth/cron-auth";
 import { sweepTenantPii } from "@/modules/retention/sweep";
+import { sweepAuthAttempts } from "@/modules/retention/auth-attempts";
 import { logError } from "@/lib/observability";
 import { jsonOk, jsonError, jsonServerError } from "@/lib/http";
 import * as Sentry from "@sentry/nextjs";
@@ -48,7 +49,24 @@ export async function GET(request: Request) {
           logError("cron_retention_tenant_failed", { tenantId: t.id, message: e instanceof Error ? e.message : String(e) });
         }
       }
-      return { tenants: swept, purged };
+
+      // WP-SU-11 (ADR-0010): prune auth_attempts. Cross-tenant by construction — the table has no
+      // tenant_id (auth runs before the tenant is known), so there is nothing to loop over; it is
+      // one age-predicate delete, hung off this daily job rather than given a cron of its own.
+      //
+      // BEST-EFFORT, deliberately, and NOT the treatment signup-sweep's reconcile pass gets. This
+      // monitor's check-in answers one question — did the LGL-02 consumer-PII purge run. Letting a
+      // data-minimisation pass fail it would both raise a legal-grade alarm for a hygiene problem
+      // and report a purge that DID run as failed. The dedicated code below is the alert instead
+      // (ADR-0032); unbounded growth returning silently is exactly what it exists to prevent.
+      let authAttempts = 0;
+      try {
+        authAttempts = (await sweepAuthAttempts(db)).deleted;
+      } catch (e) {
+        logError("cron_auth_attempts_sweep_failed", { message: e instanceof Error ? e.message : String(e) });
+      }
+
+      return { tenants: swept, purged, authAttempts };
     },
     monitorConfig(MONITOR),
   ).then(

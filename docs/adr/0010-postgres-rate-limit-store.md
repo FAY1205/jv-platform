@@ -36,4 +36,13 @@ tenant is known) and is RLS **deny-by-default** (server-managed via the service 
   `src/lib/auth/throttle.ts`, do not restate it (restating a rule in two places has drifted
   in this repo before). Still not urgent: `signup_notice` rows are capped at 3 per recipient
   per 24h and are only written when the address already exists.
+  **BUILT by WP-SU-11 (2026-07-30)** — `src/modules/retention/auth-attempts.ts`, run as a pass of
+  the daily `/api/cron/retention-sweep`. It deletes rows older than
+  `max(LOCKOUT_WINDOW_MS, ALREADY_REGISTERED_CAP.windowMs)` **+ 30 days**, both read from the live
+  constants exactly as this ADR instructed. The margin, not the max, is the property that makes
+  the sweep unable to race a live window: a future WP can widen any window up to a month without
+  touching the sweep, and the unit test's `>= ALREADY_REGISTERED_CAP.windowMs` assertion is the
+  tripwire if one ever exceeds it. Delete-only, so no migration — the 0004 deny-by-default RLS
+  policy already covers a service-role delete. Failure is best-effort and surfaces as
+  `cron_auth_attempts_sweep_failed` (ADR-0032), not as a failed check-in.
 - Chosen over Upstash to avoid new infra/deps per "boring code / no new deps without an ADR".

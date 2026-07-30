@@ -103,6 +103,16 @@ owner's external watchdog on `/api/health`, unchanged.
   set out to remove. So the total-failure path propagates out of the `withMonitor`
   callback and is caught outside it, preserving the `{code,message,traceId}` envelope.
   Per-tenant failures stay best-effort and swallowed (ADR-0014): the job *did* run.
+- **When a later, unrelated pass is bolted onto an existing monitored cron** (as WP-SU-11's
+  `auth_attempts` prune was added to the retention-sweep route), the rule is: **a pass fails the
+  monitor check-in only if it IS, or is part of, the reason that monitor exists.** The
+  retention-sweep monitor exists to answer "did the LGL-02 consumer-PII purge run", so a
+  data-minimisation hygiene pass added later must NOT be able to fail it — failing would raise a
+  legal-grade alarm for a hygiene problem and report a purge that *did* run as failed. Such a pass
+  stays best-effort behind its OWN dedicated `logError` alert code, on the condition that the code
+  is enumerated in the Consequences list below and the owner wires a Sentry rule for it. (Contrast
+  `reconcileDroppedSignups` on the signup-sweep cron, which DOES throw to fail its check-in —
+  because dropped-signup reconciliation is part of that monitor's core promise, not a bolt-on.)
 - **Residency: the DSN must be a US-region Sentry project**, consistent with ADR-0003's
   US data-residency decision for Supabase.
 - **Sentry is a new subprocessor** and must appear on the subprocessor/security page
@@ -154,6 +164,14 @@ ADR-0026 hold release, whose failure mode is silent and legal.
   auth alert channel is dead**; this one is a configuration error, not a runtime blip, and it
   applies to the login anomaly alert too). Also `already_registered_notice_failed` /
   `signup_surge_alert_failed` from the route's `after()` guards.
+  WP-SU-11 adds one: `cron_auth_attempts_sweep_failed` — the `auth_attempts` retention pass hung
+  off the daily retention sweep (ADR-0010) threw. It is caught rather than propagated, on purpose:
+  this monitor's check-in answers "did the LGL-02 consumer-PII purge run", and failing it for a
+  data-minimisation pass would both raise a legal-grade alarm for a hygiene problem and mark a
+  purge that DID run as failed. So the check-in stays green and **this code is the only signal** —
+  alert on it, or `auth_attempts` silently resumes growing unbounded with third-party emails and
+  IPs in it, which is the state ADR-0010 deferred and WP-SU-11 closed. A healthy run is silent;
+  the rows-deleted count rides in the route's 200 response, not in a log line.
 - **Client-side errors remain unreported.** Accepted trade, stated plainly so it is not
   mistaken for an oversight. **Reopening this requires a follow-up ADR that first defines
   a PII scrubbing policy** (`beforeSend`) — never a default wizard install, which is the

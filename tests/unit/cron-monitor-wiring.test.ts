@@ -18,6 +18,9 @@ const h = vi.hoisted(() => ({
   tenantRows: [] as { id: string }[],
   reconcileThrows: false,
   sweepError: null as unknown,
+  // retention-sweep only (WP-SU-11): the auth_attempts pass's result, and whether it throws.
+  authAttemptsDeleted: 0,
+  authAttemptsThrows: false,
 }));
 
 vi.mock("@sentry/nextjs", () => ({
@@ -59,6 +62,17 @@ vi.mock("@/db", () => ({
 // to pin item 4's 23503 (FK-blocked) vs generic per-tenant classification.
 vi.mock("@/lib/supabase/admin", () => ({ getSupabaseAdmin: () => ({}) }));
 
+// WP-SU-11: the retention route's auth_attempts pass. Mocked for the same reason as the signup
+// passes above — this file proves ROUTE wiring (does the pass run, is its failure best-effort,
+// does its count reach the response); the sweep's own semantics are proven against the real
+// table in tests/integration/auth-attempts-retention.test.ts.
+vi.mock("@/modules/retention/auth-attempts", () => ({
+  sweepAuthAttempts: vi.fn(async () => {
+    if (h.authAttemptsThrows) throw new Error("auth_attempts pass down");
+    return { deleted: h.authAttemptsDeleted };
+  }),
+}));
+
 vi.mock("@/modules/retention/signup-sweep", () => ({
   sweepAbandonedSignups: vi.fn(async () => {
     if (h.sweepError) throw h.sweepError;
@@ -86,6 +100,8 @@ beforeEach(() => {
   h.tenantRows = [];
   h.reconcileThrows = false;
   h.sweepError = null;
+  h.authAttemptsDeleted = 0;
+  h.authAttemptsThrows = false;
 });
 
 describe("ACT-05: each cron route checks in with its Sentry monitor", () => {
@@ -149,6 +165,40 @@ describe("ACT-05: each cron route checks in with its Sentry monitor", () => {
 
     expect(res.status).toBe(401);
     expect(withMonitor).not.toHaveBeenCalled();
+  });
+
+  // ── WP-SU-11 (ADR-0010): the auth_attempts pass hung off the daily retention sweep. ──
+
+  it("WP-SU-11: retention-sweep runs the auth_attempts pass and reports what it deleted", async () => {
+    h.authAttemptsDeleted = 42;
+    const { GET } = await import("@/app/api/cron/retention-sweep/route");
+    const res = await GET(authed());
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ code: "ok", authAttempts: 42 });
+    expect(h.outcomes).toEqual([{ slug: "retention-sweep", ok: true }]);
+  });
+
+  it("WP-SU-11: a failing auth_attempts pass is best-effort — it logs, and does NOT fail the PII purge's check-in", async () => {
+    // Deliberately NOT the item-L1 treatment the signup reconcile pass gets. The check-in on this
+    // monitor answers "did the LGL-02 consumer-PII purge run"; failing it because a data-minimisation
+    // pass errored would raise a legal-grade alarm for a hygiene problem and, worse, would mark a
+    // purge that DID run as failed. The dedicated logError code is the alert instead (ADR-0032).
+    h.authAttemptsThrows = true;
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const { GET } = await import("@/app/api/cron/retention-sweep/route");
+    const res = await GET(authed());
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ code: "ok", authAttempts: 0 });
+    expect(h.outcomes).toEqual([{ slug: "retention-sweep", ok: true }]);
+
+    const line = errSpy.mock.calls
+      .map((c) => c[0] as string)
+      .find((l) => typeof l === "string" && l.includes("cron_auth_attempts_sweep_failed"));
+    expect(line).toBeDefined();
+    expect(JSON.parse(line!)).toMatchObject({ code: "cron_auth_attempts_sweep_failed" });
+    errSpy.mockRestore();
   });
 
   // ── WP-SU-2 (item A): the signup-sweep route wiring, mirroring the retention-sweep block. ──
