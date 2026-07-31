@@ -5,6 +5,7 @@ import * as schema from "@/db/schema";
 import { OTP_TTL_MS } from "@/lib/auth/otp";
 import { RESET_TTL_MS } from "@/lib/auth/reset-token";
 import { SIGNUP_TTL_MS } from "@/lib/auth/signup-token";
+import { LOCKOUT_NOTICE_WINDOW_MS } from "@/lib/auth/notice-budget";
 import { batchedDeleteByAge } from "./batched-delete";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -31,9 +32,10 @@ export const AUTH_TABLE_RETENTION_MARGIN_MS = 7 * 24 * 60 * 60 * 1000;
  *  remainder next daily run. */
 export const AUTH_TABLE_SWEEP_BATCH = 5_000;
 
-// ACCEPTED COST (mirrors auth-attempts.ts / ADR-0010): none of these three tables has an index that
+// ACCEPTED COST (mirrors auth-attempts.ts / ADR-0010): none of these four tables has an index that
 // LEADS with the sweep's age column — otp_challenges is (identifier, createdAt); reset_tokens and
-// signup_verifications index only tokenHash + userId. So each sweep plans as a sequential scan +
+// signup_verifications index only tokenHash + userId; notice_claims indexes only (identifier, kind),
+// not notified_at (WP-SU-18). So each sweep plans as a sequential scan +
 // top-N sort. Once a day, at the volume these pre-tenant tables carry, that is cheaper than the
 // write-path index maintenance a covering index would add. Revisit together with ADR-0010's
 // Redis-swap trigger; if closed for real the indexes are createdAt (otp/reset) and a partial
@@ -104,6 +106,39 @@ export async function sweepSignupVerifications(
     id: S.id,
     orderBy: S.createdAt,
     where: and(isNotNull(S.usedAt), lte(S.createdAt, signupVerificationsCutoff(now)))!,
+    limit: opts.limit ?? AUTH_TABLE_SWEEP_BATCH,
+  });
+}
+
+// ── notice_claims (AUT-04, WP-SU-16/18) — notified_at-anchored. The row holds a raw login/OTP email
+// (identifier), so this closes the same plaintext-PII gap the three siblings above close for their
+// own tables (audit-security F-1 on WP-SU-16). Cutoff DERIVED from the live window, never restated
+// (ADR-0010). PK is a surrogate uuid (WP-SU-18) precisely so this reuses batchedDeleteByAge.
+//
+// SWEEP-vs-CLAIM SAFETY (this is the FIRST swept table the live path UPDATES in place, so the
+// append-only siblings' reasoning does not carry over verbatim): a row past window+margin is one
+// claimLockoutNotice would treat as a FRESH re-notify win (its setWhere is `notified_at < now - 1h`,
+// and this row is >7d stale), so pruning it can NEVER SUPPRESS a lockout notice — AUT-04 is
+// preserved. The SELECT→DELETE TOCTOU (a re-lock refreshing a captured row mid-sweep) is closed in
+// batchedDeleteByAge, which re-asserts this age predicate at delete time (WP-SU-18) — a refreshed
+// row no longer matches `notified_at <= cutoff` and is spared. So even a duplicate email cannot occur.
+export const NOTICE_CLAIMS_RETENTION_MS = LOCKOUT_NOTICE_WINDOW_MS + AUTH_TABLE_RETENTION_MARGIN_MS;
+
+export function noticeClaimsCutoff(now: Date): Date {
+  return new Date(now.getTime() - NOTICE_CLAIMS_RETENTION_MS);
+}
+
+export async function sweepNoticeClaims(
+  db: DB,
+  opts: { now?: Date; limit?: number } = {},
+): Promise<{ deleted: number }> {
+  const now = opts.now ?? new Date();
+  const N = schema.noticeClaims;
+  return batchedDeleteByAge(db, {
+    table: N,
+    id: N.id,
+    orderBy: N.notifiedAt,
+    where: lte(N.notifiedAt, noticeClaimsCutoff(now)),
     limit: opts.limit ?? AUTH_TABLE_SWEEP_BATCH,
   });
 }

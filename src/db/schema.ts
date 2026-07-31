@@ -578,21 +578,25 @@ export const authAttempts = pgTable(
 // racing wrong-credential requests each think they are the tripping attempt; this table lets
 // exactly one WIN the notice per lockout window (a read-then-write budget cannot — CWE-367).
 // One row per key, updated in place — so it does NOT grow per-event like the append-only
-// auth_attempts. It still accretes one permanent row per DISTINCT identifier that ever locks
-// (slowly: a lockout is rare), and that row holds a login email in plaintext, so a retention
-// sweep of aged rows (notified_at older than the window) belongs with the WP-SU-13 auth-sibling
-// pruner — tracked as a WP candidate, deliberately not built here (audit-security F-1). NOT
-// tenant-scoped (login is pre-tenant); server-managed (service role); RLS deny-by-default per
-// SEC-01. The (identifier, kind) PK is the conflict target the atomic upsert claims on.
+// auth_attempts. It still accretes one row per DISTINCT identifier that ever locks (slowly: a
+// lockout is rare), and that row holds a login email in plaintext, so WP-SU-18 sweeps aged rows
+// (notified_at past the claim window + margin) via the WP-SU-13 auth-sibling pruner — the same
+// data-minimisation treatment as otp_challenges.identifier. NOT tenant-scoped (login is
+// pre-tenant); server-managed (service role); RLS deny-by-default per SEC-01.
+//
+// PK is a surrogate uuid `id` (WP-SU-18) so the retention sweep reuses batchedDeleteByAge like
+// every sibling (its invariant is a single uuid PK). The natural key (identifier, kind) is a
+// UNIQUE constraint — still the conflict target claimLockoutNotice's atomic upsert claims on.
 export const noticeClaims = pgTable(
   "notice_claims",
   {
+    id: uuid("id").primaryKey().defaultRandom(),
     identifier: text("identifier").notNull(), // lowercased email
     kind: text("kind").notNull(), // 'lockout:login' | 'lockout:otp' — one claim key PER auth surface
     // (never merged: a lock on one surface must not suppress the owner alert for the other)
     notifiedAt: timestamp("notified_at", { withTimezone: true }).notNull(),
   },
-  (t) => [primaryKey({ columns: [t.identifier, t.kind] })],
+  (t) => [uniqueIndex("notice_claims_identifier_kind_key").on(t.identifier, t.kind)],
 );
 
 // ── Password reset tokens (AUT-06): single-use, hashed at rest, 30-min expiry. ──

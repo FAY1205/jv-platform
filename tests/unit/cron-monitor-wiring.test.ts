@@ -30,6 +30,9 @@ const h = vi.hoisted(() => ({
   // retention-sweep only (WP-SU-14): the canary-safe trusted_devices pass's count, and whether it throws.
   trustedDevicesDeleted: 0,
   trustedDevicesThrows: false,
+  // retention-sweep only (WP-SU-18): the notice_claims pass's count, and whether it throws.
+  noticeClaimsDeleted: 0,
+  noticeClaimsThrows: false,
 }));
 
 vi.mock("@sentry/nextjs", () => ({
@@ -97,6 +100,10 @@ vi.mock("@/modules/retention/auth-tables", () => ({
     if (h.trustedDevicesThrows) throw new Error("trusted_devices pass down");
     return { deleted: h.trustedDevicesDeleted };
   }),
+  sweepNoticeClaims: vi.fn(async () => {
+    if (h.noticeClaimsThrows) throw new Error("notice_claims pass down");
+    return { deleted: h.noticeClaimsDeleted };
+  }),
 }));
 
 vi.mock("@/modules/retention/signup-sweep", () => ({
@@ -134,6 +141,8 @@ beforeEach(() => {
   h.otpChallengesThrows = false;
   h.trustedDevicesDeleted = 0;
   h.trustedDevicesThrows = false;
+  h.noticeClaimsDeleted = 0;
+  h.noticeClaimsThrows = false;
 });
 
 describe("ACT-05: each cron route checks in with its Sentry monitor", () => {
@@ -297,6 +306,36 @@ describe("ACT-05: each cron route checks in with its Sentry monitor", () => {
       .find((l) => typeof l === "string" && l.includes("cron_trusted_devices_sweep_failed"));
     expect(line).toBeDefined();
     expect(JSON.parse(line!)).toMatchObject({ code: "cron_trusted_devices_sweep_failed" });
+    errSpy.mockRestore();
+  });
+
+  // ── WP-SU-18: the notice_claims pass (raw login/OTP email PII) on the same daily sweep. ──
+
+  it("WP-SU-18: retention-sweep runs the notice_claims pass and reports what it deleted", async () => {
+    h.noticeClaimsDeleted = 4;
+    const { GET } = await import("@/app/api/cron/retention-sweep/route");
+    const res = await GET(authed());
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ code: "ok", noticeClaims: 4 });
+    expect(h.outcomes).toEqual([{ slug: "retention-sweep", ok: true }]);
+  });
+
+  it("WP-SU-18: a failing notice_claims pass is best-effort — logs its code, does NOT fail the PII purge check-in", async () => {
+    h.noticeClaimsThrows = true;
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const { GET } = await import("@/app/api/cron/retention-sweep/route");
+    const res = await GET(authed());
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ code: "ok", noticeClaims: 0 });
+    expect(h.outcomes).toEqual([{ slug: "retention-sweep", ok: true }]);
+
+    const line = errSpy.mock.calls
+      .map((c) => c[0] as string)
+      .find((l) => typeof l === "string" && l.includes("cron_notice_claims_sweep_failed"));
+    expect(line).toBeDefined();
+    expect(JSON.parse(line!)).toMatchObject({ code: "cron_notice_claims_sweep_failed" });
     errSpy.mockRestore();
   });
 

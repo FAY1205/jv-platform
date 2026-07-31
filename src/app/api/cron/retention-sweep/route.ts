@@ -9,6 +9,7 @@ import {
   sweepResetTokens,
   sweepSignupVerifications,
   sweepTrustedDevices,
+  sweepNoticeClaims,
 } from "@/modules/retention/auth-tables";
 import { logError } from "@/lib/observability";
 import { jsonOk, jsonError, jsonServerError } from "@/lib/http";
@@ -78,7 +79,7 @@ export async function GET(request: Request) {
       // with hygiene work. trusted_devices is now swept here too (WP-SU-14) — but CANARY-SAFE: it
       // prunes a row only when its family has no live head, so an active family's reuse canaries
       // survive (AUT-10 preserved).
-      const [authAttempts, otpChallenges, resetTokens, signupVerifications, trustedDevices] = await Promise.all([
+      const [authAttempts, otpChallenges, resetTokens, signupVerifications, trustedDevices, noticeClaims] = await Promise.all([
         sweepAuthAttempts(db)
           .then((r) => r.deleted)
           .catch((e) => {
@@ -109,9 +110,18 @@ export async function GET(request: Request) {
             logError("cron_trusted_devices_sweep_failed", { message: e instanceof Error ? e.message : String(e) });
             return 0;
           }),
+        // WP-SU-18: prune aged notice_claims (raw login/OTP email past the claim window + margin).
+        // Same best-effort-behind-its-own-alert shape as the siblings — a hygiene pass must not fail
+        // this monitor's LGL-02 check-in (ADR-0032).
+        sweepNoticeClaims(db)
+          .then((r) => r.deleted)
+          .catch((e) => {
+            logError("cron_notice_claims_sweep_failed", { message: e instanceof Error ? e.message : String(e) });
+            return 0;
+          }),
       ]);
 
-      return { tenants: swept, purged, authAttempts, otpChallenges, resetTokens, signupVerifications, trustedDevices };
+      return { tenants: swept, purged, authAttempts, otpChallenges, resetTokens, signupVerifications, trustedDevices, noticeClaims };
     },
     monitorConfig(MONITOR),
   ).then(

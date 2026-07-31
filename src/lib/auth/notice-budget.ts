@@ -155,8 +155,10 @@ export const LOCKOUT_NOTICE_WINDOW_MS = LOCKOUT_WINDOW_MS;
  * notices independent (see LockoutSurface) — it is NOT a cross-surface merge.
  *
  * Mechanism: `INSERT … ON CONFLICT (identifier,kind) DO UPDATE SET notified_at = now WHERE the
- * stored notice is older than the window, RETURNING`. Postgres row-locks the primary-key conflict,
- * so of N racers exactly one still sees `notified_at` older than the cutoff and gets a row back
+ * stored notice is older than the window, RETURNING`. Postgres row-locks the (identifier, kind)
+ * unique-constraint conflict (the arbiter — since WP-SU-18 that key is a UNIQUE index, not the PK,
+ * which is now a surrogate uuid `id`), so of N racers exactly one still sees `notified_at` older
+ * than the cutoff and gets a row back
  * (a win); the rest re-evaluate the `WHERE` against the just-written value (≈ now) and get nothing.
  * A first-ever key inserts, which is also a win. One row per key, updated in place — no per-event growth.
  */
