@@ -11,6 +11,7 @@ import { evaluateThrottle, LOGIN_THROTTLE } from "@/lib/auth/throttle";
 import { lockoutState } from "@/lib/auth/lockout";
 import { clientIp } from "@/lib/auth/client-ip";
 import { notifyLockout, notifyAuthAnomaly } from "@/lib/auth/notify";
+import { claimLockoutNotice } from "@/lib/auth/notice-budget";
 
 // AUT-03/04/05/12: admin password login — rate-limited + lockout, uniform failure,
 // floored timing, Origin-checked (pre-session, so no double-submit token yet).
@@ -35,7 +36,8 @@ export async function POST(request: Request) {
   const ip = clientIp(request);
   const now = Date.now();
 
-  const store = new AuthAttemptsStore(getDb());
+  const db = getDb();
+  const store = new AuthAttemptsStore(db);
 
   // AUT-03 (WP-SU-9): reserve BEFORE deciding, so this request is inside the window it is
   // judged against — snapshot-then-record let N concurrent requests all pass (CWE-367).
@@ -72,8 +74,14 @@ export async function POST(request: Request) {
   await store.settle(attemptId, success === true);
 
   if (success !== true) {
-    // AUT-04: notify the owner exactly at the first lockout (include this failure).
-    if (lockoutState(snapshot.failures.length + 1).shouldNotify) {
+    // AUT-04: notify the owner exactly at the first lockout (include this failure). WP-SU-16:
+    // `snapshot` is taken pre-settle, so N concurrent failing logins each read the same
+    // failures.length and each pass shouldNotify; claimLockoutNotice is an atomic single-winner
+    // claim, so the owner gets exactly ONE mail per lock event, not one per racing request.
+    if (
+      lockoutState(snapshot.failures.length + 1).shouldNotify &&
+      (await claimLockoutNotice(db, email, "login", now))
+    ) {
       await notifyLockout(email);
     }
     // AUT-03: alert admins on sustained abuse from one IP (fire once at threshold).

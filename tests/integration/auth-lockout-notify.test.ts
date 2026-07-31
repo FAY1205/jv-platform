@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach } from "vitest";
 import { drizzle, type PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { randomUUID, randomBytes } from "node:crypto";
 import * as schema from "@/db/schema";
 import { issueOtp } from "@/lib/auth/otp";
@@ -56,6 +56,9 @@ suite("AUT-04: OTP lockout notifies the account owner", () => {
     for (const id of created) {
       await db.delete(schema.otpChallenges).where(eq(schema.otpChallenges.identifier, id));
       await db.delete(schema.authAttempts).where(eq(schema.authAttempts.identifier, id));
+      // WP-SU-16: the atomic lockout-notice claim (guarded so this suite still runs before
+      // the notice_claims table exists, e.g. the TDD red step).
+      await db.execute(sql`delete from notice_claims where identifier = ${id}`).catch(() => {});
     }
     created.clear();
     clearDevMailbox();
@@ -89,6 +92,44 @@ suite("AUT-04: OTP lockout notifies the account owner", () => {
     // The 6th request is refused at the lockout gate (429) and must NOT re-notify.
     const sixth = await otpVerify(post("/api/auth/otp/verify", { email: victim, code: wrong }));
     expect(sixth.status).toBe(429);
+    expect(lockoutMailsTo(victim)).toBe(1);
+  });
+
+  it("AUT-04: N concurrent wrong OTP codes at the tripping attempt email the owner exactly once", async () => {
+    const victim = track(`otp-race-${randomUUID()}@wp-su-16.test`);
+    const pepper = randomBytes(16).toString("base64url");
+    const { code, challenge } = issueOtp(pepper, Date.now());
+    await new OtpStore(db).persist(victim, challenge);
+    const wrong = code === "000000" ? "111111" : "000000"; // guaranteed != real code
+
+    // Prime 4 prior credential failures directly, back-dated ~16min so they sit OUTSIDE the
+    // 15-min OTP rate window but INSIDE the 1h lockout window: they count 4 toward `failures`
+    // (so the burst trips the lock) without consuming the 6/15min rate budget (so the burst
+    // requests aren't 429'd at the gate and genuinely race). They also skip the challenge's own
+    // attempt cap, so every racer reaches the genuine-wrong-code branch reading failures.length===4.
+    const staleFailedAt = new Date(Date.now() - 16 * 60_000);
+    await db.insert(schema.authAttempts).values(
+      Array.from({ length: 4 }, () => ({
+        identifier: victim,
+        ip: null,
+        kind: "otp",
+        success: false,
+        createdAt: staleFailedAt,
+      })),
+    );
+
+    // 6 simultaneous wrong-code verifies. Before WP-SU-16 each reads failures===4, each computes
+    // shouldNotify===true, each sends — multiple identical lockout mails for one trip event. The
+    // atomic single-winner claim must collapse them to exactly one.
+    const burst = await Promise.all(
+      Array.from({ length: 6 }, () =>
+        otpVerify(post("/api/auth/otp/verify", { email: victim, code: wrong })),
+      ),
+    );
+    // Precondition: the race is real — at least two requests actually reached the wrong-code branch
+    // concurrently (both would have emailed pre-WP-SU-16). Pins the test against silently
+    // degrading to a non-race if the throttle limits ever change.
+    expect(burst.filter((r) => r.status === 400).length).toBeGreaterThanOrEqual(2);
     expect(lockoutMailsTo(victim)).toBe(1);
   });
 

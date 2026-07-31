@@ -573,6 +573,28 @@ export const authAttempts = pgTable(
   ],
 );
 
+// ── Lockout-notice claims (AUT-04, WP-SU-16): one atomic "who sends it" claim per ──
+// (identifier, kind). Both lockout-notify routes decide from a PRE-settle snapshot, so N
+// racing wrong-credential requests each think they are the tripping attempt; this table lets
+// exactly one WIN the notice per lockout window (a read-then-write budget cannot — CWE-367).
+// One row per key, updated in place — so it does NOT grow per-event like the append-only
+// auth_attempts. It still accretes one permanent row per DISTINCT identifier that ever locks
+// (slowly: a lockout is rare), and that row holds a login email in plaintext, so a retention
+// sweep of aged rows (notified_at older than the window) belongs with the WP-SU-13 auth-sibling
+// pruner — tracked as a WP candidate, deliberately not built here (audit-security F-1). NOT
+// tenant-scoped (login is pre-tenant); server-managed (service role); RLS deny-by-default per
+// SEC-01. The (identifier, kind) PK is the conflict target the atomic upsert claims on.
+export const noticeClaims = pgTable(
+  "notice_claims",
+  {
+    identifier: text("identifier").notNull(), // lowercased email
+    kind: text("kind").notNull(), // 'lockout:login' | 'lockout:otp' — one claim key PER auth surface
+    // (never merged: a lock on one surface must not suppress the owner alert for the other)
+    notifiedAt: timestamp("notified_at", { withTimezone: true }).notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.identifier, t.kind] })],
+);
+
 // ── Password reset tokens (AUT-06): single-use, hashed at rest, 30-min expiry. ──
 // Keyed to the auth user id; server-managed (service role), RLS deny-by-default.
 // Only the SHA-256 hash is stored — the secret goes out once in the reset email.

@@ -1,6 +1,7 @@
+import { lt } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
-import type * as schema from "@/db/schema";
-import { AuthAttemptsStore } from "./attempts-store";
+import * as schema from "@/db/schema";
+import { AuthAttemptsStore, LOCKOUT_WINDOW_MS } from "./attempts-store";
 import type { RateRule } from "./rate-limit";
 import { ALREADY_REGISTERED_CAP, SIGNUP_ALERT_COOLDOWN } from "./throttle";
 import { logError } from "@/lib/observability";
@@ -122,4 +123,76 @@ export function allowSignupAlert(db: Db, key: SignupAlertKey, now: number): Prom
     "signup_alert_suppressed_duplicate",
     "signup_alert_cooldown_failed",
   );
+}
+
+/**
+ * The auth surface a lockout notice belongs to. The password-login and partner-OTP surfaces are
+ * SEPARATE lockout events for the same email (they key on different `auth_attempts.kind` and each
+ * runs its own AUT-04 ladder), so their notices must NOT share a claim key — a lock on one surface
+ * must never suppress the owner alert for a genuine lock on the other. This is exactly the
+ * pre-WP-SU-16 behaviour (two independent `shouldNotify` decisions); WP-SU-16 de-dups only the
+ * concurrent burst WITHIN one surface, never across surfaces.
+ */
+export type LockoutSurface = "login" | "otp";
+const lockoutNoticeKind = (surface: LockoutSurface): string => `lockout:${surface}`;
+
+/**
+ * One lockout notice per (identifier, surface) per window. Reuses the AUT-04 lockout look-back (1h,
+ * the full exponential-escalation cap), so a genuinely NEW lock event — one that trips after the
+ * previous notice has aged past the window — notifies again, while every racing request inside one
+ * event collapses to a single mail.
+ */
+export const LOCKOUT_NOTICE_WINDOW_MS = LOCKOUT_WINDOW_MS;
+
+/**
+ * WP-SU-16: atomically claim the single lockout notice for (`email`, `surface`) in the current
+ * window. Returns true for EXACTLY ONE caller per (identifier, surface, window), even under a
+ * concurrent burst of wrong-credential requests — the guarantee the read-then-write `consumeBudget`
+ * above deliberately does NOT make (CWE-367, documented there). It is required because BOTH
+ * lockout-notify call sites (login, otp/verify) decide from a PRE-settle snapshot, so N racing
+ * requests each read the same `failures.length` and each believe they are the tripping attempt;
+ * without a single winner they each email the victim. `surface` keeps the two auth surfaces'
+ * notices independent (see LockoutSurface) — it is NOT a cross-surface merge.
+ *
+ * Mechanism: `INSERT … ON CONFLICT (identifier,kind) DO UPDATE SET notified_at = now WHERE the
+ * stored notice is older than the window, RETURNING`. Postgres row-locks the primary-key conflict,
+ * so of N racers exactly one still sees `notified_at` older than the cutoff and gets a row back
+ * (a win); the rest re-evaluate the `WHERE` against the just-written value (≈ now) and get nothing.
+ * A first-ever key inserts, which is also a win. One row per key, updated in place — no per-event growth.
+ */
+export async function claimLockoutNotice(
+  db: Db,
+  email: string,
+  surface: LockoutSurface,
+  now: number,
+): Promise<boolean> {
+  const notifiedAt = new Date(now);
+  const cutoff = new Date(now - LOCKOUT_NOTICE_WINDOW_MS);
+  try {
+    const won = await db
+      .insert(schema.noticeClaims)
+      .values({ identifier: email.toLowerCase(), kind: lockoutNoticeKind(surface), notifiedAt })
+      .onConflictDoUpdate({
+        target: [schema.noticeClaims.identifier, schema.noticeClaims.kind],
+        set: { notifiedAt },
+        // Typed comparison (not a raw `sql` template): drizzle applies the column's timestamptz
+        // codec to `cutoff`, exactly as attempts-store's gt() does. A raw template would hand
+        // postgres-js an un-coded Date (locale string) that Postgres rejects as invalid timestamptz.
+        setWhere: lt(schema.noticeClaims.notifiedAt, cutoff),
+      })
+      .returning({ identifier: schema.noticeClaims.identifier });
+    return won.length > 0;
+  } catch (e) {
+    // Fail OPEN (send). Unlike consumeBudget (a courtesy-mail throttle, fail-closed), this claim
+    // gates a SECURITY alert — "your account was just locked." A silently dropped alert leaves the
+    // victim unaware their account is under attack, which is worse than a rare duplicate mail. So on
+    // a claim-query error we let the notify proceed. This does NOT reopen the flood the claim exists
+    // to prevent: that needs N racers to ALL error simultaneously, which happens only under genuine
+    // DB degradation (transient, operational) and is never attacker-controllable — the claim errors
+    // on infra faults, not on request input — and notifyLockout is itself best-effort. SEC-05: a
+    // failed Drizzle query embeds its bound parameters, one of which is the recipient email — route
+    // it through the scrub seam, never let it escape raw (same guard as consumeBudget above).
+    logError("lockout_notice_claim_failed", { message: e instanceof Error ? e.message : String(e) });
+    return true;
+  }
 }
