@@ -12,6 +12,7 @@ import { lockoutState } from "@/lib/auth/lockout";
 import { clientIp } from "@/lib/auth/client-ip";
 import { notifyLockout, notifyAuthAnomaly } from "@/lib/auth/notify";
 import { claimLockoutNotice } from "@/lib/auth/notice-budget";
+import { logError } from "@/lib/observability";
 
 // AUT-03/04/05/12: admin password login — rate-limited + lockout, uniform failure,
 // floored timing, Origin-checked (pre-session, so no double-submit token yet).
@@ -64,8 +65,20 @@ export async function POST(request: Request) {
   const success = await withUniformTiming(
     MIN_RESPONSE_MS,
     async () => {
-      const { error } = await supabase.auth.signInWithPassword({ email, password });
-      return !error;
+      try {
+        const { error } = await supabase.auth.signInWithPassword({ email, password });
+        return !error;
+      } catch (e) {
+        // WP-SU-19 (SEC-05/ADR-0032): withUniformTiming swallows a throw into the timing floor, so a
+        // Supabase transport/infra fault would otherwise be invisible (no log, no Sentry) and silently
+        // treated as a failed credential. Capture it (message scrubbed by the seam), then rethrow:
+        // `success` becomes undefined exactly as before, so the uniform 401 and existing lockout
+        // behaviour are unchanged. (Not feeding infra faults into the AUT-04 ladder / returning a 500
+        // instead of masquerading as 401 is a real availability fix, but a behaviour change — deferred
+        // to its own WP.)
+        logError("login_infra_failed", { message: e instanceof Error ? e.message : String(e) });
+        throw e;
+      }
     },
     (ms) => new Promise((r) => setTimeout(r, ms)),
     () => performance.now(),

@@ -13,6 +13,7 @@ import { clientIp } from "@/lib/auth/client-ip";
 import { issueOtp } from "@/lib/auth/otp";
 import { OtpStore } from "@/lib/auth/otp-store";
 import { notifyOtp } from "@/lib/auth/notify";
+import { logError } from "@/lib/observability";
 
 // PTL-01/AUT-05: request a partner sign-in code. Uniform + timing-floored + rate-
 // limited; a 6-digit code is issued (hashed) and emailed via the SEC-07 sink only
@@ -49,19 +50,30 @@ export async function POST(request: Request) {
   await withUniformTiming(
     MIN_RESPONSE_MS,
     async () => {
-      // AUT-04 (WP-SU-12): a code REQUEST is not a credential failure. Settle success:true so it
-      // counts toward the AUT-03 rate cap but never feeds the lockout ladder — otherwise a stranger
-      // could lock a victim's sign-in just by requesting codes for their address.
-      await attempts.settle(attemptId, true);
-      const [user] = await db
-        .select({ id: schema.users.id, role: schema.users.role })
-        .from(schema.users)
-        .where(sql`lower(${schema.users.email}) = ${email}`);
-      if (!user || user.role !== "partner") return; // only partners sign in by OTP
-      const pepper = randomBytes(16).toString("base64url");
-      const { code, challenge } = issueOtp(pepper, now);
-      await new OtpStore(db).persist(email, challenge);
-      await notifyOtp(email, code);
+      try {
+        // AUT-04 (WP-SU-12): a code REQUEST is not a credential failure. Settle success:true so it
+        // counts toward the AUT-03 rate cap but never feeds the lockout ladder — otherwise a stranger
+        // could lock a victim's sign-in just by requesting codes for their address.
+        await attempts.settle(attemptId, true);
+        const [user] = await db
+          .select({ id: schema.users.id, role: schema.users.role })
+          .from(schema.users)
+          .where(sql`lower(${schema.users.email}) = ${email}`);
+        if (!user || user.role !== "partner") return; // only partners sign in by OTP
+        const pepper = randomBytes(16).toString("base64url");
+        const { code, challenge } = issueOtp(pepper, now);
+        await new OtpStore(db).persist(email, challenge);
+        await notifyOtp(email, code);
+      } catch (e) {
+        // WP-SU-19 (SEC-05/ADR-0032): withUniformTiming swallows a throw into the timing floor, so an
+        // infra fault here (a DB fault, or the email transport rejecting) would otherwise vanish with
+        // no log and no Sentry event. Capture it (message scrubbed by the seam), then rethrow: the
+        // floor still applies and the caller's uniform response is unchanged. We must NOT surface a
+        // 500 — this body only sends for a real partner, so a distinct error status would leak account
+        // existence and break AUT-05.
+        logError("otp_request_failed", { message: e instanceof Error ? e.message : String(e) });
+        throw e;
+      }
     },
     (ms) => new Promise((r) => setTimeout(r, ms)),
     () => performance.now(),

@@ -12,6 +12,7 @@ import { clientIp } from "@/lib/auth/client-ip";
 import { issueResetToken } from "@/lib/auth/reset-token";
 import { ResetStore } from "@/lib/auth/reset-store";
 import { notifyReset } from "@/lib/auth/notify";
+import { logError } from "@/lib/observability";
 
 // AUT-05/06: request a password reset. Uniform response + floored timing whether or
 // not the account exists; rate-limited (AUT-03). A single-use, hashed, 30-min token
@@ -55,18 +56,29 @@ export async function POST(request: Request) {
   await withUniformTiming(
     MIN_RESPONSE_MS,
     async () => {
-      // AUT-04 (WP-SU-12): a reset REQUEST is not a credential failure. Settle success:true so it
-      // counts toward the AUT-03 rate cap but never feeds the lockout ladder — otherwise a stranger
-      // could lock a victim out of password reset just by requesting resets for their address.
-      await attempts.settle(attemptId, true);
-      const [user] = await db
-        .select({ id: schema.users.id, email: schema.users.email })
-        .from(schema.users)
-        .where(sql`lower(${schema.users.email}) = ${email}`);
-      if (!user) return; // no account — respond uniformly, send nothing
-      const { token, record } = issueResetToken(user.id, now);
-      await new ResetStore(db).persist(record);
-      await notifyReset(user.email, `${origin}/reset?token=${token}`);
+      try {
+        // AUT-04 (WP-SU-12): a reset REQUEST is not a credential failure. Settle success:true so it
+        // counts toward the AUT-03 rate cap but never feeds the lockout ladder — otherwise a stranger
+        // could lock a victim out of password reset just by requesting resets for their address.
+        await attempts.settle(attemptId, true);
+        const [user] = await db
+          .select({ id: schema.users.id, email: schema.users.email })
+          .from(schema.users)
+          .where(sql`lower(${schema.users.email}) = ${email}`);
+        if (!user) return; // no account — respond uniformly, send nothing
+        const { token, record } = issueResetToken(user.id, now);
+        await new ResetStore(db).persist(record);
+        await notifyReset(user.email, `${origin}/reset?token=${token}`);
+      } catch (e) {
+        // WP-SU-19 (SEC-05/ADR-0032): withUniformTiming swallows a throw into the timing floor, so an
+        // infra fault here (a DB fault, or the email transport rejecting) would otherwise vanish with
+        // no log and no Sentry event. Capture it (message scrubbed by the seam), then rethrow: the
+        // floor still applies and the caller's uniform response is unchanged. We must NOT surface a
+        // 500 — this body only sends for a real account, so a distinct error status would leak account
+        // existence and break AUT-05.
+        logError("reset_request_failed", { message: e instanceof Error ? e.message : String(e) });
+        throw e;
+      }
     },
     (ms) => new Promise((r) => setTimeout(r, ms)),
     () => performance.now(),
