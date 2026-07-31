@@ -80,3 +80,47 @@ export function jsonRequest(method: string, path: string, body?: unknown): Reque
 export function routeParams<T extends Record<string, string>>(params: T): { params: Promise<T> } {
   return { params: Promise.resolve(params) };
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// next/headers cookie seam (WP-SU-16 F-2). A PRE-SESSION auth route (login, otp/verify) has no
+// scope to inject — instead it builds a Supabase server client via getSupabaseServer(), which does
+// `await cookies()` from next/headers. Outside an App-Router request that throws, so a Node test
+// cannot drive those routes over HTTP without a cookie store. This supplies one, the complement to
+// scopeContextMock above: use it as `vi.mock("next/headers", () => nextHeadersMock())`.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** In-memory cookie jar backing nextHeadersMock. Clear it per test (beforeEach) for isolation. */
+export const routeCookieJar = new Map<string, string>();
+
+/**
+ * Factory body for `vi.mock("next/headers", () => nextHeadersMock())`. Returns an async `cookies()`
+ * exposing the get/getAll/set/delete surface @supabase/ssr (via getSupabaseServer) reads and writes,
+ * backed by routeCookieJar; `headers()` returns an empty set.
+ *
+ * NOT suitable for asserting cookie ATTRIBUTES: `set` drops its third `options` arg (HttpOnly /
+ * Secure / SameSite / __Host-), keying the jar name→value only — enough to drive a route and assert
+ * its HTTP response, but a session-ESTABLISHING flow's AUT-12 attributes would go unchecked (a
+ * regression would pass silently). Extend `set` to record options per name before reusing this for
+ * AUT-12 coverage (pr-review F-2/F-1).
+ */
+export function nextHeadersMock() {
+  const jar = routeCookieJar;
+  const cookieStore = {
+    getAll: () => [...jar.entries()].map(([name, value]) => ({ name, value })),
+    get: (name: string) => {
+      const value = jar.get(name);
+      return value === undefined ? undefined : { name, value };
+    },
+    set: (name: string, value: string) => {
+      jar.set(name, value);
+    },
+    delete: (name: string) => {
+      jar.delete(name);
+    },
+    has: (name: string) => jar.has(name),
+  };
+  return {
+    cookies: async () => cookieStore,
+    headers: async () => new Headers(),
+  };
+}

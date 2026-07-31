@@ -82,10 +82,11 @@ A tiny claim table + one atomic upsert makes exactly one concurrent caller "win"
 ## Definition of done
 - [x] `otp/verify` emails the owner **exactly once** per lockout event, incl. under an N-way
       concurrent burst — proven end-to-end (`auth-lockout-notify.test.ts`).
-- [~] `login` uses the identical idiom; its de-dup mechanism (the shared `claimLockoutNotice`) is
-      proven under a 12-way concurrent burst by the **primitive** test, but there is **no login
-      HTTP-level test** (needs a `cookies()`/Supabase-user harness this route lacks). Gap is
-      deliberate and surfaced — see §Tests. A login HTTP test is a WP candidate, not done here.
+- [x] `login` uses the identical idiom; de-dup covered by the primitive's 12-way concurrent test AND
+      — since the F-2 follow-up — an **HTTP-level** login test (`login-lockout-notify.test.ts`): a
+      Promise.all burst of wrong-password logins against a provisioned Supabase user → exactly one
+      owner email, driven through the new `nextHeadersMock` cookie seam in `_route-harness.ts`.
+      (Validated non-vacuous: bypassing the claim made it emit 6.)
 - [x] Notices are **per-surface** (`lockout:login` vs `lockout:otp`) — a lock on one surface never
       suppresses the owner alert for the other (pr-review F-1). Proven by the cross-surface claim test.
 - [x] `notice_claims` migration: table + PK index + RLS deny-by-default, applied to dev DB.
@@ -119,14 +120,13 @@ A tiny claim table + one atomic upsert makes exactly one concurrent caller "win"
   test can't silently degrade to a non-race if throttle limits change.
 - Red first (assert the concurrent burst against current behaviour + the missing symbol), then green.
 
-**Login route coverage — deliberate decision.** The login route's change is byte-identical to
-`otp/verify`'s (same one-line idiom, same `claimLockoutNotice`), and its actual de-dup mechanism is
-the shared primitive, which the 12-way concurrent claim test exercises directly. A login *HTTP*
-test would additionally need `next/headers` `cookies()` (via `getSupabaseServer()`) plus a real
-provisioned Supabase user — machinery no existing test drives for this route — for no coverage the
-primitive test doesn't already give. So login is covered by (a) the shared-primitive concurrent
-test and (b) the otp end-to-end wiring test proving the identical idiom wires correctly. A future
-HTTP-level login lockout test is a candidate if the auth route harness gains a cookies() seam.
+**Login route coverage.** Initially WP-SU-16 covered login only indirectly (identical idiom to the
+tested otp/verify path + the shared-primitive 12-way concurrent test), deferring an HTTP-level login
+test because it needs `next/headers` `cookies()` (via `getSupabaseServer()`) + a provisioned Supabase
+user — machinery no test drove for this route. **The F-2 follow-up closed that:** a reusable
+`nextHeadersMock` cookie seam in `_route-harness.ts` now lets pre-session auth routes be driven over
+HTTP, and `login-lockout-notify.test.ts` drives the real login route end-to-end (provisioned admin,
+Promise.all wrong-password burst) asserting exactly one owner email + a ≥2 race-floor.
 
 ## Out of scope (→ WP candidates, not built here)
 - **F-5 (audit-security, deferred from WP-SU-15): `otp/verify` has no `withUniformTiming` floor** —
