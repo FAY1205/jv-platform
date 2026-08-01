@@ -68,6 +68,10 @@ export function Orb({ size, animate = false, className }: { size: number; animat
       const glow = g.createRadialGradient(R, R * 1.5, 0, R, R * 1.5, R);
       glow.addColorStop(0, P.under); glow.addColorStop(1, "rgba(0,0,0,0)");
       g.fillStyle = glow; g.fillRect(0, 0, size, size);
+      // Depth: darken the lower-right edge so the sphere reads as glass, not a flat disc.
+      const shade = g.createRadialGradient(R * 1.15, R * 1.25, R * 0.3, R, R, R);
+      shade.addColorStop(0, "rgba(0,0,0,0)"); shade.addColorStop(1, "rgba(0,0,0,.28)");
+      g.fillStyle = shade; g.fillRect(0, 0, size, size);
       g.restore();
       g.beginPath(); g.arc(R, R, R - 1, 0, 6.2832); g.strokeStyle = P.rim; g.lineWidth = 1.1; g.stroke();
       g.beginPath(); g.arc(R, R, R - 1.6, Math.PI * 1.05, Math.PI * 1.75); g.strokeStyle = P.arc; g.lineWidth = 1.5; g.stroke();
@@ -77,13 +81,30 @@ export function Orb({ size, animate = false, className }: { size: number; animat
     };
 
     const reduce = typeof matchMedia !== "undefined" && matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const moving = animate && !reduce;
     let raf = 0;
-    if (animate && !reduce) {
-      const loop = (t: number) => { if (!document.hidden) draw(t); raf = requestAnimationFrame(loop); };
+    // Cap the redraw to ~30fps: continuous motion needs to stay cheap (the launcher orb
+    // animates on every screen), and 30fps reads as smooth for slow, ambient movement.
+    const FRAME_MS = 1000 / 30;
+    let last = -Infinity;
+
+    const loop = (t: number) => {
       raf = requestAnimationFrame(loop);
-    } else {
-      draw(0);
-    }
+      if (document.hidden) return; // browser also throttles rAF when hidden; belt + suspenders
+      if (t - last < FRAME_MS) return;
+      last = t;
+      draw(t);
+    };
+
+    const start = () => { if (moving && !raf) raf = requestAnimationFrame(loop); };
+    const stop = () => { if (raf) { cancelAnimationFrame(raf); raf = 0; } };
+
+    if (moving) start();
+    else draw(0);
+
+    // Fully release the loop while the tab is hidden, and resume (repainting) on return.
+    const onVis = () => { if (document.hidden) stop(); else if (moving) { last = -Infinity; start(); } };
+    document.addEventListener("visibilitychange", onVis);
 
     // Repaint on theme flip (static orbs especially).
     const repaint = () => draw(0);
@@ -93,7 +114,8 @@ export function Orb({ size, animate = false, className }: { size: number; animat
     mq?.addEventListener?.("change", repaint);
 
     return () => {
-      if (raf) cancelAnimationFrame(raf);
+      stop();
+      document.removeEventListener("visibilitychange", onVis);
       mo.disconnect();
       mq?.removeEventListener?.("change", repaint);
     };

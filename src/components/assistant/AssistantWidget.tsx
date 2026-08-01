@@ -195,13 +195,10 @@ export default function AssistantWidget() {
             ),
           )}
           {busy && messages[messages.length - 1]?.role === "user" && (
-            <div className="flex items-center gap-2">
-              <Orb size={24} className="shrink-0" />
-              <div role="status" className="flex gap-1 rounded-[15px] rounded-tl-[5px] border border-border-soft bg-surface px-3.5 py-3" aria-label="Assistant is thinking">
-                <i className="h-1.5 w-1.5 animate-[blink_1s_infinite] rounded-full bg-text-3" />
-                <i className="h-1.5 w-1.5 animate-[blink_1s_infinite_.18s] rounded-full bg-text-3" />
-                <i className="h-1.5 w-1.5 animate-[blink_1s_infinite_.36s] rounded-full bg-text-3" />
-              </div>
+            <div role="status" className="flex gap-1 self-start rounded-[15px] rounded-tl-[5px] border border-border-soft bg-surface px-3.5 py-3" aria-label="Assistant is thinking">
+              <i className="h-1.5 w-1.5 animate-[blink_1s_infinite] rounded-full bg-text-3" />
+              <i className="h-1.5 w-1.5 animate-[blink_1s_infinite_.18s] rounded-full bg-text-3" />
+              <i className="h-1.5 w-1.5 animate-[blink_1s_infinite_.36s] rounded-full bg-text-3" />
             </div>
           )}
         </div>
@@ -245,7 +242,8 @@ export default function AssistantWidget() {
         </footer>
       </section>
 
-      {/* Launcher */}
+      {/* Launcher — the orb (always gently animating) when closed; a plain close button
+          when open, so exactly one orb is ever on screen (the panel header's). */}
       <button
         ref={launcherRef}
         type="button"
@@ -253,9 +251,20 @@ export default function AssistantWidget() {
         aria-expanded={open}
         aria-controls="assistant-panel"
         onClick={() => setOpen((v) => !v)}
-        className="assistant-breathe fixed bottom-6 right-6 z-40 grid h-[58px] w-[58px] place-items-center rounded-full border-none bg-transparent p-0 transition-transform duration-150 hover:scale-[1.06] active:scale-95"
+        className={
+          "fixed bottom-6 right-6 z-40 grid h-[58px] w-[58px] place-items-center rounded-full border-none bg-transparent p-0 transition-transform duration-150 hover:scale-[1.06] active:scale-95 " +
+          (open ? "" : "assistant-breathe")
+        }
       >
-        <Orb size={52} animate={open} />
+        {open ? (
+          <span className="grid h-[52px] w-[52px] place-items-center rounded-full bg-brand text-brand-contrast shadow-sm">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" className="h-5 w-5" aria-hidden="true">
+              <path d="M18 6 6 18M6 6l12 12" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </span>
+        ) : (
+          <Orb size={52} animate />
+        )}
       </button>
     </>
   );
