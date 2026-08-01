@@ -5,6 +5,7 @@ import * as schema from "@/db/schema";
 import { OTP_TTL_MS } from "@/lib/auth/otp";
 import { RESET_TTL_MS } from "@/lib/auth/reset-token";
 import { SIGNUP_TTL_MS } from "@/lib/auth/signup-token";
+import { SIGNUP_CODE_TTL_MS } from "@/lib/auth/signup-code";
 import { LOCKOUT_NOTICE_WINDOW_MS } from "@/lib/auth/notice-budget";
 import { batchedDeleteByAge } from "./batched-delete";
 
@@ -106,6 +107,32 @@ export async function sweepSignupVerifications(
     id: S.id,
     orderBy: S.createdAt,
     where: and(isNotNull(S.usedAt), lte(S.createdAt, signupVerificationsCutoff(now)))!,
+    limit: opts.limit ?? AUTH_TABLE_SWEEP_BATCH,
+  });
+}
+
+// ── signup_codes (SCP-03) — createdAt-anchored. verifySignupCode rejects any code past
+// SIGNUP_CODE_TTL_MS (48h) and single-use burns it, so a row older than the TTL is dead
+// regardless of used state. createdBy holds only the OWNER's own allowlisted email (not a
+// third party), so we prune the whole window — used and long-expired alike. Cutoff DERIVED
+// from the live TTL, never restated (ADR-0010).
+export const SIGNUP_CODES_RETENTION_MS = SIGNUP_CODE_TTL_MS + AUTH_TABLE_RETENTION_MARGIN_MS;
+
+export function signupCodesCutoff(now: Date): Date {
+  return new Date(now.getTime() - SIGNUP_CODES_RETENTION_MS);
+}
+
+export async function sweepSignupCodes(
+  db: DB,
+  opts: { now?: Date; limit?: number } = {},
+): Promise<{ deleted: number }> {
+  const now = opts.now ?? new Date();
+  const S = schema.signupCodes;
+  return batchedDeleteByAge(db, {
+    table: S,
+    id: S.id,
+    orderBy: S.createdAt,
+    where: lte(S.createdAt, signupCodesCutoff(now)),
     limit: opts.limit ?? AUTH_TABLE_SWEEP_BATCH,
   });
 }

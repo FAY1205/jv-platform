@@ -11,6 +11,7 @@ import {
   ALREADY_REGISTERED_CAP,
 } from "@/lib/auth/throttle";
 import { recentDevEmails, clearDevMailbox } from "@/modules/notify/dev-mailbox";
+import { issueSignupCode } from "@/lib/auth/signup-code";
 import { jsonRequest } from "./_route-harness";
 
 // AUT-05/WP-SU-1: `after()` does not flush on a direct route invocation in a test — mock it to
@@ -98,16 +99,29 @@ suite("POST /api/auth/signup", () => {
   // rows would push every later test in this file past the ceiling.
   const seededGlobal: string[] = [];
 
-  beforeEach(() => {
+  // SCP-03: signup now requires a valid invitation code. Seed a fresh one per test
+  // (single-use; only the happy-path test consumes it) exposed as `validCode`.
+  const CODE_OWNER = "test@signup-route";
+  let validCode = "";
+
+  beforeEach(async () => {
     turnstileOk = true;
     createUserCalls.length = 0;
     deleteUserCalls.length = 0;
     afterCallbacks.length = 0;
     anomalyCalls.length = 0;
     clearDevMailbox();
+    const issued = issueSignupCode(Date.now());
+    await db.insert(schema.signupCodes).values({
+      codeHash: issued.record.codeHash,
+      expiresAt: new Date(issued.record.expiresAt),
+      createdBy: CODE_OWNER,
+    });
+    validCode = issued.code;
   });
 
   afterEach(async () => {
+    await db.delete(schema.signupCodes).where(eq(schema.signupCodes.createdBy, CODE_OWNER));
     if (seededGlobal.length) {
       await db.delete(schema.authAttempts).where(inArray(schema.authAttempts.identifier, seededGlobal.splice(0)));
     }
@@ -170,6 +184,7 @@ suite("POST /api/auth/signup", () => {
       password: strongPassword(),
       workspaceName,
       captchaToken: "captcha-token",
+      inviteCode: validCode,
       tosAccepted: true,
     });
     const res = await POST(req);
@@ -201,6 +216,32 @@ suite("POST /api/auth/signup", () => {
     const verifyEmail = emails.find((e) => e.kind === "signup_verify" && e.intendedTo.includes(email.toLowerCase()));
     expect(verifyEmail).toBeTruthy();
     expect(verifyEmail!.links.some((l) => l.includes("/signup/verify?token="))).toBe(true);
+
+    // SCP-03: the code was consumed (single-use) and no longer redeems.
+    const codes = await db.select().from(schema.signupCodes).where(eq(schema.signupCodes.createdBy, CODE_OWNER));
+    expect(codes).toHaveLength(1);
+    expect(codes[0].usedAt).not.toBeNull();
+    expect(codes[0].usedByTenantId).toBe(userRows[0].tenantId);
+  });
+
+  it("SCP-03: an invalid invitation code is rejected (400) and never provisions", async () => {
+    const email = `signup-${randomUUID()}@example.test`;
+    const req = jsonRequest("POST", "/api/auth/signup", {
+      email,
+      password: strongPassword(),
+      workspaceName: "No Code Co",
+      captchaToken: "captcha-token",
+      inviteCode: "ZZZZ-ZZZZ-ZZZZ", // not a real code
+      tosAccepted: true,
+    });
+    const res = await POST(req);
+    await flushAfter();
+    expect(res.status).toBe(400);
+    expect((await res.json()).code).toBe("invalid_code");
+    expect(createUserCalls).toHaveLength(0); // never reached provisioning
+    // The seeded valid code stays unused.
+    const codes = await db.select().from(schema.signupCodes).where(eq(schema.signupCodes.createdBy, CODE_OWNER));
+    expect(codes[0].usedAt).toBeNull();
   });
 
   it("AUT-05: the heavy provisioning work is DEFERRED (not on the response path)", async () => {
@@ -213,6 +254,7 @@ suite("POST /api/auth/signup", () => {
       password: strongPassword(),
       workspaceName,
       captchaToken: "captcha-token",
+      inviteCode: validCode,
       tosAccepted: true,
     });
     const res = await POST(req);
@@ -275,6 +317,7 @@ suite("POST /api/auth/signup", () => {
       password: strongPassword(),
       workspaceName: "Someone Else's Workspace",
       captchaToken: "captcha-token",
+      inviteCode: validCode,
       tosAccepted: true,
     });
     const res = await POST(req);
@@ -306,6 +349,7 @@ suite("POST /api/auth/signup", () => {
       password: strongPassword(),
       workspaceName: "Never Provisioned Co",
       captchaToken: "bad-token",
+      inviteCode: validCode,
       tosAccepted: true,
     });
     const res = await POST(req);
@@ -346,6 +390,7 @@ suite("POST /api/auth/signup", () => {
       password: strongPassword(),
       workspaceName: "Rate Limited Co",
       captchaToken: "captcha-token",
+      inviteCode: validCode,
       tosAccepted: true,
     });
     const res = await POST(req);
@@ -374,6 +419,7 @@ suite("POST /api/auth/signup", () => {
         password: strongPassword(),
         workspaceName: "Surge Co",
         captchaToken: "captcha-token",
+        inviteCode: validCode,
         tosAccepted: true,
       }),
     );
@@ -403,6 +449,7 @@ suite("POST /api/auth/signup", () => {
         password: strongPassword(),
         workspaceName: `Surge Co ${randomUUID().slice(0, 8)}`,
         captchaToken: "captcha-token",
+        inviteCode: validCode,
         tosAccepted: true,
       }),
     );
@@ -438,6 +485,7 @@ suite("POST /api/auth/signup", () => {
           password: strongPassword(),
           workspaceName: "Surge Co",
           captchaToken: "captcha-token",
+          inviteCode: validCode,
           tosAccepted: true,
         }),
       );
@@ -460,6 +508,7 @@ suite("POST /api/auth/signup", () => {
         password: strongPassword(),
         workspaceName: "Surge Co",
         captchaToken: "captcha-token",
+        inviteCode: validCode,
         tosAccepted: true,
       }),
     );
@@ -491,6 +540,7 @@ suite("POST /api/auth/signup", () => {
         password: strongPassword(),
         workspaceName: "Bomb Co",
         captchaToken: "captcha-token",
+        inviteCode: validCode,
         tosAccepted: true,
       }),
     );
@@ -529,6 +579,7 @@ suite("POST /api/auth/signup", () => {
         password: strongPassword(),
         workspaceName: "Bomb Co",
         captchaToken: "captcha-token",
+        inviteCode: validCode,
         tosAccepted: true,
       }),
     );
@@ -554,6 +605,7 @@ suite("POST /api/auth/signup", () => {
       password: strongPassword(),
       workspaceName: "No Consent Co",
       captchaToken: "captcha-token",
+      inviteCode: validCode,
     });
     const res = await POST(req);
 
@@ -572,6 +624,7 @@ suite("POST /api/auth/signup", () => {
       password: strongPassword(),
       workspaceName: "No Consent Co",
       captchaToken: "captcha-token",
+      inviteCode: validCode,
       tosAccepted: false,
     });
     const res = await POST(req);
@@ -598,6 +651,7 @@ suite("POST /api/auth/signup", () => {
         password: strongPassword(),
         workspaceName: "Disabled Co",
         captchaToken: "captcha-token",
+        inviteCode: validCode,
         tosAccepted: true,
       });
       const res = await disabledPost(req);
@@ -635,6 +689,7 @@ suite("POST /api/auth/signup", () => {
         password: strongPassword(),
         workspaceName: "Boom Co",
         captchaToken: "captcha-token",
+        inviteCode: validCode,
         tosAccepted: true,
       });
       const res = await failingPost(req);

@@ -15,15 +15,17 @@ export function FieldLabel({
   required?: boolean;
   optional?: boolean;
 }) {
+  // The asterisk / "(optional)" tag are visual siblings OUTSIDE the <label> text, so
+  // the label's accessible name stays exactly `children` (required-ness reaches AT via
+  // the control's aria-required). Keeping them out of the label text also means a
+  // getByLabelText("Password") style query still matches.
   return (
-    <label htmlFor={htmlFor} className="text-xs font-semibold text-text-2">
-      {children}
+    <span className="flex items-center gap-1 text-xs font-semibold text-text-2">
+      <label htmlFor={htmlFor}>{children}</label>
       {required && (
-        <span className="text-danger" aria-hidden="true">
-          {" *"}
-        </span>
+        <span className="text-danger" aria-hidden="true">*</span>
       )}
-      {optional && !required && <span className="font-normal text-text-3"> (optional)</span>}
-    </label>
+      {optional && !required && <span className="font-normal text-text-3">(optional)</span>}
+    </span>
   );
 }

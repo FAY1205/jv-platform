@@ -638,6 +638,27 @@ export const signupVerifications = pgTable(
   ],
 );
 
+// ── Signup invitation codes (SCP-03): a single-use, 48h code the platform owner
+// generates and hands to a prospective admin; required at signup. Hashed at rest
+// (only the hash is stored; the plaintext is shown once to the owner). Not
+// tenant-scoped (redeemed before any tenant exists); server-managed via the
+// service role. Single-use is enforced by a conditional `used_at IS NULL` update.
+export const signupCodes = pgTable(
+  "signup_codes",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    codeHash: text("code_hash").notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    usedAt: timestamp("used_at", { withTimezone: true }),
+    /** Email of the platform owner who generated it (from ADMIN_ALLOWLIST). */
+    createdBy: text("created_by").notNull(),
+    /** The tenant created when the code was redeemed (audit trail); null until used. */
+    usedByTenantId: uuid("used_by_tenant_id"),
+    createdAt: createdAt(),
+  },
+  (t) => [uniqueIndex("signup_codes_hash_idx").on(t.codeHash)],
+);
+
 // ── Partner email-OTP challenges (PTL-01): 6-digit code, hashed at rest. ──
 // Not tenant-scoped (issued before the session exists); server-managed, RLS
 // deny-by-default. Constant-time verify (AUT-09); attempt_count caps guessing.

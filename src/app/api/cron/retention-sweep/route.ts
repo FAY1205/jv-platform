@@ -8,6 +8,7 @@ import {
   sweepOtpChallenges,
   sweepResetTokens,
   sweepSignupVerifications,
+  sweepSignupCodes,
   sweepTrustedDevices,
   sweepNoticeClaims,
 } from "@/modules/retention/auth-tables";
@@ -79,7 +80,7 @@ export async function GET(request: Request) {
       // with hygiene work. trusted_devices is now swept here too (WP-SU-14) — but CANARY-SAFE: it
       // prunes a row only when its family has no live head, so an active family's reuse canaries
       // survive (AUT-10 preserved).
-      const [authAttempts, otpChallenges, resetTokens, signupVerifications, trustedDevices, noticeClaims] = await Promise.all([
+      const [authAttempts, otpChallenges, resetTokens, signupVerifications, signupCodes, trustedDevices, noticeClaims] = await Promise.all([
         sweepAuthAttempts(db)
           .then((r) => r.deleted)
           .catch((e) => {
@@ -104,6 +105,12 @@ export async function GET(request: Request) {
             logError("cron_signup_verifications_sweep_failed", { message: e instanceof Error ? e.message : String(e) });
             return 0;
           }),
+        sweepSignupCodes(db)
+          .then((r) => r.deleted)
+          .catch((e) => {
+            logError("cron_signup_codes_sweep_failed", { message: e instanceof Error ? e.message : String(e) });
+            return 0;
+          }),
         sweepTrustedDevices(db)
           .then((r) => r.deleted)
           .catch((e) => {
@@ -121,7 +128,7 @@ export async function GET(request: Request) {
           }),
       ]);
 
-      return { tenants: swept, purged, authAttempts, otpChallenges, resetTokens, signupVerifications, trustedDevices, noticeClaims };
+      return { tenants: swept, purged, authAttempts, otpChallenges, resetTokens, signupVerifications, signupCodes, trustedDevices, noticeClaims };
     },
     monitorConfig(MONITOR),
   ).then(

@@ -1,5 +1,5 @@
 import { randomUUID, randomBytes } from "node:crypto";
-import { eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import type { SupabaseClient } from "@supabase/supabase-js";
 // Relative (not "@/") so this helper runs unchanged from the app, the vitest
@@ -72,6 +72,9 @@ export interface ProvisionSignupParams {
   email: string;
   password: string;
   workspaceName: string;
+  /** SCP-03: the invitation code row to consume atomically with provisioning. When
+   *  set, provisioning fails (and compensates) if the code was already redeemed. */
+  signupCodeId?: string;
 }
 
 // Thrown when the Supabase auth user already exists for this email (a race with a
@@ -79,13 +82,17 @@ export interface ProvisionSignupParams {
 // route treats this identically to the pre-check "already registered" path.
 export class SignupEmailExistsError extends Error {}
 
+// SCP-03: thrown when the invitation code was consumed by a concurrent signup between
+// the route's up-front validity check and this transaction (single-use, first wins).
+export class SignupCodeConsumedError extends Error {}
+
 // SCP-02 (ADR-0033): create the auth user (unconfirmed) + tenant + admin user atomically.
 // Compensating saga: auth user is created first; if the DB transaction fails, the auth user
 // is deleted so no orphan remains. Password is passed to Supabase only — never logged.
 export async function provisionSignup(
   admin: SupabaseClient,
   db: DB,
-  { email, password, workspaceName }: ProvisionSignupParams,
+  { email, password, workspaceName, signupCodeId }: ProvisionSignupParams,
 ): Promise<{ userId: string; tenantId: string }> {
   const tenantId = randomUUID();
   const created = await admin.auth.admin.createUser({
@@ -111,6 +118,17 @@ export async function provisionSignup(
       // owner/script-provisioned tenants, which have no acceptance record and stay exempt.
       await tx.insert(schema.tenants).values({ id: tenantId, name: workspaceName, slug: finalSlug, selfServe: true });
       await tx.insert(schema.users).values({ id: userId, tenantId, email, role: "admin" });
+      // SCP-03: burn the invitation code atomically with the tenant it creates. The
+      // conditional `used_at IS NULL` guard makes it single-use even under a concurrent
+      // race; if it lost the race (0 rows), the whole signup rolls back + compensates.
+      if (signupCodeId) {
+        const consumed = await tx
+          .update(schema.signupCodes)
+          .set({ usedAt: new Date(), usedByTenantId: tenantId })
+          .where(and(eq(schema.signupCodes.id, signupCodeId), isNull(schema.signupCodes.usedAt)))
+          .returning({ id: schema.signupCodes.id });
+        if (consumed.length === 0) throw new SignupCodeConsumedError();
+      }
       // WP-SU-21: seed the partner-independent ingestion config (Lead Source 1 profile + MLS v2
       // patterns + setting/feature defaults) INSIDE this transaction, so a self-serve tenant is never
       // created without the config it needs to import leads. Partners/coverage/state-rules stay the

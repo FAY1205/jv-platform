@@ -40,6 +40,7 @@ export default function SignupPage() {
   const [email, setEmail] = React.useState("");
   const [password, setPassword] = React.useState("");
   const [workspaceName, setWorkspaceName] = React.useState("");
+  const [inviteCode, setInviteCode] = React.useState("");
   const [captchaToken, setCaptchaToken] = React.useState("");
   const [tosAccepted, setTosAccepted] = React.useState(false);
   const [loading, setLoading] = React.useState(false);
@@ -77,14 +78,14 @@ export default function SignupPage() {
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!captchaToken || !tosAccepted || loading) return;
+    if (!captchaToken || !tosAccepted || !inviteCode.trim() || loading) return;
     setLoading(true);
     setError(null);
     try {
       const res = await fetch("/api/auth/signup", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, password, workspaceName, captchaToken, tosAccepted }),
+        body: JSON.stringify({ email, password, workspaceName, inviteCode, captchaToken, tosAccepted }),
       });
       if (res.ok || res.status === 429) {
         setSent(true);
@@ -142,6 +143,15 @@ export default function SignupPage() {
                 onChange={(e) => setWorkspaceName(e.target.value)}
                 required
               />
+              <Input
+                label="Invitation code"
+                type="text"
+                autoComplete="off"
+                value={inviteCode}
+                onChange={(e) => setInviteCode(e.target.value)}
+                required
+                hint="Enter the code you were given to create a workspace."
+              />
               <div ref={widgetRef} />
               <Checkbox
                 checked={tosAccepted}
@@ -160,7 +170,7 @@ export default function SignupPage() {
                 type="submit"
                 variant="primary"
                 loading={loading}
-                disabled={!captchaToken || !tosAccepted || loading}
+                disabled={!captchaToken || !tosAccepted || !inviteCode.trim() || loading}
                 className="mt-1 w-full"
               >
                 Sign up

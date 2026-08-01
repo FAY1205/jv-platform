@@ -21,6 +21,8 @@ import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { provisionSignup, SignupEmailExistsError } from "@/lib/auth/provision-signup";
 import { issueSignupToken } from "@/lib/auth/signup-token";
 import { SignupStore } from "@/lib/auth/signup-store";
+import { hashCode, verifySignupCode } from "@/lib/auth/signup-code";
+import { SignupCodeStore } from "@/lib/auth/signup-code-store";
 import { notifySignupVerify, notifyAlreadyRegistered, notifyAuthAnomaly } from "@/lib/auth/notify";
 import { emailExistsGlobally } from "@/lib/auth/email-exists";
 import { allowAlreadyRegisteredMail, allowSignupAlert } from "@/lib/auth/notice-budget";
@@ -38,6 +40,7 @@ const Input = z.object({
   workspaceName: z.string().min(1).max(80),
   captchaToken: z.string().min(1),
   tosAccepted: z.literal(true),
+  inviteCode: z.string().min(1), // SCP-03: required invitation code
 });
 const KIND = "signup";
 const MIN_RESPONSE_MS = 700;
@@ -132,6 +135,16 @@ export async function POST(request: Request) {
     );
   }
 
+  // SCP-03: the invitation-code gate. Independent of whether the email exists, so it
+  // leaks nothing about accounts (AUT-05) — it reveals only whether a code is valid,
+  // which the redeemer must be told. Placed after the throttle/ceiling so code-guessing
+  // is rate-limited (20/15min per IP), before the HIBP work so a bad code stays cheap.
+  const codeStore = new SignupCodeStore(db);
+  const storedCode = await codeStore.findByHash(hashCode(parsed.data.inviteCode));
+  if (!storedCode || !verifySignupCode(parsed.data.inviteCode, storedCode, now).ok) {
+    return jsonError("invalid_code", "That invitation code is invalid, expired, or already used.", 400);
+  }
+
   // AUT-02: strength + breach gate on the new password. Also independent of
   // whether the email exists.
   const evaluation = await evaluateNewPassword(parsed.data.password, [email, parsed.data.workspaceName], hibpRangeFetcher);
@@ -169,6 +182,7 @@ export async function POST(request: Request) {
             email,
             password: parsed.data.password,
             workspaceName: parsed.data.workspaceName,
+            signupCodeId: storedCode.id, // SCP-03: consumed atomically in the provisioning tx
           });
           const { token, record } = issueSignupToken(userId, Date.now());
           await new SignupStore(db).persist(record);

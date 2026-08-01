@@ -49,8 +49,11 @@ describe("SignupPage — public signup with Turnstile", () => {
     const consent = screen.getByRole("checkbox", { name: /terms of service/i }) as HTMLInputElement;
     expect(consent).toBeTruthy();
 
+    // SCP-03: an invitation code is also required to enable submit.
+    await userEvent.type(screen.getByLabelText(/invitation code/i), "ABCD-EFGH-JKLM");
+
     const submit = await screen.findByRole("button", { name: /sign up|create/i });
-    // CAPTCHA token is present (stubbed above) but consent is not yet checked.
+    // CAPTCHA token + code present, but consent is not yet checked.
     expect((submit as HTMLButtonElement).disabled).toBe(true);
 
     await userEvent.click(consent);
@@ -78,6 +81,7 @@ describe("SignupPage — public signup with Turnstile", () => {
     await userEvent.type(screen.getByLabelText(/email/i), "new@example.com");
     await userEvent.type(screen.getByLabelText("Password"), "a-strong-password-1!");
     await userEvent.type(screen.getByLabelText(/workspace/i), "Acme Realty");
+    await userEvent.type(screen.getByLabelText(/invitation code/i), "ABCD-EFGH-JKLM");
     await userEvent.click(screen.getByRole("checkbox", { name: /terms of service/i }));
 
     const submit = await screen.findByRole("button", { name: /sign up|create/i });

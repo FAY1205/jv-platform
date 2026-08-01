@@ -26,6 +26,7 @@ const h = vi.hoisted(() => ({
   otpChallengesDeleted: 0,
   resetTokensDeleted: 0,
   signupVerificationsDeleted: 0,
+  signupCodesDeleted: 0,
   otpChallengesThrows: false,
   // retention-sweep only (WP-SU-14): the canary-safe trusted_devices pass's count, and whether it throws.
   trustedDevicesDeleted: 0,
@@ -96,6 +97,7 @@ vi.mock("@/modules/retention/auth-tables", () => ({
   }),
   sweepResetTokens: vi.fn(async () => ({ deleted: h.resetTokensDeleted })),
   sweepSignupVerifications: vi.fn(async () => ({ deleted: h.signupVerificationsDeleted })),
+  sweepSignupCodes: vi.fn(async () => ({ deleted: h.signupCodesDeleted })),
   sweepTrustedDevices: vi.fn(async () => {
     if (h.trustedDevicesThrows) throw new Error("trusted_devices pass down");
     return { deleted: h.trustedDevicesDeleted };
@@ -138,6 +140,7 @@ beforeEach(() => {
   h.otpChallengesDeleted = 0;
   h.resetTokensDeleted = 0;
   h.signupVerificationsDeleted = 0;
+  h.signupCodesDeleted = 0;
   h.otpChallengesThrows = false;
   h.trustedDevicesDeleted = 0;
   h.trustedDevicesThrows = false;
@@ -248,6 +251,7 @@ describe("ACT-05: each cron route checks in with its Sentry monitor", () => {
     h.otpChallengesDeleted = 1;
     h.resetTokensDeleted = 2;
     h.signupVerificationsDeleted = 3;
+    h.signupCodesDeleted = 4;
     const { GET } = await import("@/app/api/cron/retention-sweep/route");
     const res = await GET(authed());
 
@@ -257,6 +261,7 @@ describe("ACT-05: each cron route checks in with its Sentry monitor", () => {
       otpChallenges: 1,
       resetTokens: 2,
       signupVerifications: 3,
+      signupCodes: 4,
     });
     expect(h.outcomes).toEqual([{ slug: "retention-sweep", ok: true }]);
   });
