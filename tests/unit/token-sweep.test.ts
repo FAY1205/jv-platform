@@ -13,7 +13,8 @@ const HEX_RE = /#[0-9a-fA-F]{6}(?:[0-9a-fA-F]{2})?\b/;
 const EXCEPTIONS = [
   "src/lib/tokens/tokens.ts", // THE token source (PRN-12)
   "src/modules/export/render.ts", // export ARGB contrast policy (WP-G/WP-H, FRONTEND_STANDARDS §3 carve-out)
-  "src/components/assistant/Orb.tsx", // canvas plasma gradient (WP-AI-2, documented §3 carve-out)
+  // (Orb.tsx left the list 2026-08-02: its WebGL shader holds colours as GLSL
+  // float vectors, so the file no longer contains hex literals at all.)
 ];
 
 const norm = (p: string) => p.replace(/\\/g, "/");

@@ -2,44 +2,143 @@
 
 import * as React from "react";
 
-type Palette = {
-  base1: string; base2: string; edge: string;
-  rim: string; rimGlow: string;
-  filaments: [string, number][];
-  /** Additive (glowing) wisps — right on a dark body, washes out a light one.
-   *  White wisps are always additive (they're the shimmer either way). */
-  additive: boolean;
-};
+// The plasma-ring shader is adapted from react-bits' "Orb" background
+// (https://reactbits.dev/backgrounds/orb, https://github.com/DavidHDev/react-bits).
+// Copyright (c) 2026 David Haz — MIT License + Commons Clause v1.0. This notice is
+// included per the MIT permission-notice requirement; use inside an application is
+// permitted (the Commons Clause only restricts selling the component itself).
+//
+// Adaptations (owner iteration 2026-08-02): base colours are the app's marigold/
+// honey/amber-ink instead of purple/cyan (set as shader constants — canvas paint,
+// not DOM styling, PRN-12; the chrome around the orb uses tokens); the hover
+// distortion/rotation is removed (hoverIntensity=0); the upstream "light
+// background" branch is dropped — the ring renders with a transparent centre and
+// composites onto any page, which is what keeps it vivid on the cream theme; raw
+// WebGL replaces the `ogl` dependency (no new deps without an ADR); and the
+// animation uses the shared pause-aware clock (tab-hidden pause, so returning
+// never jump-cuts, + prefers-reduced-motion).
 
-// Theme-aware plasma palette (owner iteration 2026-08-01 #3: the body is LIGHT
-// honey glass — cream centre melting into amber — with saturated marigold wisps.
-// Never near-black, and no longer deep brown either; it should sit inside the
-// app's cream/amber vibe). Colours here are canvas paint (not DOM styling), so
-// they live with the renderer; the DOM chrome around the orb uses tokens (PRN-12).
-function orbPalette(): Palette {
-  const attr = document.documentElement.getAttribute("data-theme");
-  const dark = attr === "dark" || (attr !== "light" && typeof matchMedia !== "undefined" && matchMedia("(prefers-color-scheme: dark)").matches);
-  return dark
-    ? { base1: "#5c3a10", base2: "#7d5118", edge: "rgba(255,233,196,.25)",
-        rim: "rgba(246,184,86,.9)", rimGlow: "rgba(224,145,43,.5)",
-        filaments: [["#FFE9C4", 0.9], ["#F6B856", 0.7], ["#FFFFFF", 0.4]], additive: true }
-    : { base1: "#F7E3B8", base2: "#E4B978", edge: "rgba(224,145,43,.3)",
-        rim: "rgba(143,84,22,.8)", rimGlow: "rgba(224,145,43,.45)",
-        filaments: [["#E0912B", 0.85], ["#C67D1E", 0.6], ["#FFFFFF", 0.5]], additive: false };
+const VERT = `
+precision highp float;
+attribute vec2 position;
+attribute vec2 uv;
+varying vec2 vUv;
+void main() {
+  vUv = uv;
+  gl_Position = vec4(position, 0.0, 1.0);
+}
+`;
+
+const FRAG = `
+precision highp float;
+
+uniform float iTime;
+uniform vec3 iResolution;
+varying vec2 vUv;
+
+vec3 hash33(vec3 p3) {
+  p3 = fract(p3 * vec3(0.1031, 0.11369, 0.13787));
+  p3 += dot(p3, p3.yxz + 19.19);
+  return -1.0 + 2.0 * fract(vec3(
+    p3.x + p3.y,
+    p3.x + p3.z,
+    p3.y + p3.z
+  ) * p3.zyx);
 }
 
-// Per-filament shape: base radius (fraction of R), how deep its inward dip swings,
-// wobble harmonics and drift speeds (rad/ms). The motion budget lives in the
-// WOBBLE (waves rippling through each wisp), not rotation — owner: it must read
-// as waves moving, not a circle spinning.
-const FILAMENTS = [
-  { base: 0.86, dip: 0.1, k: 3, w1: 0.0011, w2: 0.0008, w3: 0.0002 },
-  { base: 0.83, dip: 0.2, k: 4, w1: 0.00085, w2: 0.0012, w3: 0.00016 },
-  { base: 0.88, dip: 0.4, k: 2, w1: 0.0007, w2: 0.00095, w3: 0.00024 },
-] as const;
+float snoise3(vec3 p) {
+  const float K1 = 0.333333333;
+  const float K2 = 0.166666667;
+  vec3 i = floor(p + (p.x + p.y + p.z) * K1);
+  vec3 d0 = p - (i - (i.x + i.y + i.z) * K2);
+  vec3 e = step(vec3(0.0), d0 - d0.yzx);
+  vec3 i1 = e * (1.0 - e.zxy);
+  vec3 i2 = 1.0 - e.zxy * (1.0 - e);
+  vec3 d1 = d0 - (i1 - K2);
+  vec3 d2 = d0 - (i2 - K1);
+  vec3 d3 = d0 - 0.5;
+  vec4 h = max(0.6 - vec4(
+    dot(d0, d0),
+    dot(d1, d1),
+    dot(d2, d2),
+    dot(d3, d3)
+  ), 0.0);
+  vec4 n = h * h * h * h * vec4(
+    dot(d0, hash33(i)),
+    dot(d1, hash33(i + i1)),
+    dot(d2, hash33(i + i2)),
+    dot(d3, hash33(i + 1.0))
+  );
+  return dot(vec4(31.316), n);
+}
 
-/** Barely-there whole-pattern rotation (rad/ms) — a hint of drift, never the show. */
-const SPIN = 0.00006;
+vec4 extractAlpha(vec3 colorIn) {
+  float a = max(max(colorIn.r, colorIn.g), colorIn.b);
+  return vec4(colorIn.rgb / (a + 1e-5), a);
+}
+
+// App palette (upstream: purple/cyan/deep-blue): marigold, light honey, amber ink.
+const vec3 baseColor1 = vec3(0.878, 0.569, 0.169);
+const vec3 baseColor2 = vec3(0.965, 0.722, 0.337);
+const vec3 baseColor3 = vec3(0.561, 0.329, 0.086);
+const float innerRadius = 0.6;
+const float noiseScale = 0.65;
+
+float light1(float intensity, float attenuation, float dist) {
+  return intensity / (1.0 + dist * attenuation);
+}
+
+float light2(float intensity, float attenuation, float dist) {
+  return intensity / (1.0 + dist * dist * attenuation);
+}
+
+vec4 draw(vec2 uv) {
+  float ang = atan(uv.y, uv.x);
+  float len = length(uv);
+  float invLen = len > 0.0 ? 1.0 / len : 0.0;
+
+  float n0 = snoise3(vec3(uv * noiseScale, iTime * 0.5)) * 0.5 + 0.5;
+  float r0 = mix(mix(innerRadius, 1.0, 0.4), mix(innerRadius, 1.0, 0.6), n0);
+  float d0 = distance(uv, (r0 * invLen) * uv);
+  float v0 = light1(1.0, 10.0, d0);
+  v0 *= smoothstep(r0 * 1.05, r0, len);
+
+  float cl = cos(ang + iTime * 2.0) * 0.5 + 0.5;
+
+  float a = iTime * -1.0;
+  vec2 pos = vec2(cos(a), sin(a)) * r0;
+  float d = distance(uv, pos);
+  float v1 = light2(1.5, 5.0, d);
+  v1 *= light1(1.0, 50.0, d0);
+
+  float v2 = smoothstep(1.0, mix(innerRadius, 1.0, n0 * 0.5), len);
+  float v3 = smoothstep(innerRadius, mix(innerRadius, 1.0, 0.5), len);
+
+  vec3 colBase = mix(baseColor1, baseColor2, cl);
+  vec3 col = mix(baseColor3, colBase, v0);
+  col = (col + v1) * v2 * v3;
+  col = clamp(col, 0.0, 1.0);
+
+  return extractAlpha(col);
+}
+
+void main() {
+  vec2 fragCoord = vUv * iResolution.xy;
+  vec2 center = iResolution.xy * 0.5;
+  float size = min(iResolution.x, iResolution.y);
+  vec2 uv = (fragCoord - center) / size * 2.0;
+  vec4 col = draw(uv);
+  gl_FragColor = vec4(col.rgb * col.a, col.a);
+}
+`;
+
+function compile(gl: WebGLRenderingContext, type: number, src: string): WebGLShader | null {
+  const sh = gl.createShader(type);
+  if (!sh) return null;
+  gl.shaderSource(sh, src);
+  gl.compileShader(sh);
+  return gl.getShaderParameter(sh, gl.COMPILE_STATUS) ? sh : null;
+}
 
 export function Orb({ size, animate = false, className }: { size: number; animate?: boolean; className?: string }) {
   const ref = React.useRef<HTMLCanvasElement | null>(null);
@@ -47,93 +146,60 @@ export function Orb({ size, animate = false, className }: { size: number; animat
   React.useEffect(() => {
     const canvas = ref.current;
     if (!canvas) return;
-    // Size the canvas UNCONDITIONALLY (backing store + CSS) before touching the 2d
-    // context, so a no-canvas environment (jsdom → getContext returns null) still gets
-    // a correctly-sized element and only skips the drawing.
+    // Size the canvas UNCONDITIONALLY (backing store + CSS) before touching the GL
+    // context, so a no-WebGL environment (jsdom) still gets a correctly-sized element
+    // and only skips the drawing.
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
     canvas.width = canvas.height = Math.round(size * dpr);
     canvas.style.width = canvas.style.height = `${size}px`;
-    const g = canvas.getContext("2d");
-    if (!g) return; // jsdom / no 2d support — sized but not drawn; never throw
-    const R = size / 2;
-    const ph = ((size * 97) % 628) / 100; // deterministic phase from size (no Math.random)
+    const gl = canvas.getContext("webgl", { alpha: true, premultipliedAlpha: true }) as WebGLRenderingContext | null;
+    if (!gl) return; // jsdom / no WebGL — sized but not drawn; never throw
 
-    const tracePath = (at: number, f: (typeof FILAMENTS)[number], i: number) => {
-      const STEPS = 56;
-      g.beginPath();
-      for (let s = 0; s <= STEPS; s++) {
-        const th = (s / STEPS) * Math.PI * 2;
-        const wob =
-          Math.sin(th * f.k + ph + i * 2.1 + at * f.w1) * 0.09 +
-          Math.sin(th * (f.k + 2) - ph * 1.7 - i + at * f.w2) * 0.065;
-        // One side hugs the rim, the opposite side dips toward the centre — the
-        // "veil" crossing the dark interior in the reference.
-        const dip = Math.max(0, Math.sin(th + ph * 2 + i * 2.6 + at * f.w3)) * f.dip;
-        const r = R * (f.base - dip + wob);
-        const spun = th + at * SPIN;
-        const x = R + Math.cos(spun) * r;
-        const y = R + Math.sin(spun) * r;
-        if (s === 0) g.moveTo(x, y);
-        else g.lineTo(x, y);
-      }
-      g.closePath();
-    };
+    const vs = compile(gl, gl.VERTEX_SHADER, VERT);
+    const fs = compile(gl, gl.FRAGMENT_SHADER, FRAG);
+    const prog = gl.createProgram();
+    if (!vs || !fs || !prog) return;
+    gl.attachShader(prog, vs);
+    gl.attachShader(prog, fs);
+    gl.linkProgram(prog);
+    if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) return;
+    gl.useProgram(prog);
+
+    // One fullscreen triangle (covers the viewport; uv runs past 1 on two verts).
+    const buf = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+    // interleaved: x, y, u, v
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 0, 0, 3, -1, 2, 0, -1, 3, 0, 2]), gl.STATIC_DRAW);
+    const aPos = gl.getAttribLocation(prog, "position");
+    const aUv = gl.getAttribLocation(prog, "uv");
+    gl.enableVertexAttribArray(aPos);
+    gl.vertexAttribPointer(aPos, 2, gl.FLOAT, false, 16, 0);
+    gl.enableVertexAttribArray(aUv);
+    gl.vertexAttribPointer(aUv, 2, gl.FLOAT, false, 16, 8);
+
+    const uTime = gl.getUniformLocation(prog, "iTime");
+    const uRes = gl.getUniformLocation(prog, "iResolution");
+    gl.viewport(0, 0, canvas.width, canvas.height);
+    gl.uniform3f(uRes, canvas.width, canvas.height, canvas.width / canvas.height);
+    gl.clearColor(0, 0, 0, 0);
+
+    // Deterministic per-size start phase (no Math.random) so multiple orbs don't
+    // tick in perfect sync.
+    const ph = ((size * 97) % 628) * 10;
 
     const draw = (at: number) => {
-      const P = orbPalette();
-      g.setTransform(dpr, 0, 0, dpr, 0, 0);
-      g.clearRect(0, 0, size, size);
-      g.save();
-      g.beginPath(); g.arc(R, R, R - 0.5, 0, 6.2832); g.clip();
-
-      // Dark glass interior — near-black warm centre, barely lighter toward the edge.
-      const base = g.createRadialGradient(R, R, R * 0.1, R, R, R);
-      base.addColorStop(0, P.base1); base.addColorStop(1, P.base2);
-      g.fillStyle = base; g.fillRect(0, 0, size, size);
-
-      // Inner edge bloom: the glass catching the plasma light near the rim.
-      const edge = g.createRadialGradient(R, R, R * 0.66, R, R, R);
-      edge.addColorStop(0, "rgba(0,0,0,0)"); edge.addColorStop(1, P.edge);
-      g.fillStyle = edge; g.fillRect(0, 0, size, size);
-
-      // Plasma wisps: wide blurred pass (glow) + thin bright core. Additive glow on a
-      // dark body; plain strokes on the light body (additive would white it out) — the
-      // white shimmer wisp stays additive in both themes.
-      FILAMENTS.forEach((f, i) => {
-        const [color, alpha] = P.filaments[i];
-        g.globalCompositeOperation = P.additive || color === "#FFFFFF" ? "lighter" : "source-over";
-        tracePath(at, f, i);
-        g.strokeStyle = color;
-        g.filter = `blur(${size * 0.06}px)`;
-        g.globalAlpha = alpha * 0.5;
-        g.lineWidth = size * 0.07;
-        g.stroke();
-        g.filter = `blur(${size * 0.012}px)`;
-        g.globalAlpha = alpha;
-        g.lineWidth = size * 0.014;
-        g.stroke();
-      });
-      g.filter = "none"; g.globalAlpha = 1; g.globalCompositeOperation = "source-over";
-      g.restore();
-
-      // Rim: a soft glow ring under a thin crisp ring — the plasma-ball glass edge.
-      g.globalCompositeOperation = "lighter";
-      g.beginPath(); g.arc(R, R, R - 1.2, 0, 6.2832);
-      g.strokeStyle = P.rimGlow; g.lineWidth = 2.4; g.filter = `blur(${Math.max(1, size * 0.03)}px)`; g.stroke();
-      g.filter = "none";
-      g.beginPath(); g.arc(R, R, R - 0.9, 0, 6.2832);
-      g.strokeStyle = P.rim; g.lineWidth = 1; g.stroke();
-      g.globalCompositeOperation = "source-over";
+      gl.uniform1f(uTime, (at + ph) * 0.001);
+      gl.clear(gl.COLOR_BUFFER_BIT);
+      gl.drawArrays(gl.TRIANGLES, 0, 3);
     };
 
     const reduce = typeof matchMedia !== "undefined" && matchMedia("(prefers-reduced-motion: reduce)").matches;
     const moving = animate && !reduce;
     let raf = 0;
-    // ~30fps cap: ambient motion stays cheap (the launcher animates on every screen).
+    // ~30fps cap keeps the always-on launcher cheap; the shader is time-driven.
     const FRAME_MS = 1000 / 30;
-    // Animation time ACCUMULATES only while the tab is visible: rAF timestamps are
-    // wall-clock, so drawing from them after a hidden stretch jump-cuts the wisps
-    // (reads as the animation "resetting"). Pausing the clock resumes seamlessly.
+    // The clock ACCUMULATES only while the tab is visible — drawing from wall-clock
+    // rAF timestamps after a hidden stretch jump-cuts (reads as a "reset").
     let acc = 0;
     let lastT: number | null = null;
     let lastDrawn = -Infinity;
@@ -154,22 +220,13 @@ export function Orb({ size, animate = false, className }: { size: number; animat
     if (moving) start();
     else draw(0);
 
-    // Fully release the loop while the tab is hidden; resume from the paused clock.
     const onVis = () => { if (document.hidden) stop(); else start(); };
     document.addEventListener("visibilitychange", onVis);
-
-    // Repaint on theme flip (static orbs especially).
-    const repaint = () => draw(acc);
-    const mo = new MutationObserver(repaint);
-    mo.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
-    const mq = typeof matchMedia !== "undefined" ? matchMedia("(prefers-color-scheme: dark)") : null;
-    mq?.addEventListener?.("change", repaint);
 
     return () => {
       stop();
       document.removeEventListener("visibilitychange", onVis);
-      mo.disconnect();
-      mq?.removeEventListener?.("change", repaint);
+      gl.getExtension("WEBGL_lose_context")?.loseContext();
     };
   }, [size, animate]);
 
