@@ -178,7 +178,13 @@ export function CountyCoverageMap({ states, selectedPartnerId = null, onSelectPa
       return;
     }
     const rect = wrapRef.current.getBoundingClientRect();
-    setHover({ fips, name: el.getAttribute("data-name") ?? "", x: e.clientX - rect.left, y: e.clientY - rect.top });
+    // Clamp the tooltip anchor inside the map card so the bubble (max-w 240px, centered
+    // on x; rendered above y) never clips at the card edges — the dashboard's NE-corner
+    // states used to push it out of the card.
+    const halfW = Math.min(128, rect.width / 2);
+    const x = Math.min(Math.max(e.clientX - rect.left, halfW), rect.width - halfW);
+    const y = Math.max(e.clientY - rect.top, 64);
+    setHover({ fips, name: el.getAttribute("data-name") ?? "", x, y });
   };
 
   if (failed) {

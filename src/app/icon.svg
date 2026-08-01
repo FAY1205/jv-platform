@@ -1,7 +1,8 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 34 34">
-  <!-- The AppShell brand mark (route zigzag) on a filled tile so it reads at tab size. -->
-  <rect width="34" height="34" rx="8" fill="#20160a"/>
+  <!-- The AppShell brand mark (route zigzag) on the nav-rail grey tile (owner: not black). -->
+  <rect width="34" height="34" rx="8" fill="#f1f4f3"/>
+  <rect x="0.75" y="0.75" width="32.5" height="32.5" rx="7.4" fill="none" stroke="#d3dcd9" stroke-width="1.5"/>
   <path d="M7 24 L14 12 L21 19 L27 9" stroke="#e0912b" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
-  <circle cx="7" cy="24" r="2.6" fill="#faefda"/>
+  <circle cx="7" cy="24" r="2.6" fill="#16242b"/>
   <circle cx="27" cy="9" r="3" fill="#e0912b"/>
 </svg>

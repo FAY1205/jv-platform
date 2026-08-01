@@ -3,25 +3,34 @@
 import * as React from "react";
 
 type Palette = {
-  base1: string; base2: string; additive: boolean;
-  ribbons: [string, number][];
-  under: string; rim: string; arc: string; spec: string;
+  base1: string; base2: string; edge: string;
+  rim: string; rimGlow: string;
+  filaments: [string, number][];
 };
 
-// Theme-aware glass palette — honey-glass on paper, petrol-glass in dark. Values are
-// the approved mockup's (rev-7). Colours here are canvas paint (not DOM styling), so
-// they live with the renderer; the DOM chrome around the orb uses tokens (PRN-12).
+// Theme-aware plasma palette (owner redesign 2026-08-01: a dark glass sphere with
+// amber plasma wisps at the rim — not a solid honey ball). Colours here are canvas
+// paint (not DOM styling), so they live with the renderer; the DOM chrome around the
+// orb uses tokens (PRN-12).
 function orbPalette(): Palette {
   const attr = document.documentElement.getAttribute("data-theme");
   const dark = attr === "dark" || (attr !== "light" && typeof matchMedia !== "undefined" && matchMedia("(prefers-color-scheme: dark)").matches);
   return dark
-    ? { base1: "#1E2C33", base2: "#0B1114", additive: true,
-        ribbons: [["#E0912B", 0.85], ["#F6B856", 0.7], ["#5FA0C8", 0.5], ["#FFFFFF", 0.45], ["#C67D1E", 0.6]],
-        under: "rgba(95,160,200,.25)", rim: "rgba(255,255,255,.35)", arc: "rgba(255,255,255,.7)", spec: "rgba(255,255,255,.45)" }
-    : { base1: "#FFF9EC", base2: "#EBCF9C", additive: false,
-        ribbons: [["#E0912B", 0.8], ["#C67D1E", 0.65], ["#8F5416", 0.4], ["#2E6E93", 0.28], ["#FFFFFF", 0.38]],
-        under: "rgba(46,110,147,.14)", rim: "rgba(143,84,22,.5)", arc: "rgba(255,255,255,.95)", spec: "rgba(255,255,255,.65)" };
+    ? { base1: "#150f06", base2: "#241705", edge: "rgba(246,184,86,.16)",
+        rim: "rgba(246,184,86,.85)", rimGlow: "rgba(224,145,43,.5)",
+        filaments: [["#F6B856", 0.9], ["#E0912B", 0.75], ["#FFE9C4", 0.5]] }
+    : { base1: "#1a1207", base2: "#2b1c08", edge: "rgba(224,145,43,.18)",
+        rim: "rgba(224,145,43,.9)", rimGlow: "rgba(198,125,30,.45)",
+        filaments: [["#E0912B", 0.9], ["#F6B856", 0.7], ["#FFE9C4", 0.45]] };
 }
+
+// Per-filament shape: base radius (fraction of R), how deep its inward dip swings,
+// wobble harmonics and drift speeds (rad/ms — very slow, ambient motion).
+const FILAMENTS = [
+  { base: 0.88, dip: 0.1, k: 3, w1: 0.00016, w2: 0.00011, w3: 0.00005 },
+  { base: 0.85, dip: 0.2, k: 4, w1: 0.00012, w2: 0.00017, w3: 0.00004 },
+  { base: 0.9, dip: 0.4, k: 2, w1: 0.00009, w2: 0.00013, w3: 0.00006 },
+] as const;
 
 export function Orb({ size, animate = false, className }: { size: number; animate?: boolean; className?: string }) {
   const ref = React.useRef<HTMLCanvasElement | null>(null);
@@ -40,74 +49,105 @@ export function Orb({ size, animate = false, className }: { size: number; animat
     const R = size / 2;
     const ph = ((size * 97) % 628) / 100; // deterministic phase from size (no Math.random)
 
-    const draw = (t: number) => {
+    const tracePath = (at: number, f: (typeof FILAMENTS)[number], i: number) => {
+      const STEPS = 56;
+      g.beginPath();
+      for (let s = 0; s <= STEPS; s++) {
+        const th = (s / STEPS) * Math.PI * 2;
+        const wob =
+          Math.sin(th * f.k + ph + i * 2.1 + at * f.w1) * 0.055 +
+          Math.sin(th * (f.k + 2) - ph * 1.7 - i + at * f.w2) * 0.04;
+        // One side hugs the rim, the opposite side dips toward the centre — the
+        // "veil" crossing the dark interior in the reference.
+        const dip = Math.max(0, Math.sin(th + ph * 2 + i * 2.6 + at * f.w3)) * f.dip;
+        const r = R * (f.base - dip + wob);
+        const x = R + Math.cos(th) * r;
+        const y = R + Math.sin(th) * r;
+        if (s === 0) g.moveTo(x, y);
+        else g.lineTo(x, y);
+      }
+      g.closePath();
+    };
+
+    const draw = (at: number) => {
       const P = orbPalette();
       g.setTransform(dpr, 0, 0, dpr, 0, 0);
       g.clearRect(0, 0, size, size);
       g.save();
       g.beginPath(); g.arc(R, R, R - 0.5, 0, 6.2832); g.clip();
-      const base = g.createRadialGradient(R * 0.72, R * 0.62, R * 0.12, R, R, R);
+
+      // Dark glass interior — near-black warm centre, barely lighter toward the edge.
+      const base = g.createRadialGradient(R, R, R * 0.1, R, R, R);
       base.addColorStop(0, P.base1); base.addColorStop(1, P.base2);
       g.fillStyle = base; g.fillRect(0, 0, size, size);
-      P.ribbons.forEach((rb, i) => {
-        const white = rb[0] === "#FFFFFF";
-        g.globalCompositeOperation = P.additive || white ? "lighter" : "source-over";
-        const rot = ph + i * 1.3 + (animate ? t * 0.00022 * (i % 2 ? 1 : -1) * (1 + i * 0.25) : i * 0.7);
-        const squish = 0.32 + 0.1 * Math.sin(ph + i + (animate ? t * 0.0006 : 0));
-        g.save();
-        g.translate(R + Math.sin(rot * 1.4 + i) * R * 0.08, R + Math.cos(rot + i) * R * 0.08);
-        g.rotate(rot);
-        g.beginPath(); g.ellipse(0, 0, R * 0.62, R * squish, 0, 0, 6.2832);
-        g.filter = `blur(${size * 0.055}px)`;
-        g.strokeStyle = rb[0]; g.globalAlpha = rb[1] * 0.55; g.lineWidth = size * 0.085; g.stroke();
-        g.filter = `blur(${size * 0.014}px)`;
-        g.globalAlpha = rb[1]; g.lineWidth = size * 0.02; g.stroke();
-        g.restore();
+
+      // Inner edge bloom: the glass catching the plasma light near the rim.
+      const edge = g.createRadialGradient(R, R, R * 0.66, R, R, R);
+      edge.addColorStop(0, "rgba(0,0,0,0)"); edge.addColorStop(1, P.edge);
+      g.fillStyle = edge; g.fillRect(0, 0, size, size);
+
+      // Plasma wisps: wide blurred pass (glow) + thin bright core, additive.
+      g.globalCompositeOperation = "lighter";
+      FILAMENTS.forEach((f, i) => {
+        const [color, alpha] = P.filaments[i];
+        tracePath(at, f, i);
+        g.strokeStyle = color;
+        g.filter = `blur(${size * 0.06}px)`;
+        g.globalAlpha = alpha * 0.5;
+        g.lineWidth = size * 0.07;
+        g.stroke();
+        g.filter = `blur(${size * 0.012}px)`;
+        g.globalAlpha = alpha;
+        g.lineWidth = size * 0.014;
+        g.stroke();
       });
       g.filter = "none"; g.globalAlpha = 1; g.globalCompositeOperation = "source-over";
-      const glow = g.createRadialGradient(R, R * 1.5, 0, R, R * 1.5, R);
-      glow.addColorStop(0, P.under); glow.addColorStop(1, "rgba(0,0,0,0)");
-      g.fillStyle = glow; g.fillRect(0, 0, size, size);
-      // Depth: darken the lower-right edge so the sphere reads as glass, not a flat disc.
-      const shade = g.createRadialGradient(R * 1.15, R * 1.25, R * 0.3, R, R, R);
-      shade.addColorStop(0, "rgba(0,0,0,0)"); shade.addColorStop(1, "rgba(0,0,0,.28)");
-      g.fillStyle = shade; g.fillRect(0, 0, size, size);
       g.restore();
-      g.beginPath(); g.arc(R, R, R - 1, 0, 6.2832); g.strokeStyle = P.rim; g.lineWidth = 1.1; g.stroke();
-      g.beginPath(); g.arc(R, R, R - 1.6, Math.PI * 1.05, Math.PI * 1.75); g.strokeStyle = P.arc; g.lineWidth = 1.5; g.stroke();
-      const spec = g.createRadialGradient(R * 0.62, R * 0.5, 0, R * 0.62, R * 0.5, R * 0.45);
-      spec.addColorStop(0, P.spec); spec.addColorStop(1, "rgba(255,255,255,0)");
-      g.fillStyle = spec; g.beginPath(); g.ellipse(R * 0.62, R * 0.48, R * 0.34, R * 0.22, -0.5, 0, 6.2832); g.fill();
+
+      // Rim: a soft glow ring under a thin crisp ring — the plasma-ball glass edge.
+      g.globalCompositeOperation = "lighter";
+      g.beginPath(); g.arc(R, R, R - 1.2, 0, 6.2832);
+      g.strokeStyle = P.rimGlow; g.lineWidth = 2.4; g.filter = `blur(${Math.max(1, size * 0.03)}px)`; g.stroke();
+      g.filter = "none";
+      g.beginPath(); g.arc(R, R, R - 0.9, 0, 6.2832);
+      g.strokeStyle = P.rim; g.lineWidth = 1; g.stroke();
+      g.globalCompositeOperation = "source-over";
     };
 
     const reduce = typeof matchMedia !== "undefined" && matchMedia("(prefers-reduced-motion: reduce)").matches;
     const moving = animate && !reduce;
     let raf = 0;
-    // Cap the redraw to ~30fps: continuous motion needs to stay cheap (the launcher orb
-    // animates on every screen), and 30fps reads as smooth for slow, ambient movement.
+    // ~30fps cap: ambient motion stays cheap (the launcher animates on every screen).
     const FRAME_MS = 1000 / 30;
-    let last = -Infinity;
+    // Animation time ACCUMULATES only while the tab is visible: rAF timestamps are
+    // wall-clock, so drawing from them after a hidden stretch jump-cuts the wisps
+    // (reads as the animation "resetting"). Pausing the clock resumes seamlessly.
+    let acc = 0;
+    let lastT: number | null = null;
+    let lastDrawn = -Infinity;
 
     const loop = (t: number) => {
       raf = requestAnimationFrame(loop);
-      if (document.hidden) return; // browser also throttles rAF when hidden; belt + suspenders
-      if (t - last < FRAME_MS) return;
-      last = t;
-      draw(t);
+      if (document.hidden) { lastT = null; return; }
+      if (lastT !== null) acc += Math.min(t - lastT, 100);
+      lastT = t;
+      if (acc - lastDrawn < FRAME_MS) return;
+      lastDrawn = acc;
+      draw(acc);
     };
 
-    const start = () => { if (moving && !raf) raf = requestAnimationFrame(loop); };
-    const stop = () => { if (raf) { cancelAnimationFrame(raf); raf = 0; } };
+    const start = () => { if (moving && !raf) { lastT = null; raf = requestAnimationFrame(loop); } };
+    const stop = () => { if (raf) { cancelAnimationFrame(raf); raf = 0; lastT = null; } };
 
     if (moving) start();
     else draw(0);
 
-    // Fully release the loop while the tab is hidden, and resume (repainting) on return.
-    const onVis = () => { if (document.hidden) stop(); else if (moving) { last = -Infinity; start(); } };
+    // Fully release the loop while the tab is hidden; resume from the paused clock.
+    const onVis = () => { if (document.hidden) stop(); else start(); };
     document.addEventListener("visibilitychange", onVis);
 
     // Repaint on theme flip (static orbs especially).
-    const repaint = () => draw(0);
+    const repaint = () => draw(acc);
     const mo = new MutationObserver(repaint);
     mo.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
     const mq = typeof matchMedia !== "undefined" ? matchMedia("(prefers-color-scheme: dark)") : null;
