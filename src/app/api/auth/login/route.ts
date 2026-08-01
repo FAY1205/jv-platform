@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getDb } from "@/db";
 import { getSupabaseServer } from "@/lib/supabase/server";
-import { jsonError, newTraceId } from "@/lib/http";
+import { jsonError, jsonServerError, newTraceId } from "@/lib/http";
 import { assertCsrf } from "@/lib/auth/guard";
 import { loginOutcome } from "@/lib/auth/login";
 import { withUniformTiming } from "@/lib/auth/enumeration";
@@ -12,7 +12,6 @@ import { lockoutState } from "@/lib/auth/lockout";
 import { clientIp } from "@/lib/auth/client-ip";
 import { notifyLockout, notifyAuthAnomaly } from "@/lib/auth/notify";
 import { claimLockoutNotice } from "@/lib/auth/notice-budget";
-import { logError } from "@/lib/observability";
 
 // AUT-03/04/05/12: admin password login — rate-limited + lockout, uniform failure,
 // floored timing, Origin-checked (pre-session, so no double-submit token yet).
@@ -61,7 +60,12 @@ export async function POST(request: Request) {
     );
   }
 
+  // WP-SU-20: `success` is tri-state — true (signed in), false (wrong credential), or undefined when
+  // signInWithPassword THREW (a Supabase/transport fault, swallowed into the floor by
+  // withUniformTiming). The three states are handled distinctly below so an auth-backend outage is not
+  // mistaken for a failed credential.
   const supabase = await getSupabaseServer();
+  let infraError: unknown;
   const success = await withUniformTiming(
     MIN_RESPONSE_MS,
     async () => {
@@ -69,20 +73,30 @@ export async function POST(request: Request) {
         const { error } = await supabase.auth.signInWithPassword({ email, password });
         return !error;
       } catch (e) {
-        // WP-SU-19 (SEC-05/ADR-0032): withUniformTiming swallows a throw into the timing floor, so a
-        // Supabase transport/infra fault would otherwise be invisible (no log, no Sentry) and silently
-        // treated as a failed credential. Capture it (message scrubbed by the seam), then rethrow:
-        // `success` becomes undefined exactly as before, so the uniform 401 and existing lockout
-        // behaviour are unchanged. (Not feeding infra faults into the AUT-04 ladder / returning a 500
-        // instead of masquerading as 401 is a real availability fix, but a behaviour change — deferred
-        // to its own WP.)
-        logError("login_infra_failed", { message: e instanceof Error ? e.message : String(e) });
+        // Capture the fault for the floored 500 below, then rethrow so withUniformTiming still applies
+        // the timing floor and yields `undefined` — the signal that this was an infra fault, not a
+        // credential result.
+        infraError = e;
         throw e;
       }
     },
     (ms) => new Promise((r) => setTimeout(r, ms)),
     () => performance.now(),
   );
+
+  if (success === undefined) {
+    // WP-SU-20 (availability): the sign-in call THREW — the auth backend is unavailable, not a wrong
+    // password. Do NOT feed the AUT-04 lockout ladder: a transient outage must never lock out a
+    // legitimate admin. The reservation already stands as a success:true row (counts toward the AUT-03
+    // rate window, never the lockout ladder), and we deliberately do NOT settle again — a second DB
+    // write would likely also fail mid-outage. Return a floored generic 500 rather than a 401
+    // masquerade; login's throw is account-independent, so a distinct status here does not leak account
+    // existence (AUT-05-safe). jsonServerError logs the captured fault (PII-scrubbed) sharing the
+    // response traceId (F-42) — superseding WP-SU-19's inner logError on this path.
+    return jsonServerError("login_unavailable", "Could not sign you in. Please try again.", {
+      message: infraError instanceof Error ? infraError.message : String(infraError),
+    });
+  }
 
   await store.settle(attemptId, success === true);
 

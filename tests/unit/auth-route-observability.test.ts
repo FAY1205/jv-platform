@@ -65,7 +65,11 @@ beforeEach(() => {
   signInWithPassword.mockReset().mockResolvedValue({ error: null });
 });
 
-describe("WP-SU-19: auth-route infra faults are observable (SEC-05 / ADR-0032)", () => {
+// WP-SU-20 evolves the login case: an infra fault there is no longer masqueraded as a 401 credential
+// failure that feeds the AUT-04 lockout ladder — it returns a floored 500 and is not settled as a
+// failure (an outage must not lock out a legitimate admin). otp/request & reset/request keep WP-SU-19's
+// log-only behaviour (a distinct status there would leak account existence — AUT-05).
+describe("WP-SU-19/20: auth-route infra-fault handling (observability + login availability)", () => {
   it("AUT-05/ADR-0032: an infra fault inside otp/request is logged and the response stays uniform (200)", async () => {
     settle.mockRejectedValueOnce(new Error("db down")); // stands in for any throw in the work body
     const res = await otpRequest(post("/api/auth/otp/request", { email: "who@x.test" }));
@@ -80,11 +84,29 @@ describe("WP-SU-19: auth-route infra faults are observable (SEC-05 / ADR-0032)",
     expect(logError).toHaveBeenCalledWith("reset_request_failed", expect.objectContaining({ message: "db down" }));
   });
 
-  it("AUT-05/ADR-0032: an infra fault inside login is logged and the response stays uniform (401)", async () => {
+  it("WP-SU-20/AUT-04: a login infra fault returns a floored 500 (not a 401), is logged, and does NOT feed the lockout ladder", async () => {
     signInWithPassword.mockRejectedValueOnce(new Error("supabase down"));
     const res = await login(post("/api/auth/login", { email: "who@x.test", password: "pw" }));
-    expect(res.status).toBe(401); // AUT-05: still the generic credential failure, no infra 500 leak
-    expect(logError).toHaveBeenCalledWith("login_infra_failed", expect.objectContaining({ message: "supabase down" }));
+    // Availability: an auth-backend outage is not a wrong password — a distinct 500, not the 401
+    // masquerade this route returned before WP-SU-20. AUT-05-safe: login's throw is account-independent.
+    expect(res.status).toBe(500);
+    // Logged via jsonServerError: the PII-scrubbed fault sharing the response's correlated traceId (F-42).
+    expect(logError).toHaveBeenCalledWith(
+      "login_unavailable",
+      expect.objectContaining({ message: "supabase down" }),
+      expect.any(String),
+    );
+    // AUT-04: the infra fault must NOT be settled as a credential failure. The reservation already
+    // stands as a success:true row (rate-yes, lockout-no); this path deliberately does not settle again.
+    expect(settle).not.toHaveBeenCalled();
+  });
+
+  it("WP-SU-20/AUT-04: a wrong password still returns 401 and feeds the lockout ladder (unchanged)", async () => {
+    signInWithPassword.mockResolvedValueOnce({ error: { message: "invalid" } });
+    const res = await login(post("/api/auth/login", { email: "who@x.test", password: "pw" }));
+    expect(res.status).toBe(401); // genuine credential failure — behaviour preserved
+    expect(settle).toHaveBeenCalledWith("attempt-id", false); // feeds the AUT-04 lockout ladder
+    expect(logError).not.toHaveBeenCalled(); // not an infra fault — nothing logged
   });
 
   it("ADR-0032: a healthy otp/request logs nothing (the catch does not fire spuriously)", async () => {
