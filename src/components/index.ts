@@ -1,5 +1,5 @@
 // The component library (DSN-03). Nothing UI ships outside this directory.
-export { Button, type ButtonProps } from "./Button";
+export { Button, Spinner, type ButtonProps } from "./Button";
 export { IconButton, type IconButtonProps } from "./IconButton";
 export { LinkCard, type LinkCardProps } from "./LinkCard";
 export { FilterPill, type FilterPillProps } from "./FilterPill";

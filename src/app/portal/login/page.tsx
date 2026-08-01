@@ -3,7 +3,7 @@
 import * as React from "react";
 import { Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Card, CardBody, Input, Button, Checkbox } from "@/components";
+import { Card, CardBody, Input, Button, Checkbox, Spinner } from "@/components";
 import { APP_NAME } from "@/lib/app";
 
 // PTL-01 + AUT-10: partner sign-in. On load we silently try the trusted-device
@@ -111,7 +111,9 @@ function PortalLoginForm() {
           </div>
 
           {checking ? (
-            <p className="py-4 text-sm text-text-3">Checking this device…</p>
+            <p className="flex items-center gap-2 py-4 text-sm text-text-3" aria-live="polite">
+              <Spinner size={14} /> Checking this device…
+            </p>
           ) : step === "email" ? (
             <form onSubmit={requestCode} className="flex flex-col gap-4" noValidate>
               <Input

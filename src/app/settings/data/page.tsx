@@ -60,7 +60,10 @@ export default function DataSettingsPage() {
                   <p className="text-sm text-text">Color-code partner sections</p>
                   <p className="text-xs text-text-3">Full-row fills per partner in the .xlsx. The partner name and ID always appear next to the color, so exports stay readable in black and white.</p>
                 </div>
-                <Switch checked={data.colorCoding} disabled={saveColor.isPending} onCheckedChange={(v) => saveColor.mutate(v)} ariaLabel="Color-code partner sections" />
+                <div className="flex items-center gap-2">
+                  {saveColor.isPending && <span className="text-xs text-text-3" aria-live="polite">Saving…</span>}
+                  <Switch checked={data.colorCoding} disabled={saveColor.isPending} onCheckedChange={(v) => saveColor.mutate(v)} ariaLabel="Color-code partner sections" />
+                </div>
               </div>
             </CardBody>
           </Card>

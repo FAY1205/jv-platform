@@ -4,7 +4,7 @@ import * as React from "react";
 import { useRouter } from "next/navigation";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { parseWorkbookInWorker } from "@/lib/xlsx-client";
-import { Card, CardBody, Button, Badge, Input, NativeSelect, AppShell, Tooltip } from "@/components";
+import { Card, CardBody, Button, Badge, Input, NativeSelect, AppShell, Tooltip, Spinner } from "@/components";
 import { csrfHeaders } from "@/lib/csrf-client";
 import { validateUploadFile } from "@/lib/upload-guard";
 // Client-safe: seed-profiles is pure data (its only import is a type, erased at build) —
@@ -157,6 +157,14 @@ export default function UploadPage() {
                 <span className="text-xs text-text-3">or click to browse</span>
                 {err && <span className="mt-2 text-xs text-danger">{err}</span>}
               </button>
+            ) : phase === "parsing" ? (
+              // ── Reading the workbook (client-side worker parse) — can take a moment on
+              //    a large file, so show motion rather than a dead "Reading…" label. ──
+              <div className="flex w-full flex-col items-center gap-2 rounded-lg border border-border-soft bg-surface-2 px-6 py-12 text-center text-text-2">
+                <Spinner size={22} />
+                <span className="text-sm font-semibold text-text">Reading your file…</span>
+                <span className="text-xs text-text-3">Checking the columns — this stays in your browser.</span>
+              </div>
             ) : need ? (
               // ── Mapping / drift confirm screen (ING-02/08) ──
               <div className="flex flex-col gap-4">
@@ -235,7 +243,7 @@ export default function UploadPage() {
                 {err && <p className="text-sm text-danger">{err}</p>}
 
                 <div className="flex items-center gap-3">
-                  <Button variant="primary" onClick={() => parsed && process.mutate(parsed)} disabled={!parsed || process.isPending || phase === "parsing"} loading={process.isPending}>
+                  <Button variant="primary" onClick={() => parsed && process.mutate(parsed)} disabled={!parsed || process.isPending} loading={process.isPending}>
                     Process file
                   </Button>
                   <Button variant="ghost" onClick={reset} disabled={process.isPending}>Choose another file</Button>

@@ -6,7 +6,7 @@ import { useParams } from "next/navigation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiGet } from "@/lib/api";
 import { csrfHeaders } from "@/lib/csrf-client";
-import { Card, CardBody, CardHeader, CardTitle, NativeSelect, Badge, Skeleton, EmptyState, NotesPanel, ListingBadge } from "@/components";
+import { Card, CardBody, CardHeader, CardTitle, NativeSelect, Badge, Skeleton, EmptyState, NotesPanel, ListingBadge, Spinner } from "@/components";
 
 interface LeadDetail {
   refId: string;
@@ -120,6 +120,11 @@ export default function PortalLeadDetailPage() {
                     if (e.target.value !== data.status) update.mutate(e.target.value);
                   }}
                 />
+                {update.isPending && (
+                  <span className="mt-1.5 flex items-center gap-1.5 text-xs text-text-3" aria-live="polite">
+                    <Spinner size={12} /> Saving…
+                  </span>
+                )}
               </div>
             </CardBody>
           </Card>

@@ -7,6 +7,7 @@ import { csrfHeaders } from "@/lib/csrf-client";
 import { Card, CardHeader, CardTitle, CardBody } from "./Card";
 import { Button } from "./Button";
 import { Textarea } from "./Textarea";
+import { Skeleton } from "./Skeleton";
 
 // NTS/PRN-13: one lead-note stream (the caller's — admin OR partner; the API scopes
 // it). Append-with-edit: existing notes save on blur with a saved indicator (NTS-02).
@@ -82,7 +83,10 @@ export function NotesPanel({ leadRef, title, headingLevel = "h3" }: { leadRef: s
       </CardHeader>
       <CardBody className="flex flex-col gap-4">
         {isLoading ? (
-          <p className="text-sm text-text-3">Loading…</p>
+          <div className="flex flex-col gap-2">
+            <Skeleton className="h-4 w-3/4" />
+            <Skeleton className="h-4 w-1/2" />
+          </div>
         ) : isError ? (
           <p role="alert" className="text-sm text-danger">
             Notes could not be loaded. You may need to{" "}
@@ -119,7 +123,7 @@ export function NotesPanel({ leadRef, title, headingLevel = "h3" }: { leadRef: s
                 <span aria-live="polite">
                   {new Date(n.updatedAt).toLocaleString()}
                   {n.edited ? " · edited" : ""}
-                  {savedId === n.id ? " · Saved ✓" : ""}
+                  {edit.isPending && edit.variables?.id === n.id ? " · Saving…" : savedId === n.id ? " · Saved ✓" : ""}
                 </span>
                 {editingId !== n.id && (
                   <>

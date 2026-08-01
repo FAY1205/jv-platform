@@ -34,15 +34,14 @@ export function LoginForm({ signupEnabled = false }: { signupEnabled?: boolean }
       if (res.ok) {
         router.push(next);
         router.refresh();
-        return;
+        return; // keep the button spinning while we navigate — don't flash back to idle
       }
       const body = (await res.json().catch(() => null)) as { message?: string } | null;
       setError(body?.message ?? "Sign in failed. Please try again.");
     } catch {
       setError("Network error. Please try again.");
-    } finally {
-      setLoading(false);
     }
+    setLoading(false);
   }
 
   return (
