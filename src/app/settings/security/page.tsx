@@ -1,51 +1,19 @@
 "use client";
 
 import * as React from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { apiGet } from "@/lib/api";
+import { useQueryClient } from "@tanstack/react-query";
 import { csrfHeaders } from "@/lib/csrf-client";
-import { Card, CardBody, CardHeader, CardTitle, Button, EmptyState, Skeleton, useToast } from "@/components";
+import { Card, CardBody, CardHeader, CardTitle, Button } from "@/components";
 import { SettingsSection } from "../settings-section";
 
-// WS-7e · ACC-02: the admin's own active sessions/devices, each revocable, plus
-// "sign out everywhere" (AUT-14 global refresh-token revocation). Reuses GET /api/sessions
-// + POST /api/sessions/[familyId]/revoke + POST /api/auth/logout — no new auth surface.
-
-interface Device {
-  familyId: string;
-  deviceLabel: string | null;
-  ip: string | null;
-  createdAt: string;
-  lastSeenAt: string | null;
-}
-
-function fmt(iso: string | null): string {
-  return iso ? new Date(iso).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" }) : "—";
-}
+// WS-7e · ACC-02: account security. Admin sign-in is a password session (no remembered
+// devices to enumerate — owner decision 2026-08-01), so this page is just the global
+// "sign out everywhere" control (AUT-14 global refresh-token revocation via /api/auth/logout).
 
 export default function SecuritySettingsPage() {
   const qc = useQueryClient();
-  const { toast } = useToast();
   const [confirming, setConfirming] = React.useState(false);
   const [signingOut, setSigningOut] = React.useState(false);
-
-  const { data, isPending, error } = useQuery({
-    queryKey: ["sessions"],
-    queryFn: () => apiGet<{ devices: Device[] }>("/api/sessions"),
-  });
-
-  const revoke = useMutation({
-    mutationFn: async (familyId: string) => {
-      const res = await fetch(`/api/sessions/${familyId}/revoke`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", ...csrfHeaders() },
-        body: "{}",
-      });
-      if (!res.ok) throw new Error("Could not sign out that device.");
-    },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["sessions"] }),
-    onError: (e: Error) => toast(e.message, "danger"),
-  });
 
   async function signOutEverywhere() {
     setSigningOut(true);
@@ -62,49 +30,8 @@ export default function SecuritySettingsPage() {
     window.location.assign("/login");
   }
 
-  const devices = data?.devices ?? [];
-
   return (
-    <SettingsSection title="Security" description="Your active sessions and devices.">
-      <Card>
-        <CardHeader>
-          <CardTitle>Active sessions</CardTitle>
-        </CardHeader>
-        <CardBody>
-          {error ? (
-            <EmptyState title="Couldn't load sessions" description={(error as Error).message} />
-          ) : isPending ? (
-            <div className="flex flex-col gap-2">
-              <Skeleton className="h-14" />
-              <Skeleton className="h-14" />
-            </div>
-          ) : devices.length === 0 ? (
-            <EmptyState title="No remembered devices" description="Devices you choose to remember at sign-in will appear here." />
-          ) : (
-            <ul className="flex flex-col divide-y divide-border">
-              {devices.map((d) => (
-                <li key={d.familyId} className="flex items-center justify-between gap-4 py-3">
-                  <div className="min-w-0">
-                    <p className="truncate text-sm text-text">{d.deviceLabel ?? "Unknown device"}</p>
-                    <p className="num text-xs text-text-3">
-                      last seen {fmt(d.lastSeenAt)} · {d.ip ?? "—"}
-                    </p>
-                  </div>
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    loading={revoke.isPending && revoke.variables === d.familyId}
-                    onClick={() => revoke.mutate(d.familyId)}
-                  >
-                    Sign out
-                  </Button>
-                </li>
-              ))}
-            </ul>
-          )}
-        </CardBody>
-      </Card>
-
+    <SettingsSection title="Security" description="Manage how you're signed in.">
       <Card>
         <CardHeader>
           <CardTitle>Sign out everywhere</CardTitle>
