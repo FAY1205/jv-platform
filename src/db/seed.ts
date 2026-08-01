@@ -2,8 +2,7 @@ import { drizzle } from "drizzle-orm/postgres-js";
 import { eq, sql } from "drizzle-orm";
 import postgres from "postgres";
 import * as schema from "./schema";
-import { DEFAULT_MLS_PATTERNS } from "../modules/pipeline/mls-patterns";
-import { SEED_SOURCE_PROFILES } from "../modules/sources/seed-profiles";
+import { seedTenantRules } from "./seed-tenant-rules";
 import { PARTNER_PALETTE } from "../lib/tokens/tokens";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -77,56 +76,13 @@ async function main() {
       })),
     );
 
-    // MLS patterns (from the engine seed, WP-008).
-    await db.insert(schema.mlsPatterns).values(
-      DEFAULT_MLS_PATTERNS.map((p) => ({
-        tenantId,
-        patternKey: p.id,
-        type: p.type,
-        regex: p.regex,
-        flags: p.flags ?? "i",
-        label: p.label,
-      })),
-    );
-
-    // Source profiles: Lead Source 1 v1 — the only ingestable format (WP-LS1).
-    // `transform` must be persisted or a saved profile silently loses its derivation.
-    await db.insert(schema.sourceProfiles).values(
-      SEED_SOURCE_PROFILES.map((p) => ({
-        tenantId,
-        name: p.name,
-        version: p.version,
-        headerSignature: p.headerSignature,
-        mapping: p.mapping,
-        requiredColumns: p.requiredColumns,
-        strictness: p.strictness,
-        transform: p.transform ?? null,
-      })),
-    );
-
-    // Settings defaults (SET catalog; PRN-11 — every setting has a default).
-    await db.insert(schema.settings).values([
-      { tenantId, key: "color_coding", value: true }, // SET-01
-      {
-        tenantId,
-        key: "status_list", // SET-04 / SEAM-06
-        value: ["New", "Contacted", "Appointment", "Under contract", "Closed", "Dead"],
-      },
-      { tenantId, key: "listing_check", value: { linkOnly: true, automated: false } }, // SET-06
-      { tenantId, key: "retention_days", value: 365 }, // SET-07
-      { tenantId, key: "jv_notes_mapping", value: { mapped: false } }, // SET-05 / NTS-03
-      { tenantId, key: "ai_assistant", value: { enabled: false } }, // SET-11
-    ]);
-
-    // Feature flags (SEAM-09).
-    await db.insert(schema.featureFlags).values([
-      { tenantId, key: "ai_assistant", enabled: false },
-      { tenantId, key: "captcha_auth", enabled: false },
-    ]);
+    // Partner-independent ingestion config: Lead Source 1 profile + MLS v2 patterns + setting/
+    // feature defaults. Extracted to seed-tenant-rules.ts so self-serve signup seeds a tenant
+    // byte-identically — single source, no duplication (PRN-15, WP-SU-21).
+    await seedTenantRules(db, tenantId);
 
     console.log(`Seeded dev tenant ${tenantId}: ${PARTNER_PALETTE.length} partners, ` +
-      `${DEFAULT_MLS_PATTERNS.length} MLS patterns, ${STATE_RULES.length} state rules, ` +
-      `${SEED_SOURCE_PROFILES.length} source profiles.`);
+      `${STATE_RULES.length} state rules; ingestion config (source profile, MLS patterns, settings, flags) seeded.`);
   } finally {
     await client.end();
   }

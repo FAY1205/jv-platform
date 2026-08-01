@@ -94,11 +94,23 @@ suite("SCP-02: provisionSignup", () => {
       const tosRows = await db.select().from(schema.tosAcceptances).where(eq(schema.tosAcceptances.userId, userId));
       expect(tosRows).toHaveLength(1);
       expect(tosRows[0].version).toBe(CURRENT_TOS_VERSION);
+
+      // WP-SU-21: the ingestion config is seeded in the SAME provisioning transaction, so a
+      // self-serve tenant can import leads immediately. The Lead Source 1 profile must carry its
+      // transform (skip-trace strip + address/ZIP derivation).
+      const profileRows = await db.select().from(schema.sourceProfiles).where(eq(schema.sourceProfiles.tenantId, tenantId));
+      expect(profileRows.some((p) => p.name === "Lead Source 1" && p.transform === "lead-source-1")).toBe(true);
+      const patternRows = await db.select().from(schema.mlsPatterns).where(eq(schema.mlsPatterns.tenantId, tenantId));
+      expect(patternRows.length).toBeGreaterThanOrEqual(1);
     } finally {
       // audit_log is append-only (DB trigger rejects DELETE, ADR-0031), and audit_log.tenant_id
       // is a hard FK (ON DELETE no action) — so once a tenant has an audit_log row, the tenant
       // row itself can never be hard-deleted either. Both are intentionally left in place here,
       // same as they would be in production. Only the deletable rows are cleaned up.
+      await db.delete(schema.sourceProfiles).where(eq(schema.sourceProfiles.tenantId, tenantId));
+      await db.delete(schema.mlsPatterns).where(eq(schema.mlsPatterns.tenantId, tenantId));
+      await db.delete(schema.settings).where(eq(schema.settings.tenantId, tenantId));
+      await db.delete(schema.featureFlags).where(eq(schema.featureFlags.tenantId, tenantId));
       await db.delete(schema.tosAcceptances).where(eq(schema.tosAcceptances.userId, userId));
       await db.delete(schema.users).where(eq(schema.users.id, userId));
     }

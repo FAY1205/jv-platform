@@ -5,6 +5,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 // Relative (not "@/") so this helper runs unchanged from the app, the vitest
 // integration test, AND any tsx provisioning script (tsx does not resolve "@/").
 import * as schema from "../../db/schema";
+import { seedTenantRules } from "../../db/seed-tenant-rules";
 import { recordTosAcceptance } from "./tos-store";
 import { CURRENT_TOS_VERSION } from "@/lib/legal/tos";
 import { logError } from "@/lib/observability";
@@ -110,6 +111,11 @@ export async function provisionSignup(
       // owner/script-provisioned tenants, which have no acceptance record and stay exempt.
       await tx.insert(schema.tenants).values({ id: tenantId, name: workspaceName, slug: finalSlug, selfServe: true });
       await tx.insert(schema.users).values({ id: userId, tenantId, email, role: "admin" });
+      // WP-SU-21: seed the partner-independent ingestion config (Lead Source 1 profile + MLS v2
+      // patterns + setting/feature defaults) INSIDE this transaction, so a self-serve tenant is never
+      // created without the config it needs to import leads. Partners/coverage/state-rules stay the
+      // admin's in-app setup (see seedTenantRules). Failure rolls back the whole signup (compensated).
+      await seedTenantRules(tx, tenantId);
       // Compliance: audit the highest-privilege public action (creating a whole tenant). B2B/self
       // contact data (like partner.created) — no consumer-PII redaction needed.
       await tx.insert(schema.auditLog).values({
