@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gte, ilike, inArray, isNull, lte, or, sql, type SQL } from "drizzle-orm";
+import { and, asc, desc, eq, gte, ilike, inArray, isNull, lte, ne, or, sql, type SQL } from "drizzle-orm";
 import { getDb } from "@/db";
 import * as schema from "@/db/schema";
 import { tenantWhere, partnerOwnsLead, leadWhere, type ScopeContext } from "@/lib/scope";
@@ -403,7 +403,7 @@ export async function unmatchedCoverageMatches(scope: ScopeContext): Promise<Cov
       and(
         tenantWhere(schema.partners, scope),
         inArray(schema.partners.id, rows.map((r) => r.partnerId)),
-        eq(schema.partners.status, "active"),
+        ne(schema.partners.status, "revoked"),
         isNull(schema.partners.deletedAt),
       ),
     );

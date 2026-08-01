@@ -6,36 +6,40 @@ type Palette = {
   base1: string; base2: string; edge: string;
   rim: string; rimGlow: string;
   filaments: [string, number][];
+  /** Additive (glowing) wisps — right on a dark body, washes out a light one.
+   *  White wisps are always additive (they're the shimmer either way). */
+  additive: boolean;
 };
 
-// Theme-aware plasma palette (owner iteration 2026-08-01 #2: the interior must be
-// WARM deep honey, never near-black — a black void fights the app's cream/amber
-// vibe). Colours here are canvas paint (not DOM styling), so they live with the
-// renderer; the DOM chrome around the orb uses tokens (PRN-12).
+// Theme-aware plasma palette (owner iteration 2026-08-01 #3: the body is LIGHT
+// honey glass — cream centre melting into amber — with saturated marigold wisps.
+// Never near-black, and no longer deep brown either; it should sit inside the
+// app's cream/amber vibe). Colours here are canvas paint (not DOM styling), so
+// they live with the renderer; the DOM chrome around the orb uses tokens (PRN-12).
 function orbPalette(): Palette {
   const attr = document.documentElement.getAttribute("data-theme");
   const dark = attr === "dark" || (attr !== "light" && typeof matchMedia !== "undefined" && matchMedia("(prefers-color-scheme: dark)").matches);
   return dark
-    ? { base1: "#3a2509", base2: "#573912", edge: "rgba(246,184,86,.22)",
+    ? { base1: "#5c3a10", base2: "#7d5118", edge: "rgba(255,233,196,.25)",
         rim: "rgba(246,184,86,.9)", rimGlow: "rgba(224,145,43,.5)",
-        filaments: [["#FFE9C4", 0.95], ["#F6B856", 0.8], ["#E0912B", 0.6]] }
-    : { base1: "#5a3a10", base2: "#7b4f16", edge: "rgba(255,233,196,.25)",
-        rim: "rgba(143,84,22,.9)", rimGlow: "rgba(224,145,43,.55)",
-        filaments: [["#FFE9C4", 0.95], ["#F6B856", 0.8], ["#E0912B", 0.6]] };
+        filaments: [["#FFE9C4", 0.9], ["#F6B856", 0.7], ["#FFFFFF", 0.4]], additive: true }
+    : { base1: "#F7E3B8", base2: "#E4B978", edge: "rgba(224,145,43,.3)",
+        rim: "rgba(143,84,22,.8)", rimGlow: "rgba(224,145,43,.45)",
+        filaments: [["#E0912B", 0.85], ["#C67D1E", 0.6], ["#FFFFFF", 0.5]], additive: false };
 }
 
 // Per-filament shape: base radius (fraction of R), how deep its inward dip swings,
-// wobble harmonics and drift speeds (rad/ms). Tuned fast enough to be plainly
-// visible at 30px (owner: the first pass read as static).
+// wobble harmonics and drift speeds (rad/ms). The motion budget lives in the
+// WOBBLE (waves rippling through each wisp), not rotation — owner: it must read
+// as waves moving, not a circle spinning.
 const FILAMENTS = [
-  { base: 0.88, dip: 0.1, k: 3, w1: 0.00064, w2: 0.00044, w3: 0.0002 },
-  { base: 0.85, dip: 0.2, k: 4, w1: 0.00048, w2: 0.00068, w3: 0.00016 },
-  { base: 0.9, dip: 0.4, k: 2, w1: 0.00036, w2: 0.00052, w3: 0.00024 },
+  { base: 0.86, dip: 0.1, k: 3, w1: 0.0011, w2: 0.0008, w3: 0.0002 },
+  { base: 0.83, dip: 0.2, k: 4, w1: 0.00085, w2: 0.0012, w3: 0.00016 },
+  { base: 0.88, dip: 0.4, k: 2, w1: 0.0007, w2: 0.00095, w3: 0.00024 },
 ] as const;
 
-/** Slow whole-pattern rotation (rad/ms) — guarantees perceptible motion even when
- *  a wisp's own wobble is momentarily quiet. */
-const SPIN = 0.00035;
+/** Barely-there whole-pattern rotation (rad/ms) — a hint of drift, never the show. */
+const SPIN = 0.00006;
 
 export function Orb({ size, animate = false, className }: { size: number; animate?: boolean; className?: string }) {
   const ref = React.useRef<HTMLCanvasElement | null>(null);
@@ -60,8 +64,8 @@ export function Orb({ size, animate = false, className }: { size: number; animat
       for (let s = 0; s <= STEPS; s++) {
         const th = (s / STEPS) * Math.PI * 2;
         const wob =
-          Math.sin(th * f.k + ph + i * 2.1 + at * f.w1) * 0.055 +
-          Math.sin(th * (f.k + 2) - ph * 1.7 - i + at * f.w2) * 0.04;
+          Math.sin(th * f.k + ph + i * 2.1 + at * f.w1) * 0.09 +
+          Math.sin(th * (f.k + 2) - ph * 1.7 - i + at * f.w2) * 0.065;
         // One side hugs the rim, the opposite side dips toward the centre — the
         // "veil" crossing the dark interior in the reference.
         const dip = Math.max(0, Math.sin(th + ph * 2 + i * 2.6 + at * f.w3)) * f.dip;
@@ -92,10 +96,12 @@ export function Orb({ size, animate = false, className }: { size: number; animat
       edge.addColorStop(0, "rgba(0,0,0,0)"); edge.addColorStop(1, P.edge);
       g.fillStyle = edge; g.fillRect(0, 0, size, size);
 
-      // Plasma wisps: wide blurred pass (glow) + thin bright core, additive.
-      g.globalCompositeOperation = "lighter";
+      // Plasma wisps: wide blurred pass (glow) + thin bright core. Additive glow on a
+      // dark body; plain strokes on the light body (additive would white it out) — the
+      // white shimmer wisp stays additive in both themes.
       FILAMENTS.forEach((f, i) => {
         const [color, alpha] = P.filaments[i];
+        g.globalCompositeOperation = P.additive || color === "#FFFFFF" ? "lighter" : "source-over";
         tracePath(at, f, i);
         g.strokeStyle = color;
         g.filter = `blur(${size * 0.06}px)`;

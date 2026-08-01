@@ -1,4 +1,4 @@
-import { and, eq, inArray, isNull } from "drizzle-orm";
+import { and, eq, inArray, isNull, ne } from "drizzle-orm";
 import { getDb } from "@/db";
 import * as schema from "@/db/schema";
 import { tenantWhere, type ScopeContext } from "@/lib/scope";
@@ -24,7 +24,7 @@ export class LeadNotUnmatchedError extends Error {
 }
 export class InvalidAssignTargetError extends Error {
   constructor() {
-    super("Choose an active partner to receive this lead.");
+    super("Choose a partner that hasn't been deactivated.");
     this.name = "InvalidAssignTargetError";
   }
 }
@@ -71,7 +71,7 @@ export async function manuallyAssignLead(scope: ScopeContext, input: ManualAssig
         and(
           tenantWhere(schema.partners, scope),
           eq(schema.partners.id, input.partnerId),
-          eq(schema.partners.status, "active"),
+          ne(schema.partners.status, "revoked"),
           isNull(schema.partners.deletedAt),
         ),
       );
@@ -137,7 +137,7 @@ export async function bulkAssignLeads(scope: ScopeContext, input: BulkAssignInpu
         and(
           tenantWhere(schema.partners, scope),
           eq(schema.partners.id, input.partnerId),
-          eq(schema.partners.status, "active"),
+          ne(schema.partners.status, "revoked"),
           isNull(schema.partners.deletedAt),
         ),
       );
@@ -319,7 +319,7 @@ export async function editLead(
           and(
             tenantWhere(schema.partners, scope),
             eq(schema.partners.id, input.partner.partnerId),
-            eq(schema.partners.status, "active"),
+            ne(schema.partners.status, "revoked"),
             isNull(schema.partners.deletedAt),
           ),
         );

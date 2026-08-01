@@ -42,7 +42,10 @@ suite("S6: bulk assign + coverage backfill", () => {
     const [t] = await db.insert(schema.tenants).values({ name: "Bulk", slug: SLUG }).returning({ id: schema.tenants.id });
     scope = { tenantId: t.id, role: "admin", userId: randomUUID() };
     const [pa] = await db.insert(schema.partners).values({ tenantId: t.id, refId: "JV-001", name: "Alpha", color: "#f4c95d", status: "active" }).returning({ id: schema.partners.id });
-    const [pb] = await db.insert(schema.partners).values({ tenantId: t.id, refId: "JV-002", name: "Bravo", color: "#5b7a9e", status: "active" }).returning({ id: schema.partners.id });
+    // B is NOT yet invited: assignment must still work — the pipeline routes to
+    // not-invited partners via coverage, so manual/bulk assign mirrors it (only a
+    // REVOKED/deleted partner is rejected). This locks the round-2 guard fix.
+    const [pb] = await db.insert(schema.partners).values({ tenantId: t.id, refId: "JV-002", name: "Bravo", color: "#5b7a9e", status: "not_invited" }).returning({ id: schema.partners.id });
     partnerA = pa.id;
     partnerB = pb.id;
     // Coverage: A covers TX by state rule; B has a zip override inside TX (beats state);
