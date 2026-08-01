@@ -165,9 +165,12 @@ export default function SignupPage() {
               >
                 Sign up
               </Button>
-              <Link href="/login" className="text-center text-sm text-text-3 hover:text-text-2">
-                Already have an account? Sign in
-              </Link>
+              <p className="mt-4 border-t border-border-soft pt-4 text-center text-sm text-text-2">
+                Already have an account?{" "}
+                <Link href="/login" className="font-semibold text-brand-ink hover:underline">
+                  Sign in
+                </Link>
+              </p>
             </form>
           )}
         </CardBody>

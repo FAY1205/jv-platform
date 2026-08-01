@@ -73,15 +73,18 @@ export function LoginForm({ signupEnabled = false }: { signupEnabled?: boolean }
             <Button type="submit" variant="primary" loading={loading} className="mt-1 w-full">
               Sign in
             </Button>
-            <Link href="/forgot" className="text-center text-sm text-text-3 hover:text-text-2">
+            <Link href="/forgot" className="text-center text-sm font-medium text-brand-ink hover:underline">
               Forgot password?
             </Link>
-            {signupEnabled && (
-              <Link href="/signup" className="text-center text-sm text-text-3 hover:text-text-2">
-                Don&apos;t have an account? Sign up
-              </Link>
-            )}
           </form>
+          {signupEnabled && (
+            <p className="mt-5 border-t border-border-soft pt-4 text-center text-sm text-text-2">
+              Don&apos;t have an account?{" "}
+              <Link href="/signup" className="font-semibold text-brand-ink hover:underline">
+                Sign up
+              </Link>
+            </p>
+          )}
         </CardBody>
       </Card>
     </main>
