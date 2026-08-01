@@ -3,6 +3,7 @@
 import * as React from "react";
 import * as RadixSelect from "@radix-ui/react-select";
 import { cn } from "@/lib/cn";
+import { FieldLabel } from "./FieldLabel";
 
 // Select — the Radix-backed, controlled select (ADR-0016). Unlike the retained
 // NativeSelect (event-based `onChange`), this takes a controlled `value` +
@@ -27,6 +28,9 @@ export interface SelectProps {
   className?: string;
   /** Accessible label when no visible `label` is provided (e.g. rows-per-page). */
   ariaLabel?: string;
+  /** Red asterisk / muted "(optional)" tag on the label (#27). */
+  required?: boolean;
+  optional?: boolean;
 }
 
 export function Select({
@@ -41,6 +45,8 @@ export function Select({
   id,
   className,
   ariaLabel,
+  required,
+  optional,
 }: SelectProps) {
   const autoId = React.useId();
   const selectId = id ?? autoId;
@@ -49,9 +55,9 @@ export function Select({
   return (
     <div className="flex flex-col gap-1.5">
       {label && (
-        <label htmlFor={selectId} className="text-xs font-semibold text-text-2">
+        <FieldLabel htmlFor={selectId} required={required} optional={optional}>
           {label}
-        </label>
+        </FieldLabel>
       )}
       <RadixSelect.Root value={value} onValueChange={onValueChange} disabled={disabled}>
         <RadixSelect.Trigger

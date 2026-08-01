@@ -1,5 +1,6 @@
 import * as React from "react";
 import { cn } from "@/lib/cn";
+import { FieldLabel } from "./FieldLabel";
 
 export interface TextareaProps extends React.TextareaHTMLAttributes<HTMLTextAreaElement> {
   label?: string;
@@ -7,6 +8,8 @@ export interface TextareaProps extends React.TextareaHTMLAttributes<HTMLTextArea
   error?: string;
   /** Helper text shown when there is no error. */
   hint?: string;
+  /** Muted "(optional)" tag; `required` renders the red asterisk (#27). */
+  optional?: boolean;
 }
 
 /**
@@ -15,7 +18,7 @@ export interface TextareaProps extends React.TextareaHTMLAttributes<HTMLTextArea
  * (FRM-01). States: default / focus-visible / disabled.
  */
 export const Textarea = React.forwardRef<HTMLTextAreaElement, TextareaProps>(function Textarea(
-  { label, error, hint, id, className, rows = 3, ...rest },
+  { label, error, hint, id, className, rows = 3, optional, required, ...rest },
   ref,
 ) {
   const autoId = React.useId();
@@ -25,14 +28,15 @@ export const Textarea = React.forwardRef<HTMLTextAreaElement, TextareaProps>(fun
   return (
     <div className="flex flex-col gap-1.5">
       {label && (
-        <label htmlFor={fieldId} className="text-xs font-semibold text-text-2">
+        <FieldLabel htmlFor={fieldId} required={required} optional={optional}>
           {label}
-        </label>
+        </FieldLabel>
       )}
       <textarea
         ref={ref}
         id={fieldId}
         rows={rows}
+        required={required}
         aria-invalid={error ? true : undefined}
         aria-describedby={describedBy}
         className={cn(

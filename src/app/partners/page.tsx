@@ -163,26 +163,34 @@ function PartnerForm({
       }
     >
       <div className="flex flex-col gap-3">
-        {err && <p className="rounded-md bg-danger-soft px-3 py-2 text-sm text-danger">{err}</p>}
-        <Input label="Name" value={f.name} onChange={set("name")} autoFocus />
-        <Input label="Email" type="email" value={f.email} onChange={set("email")} hint="Needed to send an invite." />
-        <Input label="Phone" value={f.phone} onChange={set("phone")} />
+        <Input
+          label="Name"
+          value={f.name}
+          onChange={(e) => { setErr(null); set("name")(e); }}
+          required
+          error={err ?? undefined}
+          autoFocus
+        />
+        <Input label="Email" type="email" value={f.email} onChange={set("email")} optional hint="Needed to send an invite." />
+        <Input label="Phone" value={f.phone} onChange={set("phone")} optional />
         <Textarea
           label="Coverage — ZIP codes"
           value={f.zips}
           onChange={set("zips")}
           rows={2}
+          optional
           hint="ZIPs this partner covers, separated by commas or spaces."
         />
         <Textarea
-          label="Coverage — whole states (optional)"
+          label="Coverage — whole states"
           value={f.states}
           onChange={set("states")}
           rows={1}
+          optional
           hint="2-letter states (e.g. TX, CA) this partner covers as a fallback."
         />
-        <Textarea label="Deal terms" value={f.dealTerms} onChange={set("dealTerms")} rows={2} />
-        <Textarea label="Admin notes" value={f.adminNotes} onChange={set("adminNotes")} rows={2} hint="Private to admins." />
+        <Textarea label="Deal terms" value={f.dealTerms} onChange={set("dealTerms")} rows={2} optional />
+        <Textarea label="Admin notes" value={f.adminNotes} onChange={set("adminNotes")} rows={2} optional hint="Private to admins." />
         {!editing && <p className="text-xs text-text-3">A locked color and PR-### reference are assigned automatically.</p>}
       </div>
     </Dialog>

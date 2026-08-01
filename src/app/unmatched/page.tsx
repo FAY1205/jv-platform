@@ -131,6 +131,7 @@ function AssignModal({ refIds, onClose, onAssigned }: { refIds: string[]; onClos
       <div className="flex flex-col gap-4">
         <Select
           label="Partner"
+          required
           value={partnerId}
           onValueChange={setPartnerId}
           options={[

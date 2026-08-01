@@ -8,6 +8,7 @@ export { Card, CardHeader, CardTitle, CardBody } from "./Card";
 export { Stat, type StatProps } from "./Stat";
 export { PartnerTag, type PartnerTagProps } from "./PartnerTag";
 export { Input, type InputProps } from "./Input";
+export { FieldLabel } from "./FieldLabel";
 export { Textarea, type TextareaProps } from "./Textarea";
 export { Select, type SelectProps, type SelectOption } from "./Select";
 export { StatusSelect, type StatusSelectProps } from "./StatusSelect";

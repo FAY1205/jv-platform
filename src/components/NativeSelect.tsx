@@ -1,5 +1,6 @@
 import * as React from "react";
 import { cn } from "@/lib/cn";
+import { FieldLabel } from "./FieldLabel";
 import type { SelectOption } from "./Select";
 
 export interface NativeSelectProps extends React.SelectHTMLAttributes<HTMLSelectElement> {
@@ -7,6 +8,8 @@ export interface NativeSelectProps extends React.SelectHTMLAttributes<HTMLSelect
   error?: string;
   hint?: string;
   options?: SelectOption[];
+  /** Muted "(optional)" tag; `required` renders the red asterisk (#27). */
+  optional?: boolean;
 }
 
 /**
@@ -15,7 +18,7 @@ export interface NativeSelectProps extends React.SelectHTMLAttributes<HTMLSelect
  * new/reworked pages. Both are removed-of-the-native at WS-8 once every page has moved.
  */
 export const NativeSelect = React.forwardRef<HTMLSelectElement, NativeSelectProps>(function NativeSelect(
-  { label, error, hint, options, id, className, children, ...rest },
+  { label, error, hint, options, id, className, children, optional, required, ...rest },
   ref,
 ) {
   const autoId = React.useId();
@@ -25,14 +28,15 @@ export const NativeSelect = React.forwardRef<HTMLSelectElement, NativeSelectProp
   return (
     <div className="flex flex-col gap-1.5">
       {label && (
-        <label htmlFor={selectId} className="text-xs font-semibold text-text-2">
+        <FieldLabel htmlFor={selectId} required={required} optional={optional}>
           {label}
-        </label>
+        </FieldLabel>
       )}
       <div className="relative">
         <select
           ref={ref}
           id={selectId}
+          required={required}
           aria-invalid={error ? true : undefined}
           aria-describedby={describedBy}
           className={cn(

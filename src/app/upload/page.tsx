@@ -188,7 +188,7 @@ export default function UploadPage() {
                 )}
 
                 {need.kind === "unknown" && (
-                  <Input label="Format name" value={newName} onChange={(e) => setNewName(e.target.value)} hint="e.g. Acme CRM export" />
+                  <Input label="Format name" required value={newName} onChange={(e) => setNewName(e.target.value)} hint="e.g. Acme CRM export" />
                 )}
 
                 <div className="flex flex-col gap-2">
@@ -198,7 +198,7 @@ export default function UploadPage() {
                       <div key={field} className="grid grid-cols-[1fr_1.4fr] items-center gap-3">
                         <span className="text-sm text-text-2">
                           {CANONICAL_LABELS[field] ?? fieldLabel(field)}
-                          {req && <span className="ml-1 text-danger">*</span>}
+                          {req && <span className="ml-1 text-danger" aria-hidden="true">*</span>}
                         </span>
                         <NativeSelect
                           value={mapping[field] ?? ""}
@@ -218,12 +218,20 @@ export default function UploadPage() {
                   <Button
                     variant="primary"
                     loading={confirm.isPending}
-                    disabled={need.kind === "unknown" && !newName.trim()}
+                    // Gate on required fields (owner #27): don't submit an unmapped required
+                    // column and bounce off a server 422 — the field errors show what's missing.
+                    disabled={
+                      (need.kind === "unknown" && !newName.trim()) ||
+                      !need.requiredColumns.every((f) => (mapping[f] ?? "").trim() !== "")
+                    }
                     onClick={() => parsed && confirm.mutate(parsed)}
                   >
                     Confirm &amp; process
                   </Button>
                   <Button variant="ghost" onClick={reset} disabled={confirm.isPending}>Cancel</Button>
+                  {!need.requiredColumns.every((f) => (mapping[f] ?? "").trim() !== "") && (
+                    <span className="text-xs text-text-3">Map the required (<span className="text-danger">*</span>) columns to continue.</span>
+                  )}
                 </div>
               </div>
             ) : (

@@ -1,5 +1,6 @@
 import * as React from "react";
 import { cn } from "@/lib/cn";
+import { FieldLabel } from "./FieldLabel";
 
 export interface InputProps extends React.InputHTMLAttributes<HTMLInputElement> {
   label?: string;
@@ -7,6 +8,9 @@ export interface InputProps extends React.InputHTMLAttributes<HTMLInputElement> 
   error?: string;
   /** Helper text shown when there is no error. */
   hint?: string;
+  /** Render a muted "(optional)" tag on the label (#27). `required` (a native attr)
+   *  renders the red asterisk. */
+  optional?: boolean;
 }
 
 function EyeIcon({ off }: { off: boolean }) {
@@ -25,7 +29,7 @@ function EyeIcon({ off }: { off: boolean }) {
  * fields get a built-in show/hide toggle (default/hover/focus-visible states).
  */
 export const Input = React.forwardRef<HTMLInputElement, InputProps>(function Input(
-  { label, error, hint, id, className, type = "text", ...rest },
+  { label, error, hint, id, className, type = "text", optional, required, ...rest },
   ref,
 ) {
   const autoId = React.useId();
@@ -39,15 +43,16 @@ export const Input = React.forwardRef<HTMLInputElement, InputProps>(function Inp
   return (
     <div className="flex flex-col gap-1.5">
       {label && (
-        <label htmlFor={inputId} className="text-xs font-semibold text-text-2">
+        <FieldLabel htmlFor={inputId} required={required} optional={optional}>
           {label}
-        </label>
+        </FieldLabel>
       )}
       <div className="relative">
         <input
           ref={ref}
           id={inputId}
           type={effectiveType}
+          required={required}
           aria-invalid={error ? true : undefined}
           aria-describedby={describedBy}
           className={cn(
