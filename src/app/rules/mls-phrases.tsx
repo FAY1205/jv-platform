@@ -1,14 +1,15 @@
 "use client";
 
 import * as React from "react";
-import { Card, CardHeader, CardTitle, CardBody, Table, THead, TBody, Th, Tr, Td, Badge, Switch, EmptyState } from "@/components";
+import { Card, CardHeader, CardTitle, CardBody, Badge, EmptyState } from "@/components";
 import { groupMlsPatterns, type MlsEffect } from "@/lib/mls-groups";
 
-// WS-6 · the MLS filter-phrases card. Phrases are view + on/off + label (never regex,
-// PRN-04); grouped by effect with keep-override first (it wins, MLS-02). The effect is
-// always conveyed by group title + badge TEXT, never color alone (PRN-14). Presentational
-// only — the page owns the query + toggle mutation; this component also backs the
-// throwaway two-theme screenshot route, so it takes plain data + callbacks.
+// WS-6 · the MLS filter-phrases card. READ-ONLY (2026-08-01, owner note): the phrase
+// set and whether each one runs are fixed in code (seed + migrations, PRN-04); there is
+// no runtime edit path. This shows the admin what the import currently filters on, grouped
+// by effect with keep-override first (it wins, MLS-02). The effect is always conveyed by
+// group title + badge TEXT, never color alone (PRN-14). Presentational only — the page
+// owns the query.
 
 export interface MlsPhrase {
   id: string;
@@ -31,13 +32,13 @@ const EFFECT_META: Record<MlsEffect, { title: string; hint: string; badge: "succ
   },
   disqualify: {
     title: "Disqualify phrases",
-    hint: "A lead whose notes match one of these is removed as on-market — unless a keep-override phrase also matches.",
+    hint: "A lead whose notes match one of these is removed as already listed — unless a keep-override phrase also matches.",
     badge: "removed",
     badgeLabel: "Removes lead",
   },
 };
 
-/** The locked-note pill: phrase text is fixed in code (PRN-04); only the on/off runs. */
+/** The locked-note pill: the phrase set is fixed in code and can't be changed here. */
 export function LockedNote() {
   return (
     <span className="mt-3 inline-flex items-center gap-2 rounded-full border border-border bg-surface-2 px-3 py-1 text-step-1 text-text-3">
@@ -45,19 +46,21 @@ export function LockedNote() {
         <rect x="5" y="11" width="14" height="9" rx="2" />
         <path d="M8 11V8a4 4 0 0 1 8 0v3" />
       </svg>
-      Pattern text is locked in code — toggle whether each one runs.
+      These phrases are managed for you — contact us to change what gets filtered.
     </span>
   );
 }
 
-export interface MlsPhrasesCardProps {
-  patterns: MlsPhrase[];
-  onToggle: (id: string, enabled: boolean) => void;
-  /** The id of the phrase whose toggle is mid-flight (its Switch is disabled). */
-  pendingId?: string | null;
+/** Sentence-case a lowercase seed label for display without editing the stored data. */
+function displayLabel(label: string): string {
+  return label.charAt(0).toUpperCase() + label.slice(1);
 }
 
-export function MlsPhrasesCard({ patterns, onToggle, pendingId }: MlsPhrasesCardProps) {
+export interface MlsPhrasesCardProps {
+  patterns: MlsPhrase[];
+}
+
+export function MlsPhrasesCard({ patterns }: MlsPhrasesCardProps) {
   return (
     <Card>
       <CardHeader><CardTitle>MLS phrases</CardTitle></CardHeader>
@@ -70,36 +73,18 @@ export function MlsPhrasesCard({ patterns, onToggle, pendingId }: MlsPhrasesCard
               const meta = EFFECT_META[group.effect];
               return (
                 <section key={group.effect} className="flex flex-col gap-2">
-                  <div id={`mls-group-${group.effect}`} className="flex items-center gap-2">
+                  <div className="flex items-center gap-2">
                     <Badge variant={meta.badge}>{meta.badgeLabel}</Badge>
                     <h3 className="text-sm font-semibold text-text">{meta.title}</h3>
                   </div>
                   <p className="text-step-1 text-text-3">{meta.hint}</p>
-                  {/* Tie the table to its effect header so AT users hear which group it is (WCAG 1.3.1). */}
-                  <Table aria-labelledby={`mls-group-${group.effect}`}>
-                    <THead><Tr><Th>Phrase</Th><Th>Key</Th><Th align="right">On</Th></Tr></THead>
-                    <TBody>
-                      {group.patterns.map((m) => (
-                        <Tr key={m.id}>
-                          <Td>
-                            <div className="text-sm text-text">{m.label}</div>
-                            <div className="num text-step-1 text-text-3">{m.regex}</div>
-                          </Td>
-                          <Td><span className="num text-step-1 text-text-3">{m.patternKey}</span></Td>
-                          <Td align="right">
-                            <div className="inline-flex justify-end">
-                              <Switch
-                                checked={m.enabled}
-                                disabled={pendingId === m.id}
-                                onCheckedChange={(v) => onToggle(m.id, v)}
-                                ariaLabel={m.label}
-                              />
-                            </div>
-                          </Td>
-                        </Tr>
-                      ))}
-                    </TBody>
-                  </Table>
+                  <ul className="flex flex-col divide-y divide-border-soft rounded-lg border border-border-soft">
+                    {group.patterns.map((m) => (
+                      <li key={m.id} className="px-3 py-2.5 text-sm text-text">
+                        {displayLabel(m.label)}
+                      </li>
+                    ))}
+                  </ul>
                 </section>
               );
             })}

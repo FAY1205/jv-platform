@@ -5,7 +5,6 @@ import { eq, inArray } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import * as schema from "@/db/schema";
 import { purgeAuditLog } from "../helpers/audit";
-import { updateMlsPattern } from "@/modules/rules/commands";
 import { listMlsPatterns } from "@/modules/rules/queries";
 import type { ScopeContext } from "@/lib/scope";
 
@@ -17,7 +16,8 @@ suite("WP-032a: rules area (CVG-02, DM-08)", () => {
   let client: ReturnType<typeof postgres>;
   let db: PostgresJsDatabase<typeof schema>;
   let scope: ScopeContext;
-  let mlsId: string;
+  let enabledId: string;
+  let disabledId: string;
 
   async function cleanup() {
     const t = await db.select({ id: schema.tenants.id }).from(schema.tenants).where(eq(schema.tenants.slug, SLUG));
@@ -36,8 +36,12 @@ suite("WP-032a: rules area (CVG-02, DM-08)", () => {
     await cleanup();
     const [t] = await db.insert(schema.tenants).values({ name: "Rules", slug: SLUG }).returning({ id: schema.tenants.id });
     scope = { tenantId: t.id, role: "admin", userId: randomUUID() };
-    const [m] = await db.insert(schema.mlsPatterns).values({ tenantId: t.id, patternKey: "dq_is_listed_yes", type: "disqualify", regex: "listed\\?\\s*:?\\s*yes", flags: "i", label: "Is it Listed?: Yes", enabled: true }).returning({ id: schema.mlsPatterns.id });
-    mlsId = m.id;
+    const [enabled] = await db.insert(schema.mlsPatterns).values({ tenantId: t.id, patternKey: "dq_ls1_listed_yes", type: "disqualify", regex: "listed\\?\\s*:?\\s*yes", flags: "i", label: "Is it Listed?: Yes", enabled: true }).returning({ id: schema.mlsPatterns.id });
+    enabledId = enabled.id;
+    // A retired v1 row (disabled). The read-only Rules page must never surface it, so a
+    // migrated tenant can't re-enable the pattern that once false-fired (WP-LS1 / 0023).
+    const [disabled] = await db.insert(schema.mlsPatterns).values({ tenantId: t.id, patternKey: "dq_on_market", type: "disqualify", regex: "on market", flags: "i", label: "On market", enabled: false }).returning({ id: schema.mlsPatterns.id });
+    disabledId = disabled.id;
   });
 
   afterAll(async () => {
@@ -45,14 +49,10 @@ suite("WP-032a: rules area (CVG-02, DM-08)", () => {
     await client.end();
   });
 
-  it("CVG-02/PRN-04: MLS toggle changes enabled + label but never the regex, audited", async () => {
-    const before = (await listMlsPatterns(scope)).find((m) => m.id === mlsId)!;
-    await updateMlsPattern(scope, mlsId, { enabled: false, label: "Listed = Yes" });
-    const after = (await listMlsPatterns(scope)).find((m) => m.id === mlsId)!;
-    expect(after.enabled).toBe(false);
-    expect(after.label).toBe("Listed = Yes");
-    expect(after.regex).toBe(before.regex); // regex untouched (PRN-04)
-    const audits = await db.select().from(schema.auditLog).where(eq(schema.auditLog.tenantId, scope.tenantId));
-    expect(audits.some((a) => a.action === "mls_pattern.updated")).toBe(true);
+  it("CVG-02: the Rules read model returns only ENABLED phrases (retired rows stay hidden)", async () => {
+    const rows = await listMlsPatterns(scope);
+    expect(rows.some((m) => m.id === enabledId)).toBe(true);
+    expect(rows.some((m) => m.id === disabledId)).toBe(false);
+    expect(rows.every((m) => m.enabled)).toBe(true);
   });
 });
