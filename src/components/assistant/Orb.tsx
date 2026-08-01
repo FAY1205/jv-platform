@@ -8,15 +8,16 @@ import * as React from "react";
 // included per the MIT permission-notice requirement; use inside an application is
 // permitted (the Commons Clause only restricts selling the component itself).
 //
-// Adaptations (owner iteration 2026-08-02): base colours are the app's marigold/
+// Adaptations (owner iterations 2026-08-02): base colours are the app's marigold/
 // honey/amber-ink instead of purple/cyan (set as shader constants — canvas paint,
 // not DOM styling, PRN-12; the chrome around the orb uses tokens); the hover
-// distortion/rotation is removed (hoverIntensity=0); the upstream "light
-// background" branch is dropped — the ring renders with a transparent centre and
-// composites onto any page, which is what keeps it vivid on the cream theme; raw
-// WebGL replaces the `ogl` dependency (no new deps without an ADR); and the
-// animation uses the shared pause-aware clock (tab-hidden pause, so returning
-// never jump-cuts, + prefers-reduced-motion).
+// ripple is kept at a gentle 0.15 and applies only while the pointer is over the
+// orb (upstream easing, hover-rotation stripped); the upstream "light background"
+// branch is dropped — the ring renders with a transparent centre and composites
+// onto any page, which is what keeps it vivid on the cream theme; raw WebGL
+// replaces the `ogl` dependency (no new deps without an ADR); and the animation
+// uses the shared pause-aware clock (tab-hidden pause, so returning never
+// jump-cuts, + prefers-reduced-motion, which also disables the hover ripple).
 
 const VERT = `
 precision highp float;
@@ -34,6 +35,8 @@ precision highp float;
 
 uniform float iTime;
 uniform vec3 iResolution;
+uniform float hover;
+uniform float hoverIntensity;
 varying vec2 vUv;
 
 vec3 hash33(vec3 p3) {
@@ -127,10 +130,15 @@ void main() {
   vec2 center = iResolution.xy * 0.5;
   float size = min(iResolution.x, iResolution.y);
   vec2 uv = (fragCoord - center) / size * 2.0;
+  uv.x += hover * hoverIntensity * 0.1 * sin(uv.y * 10.0 + iTime);
+  uv.y += hover * hoverIntensity * 0.1 * sin(uv.x * 10.0 + iTime);
   vec4 col = draw(uv);
   gl_FragColor = vec4(col.rgb * col.a, col.a);
 }
 `;
+
+/** Upstream default is 0.2; the owner asked for a touch gentler (0.1–0.2 range). */
+const HOVER_INTENSITY = 0.15;
 
 function compile(gl: WebGLRenderingContext, type: number, src: string): WebGLShader | null {
   const sh = gl.createShader(type);
@@ -179,15 +187,26 @@ export function Orb({ size, animate = false, className }: { size: number; animat
 
     const uTime = gl.getUniformLocation(prog, "iTime");
     const uRes = gl.getUniformLocation(prog, "iResolution");
+    const uHover = gl.getUniformLocation(prog, "hover");
+    const uHoverIntensity = gl.getUniformLocation(prog, "hoverIntensity");
     gl.viewport(0, 0, canvas.width, canvas.height);
     gl.uniform3f(uRes, canvas.width, canvas.height, canvas.width / canvas.height);
+    gl.uniform1f(uHover, 0);
+    gl.uniform1f(uHoverIntensity, HOVER_INTENSITY);
     gl.clearColor(0, 0, 0, 0);
 
     // Deterministic per-size start phase (no Math.random) so multiple orbs don't
     // tick in perfect sync.
     const ph = ((size * 97) % 628) * 10;
 
+    // Hover ripple eases toward the pointer state each drawn frame (upstream's
+    // lerp), so it swells and settles instead of snapping.
+    let targetHover = 0;
+    let hoverVal = 0;
+
     const draw = (at: number) => {
+      hoverVal += (targetHover - hoverVal) * 0.15;
+      gl.uniform1f(uHover, hoverVal);
       gl.uniform1f(uTime, (at + ph) * 0.001);
       gl.clear(gl.COLOR_BUFFER_BIT);
       gl.drawArrays(gl.TRIANGLES, 0, 3);
@@ -223,9 +242,20 @@ export function Orb({ size, animate = false, className }: { size: number; animat
     const onVis = () => { if (document.hidden) stop(); else start(); };
     document.addEventListener("visibilitychange", onVis);
 
+    // Hover ripple only when the loop is running (a static/reduced-motion orb
+    // has no frames to ease the ripple through — and shouldn't wiggle anyway).
+    const onEnter = () => { targetHover = 1; };
+    const onLeave = () => { targetHover = 0; };
+    if (moving) {
+      canvas.addEventListener("pointerenter", onEnter);
+      canvas.addEventListener("pointerleave", onLeave);
+    }
+
     return () => {
       stop();
       document.removeEventListener("visibilitychange", onVis);
+      canvas.removeEventListener("pointerenter", onEnter);
+      canvas.removeEventListener("pointerleave", onLeave);
       gl.getExtension("WEBGL_lose_context")?.loseContext();
     };
   }, [size, animate]);
