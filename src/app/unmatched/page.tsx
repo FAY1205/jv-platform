@@ -42,6 +42,37 @@ const PARTNER_PLACEHOLDER = "__choose__";
 type UnmatchedSort = "received" | "seller";
 const DEFAULT_DIR: Record<UnmatchedSort, "asc" | "desc"> = { received: "desc", seller: "asc" };
 
+// Heat ramp for the gap map: theme-aware amber tokens (PRN-12), light (few) → dark (many).
+// The exact count still shows on hover + in the chips + the legend, so magnitude is never
+// conveyed by color alone (PRN-14).
+const HEAT_RAMP = ["var(--brand-line)", "var(--brand)", "var(--brand-strong)", "var(--brand-ink)"] as const;
+function heatFill(count: number, max: number): string {
+  if (max <= 0) return HEAT_RAMP[0];
+  const t = count / max;
+  return t > 0.75 ? HEAT_RAMP[3] : t > 0.5 ? HEAT_RAMP[2] : t > 0.25 ? HEAT_RAMP[1] : HEAT_RAMP[0];
+}
+
+function StatTile({ label, value, accent }: { label: string; value: string; accent?: boolean }) {
+  return (
+    <div className="rounded-2xl border border-border-soft bg-surface p-4 shadow-sm">
+      <div className="text-step-1 text-text-3">{label}</div>
+      <div className={"num mt-0.5 font-display text-2xl font-semibold leading-tight " + (accent ? "text-warn" : "text-text")}>{value}</div>
+    </div>
+  );
+}
+
+function HeatLegend() {
+  return (
+    <div className="flex items-center gap-2 text-step-0 text-text-3" aria-hidden="true">
+      <span>Fewer</span>
+      <span className="flex overflow-hidden rounded-full border border-border-soft">
+        {HEAT_RAMP.map((c) => <span key={c} className="h-3 w-5" style={{ background: c }} />)}
+      </span>
+      <span>More</span>
+    </div>
+  );
+}
+
 function AssignModal({ refId, onClose }: { refId: string; onClose: () => void }) {
   const qc = useQueryClient();
   const toast = useToast();
@@ -151,18 +182,19 @@ function UnmatchedBody() {
   const stats = statsQ.data;
   const gapStates = React.useMemo(() => (stats?.byState ?? []).filter((g) => g.state !== "—"), [stats]);
   const noStateCount = React.useMemo(() => stats?.byState.find((g) => g.state === "—")?.count ?? 0, [stats]);
-  // The gap choropleth: states WITH unmatched leads carry the warn tint (the hover names
-  // the count); everything else is calm neutral land — an uncolored state here means
-  // "no unmatched leads", not "uncovered" (that's the Coverage page's story).
+  const maxCount = React.useMemo(() => gapStates.reduce((m, g) => Math.max(m, g.count), 0), [gapStates]);
+  // The gap choropleth: states WITH unmatched leads are shaded by volume (light → dark amber,
+  // the hover names the exact count); everything else is calm neutral land — an uncolored
+  // state here means "no unmatched leads", not "uncovered" (that's the Coverage page's story).
   const gapMapStates: StateCoverage[] = React.useMemo(() => {
     const byCode = new Map(gapStates.map((g) => [g.state, g.count]));
     return US_STATES.map((s) => {
       const count = byCode.get(s.code);
       return count
-        ? { code: s.code, name: s.name, partnerId: "gap", partnerName: `${count} unmatched lead${count === 1 ? "" : "s"}`, refId: null, color: "var(--warn)", leadCount: count, gap: true }
+        ? { code: s.code, name: s.name, partnerId: "gap", partnerName: `${count} unmatched lead${count === 1 ? "" : "s"}`, refId: null, color: heatFill(count, maxCount), leadCount: count, gap: true }
         : { code: s.code, name: s.name, partnerId: null, partnerName: null, refId: null, color: null, leadCount: 0, gap: false };
     });
-  }, [gapStates]);
+  }, [gapStates, maxCount]);
 
   const hasFilters = Boolean(stateFilter || qCommitted);
   const chip = (active: boolean) =>
@@ -180,68 +212,52 @@ function UnmatchedBody() {
         <Card><div className="p-8"><EmptyState title="Nothing unmatched — full coverage" description="Every lead you've processed reached a partner. New gaps will show up here." /></div></Card>
       ) : (
         <div className="flex flex-col gap-5">
-          {/* Backlog header (T3 redesign): the size of the problem in one glance; the
-              state chips double as table filters. */}
-          <div className="rounded-2xl border border-border-soft bg-surface p-5 shadow-sm">
-            <div className="flex flex-wrap items-end justify-between gap-3">
-              <div>
-                <div className="flex items-baseline gap-2.5">
-                  <span className="num font-display text-3xl font-semibold leading-none text-warn">{stats!.total.toLocaleString()}</span>
-                  <span className="font-display text-step-3 font-semibold tracking-tight">unmatched lead{stats!.total === 1 ? "" : "s"}</span>
-                </div>
-                <p className="mt-1.5 text-step-1 text-text-3">
-                  Waiting in <span className="num font-semibold text-text-2">{gapStates.length}</span> state{gapStates.length === 1 ? "" : "s"}
-                  {noStateCount > 0 ? <> (+{noStateCount} with no state on the lead)</> : null} — assign each below, or close the gap with coverage.
-                </p>
-              </div>
-            </div>
-            <div className="mt-3 flex flex-wrap items-center gap-1.5" role="group" aria-label="Filter the table by state">
-              <button type="button" onClick={() => setStateFilter("")} aria-pressed={stateFilter === ""} className={chip(stateFilter === "")}>
-                All states
-              </button>
-              {gapStates.map((g) => (
-                <button
-                  key={g.state}
-                  type="button"
-                  onClick={() => setStateFilter((prev) => (prev === g.state ? "" : g.state))}
-                  aria-pressed={stateFilter === g.state}
-                  className={chip(stateFilter === g.state)}
-                >
-                  <span className="num">{g.state}</span>
-                  <span className="num font-semibold">{g.count}</span>
-                </button>
-              ))}
-            </div>
+          {/* Stats: the size of the backlog at a glance (T3 / owner note #3). */}
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+            <StatTile label="Unmatched leads" value={stats!.total.toLocaleString()} accent />
+            <StatTile label={`State${gapStates.length === 1 ? "" : "s"} with gaps`} value={gapStates.length.toLocaleString()} />
+            <StatTile label="Largest gap" value={gapStates[0] ? `${gapStates[0].state} · ${gapStates[0].count}` : "—"} />
           </div>
+          {noStateCount > 0 && (
+            <p className="-mt-2 text-step-1 text-text-3">
+              <span className="num font-semibold text-text-2">{noStateCount}</span> lead{noStateCount === 1 ? "" : "s"} have no state on the record — find them by searching below.
+            </p>
+          )}
 
-          {/* The gap map — the same county choropleth family as the dashboard (T3;
-              the hex cartogram is retired here). */}
-          <section className="rounded-2xl border border-border-soft bg-surface p-5 shadow-sm">
-            <h2 className="mb-4 font-display text-step-3 font-semibold tracking-tight">Where the Gaps Are</h2>
-            <CountyCoverageMap
-              states={gapMapStates}
-              neutralUncovered
-              ariaLabel="United States map highlighting states with unmatched leads"
-              uncoveredHoverLabel={(name) => `No unmatched leads in ${name}`}
-              caption={{ title: "Coverage gaps", subtitle: `${stats!.total} lead${stats!.total === 1 ? "" : "s"} · ${gapStates.length} state${gapStates.length === 1 ? "" : "s"}` }}
-            />
-            <p className="mt-3 text-step-1 text-text-3">Amber states have unmatched leads. Recruiting a partner (or adding a state rule) there closes the gap.</p>
-          </section>
-
-          {/* Searchable, sortable, paginated table (reuses the leads list; F-11) */}
+          {/* Searchable, sortable, paginated table — promoted above the map: this is where
+              the work happens; the map is context (owner note #3). Reuses the leads list (F-11). */}
           <div>
-            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-              <div className="w-full max-w-[300px]">
-                <Input value={qInput} onChange={(e) => setQInput(e.target.value)} placeholder="Search seller, address, ZIP, lead ID…" aria-label="Search unmatched leads" />
+            <div className="mb-3 flex flex-col gap-2.5">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="w-full max-w-[300px]">
+                  <Input value={qInput} onChange={(e) => setQInput(e.target.value)} placeholder="Search seller, address, ZIP, lead ID…" aria-label="Search unmatched leads" />
+                </div>
+                {/* Suppressed at zero and on error (D2): the EmptyState announces those settles —
+                    stale `data` can coexist with `error` on a failed background refetch. */}
+                {listQ.data && listQ.data.total > 0 && !listQ.error && (
+                  <p className="text-step-1 text-text-3" aria-live="polite">
+                    <span className="num font-semibold text-text-2">{listQ.data.total.toLocaleString()}</span>{" "}
+                    {listQ.data.total === 1 ? "lead" : "leads"}{hasFilters ? " match the filters" : ""}
+                  </p>
+                )}
               </div>
-              {/* Suppressed at zero and on error (D2): the EmptyState announces those settles —
-                  stale `data` can coexist with `error` on a failed background refetch. */}
-              {listQ.data && listQ.data.total > 0 && !listQ.error && (
-                <p className="text-step-1 text-text-3" aria-live="polite">
-                  <span className="num font-semibold text-text-2">{listQ.data.total.toLocaleString()}</span>{" "}
-                  {listQ.data.total === 1 ? "lead" : "leads"}{hasFilters ? " match the filters" : ""}
-                </p>
-              )}
+              <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="Filter the table by state">
+                <button type="button" onClick={() => setStateFilter("")} aria-pressed={stateFilter === ""} className={chip(stateFilter === "")}>
+                  All states
+                </button>
+                {gapStates.map((g) => (
+                  <button
+                    key={g.state}
+                    type="button"
+                    onClick={() => setStateFilter((prev) => (prev === g.state ? "" : g.state))}
+                    aria-pressed={stateFilter === g.state}
+                    className={chip(stateFilter === g.state)}
+                  >
+                    <span className="num">{g.state}</span>
+                    <span className="num font-semibold">{g.count}</span>
+                  </button>
+                ))}
+              </div>
             </div>
             <Card>
               {listQ.isPending ? (
@@ -287,6 +303,22 @@ function UnmatchedBody() {
               <Pagination className="mt-4" page={listQ.data.page} pageSize={listQ.data.pageSize} total={listQ.data.total} onPageChange={setPage} onPageSizeChange={(n) => { setPageSize(n); setPage(1); }} />
             )}
           </div>
+
+          {/* The gap heat map — context below the table. States shade by unmatched volume. */}
+          <section className="rounded-2xl border border-border-soft bg-surface p-5 shadow-sm">
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+              <h2 className="font-display text-step-3 font-semibold tracking-tight">Where the gaps are</h2>
+              <HeatLegend />
+            </div>
+            <CountyCoverageMap
+              states={gapMapStates}
+              neutralUncovered
+              ariaLabel="United States map shading states by their number of unmatched leads"
+              uncoveredHoverLabel={(name) => `No unmatched leads in ${name}`}
+              caption={{ title: "Coverage gaps", subtitle: `${stats!.total} lead${stats!.total === 1 ? "" : "s"} · ${gapStates.length} state${gapStates.length === 1 ? "" : "s"}` }}
+            />
+            <p className="mt-3 text-step-1 text-text-3">Darker states have more unmatched leads. Recruiting a partner (or adding coverage) there closes the gap.</p>
+          </section>
         </div>
       )}
 
