@@ -16,6 +16,15 @@ allowBuilds:
   sharp: true
   unrs-resolver: true
 
+# Hoist Sentry/OpenTelemetry's dynamic-instrumentation loaders to the root node_modules.
+# @opentelemetry/instrumentation (via @sentry/nextjs) resolves `import-in-the-middle` and
+# `require-in-the-middle` from the project root at build/runtime; pnpm's strict layout can
+# leave them unreachable there, which 500s local `next dev` ("Module not found:
+# 'import-in-the-middle'") and makes Sentry-touching Vitest files fail to load. Root-hoisting
+# guarantees they resolve. (Vercel builds fine regardless; this hardens local dev + tests.)
+publicHoistPattern:
+  - '*-in-the-middle'
+
 # Transitive-dependency security overrides (audit F-46). Two moderate advisories with
 # no fix available from the parent's pinned range:
 #   postcss <8.5.10 (via next)   — GHSA-qx2v-qp2m-jg93 (CSS stringify XSS)

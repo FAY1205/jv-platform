@@ -41,7 +41,7 @@ suite("WP-PW-3 Task 1: listPartnerLeads sort + status filter (PRN-08)", () => {
     await cleanupSlugs([SLUG]);
   }
 
-  // Past the distribution hold window (10 min) so every seeded lead is partner-visible
+  // Past the distribution hold window so every seeded lead is partner-visible
   // immediately — distinct, decreasing timestamps also give a deterministic "received" order.
   function releasedAt(offsetSeconds: number): Date {
     return new Date(Date.now() - 20 * 60 * 1000 - offsetSeconds * 1000);

@@ -8,7 +8,7 @@ import { csrfHeaders } from "@/lib/csrf-client";
 import {
   AppShell, Card, Badge, Button, Dialog, Select, Input, EmptyState, Skeleton,
   useToast, Table, THead, TBody, Th, Tr, Td, Pagination,
-  RowOpenButton, DEFAULT_PAGE_SIZE, usePageHeader,
+  RowOpenButton, DEFAULT_PAGE_SIZE, usePageHeader, Tooltip,
 } from "@/components";
 import type { StateCoverage } from "@/modules/coverage/map";
 import { US_STATES } from "@/lib/us-states";
@@ -94,7 +94,7 @@ function AssignModal({ refId, onClose }: { refId: string; onClose: () => void })
             ...(roster.data?.partners ?? []).map((p) => ({ value: p.id, label: `${p.name} (${p.refId})` })),
           ]}
         />
-        <p className="text-step-1 text-text-3">Recorded in the activity log. The lead&apos;s original &ldquo;unmatched&rdquo; record is kept — history isn&apos;t rewritten (PRN-05).</p>
+        <p className="text-step-1 text-text-3">Recorded in the activity log. The lead&apos;s original &ldquo;unmatched&rdquo; record is kept — history isn&apos;t rewritten.</p>
       </div>
     </Dialog>
   );
@@ -267,13 +267,15 @@ function UnmatchedBody() {
                         <Td><RowOpenButton className="text-xs" onClick={() => setOpenRef(l.refId)}>{l.refId}</RowOpenButton></Td>
                         <Td><span className="text-sm text-text">{l.seller}</span></Td>
                         <Td>
-                          <a href={googleSearchUrl([l.address, l.city, l.state, l.zip])} target="_blank" rel="noopener noreferrer" className="group inline-flex items-baseline gap-1 hover:underline" title="Search this property on Google">
-                            <span className="text-sm text-text-2 group-hover:text-brand-ink">{l.address}</span>
-                            <span className="text-xs text-text-3">{[l.city, l.state].filter(Boolean).join(", ")} <span className="num">{l.zip}</span></span>
-                          </a>
+                          <Tooltip content="Search this property on Google">
+                            <a href={googleSearchUrl([l.address, l.city, l.state, l.zip])} target="_blank" rel="noopener noreferrer" className="group inline-flex items-baseline gap-1 hover:underline">
+                              <span className="text-sm text-text-2 group-hover:text-brand-ink">{l.address}</span>
+                              <span className="text-xs text-text-3">{[l.city, l.state].filter(Boolean).join(", ")} <span className="num">{l.zip}</span></span>
+                            </a>
+                          </Tooltip>
                         </Td>
                         <Td>{l.campaign ? <Badge variant="neutral">{l.campaign}</Badge> : <span className="text-xs text-text-3">—</span>}</Td>
-                        <Td align="right"><span className="num tabular-nums text-text-2" title={new Date(l.receivedAt).toLocaleString()}>{formatWaiting(l.receivedAt, now)}</span></Td>
+                        <Td align="right"><Tooltip content={new Date(l.receivedAt).toLocaleString()}><span className="num tabular-nums text-text-2" tabIndex={0}>{formatWaiting(l.receivedAt, now)}</span></Tooltip></Td>
                         <Td align="right"><Button size="sm" variant="primary" onClick={() => setAssigningRef(l.refId)}>Assign →</Button></Td>
                       </Tr>
                     ))}

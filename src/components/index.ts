@@ -60,7 +60,6 @@ export { ListingBadge, type ListingStatus } from "./ListingBadge";
 export { AppShell } from "./AppShell";
 export { PortalShell } from "./PortalShell";
 export { PageHeaderProvider, PageHeaderSlot, usePageHeader } from "./PageHeader";
-export { SearchExpand } from "./SearchExpand";
 export { ThemeToggle } from "./ThemeToggle";
 export { CountyCoverageMap, type CountyCoverageMapProps } from "./CountyCoverageMap";
 export { HeroKpi } from "./HeroKpi";

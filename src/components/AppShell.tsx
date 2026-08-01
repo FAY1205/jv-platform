@@ -10,7 +10,6 @@ import { APP_NAME } from "@/lib/app";
 import { NotificationBell } from "./NotificationBell";
 import { ProfileMenu } from "./ProfileMenu";
 import { PageHeaderProvider, PageHeaderSlot } from "./PageHeader";
-import { SearchExpand } from "./SearchExpand";
 import { ThemeToggle } from "./ThemeToggle";
 import { ToastProvider } from "./Toast";
 import { IconButton } from "./IconButton";
@@ -44,7 +43,7 @@ function Icon({ name }: { name: IconName }) {
     analytics: (<><path d="M4 20V4M4 20h16" /><rect x="7" y="12" width="3" height="5" rx="1" /><rect x="12" y="8" width="3" height="9" rx="1" /><rect x="17" y="5" width="3" height="12" rx="1" /></>),
     rules: (<><path d="M4 5h16M4 12h16M4 19h16" /><circle cx="8" cy="5" r="1.6" fill="currentColor" stroke="none" /><circle cx="15" cy="12" r="1.6" fill="currentColor" stroke="none" /><circle cx="10" cy="19" r="1.6" fill="currentColor" stroke="none" /></>),
     activity: (<><circle cx="12" cy="12" r="8.5" /><path d="M12 8v4l3 2" /></>),
-    settings: (<><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.6 1.6 0 0 0 .3 1.8 2 2 0 1 1-2.8 2.8 1.6 1.6 0 0 0-2.7 1.1V21a2 2 0 1 1-4 0 1.6 1.6 0 0 0-2.4-1.4 1.6 1.6 0 0 0-1.8.3 2 2 0 1 1-2.8-2.8A1.6 1.6 0 0 0 3.7 15a2 2 0 1 1 0-4A1.6 1.6 0 0 0 5 8.6" /></>),
+    settings: (<><circle cx="12" cy="12" r="3" /><path d="M12 3v3m0 12v3M3 12h3m12 0h3" /></>),
     menu: (<><path d="M4 6h16M4 12h16M4 18h16" /></>),
   };
   return (
@@ -258,7 +257,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </IconButton>
           <PageHeaderSlot />
           <div className="ml-auto flex items-center gap-1.5">
-            <SearchExpand />
             <NotificationBell />
             <ThemeToggle />
           </div>

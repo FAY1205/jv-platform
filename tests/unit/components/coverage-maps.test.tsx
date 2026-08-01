@@ -118,4 +118,13 @@ describe("MAP-01: CountyCoverageMap (county) — Survey reskin", () => {
     expect(screen.getByText("PR-001")).toBeInTheDocument();
     expect(screen.queryByText(/custom/)).toBeNull();
   });
+
+  it("MAP-01: the hover tooltip names the state, not just the county (counties repeat across states)", async () => {
+    const states: StateCoverage[] = [
+      stateRow({ code: "CA", name: "California", partnerId: "p1", partnerName: "Acme", refId: "PR-001", color: "#5B7A9E" }),
+    ];
+    const { container } = await renderMap({ states });
+    fireEvent.pointerMove(container.querySelector('path[data-fips="06001"]')!);
+    expect(await screen.findByText(/County · California/)).toBeInTheDocument();
+  });
 });

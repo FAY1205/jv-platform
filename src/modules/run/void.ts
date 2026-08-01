@@ -14,7 +14,7 @@ import { redactionPatch, REDACTED_NOTE_BODY } from "../retention/purge";
 // WP-GL-B: the recalled leads' seller PII (name/contact/address/raw row + notes) is redacted
 // in the SAME transaction — a void is a "wrong file" undo, so the personal info goes at once
 // (DM-09/LGL-02/SEC-05); pii_purged_at is stamped so the backstop sweep skips them.
-// The window guard (WP-J1) bounds voiding to 10 min post-import, and only the LATEST non-voided
+// The window guard (WP-J1) bounds voiding to 5 min post-import, and only the LATEST non-voided
 // import may be voided. Partners are never notified — with the distribution hold a void always
 // happens while the leads are still held (never reached partners), so there is nothing to recall.
 // ─────────────────────────────────────────────────────────────────────────────
@@ -35,7 +35,7 @@ export class AlreadyVoidedError extends Error {
 
 export class VoidWindowClosedError extends Error {
   constructor(ref: string) {
-    super(`Run ${ref} can no longer be voided — voiding is only available for 10 minutes after an import.`);
+    super(`Run ${ref} can no longer be voided — voiding is only available for 5 minutes after an import.`);
     this.name = "VoidWindowClosedError";
   }
 }
@@ -73,7 +73,7 @@ export async function voidUpload(scope: ScopeContext, ref: string, reason: strin
       .where(and(tenantWhere(schema.uploads, scope), eq(schema.uploads.refId, ref)));
     if (!upload) throw new UploadNotFoundError(ref);
     if (upload.status === "voided") throw new AlreadyVoidedError(ref);
-    // WP-J1 (ING-09): void is a bounded undo — only within 10 min of import. Order matters:
+    // WP-J1 (ING-09): void is a bounded undo — only within 5 min of import. Order matters:
     // not-found and already-voided are more specific and must win over the window check.
     if (!isWithinVoidWindow(upload.createdAt, new Date())) throw new VoidWindowClosedError(ref);
     // Defense-in-depth vs a release/void boundary race (F-1): refuse once the run has been released

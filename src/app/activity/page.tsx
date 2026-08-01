@@ -70,7 +70,7 @@ function ActivityBody() {
   return (
     <>
       <div className="mb-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
-        <Input label="Search" placeholder="Action or reference…" value={q} onChange={(e) => { setQ(e.target.value); reset(); }} />
+        <Input label="Search" placeholder="Search actions or IDs…" value={q} onChange={(e) => { setQ(e.target.value); reset(); }} />
         <Select
           label="Category"
           value={category}

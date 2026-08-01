@@ -29,7 +29,7 @@ export default function WorkspaceSettingsPage() {
                 <span className="text-sm text-text">{data.workspace.name}</span>
               </div>
               <p className="text-xs text-text-3">
-                Branding — logo, colors, and typography — is theme-token driven (PRN-12) and becomes editable here in a later update.
+                Workspace branding — logo, colors, and typography — becomes editable here in a later update.
               </p>
             </div>
           )}

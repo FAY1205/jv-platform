@@ -98,7 +98,7 @@ suite("WP-018: void-run (ING-09)", () => {
     await expect(voidUpload(scope, upload.refId, "again")).rejects.toBeInstanceOf(AlreadyVoidedError);
   });
 
-  it("ING-09: rejects voiding a run whose 10-minute grace window has closed", async () => {
+  it("ING-09: rejects voiding a run whose 5-minute grace window has closed", async () => {
     // A run created 11 min ago — backdated via the runner clock, the SAME clock voidUpload
     // compares against (new Date()), so this is robust to DB/runner clock skew.
     const [up] = await db

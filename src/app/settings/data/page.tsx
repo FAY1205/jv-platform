@@ -58,7 +58,7 @@ export default function DataSettingsPage() {
               <div className="flex items-start justify-between gap-4">
                 <div>
                   <p className="text-sm text-text">Color-code partner sections</p>
-                  <p className="text-xs text-text-3">Full-row fills per partner in the .xlsx. The partner name + reference ID always appear regardless of color (PRN-14).</p>
+                  <p className="text-xs text-text-3">Full-row fills per partner in the .xlsx. The partner name and ID always appear next to the color, so exports stay readable in black and white.</p>
                 </div>
                 <Switch checked={data.colorCoding} disabled={saveColor.isPending} onCheckedChange={(v) => saveColor.mutate(v)} ariaLabel="Color-code partner sections" />
               </div>
@@ -78,7 +78,7 @@ export default function DataSettingsPage() {
           <Card>
             <CardHeader><CardTitle>File formats</CardTitle></CardHeader>
             <CardBody>
-              <p className="mb-3 text-xs text-text-3">The upload formats the app recognizes. Download a template to prepare a file with the right columns (ING-05, SET-12).</p>
+              <p className="mb-3 text-xs text-text-3">The upload formats the app recognizes. Download a template to prepare a file with the right columns.</p>
               {data.formats.length === 0 ? (
                 <EmptyState title="No file formats yet" description="Formats are created from the upload flow." />
               ) : (

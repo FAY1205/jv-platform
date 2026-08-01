@@ -4,7 +4,7 @@ import * as React from "react";
 import { useRouter } from "next/navigation";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { parseWorkbookInWorker } from "@/lib/xlsx-client";
-import { Card, CardBody, Button, Badge, Input, NativeSelect, AppShell } from "@/components";
+import { Card, CardBody, Button, Badge, Input, NativeSelect, AppShell, Tooltip } from "@/components";
 import { csrfHeaders } from "@/lib/csrf-client";
 import { validateUploadFile } from "@/lib/upload-guard";
 // Client-safe: seed-profiles is pure data (its only import is a type, erased at build) —
@@ -24,6 +24,12 @@ const CANONICAL_LABELS: Record<string, string> = {
   sellerLast: "Seller last name", phone: "Phone", email: "Email",
   reasonForSelling: "Reason for selling", motivation: "Motivation", timeToSell: "Time to sell",
 };
+
+/** A field missing from the label map still reads as words ("dateCreated" → "Date created"). */
+function fieldLabel(field: string): string {
+  const spaced = field.replace(/([a-z])([A-Z])/g, "$1 $2").toLowerCase();
+  return spaced.charAt(0).toUpperCase() + spaced.slice(1);
+}
 
 interface MappingNeed {
   kind: "drift" | "unknown";
@@ -126,9 +132,11 @@ export default function UploadPage() {
           </div>
           {/* File-download endpoint (not a page) — a plain anchor is correct; the href
               is a variable so the pages-link lint rule doesn't misfire. */}
-          <a href={TEMPLATE_HREF} download className="shrink-0 text-xs text-brand-ink hover:underline" title="Download a template with the expected columns">
-            ↓ Download template
-          </a>
+          <Tooltip content="Download a template with the expected columns">
+            <a href={TEMPLATE_HREF} download className="shrink-0 text-xs text-brand-ink hover:underline">
+              ↓ Download template
+            </a>
+          </Tooltip>
         </div>
 
         <Card>
@@ -165,9 +173,9 @@ export default function UploadPage() {
 
                 {need.diff && (need.diff.added.length > 0 || need.diff.removed.length > 0) && (
                   <div className="flex flex-wrap gap-1.5 rounded-md border border-border-soft bg-surface-2 p-3 text-xs">
-                    {need.diff.renamed.map((r) => <Badge key={r.from} variant="warn">renamed: {r.from} → {r.to}</Badge>)}
-                    {need.diff.added.filter((a) => !need.diff!.renamed.some((r) => r.to === a)).map((a) => <Badge key={a} variant="success">added: {a}</Badge>)}
-                    {need.diff.removed.filter((a) => !need.diff!.renamed.some((r) => r.from === a)).map((a) => <Badge key={a} variant="removed">removed: {a}</Badge>)}
+                    {need.diff.renamed.map((r) => <Badge key={r.from} variant="warn">Renamed: {r.from} → {r.to}</Badge>)}
+                    {need.diff.added.filter((a) => !need.diff!.renamed.some((r) => r.to === a)).map((a) => <Badge key={a} variant="success">New column: {a}</Badge>)}
+                    {need.diff.removed.filter((a) => !need.diff!.renamed.some((r) => r.from === a)).map((a) => <Badge key={a} variant="removed">No longer in file: {a}</Badge>)}
                   </div>
                 )}
 
@@ -181,7 +189,7 @@ export default function UploadPage() {
                     return (
                       <div key={field} className="grid grid-cols-[1fr_1.4fr] items-center gap-3">
                         <span className="text-sm text-text-2">
-                          {CANONICAL_LABELS[field] ?? field}
+                          {CANONICAL_LABELS[field] ?? fieldLabel(field)}
                           {req && <span className="ml-1 text-danger">*</span>}
                         </span>
                         <NativeSelect

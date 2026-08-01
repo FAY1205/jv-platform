@@ -13,20 +13,20 @@ export const SCREENS: Record<ScreenKey, string> = {
   dashboard: "Dashboard: the headline counts leads distributed in the selected range; tiles break down leads in / distributed / unmatched / removed; the county map colors each partner's territory (amber hatching = no coverage); the range control sits in the top bar.",
   leads: "Leads: every kept lead, searchable and filterable by state, status, partner and date; clicking a row opens the lead dialog with status, routing and notes.",
   unmatched: "Unmatched: kept leads no partner covers yet, with a waiting-time column and per-state stats; assign them manually from the lead dialog or add coverage.",
-  imports: "Imports: every processed file with its counts; new files go through Upload. A new import is held from partners for 10 minutes, and can be voided while held.",
+  imports: "Imports: every processed file with its counts; new files go through Upload. A new import is held from partners for 5 minutes, and can be voided while held.",
   import_detail: "Import detail: one import's pipeline funnel (imported, removed by MLS filter, distributed, unmatched), its distribution by partner, and the export download.",
   partners: "Partners: the roster with status, coverage size and invite actions; open a partner for their profile.",
   partner_detail: "Partner profile: one partner's performance stats, range picker, and their territory on the county map; coverage (states + ZIP overrides) is edited here.",
   coverage: "Coverage: the whole-tenant county map — who owns each state, ZIP-override counts, and uncovered states (amber hatch) with waiting-lead counts.",
   activity: "Activity: the tenant audit trail (imports, rule edits, partner changes, security events), filterable to security-only.",
-  rules: "Rules: campaign recodes (editable), MLS removal phrases (on/off only — the patterns themselves are fixed), file formats, and a read-only coverage summary.",
+  rules: "Rules: the MLS removal phrases (on/off only — the pattern text is fixed). File formats live in Settings → Data & Export; coverage is edited on each partner's profile.",
   settings: "Settings: workspace, notifications, security, appearance, data & export, and the AI assistant's enable switch, monthly allowance and usage.",
   upload: "Upload: drop a weekly lead file; exact formats process immediately, changed formats go through a review-and-confirm mapping step.",
 };
 
 const HOW_TO = `Product basics you may state without a data tool:
 - Weekly lead files are imported on the Upload screen; the pipeline removes MLS-listed leads, routes the rest by ZIP override first, then state rule; leftovers land in Unmatched.
-- A new import is HELD from partners for 10 minutes; while held (and only while it is the latest import) it can be voided from its import page.
+- A new import is HELD from partners for 5 minutes; while held (and only while it is the latest import) it can be voided from its import page.
 - Coverage is edited per partner on their profile (whole states and ZIP overrides). ZIP override beats state rule.
 - Partner lead statuses: New, Contacted, Appointment, Under contract, Closed, Dead.
 - Analytics ranges are 7d, 30d, 12mo and all-time. There is no other window.`;

@@ -1,8 +1,14 @@
 # ADR-0026: 10-minute distribution hold + only-latest void (ING-09 re-implementation)
 
-- **Status:** Accepted
+- **Status:** Accepted (amended 2026-08-01: window shortened to **5 min**)
 - **Date:** 2026-07-13
 - **Phase / WP:** Phase A (Go-Live) / distribution-hold
+
+> **Amendment (2026-08-01, owner decision — testing round 2):** the hold/void window is now
+> **5 minutes** (`VOID_WINDOW_MS = 5 * 60 * 1000`; `HOLD_WINDOW_MS` still aliases it). Everything
+> below is unchanged mechanically — read "10 min" as "5 min". Note the every-5-min release cron
+> now spans the whole window, so the partner digest lands 5–10 min after import (visibility still
+> self-releases exactly on time).
 
 ## Context
 

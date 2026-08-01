@@ -12,14 +12,14 @@ describe("distribution hold window (ING-09 follow-on)", () => {
   // The partner read gate: a lead created STRICTLY before the cutoff is released (visible).
   const released = (createdAt: Date, now: Date) => createdAt.getTime() < releaseCutoff(now).getTime();
 
-  it("the hold window equals the void window (10 min)", () => {
+  it("the hold window equals the void window (5 min)", () => {
     expect(HOLD_WINDOW_MS).toBe(VOID_WINDOW_MS);
-    expect(HOLD_WINDOW_MS).toBe(10 * 60 * 1000);
+    expect(HOLD_WINDOW_MS).toBe(5 * 60 * 1000);
   });
 
   it("a lead is held within its window and released strictly after it (boundary held)", () => {
     expect(isHeld(imported, at(0))).toBe(true);
-    expect(isHeld(imported, at(5 * 60 * 1000))).toBe(true);
+    expect(isHeld(imported, at(3 * 60 * 1000))).toBe(true);
     expect(isHeld(imported, at(HOLD_WINDOW_MS))).toBe(true); // exactly the window: still held (matches void window)
     expect(isHeld(imported, at(HOLD_WINDOW_MS + 1))).toBe(false);
   });

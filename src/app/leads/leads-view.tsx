@@ -8,7 +8,7 @@ import { LEAD_STATUS_FILTERS, type LeadSortField } from "@/modules/leads/schema"
 import {
   AppShell, Card, Table, THead, TBody, Th, Tr, Td, PartnerTag, EmptyState, Skeleton,
   Input, Select, Combobox, DateRangePicker, Pagination, RowOpenButton, StatusSelect,
-  DEFAULT_PAGE_SIZE, usePageHeader, FilterPill,
+  DEFAULT_PAGE_SIZE, usePageHeader, FilterPill, Tooltip,
 } from "@/components";
 import { US_STATES } from "@/lib/us-states";
 import { googleSearchUrl } from "@/lib/search-links";
@@ -252,10 +252,12 @@ function LeadsTable({
                   <Td><RowOpenButton className="text-xs" onClick={() => onOpen(l.refId)}>{l.refId}</RowOpenButton></Td>
                   <Td><span className="text-sm text-text">{l.seller}</span></Td>
                   <Td>
-                    <a href={googleSearchUrl([l.address, l.city, l.state, l.zip])} target="_blank" rel="noopener noreferrer" className="group inline-flex items-baseline gap-1 hover:underline" title="Search this property on Google">
-                      <span className="text-sm text-text-2 group-hover:text-brand-ink">{l.address}</span>
-                      <span className="text-xs text-text-3">{[l.city, l.state].filter(Boolean).join(", ")} <span className="num">{l.zip}</span></span>
-                    </a>
+                    <Tooltip content="Search this property on Google">
+                      <a href={googleSearchUrl([l.address, l.city, l.state, l.zip])} target="_blank" rel="noopener noreferrer" className="group inline-flex items-baseline gap-1 hover:underline">
+                        <span className="text-sm text-text-2 group-hover:text-brand-ink">{l.address}</span>
+                        <span className="text-xs text-text-3">{[l.city, l.state].filter(Boolean).join(", ")} <span className="num">{l.zip}</span></span>
+                      </a>
+                    </Tooltip>
                   </Td>
                   <Td>
                     {l.partner ? <PartnerTag size="sm" name={l.partner.name} color={l.partner.color} refId={l.partner.refId} />

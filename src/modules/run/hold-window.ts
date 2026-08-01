@@ -10,7 +10,7 @@ import { VOID_WINDOW_MS, isWithinVoidWindow } from "./void-window";
 export const HOLD_WINDOW_MS = VOID_WINDOW_MS;
 
 /** True while a lead is still held from its partner (within the window of its import). Reuses the
- *  void-window predicate so "held" and "voidable" are the identical 10 minutes. Pure. */
+ *  void-window predicate so "held" and "voidable" are the identical window. Pure. */
 export function isHeld(createdAt: Date, now: Date, windowMs: number = HOLD_WINDOW_MS): boolean {
   return isWithinVoidWindow(createdAt, now, windowMs);
 }

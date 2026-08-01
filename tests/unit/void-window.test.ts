@@ -8,19 +8,19 @@ describe("isWithinVoidWindow (ING-09 grace window)", () => {
   const created = new Date("2026-07-08T12:00:00.000Z");
   const at = (ms: number) => new Date(created.getTime() + ms);
 
-  it("ING-09: the void window is 10 minutes", () => {
-    expect(VOID_WINDOW_MS).toBe(10 * 60 * 1000);
+  it("ING-09: the void window is 5 minutes", () => {
+    expect(VOID_WINDOW_MS).toBe(5 * 60 * 1000);
   });
 
-  it("ING-09: void is allowed within the 10-minute window (boundary inclusive)", () => {
+  it("ING-09: void is allowed within the 5-minute window (boundary inclusive)", () => {
     expect(isWithinVoidWindow(created, at(0))).toBe(true);
-    expect(isWithinVoidWindow(created, at(5 * 60 * 1000))).toBe(true);
+    expect(isWithinVoidWindow(created, at(3 * 60 * 1000))).toBe(true);
     expect(isWithinVoidWindow(created, at(VOID_WINDOW_MS))).toBe(true);
   });
 
-  it("ING-09: void is rejected once the 10-minute window has closed", () => {
+  it("ING-09: void is rejected once the 5-minute window has closed", () => {
     expect(isWithinVoidWindow(created, at(VOID_WINDOW_MS + 1))).toBe(false);
-    expect(isWithinVoidWindow(created, at(11 * 60 * 1000))).toBe(false);
+    expect(isWithinVoidWindow(created, at(6 * 60 * 1000))).toBe(false);
   });
 
   it("ING-09: clock skew (createdAt slightly in the future) still counts as within the window", () => {

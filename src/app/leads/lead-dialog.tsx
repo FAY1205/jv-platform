@@ -16,6 +16,7 @@ import {
   Skeleton,
   EmptyState,
   useToast,
+  Tooltip,
 } from "@/components";
 import { matchMethodLabel } from "@/lib/match-method";
 import { googleSearchUrl } from "@/lib/search-links";
@@ -191,17 +192,19 @@ function ViewMode({ d, onEdit }: { d: LeadDetail; onEdit: () => void }) {
         <div className="col-span-2 sm:col-span-3">
           <Field label="Property">
             {property ? (
-              <a
-                href={googleSearchUrl([d.address, d.city, d.state, d.zip])}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-1 text-brand-ink hover:underline"
-              >
-                {property}
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                  <path d="M15 3h6v6M10 14 21 3M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
-                </svg>
-              </a>
+              <Tooltip content="Search this property on Google">
+                <a
+                  href={googleSearchUrl([d.address, d.city, d.state, d.zip])}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1 text-brand-ink hover:underline"
+                >
+                  {property}
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <path d="M15 3h6v6M10 14 21 3M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+                  </svg>
+                </a>
+              </Tooltip>
             ) : (
               "—"
             )}

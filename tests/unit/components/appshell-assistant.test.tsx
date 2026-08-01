@@ -6,8 +6,8 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 // WP-AI-2 Task 9: AppShell mounts the assistant widget (Task 8) on the admin surface.
 // AppShell pulls in NotificationBell/ProfileMenu (real useQuery/useMutation/useQueryClient,
-// which need a live QueryClient — not just a mocked useQuery) plus SearchExpand and
-// ThemeToggle. The established pattern for rendering a shell like this (see
+// which need a live QueryClient — not just a mocked useQuery) plus ThemeToggle.
+// The established pattern for rendering a shell like this (see
 // portal-shell.test.tsx, ws7-components.test.tsx) is a real QueryClientProvider with
 // retry disabled and a stubbed global fetch, rather than mocking @tanstack/react-query.
 

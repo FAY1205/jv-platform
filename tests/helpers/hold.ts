@@ -4,7 +4,7 @@ import * as schema from "@/db/schema";
 
 /** Backdate a tenant's leads' `created_at` past the distribution hold window so they are RELEASED
  *  (partner-visible) in tests. The hold gates fresh leads from partners; tests that assert partner
- *  visibility call this after creating the leads (mirrors production, where 10 min have elapsed). */
+ *  visibility call this after creating the leads (mirrors production, where the hold has elapsed). */
 export async function releaseTenantLeads(db: PostgresJsDatabase<typeof schema>, tenantId: string): Promise<void> {
   await db
     .update(schema.leads)

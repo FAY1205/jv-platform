@@ -1,8 +1,9 @@
 "use client";
 
+import * as React from "react";
 import { useQuery } from "@tanstack/react-query";
 import { apiGet } from "@/lib/api";
-import { Card, CardBody, CardHeader, CardTitle, Skeleton, EmptyState, PasswordChangeForm } from "@/components";
+import { Button, Card, CardBody, CardHeader, CardTitle, Skeleton, EmptyState, PasswordChangeForm } from "@/components";
 import { initialsFromEmail } from "@/lib/identity";
 import { SettingsSection } from "../settings-section";
 
@@ -13,8 +14,11 @@ interface Me {
 }
 
 // WS-7c: Profile — identity (email read-only; no name column yet) + password change.
+// The password form sits behind a disclosure so the page doesn't open on three
+// password fields (owner feedback, testing round 2).
 export default function ProfileSettingsPage() {
   const { data, isPending, error } = useQuery({ queryKey: ["me"], queryFn: () => apiGet<Me>("/api/me") });
+  const [changingPassword, setChangingPassword] = React.useState(false);
 
   return (
     <SettingsSection title="Profile" description="Your account and password.">
@@ -42,10 +46,24 @@ export default function ProfileSettingsPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Change password</CardTitle>
+          <CardTitle>Password</CardTitle>
         </CardHeader>
         <CardBody>
-          <PasswordChangeForm />
+          {changingPassword ? (
+            <div className="flex flex-col gap-3">
+              <PasswordChangeForm />
+              <Button variant="ghost" size="sm" className="self-start" onClick={() => setChangingPassword(false)}>
+                Cancel
+              </Button>
+            </div>
+          ) : (
+            <div className="flex items-center justify-between gap-4">
+              <p className="text-sm text-text-2">Update the password you use to sign in.</p>
+              <Button variant="secondary" onClick={() => setChangingPassword(true)}>
+                Change password
+              </Button>
+            </div>
+          )}
         </CardBody>
       </Card>
     </SettingsSection>

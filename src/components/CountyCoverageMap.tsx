@@ -243,7 +243,7 @@ export function CountyCoverageMap({ states, selectedPartnerId = null, onSelectPa
           style={{ left: hover.x, top: hover.y }}
         >
           <div className="text-sm font-semibold text-text">
-            {hoverName} <span className="text-text-3">County</span>
+            {hoverName} <span className="text-text-3">County · {hoverCov.name}</span>
           </div>
           {hoverCov.partnerId ? (
             <PartnerTag name={hoverCov.partnerName!} color={hoverCov.color!} refId={hoverCov.refId ?? undefined} size="sm" className="mt-1" />

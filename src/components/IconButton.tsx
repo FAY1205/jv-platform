@@ -9,7 +9,7 @@ export interface IconButtonProps extends React.ButtonHTMLAttributes<HTMLButtonEl
 }
 
 // The shared 44px chrome icon button (F-66 tap target). One state recipe for the four
-// topbar/chrome controls (AppShell menu toggle, ThemeToggle, SearchExpand, NotificationBell):
+// topbar/chrome controls (AppShell menu toggle, ThemeToggle, NotificationBell):
 // hairline-border hover + the global brand-ink focus outline + a subtle focus border. Tokens
 // only (PRN-12); forwardRef so it can mount under Radix `DropdownMenuTrigger asChild`.
 const base =

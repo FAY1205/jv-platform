@@ -77,7 +77,7 @@ function RunView({ detail }: { detail: RunDetail }) {
   const [reason, setReason] = useState("");
   const [openRef, setOpenRef] = useState<string | null>(null);
   const isVoided = upload.status === "voided";
-  // WP-J1 (ING-09): void is a bounded undo — only within 10 min of import. Snapshot at mount
+  // WP-J1 (ING-09): void is a bounded undo — only within 5 min of import. Snapshot at mount
   // (server is authoritative; this only gates the button). new Date in a useState initializer
   // keeps render pure (mirrors the WS-4 `now` snapshot pattern).
   const [voidWindowOpen] = useState(() => isWithinVoidWindow(new Date(upload.createdAt), new Date()));
@@ -178,14 +178,14 @@ function RunView({ detail }: { detail: RunDetail }) {
 
       {!isVoided && !voidWindowOpen && (
         <div className="mb-6 rounded-lg border border-border bg-surface-2 px-4 py-3 text-step-1 text-text-3">
-          The 10-minute window to void this import has closed — voiding is only available right after an import.
+          The 5-minute window to void this import has closed — voiding is only available right after an import.
         </div>
       )}
 
       {isVoided && (
         <div className="mb-6 rounded-lg border border-danger/40 bg-danger-soft px-4 py-3 text-sm text-danger">
           This import was voided{upload.voidReason ? ` — ${upload.voidReason}` : ""}. Its leads are excluded from
-          future dedupe, analytics and exports.
+          future duplicate checks, analytics and exports.
         </div>
       )}
 
@@ -344,7 +344,7 @@ function RunView({ detail }: { detail: RunDetail }) {
       >
         <p className="mb-3 text-sm text-text-2">
           Voiding <span className="num font-semibold text-text">{upload.refId}</span> ({upload.filename}) marks the run voided in
-          history and excludes its leads from dedupe, analytics and exports. Only available within 10 minutes of an import; this can&apos;t be undone.
+          history and excludes its leads from future duplicate checks, analytics and exports. Only available within 5 minutes of an import; this can&apos;t be undone.
         </p>
         {distributed > 0 && (
           <p className="mb-3 text-sm text-text-2">

@@ -32,7 +32,7 @@ const plexMono = IBM_Plex_Mono({
 export const metadata: Metadata = {
   title: `${APP_NAME} — JV Lead Matching Platform`,
   description:
-    "Deterministic lead-routing for real-estate JV networks: parse, filter, match, dedupe, distribute.",
+    "Lead routing for real-estate JV networks — import weekly lead files, filter out listed properties, and distribute each lead to the right partner automatically.",
 };
 
 export default function RootLayout({
