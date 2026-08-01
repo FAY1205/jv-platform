@@ -156,13 +156,13 @@ export default function AssistantWidget() {
         }
       >
         {/* Header */}
-        <header className={"relative z-[2] flex flex-none items-center gap-3 border-b border-border-soft bg-[linear-gradient(180deg,var(--brand-soft),var(--surface)_130%)] px-4 py-3.5 transition-shadow " + (scrolled ? "shadow-md" : "")}>
-          <Orb size={34} animate={open} className="shrink-0" />
-          <div className="min-w-0">
+        <header className={"relative z-[2] flex flex-none items-center gap-3 border-b border-border-soft bg-[linear-gradient(180deg,var(--brand-soft),var(--surface)_130%)] px-4 py-3 transition-shadow " + (scrolled ? "shadow-md" : "")}>
+          <Orb size={30} animate={open} className="shrink-0" />
+          <div className="min-w-0 flex-1">
             <div className="font-display text-step-3 leading-tight">Assistant</div>
-            <div className="mt-0.5 flex items-center gap-1.5 text-step-0 text-text-3">
-              <span aria-hidden="true" className="h-[7px] w-[7px] rounded-full bg-success" />
-              Answers from your workspace · chats aren&rsquo;t saved
+            <div className="mt-0.5 flex min-w-0 items-center gap-1.5 text-step-0 text-text-3">
+              <span aria-hidden="true" className="h-[7px] w-[7px] shrink-0 rounded-full bg-success" />
+              <span className="truncate">Answers from your workspace · not saved</span>
             </div>
           </div>
           <div className="ml-auto flex items-center gap-1">

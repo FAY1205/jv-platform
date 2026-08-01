@@ -5,9 +5,9 @@ import * as React from "react";
 export function SuggestionChips({ items, onSelect, disabled }: { items: string[]; onSelect: (q: string) => void; disabled?: boolean }) {
   if (items.length === 0) return null;
   return (
-    <div className="ml-8 self-stretch">
+    <div className="self-stretch">
       <div className="mb-1.5 text-step-0 font-semibold uppercase tracking-[.08em] text-text-3">
-        Suggested · changes with the screen you&rsquo;re on
+        Try asking
       </div>
       <div role="group" aria-label="Suggested questions" className="flex flex-wrap gap-1.5">
         {items.map((q) => (

@@ -8,29 +8,34 @@ type Palette = {
   filaments: [string, number][];
 };
 
-// Theme-aware plasma palette (owner redesign 2026-08-01: a dark glass sphere with
-// amber plasma wisps at the rim — not a solid honey ball). Colours here are canvas
-// paint (not DOM styling), so they live with the renderer; the DOM chrome around the
-// orb uses tokens (PRN-12).
+// Theme-aware plasma palette (owner iteration 2026-08-01 #2: the interior must be
+// WARM deep honey, never near-black — a black void fights the app's cream/amber
+// vibe). Colours here are canvas paint (not DOM styling), so they live with the
+// renderer; the DOM chrome around the orb uses tokens (PRN-12).
 function orbPalette(): Palette {
   const attr = document.documentElement.getAttribute("data-theme");
   const dark = attr === "dark" || (attr !== "light" && typeof matchMedia !== "undefined" && matchMedia("(prefers-color-scheme: dark)").matches);
   return dark
-    ? { base1: "#150f06", base2: "#241705", edge: "rgba(246,184,86,.16)",
-        rim: "rgba(246,184,86,.85)", rimGlow: "rgba(224,145,43,.5)",
-        filaments: [["#F6B856", 0.9], ["#E0912B", 0.75], ["#FFE9C4", 0.5]] }
-    : { base1: "#1a1207", base2: "#2b1c08", edge: "rgba(224,145,43,.18)",
-        rim: "rgba(224,145,43,.9)", rimGlow: "rgba(198,125,30,.45)",
-        filaments: [["#E0912B", 0.9], ["#F6B856", 0.7], ["#FFE9C4", 0.45]] };
+    ? { base1: "#3a2509", base2: "#573912", edge: "rgba(246,184,86,.22)",
+        rim: "rgba(246,184,86,.9)", rimGlow: "rgba(224,145,43,.5)",
+        filaments: [["#FFE9C4", 0.95], ["#F6B856", 0.8], ["#E0912B", 0.6]] }
+    : { base1: "#5a3a10", base2: "#7b4f16", edge: "rgba(255,233,196,.25)",
+        rim: "rgba(143,84,22,.9)", rimGlow: "rgba(224,145,43,.55)",
+        filaments: [["#FFE9C4", 0.95], ["#F6B856", 0.8], ["#E0912B", 0.6]] };
 }
 
 // Per-filament shape: base radius (fraction of R), how deep its inward dip swings,
-// wobble harmonics and drift speeds (rad/ms — very slow, ambient motion).
+// wobble harmonics and drift speeds (rad/ms). Tuned fast enough to be plainly
+// visible at 30px (owner: the first pass read as static).
 const FILAMENTS = [
-  { base: 0.88, dip: 0.1, k: 3, w1: 0.00016, w2: 0.00011, w3: 0.00005 },
-  { base: 0.85, dip: 0.2, k: 4, w1: 0.00012, w2: 0.00017, w3: 0.00004 },
-  { base: 0.9, dip: 0.4, k: 2, w1: 0.00009, w2: 0.00013, w3: 0.00006 },
+  { base: 0.88, dip: 0.1, k: 3, w1: 0.00064, w2: 0.00044, w3: 0.0002 },
+  { base: 0.85, dip: 0.2, k: 4, w1: 0.00048, w2: 0.00068, w3: 0.00016 },
+  { base: 0.9, dip: 0.4, k: 2, w1: 0.00036, w2: 0.00052, w3: 0.00024 },
 ] as const;
+
+/** Slow whole-pattern rotation (rad/ms) — guarantees perceptible motion even when
+ *  a wisp's own wobble is momentarily quiet. */
+const SPIN = 0.00035;
 
 export function Orb({ size, animate = false, className }: { size: number; animate?: boolean; className?: string }) {
   const ref = React.useRef<HTMLCanvasElement | null>(null);
@@ -61,8 +66,9 @@ export function Orb({ size, animate = false, className }: { size: number; animat
         // "veil" crossing the dark interior in the reference.
         const dip = Math.max(0, Math.sin(th + ph * 2 + i * 2.6 + at * f.w3)) * f.dip;
         const r = R * (f.base - dip + wob);
-        const x = R + Math.cos(th) * r;
-        const y = R + Math.sin(th) * r;
+        const spun = th + at * SPIN;
+        const x = R + Math.cos(spun) * r;
+        const y = R + Math.sin(spun) * r;
         if (s === 0) g.moveTo(x, y);
         else g.lineTo(x, y);
       }
