@@ -226,7 +226,7 @@ export default function AssistantWidget() {
 
         {/* Composer */}
         <footer className="relative z-[2] flex-none border-t border-border-soft bg-surface px-3.5 py-3 shadow-up">
-          <div className="flex items-center gap-1.5 rounded-full border border-border bg-bg py-1 pl-4 pr-1 transition-colors focus-within:border-brand-ink">
+          <div className="flex items-center gap-1.5 rounded-full border border-border-soft bg-bg py-1 pl-4 pr-1 transition-colors focus-within:border-brand-ink">
             <input
               ref={inputRef}
               type="text"

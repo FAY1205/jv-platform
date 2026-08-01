@@ -63,7 +63,7 @@ export function Select({
             "inline-flex w-full items-center justify-between gap-2 rounded-md border bg-surface px-3 py-2 text-sm font-medium text-text-2",
             "outline-none transition-[border-color] duration-[120ms] focus-visible:ring-1 focus-visible:ring-brand-ink",
             "disabled:cursor-not-allowed disabled:opacity-60 data-[placeholder]:text-text-3",
-            error ? "border-danger" : "border-border focus-visible:border-brand-ink",
+            error ? "border-danger" : "border-border-soft focus-visible:border-brand-ink",
             className,
           )}
         >

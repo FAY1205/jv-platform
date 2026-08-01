@@ -335,11 +335,18 @@ h4 {
 .stagger > *:nth-child(5) { animation-delay: 160ms; }
 .stagger > *:nth-child(n + 6) { animation-delay: 200ms; }
 
-/* Visible keyboard focus on every interactive element (DSN-10, FRM-04). */
-:focus-visible {
-  outline: 1px solid var(--brand-ink);
-  outline-offset: 2px;
-  border-radius: 4px;
+/* Keyboard-focus ring for interactive elements that don't define their own
+   (buttons, links, menu items, cards). Lives in @layer base so a component can opt
+   out with `outline-none` and supply its own focus treatment — form fields do this
+   to avoid stacking a detached outline on top of their border+ring. Before this was
+   layered, `outline-none` was silently defeated and every field showed a second,
+   offset border on focus. (DSN-10, FRM-04)
+   The outline follows each element's own border-radius, so no radius is set here. */
+@layer base {
+  :focus-visible {
+    outline: 2px solid var(--brand-ink);
+    outline-offset: 2px;
+  }
 }
 
 ::selection {

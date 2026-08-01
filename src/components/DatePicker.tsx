@@ -38,7 +38,7 @@ export const dayPickerClassNames = {
 } as const;
 
 const triggerClass = cn(
-  "inline-flex w-full items-center justify-between gap-2 rounded-md border border-border bg-surface px-3 py-2 text-sm text-text",
+  "inline-flex w-full items-center justify-between gap-2 rounded-md border border-border-soft bg-surface px-3 py-2 text-sm text-text",
   "outline-none transition-[border-color] duration-[120ms] focus-visible:ring-1 focus-visible:ring-brand-ink focus-visible:border-brand-ink",
   "disabled:cursor-not-allowed disabled:opacity-60",
 );

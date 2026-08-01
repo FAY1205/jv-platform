@@ -37,9 +37,9 @@ export const NativeSelect = React.forwardRef<HTMLSelectElement, NativeSelectProp
           aria-describedby={describedBy}
           className={cn(
             "w-full appearance-none rounded-md border bg-surface px-3 py-2 pr-9 text-sm font-medium text-text-2",
-            // F-16: a visible keyboard focus ring (was suppressed with outline-none).
+            // Single focus treatment; outline-none opts out of the global outline (globals.css).
             "transition-[border-color] duration-[120ms] outline-none focus-visible:ring-1 focus-visible:ring-brand-ink",
-            error ? "border-danger focus:border-danger" : "border-border focus:border-brand-ink",
+            error ? "border-danger focus:border-danger" : "border-border-soft focus:border-brand-ink",
             className,
           )}
           {...rest}
