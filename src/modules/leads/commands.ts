@@ -1,9 +1,10 @@
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq, inArray, isNull } from "drizzle-orm";
 import { getDb } from "@/db";
 import * as schema from "@/db/schema";
 import { tenantWhere, type ScopeContext } from "@/lib/scope";
 import { computeDedupeKey, normalizeAddress } from "@/modules/pipeline/normalize";
 import { isAuditPiiLeadField, maskAuditValue } from "@/modules/audit/redact";
+import { unmatchedCoverageLeadRefs } from "./queries";
 
 // ADM / ASN-03 write side. Manual assignment is ADDITIVE (PRN-05: the import
 // snapshot — partnerId / matchMethod — is never rewritten). Only a currently
@@ -102,6 +103,96 @@ export async function manuallyAssignLead(scope: ScopeContext, input: ManualAssig
 
     return { partnerRefId: partner.refId };
   });
+}
+
+// ── Bulk manual assignment (S6 / ASN-03) ───────────────────────────────────────
+
+export interface BulkAssignInput {
+  leadRefs: string[];
+  partnerId: string;
+}
+
+export interface BulkAssignResult {
+  partnerRefId: string;
+  /** Refs actually assigned (were eligible: kept, no snapshot owner, no overlay). */
+  assigned: string[];
+  /** Refs requested but not assigned (already routed/assigned, removed, or unknown). */
+  skipped: string[];
+}
+
+/**
+ * Assign many unmatched leads to one partner in a single transaction. Same
+ * PRN-05-clean semantics as manuallyAssignLead — only the additive manual overlay
+ * is written, and only for leads that are STILL unmatched at write time (the
+ * eligibility filter doubles as the race guard: a lead someone else just routed
+ * simply lands in `skipped`). One audit row per lead (DM-04), flagged `bulk`.
+ */
+export async function bulkAssignLeads(scope: ScopeContext, input: BulkAssignInput): Promise<BulkAssignResult> {
+  const db = getDb();
+  return db.transaction(async (tx) => {
+    const [partner] = await tx
+      .select({ id: schema.partners.id, refId: schema.partners.refId })
+      .from(schema.partners)
+      .where(
+        and(
+          tenantWhere(schema.partners, scope),
+          eq(schema.partners.id, input.partnerId),
+          eq(schema.partners.status, "active"),
+          isNull(schema.partners.deletedAt),
+        ),
+      );
+    if (!partner) throw new InvalidAssignTargetError();
+    if (input.leadRefs.length === 0) return { partnerRefId: partner.refId, assigned: [], skipped: [] };
+
+    const eligible = await tx
+      .select({ id: schema.leads.id, refId: schema.leads.refId, state: schema.leads.state, zip: schema.leads.zip })
+      .from(schema.leads)
+      .where(
+        and(
+          tenantWhere(schema.leads, scope),
+          inArray(schema.leads.refId, input.leadRefs),
+          isNull(schema.leads.deletedAt),
+          eq(schema.leads.mlsStatus, "kept"),
+          isNull(schema.leads.partnerId),
+          isNull(schema.leads.manualPartnerId),
+        ),
+      )
+      .orderBy(schema.leads.refId);
+
+    const assignedRefs = new Set(eligible.map((l) => l.refId));
+    const skipped = input.leadRefs.filter((r) => !assignedRefs.has(r));
+    if (eligible.length > 0) {
+      await tx
+        .update(schema.leads)
+        .set({ manualPartnerId: partner.id, manualAssignedAt: new Date(), manualAssignedBy: scope.userId })
+        .where(inArray(schema.leads.id, eligible.map((l) => l.id)));
+      // Same no-free-text audit shape as the single assign (owner decision 2026-07-15).
+      await tx.insert(schema.auditLog).values(
+        eligible.map((l) => ({
+          tenantId: scope.tenantId,
+          actorUserId: scope.userId,
+          action: "lead.manually_assigned",
+          entityType: "lead",
+          entityRef: l.refId,
+          before: { partnerId: null, state: l.state, zip: l.zip },
+          after: { manualPartnerId: partner.id, partnerRefId: partner.refId, ...(input.leadRefs.length > 1 ? { bulk: true } : {}) },
+          traceId: globalThis.crypto.randomUUID(),
+        })),
+      );
+    }
+    return { partnerRefId: partner.refId, assigned: eligible.map((l) => l.refId), skipped };
+  });
+}
+
+/**
+ * Coverage backfill (owner note #2): assign every unmatched lead the partner's
+ * CURRENT coverage would route to them. Derives the matching refs (zip override
+ * beats state rule, ASN-02-generic), then reuses bulkAssignLeads — whose
+ * still-unmatched eligibility guard also covers the derive→write race.
+ */
+export async function bulkAssignByCoverage(scope: ScopeContext, partnerId: string): Promise<BulkAssignResult> {
+  const leadRefs = await unmatchedCoverageLeadRefs(scope, partnerId);
+  return bulkAssignLeads(scope, { leadRefs, partnerId });
 }
 
 // ── Admin lead edit (ADM) — powers the Leads dialog "Edit everything" mode ─────

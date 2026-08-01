@@ -5,8 +5,9 @@ import { tenantWhere, partnerOwnsLead, leadWhere, type ScopeContext } from "@/li
 import { SEED_LEAD_STATUSES, currentStatus } from "@/modules/portal/statuses";
 import type { LeadsQuery } from "./schema";
 
-/** Currently-unmatched = kept, not pipeline-routed, not yet manually assigned. */
-function unmatchedWhere(scope: ScopeContext): SQL {
+/** Currently-unmatched = kept, not pipeline-routed, not yet manually assigned.
+ *  Exported for the bulk-assign command's shared eligibility guard (S6/ASN-03). */
+export function unmatchedWhere(scope: ScopeContext): SQL {
   return and(
     tenantWhere(schema.leads, scope),
     isNull(schema.leads.deletedAt),
@@ -353,6 +354,84 @@ export interface UnmatchedStateStats {
 /** Bounded per-state unmatched aggregate (F-11) — feeds the stats row + state map.
  *  Currently-unmatched only (kept, no pipeline partner, no manual overlay). The lead
  *  rows themselves come from the paginated /api/leads?partnerId=unmatched (WS-3). */
+// ── Coverage backfill (S6 / ASN-03) ───────────────────────────────────────────
+// "Which partner would TODAY'S coverage route each unmatched lead to?" — zip
+// override first, then state rule, the same generic precedence the pipeline uses
+// (ASN-02: no per-partner special-casing). Read-only derivation; assignment goes
+// through the bulk-assign command's additive overlay (PRN-05).
+
+export interface CoverageMatch {
+  partnerId: string;
+  refId: string;
+  name: string;
+  color: string;
+  count: number;
+}
+
+/** The effective coverage partner per unmatched lead: live zip override (DM-06:
+ *  effective_to IS NULL) beats state rule; leads nothing covers drop out. */
+function coverageMatchRows(scope: ScopeContext) {
+  const db = getDb();
+  const zipCov = db
+    .select({ zip5: schema.coverageZips.zip5, zipPartnerId: schema.coverageZips.partnerId })
+    .from(schema.coverageZips)
+    .where(and(tenantWhere(schema.coverageZips, scope), isNull(schema.coverageZips.effectiveTo)))
+    .as("zip_cov");
+  const effectivePartner = sql<string>`coalesce(${zipCov.zipPartnerId}, ${schema.stateRules.partnerId})`;
+  return { zipCov, effectivePartner, db };
+}
+
+/** Per-partner counts of unmatched leads their current coverage would take. */
+export async function unmatchedCoverageMatches(scope: ScopeContext): Promise<CoverageMatch[]> {
+  const { zipCov, effectivePartner, db } = coverageMatchRows(scope);
+  const rows = await db
+    .select({ partnerId: effectivePartner, count: sql<number>`count(*)::int` })
+    .from(schema.leads)
+    .leftJoin(zipCov, eq(zipCov.zip5, schema.leads.zip))
+    .leftJoin(
+      schema.stateRules,
+      and(tenantWhere(schema.stateRules, scope), eq(schema.stateRules.state, sql`upper(trim(${schema.leads.state}))`)),
+    )
+    .where(and(unmatchedWhere(scope), sql`${effectivePartner} is not null`))
+    .groupBy(sql`1`)
+    .orderBy(sql`count(*) desc`, sql`1`);
+  if (rows.length === 0) return [];
+  const partners = await db
+    .select({ id: schema.partners.id, refId: schema.partners.refId, name: schema.partners.name, color: schema.partners.color })
+    .from(schema.partners)
+    .where(
+      and(
+        tenantWhere(schema.partners, scope),
+        inArray(schema.partners.id, rows.map((r) => r.partnerId)),
+        eq(schema.partners.status, "active"),
+        isNull(schema.partners.deletedAt),
+      ),
+    );
+  const byId = new Map(partners.map((p) => [p.id, p]));
+  // A match whose partner is no longer active/present is dropped — assignment would
+  // reject it anyway (InvalidAssignTargetError), so don't offer it.
+  return rows.flatMap((r) => {
+    const p = byId.get(r.partnerId);
+    return p ? [{ partnerId: p.id, refId: p.refId, name: p.name, color: p.color, count: Number(r.count) }] : [];
+  });
+}
+
+/** The refIds of unmatched leads a specific partner's current coverage would take. */
+export async function unmatchedCoverageLeadRefs(scope: ScopeContext, partnerId: string): Promise<string[]> {
+  const { zipCov, effectivePartner, db } = coverageMatchRows(scope);
+  const rows = await db
+    .select({ refId: schema.leads.refId })
+    .from(schema.leads)
+    .leftJoin(zipCov, eq(zipCov.zip5, schema.leads.zip))
+    .leftJoin(
+      schema.stateRules,
+      and(tenantWhere(schema.stateRules, scope), eq(schema.stateRules.state, sql`upper(trim(${schema.leads.state}))`)),
+    )
+    .where(and(unmatchedWhere(scope), sql`${effectivePartner} = ${partnerId}`))
+    .orderBy(schema.leads.refId);
+  return rows.map((r) => r.refId);
+}
+
 export async function unmatchedStateStats(scope: ScopeContext): Promise<UnmatchedStateStats> {
   const db = getDb();
   const rows = await db

@@ -336,6 +336,34 @@ export async function notifyLeadAssigned(
   });
 }
 
+/**
+ * S6 bulk assign: ONE summary notification for a batch, not one per lead — a
+ * 40-lead backfill must not flood the partner's bell. Same channel gate and
+ * best-effort contract as notifyLeadAssigned.
+ */
+export async function notifyLeadsBulkAssigned(
+  db: DB,
+  scope: ScopeContext,
+  input: { partnerId: string; count: number },
+): Promise<void> {
+  if (input.count === 0) return;
+  if (input.count === 1) return; // single assign keeps the per-lead deep link path
+  if (!resolvePref(await loadNotificationPrefs(db, scope), "partner", "new_leads").inApp) return;
+  const [user] = await db
+    .select({ id: schema.users.id })
+    .from(schema.users)
+    .where(and(tenantWhere(schema.users, scope), eq(schema.users.partnerId, input.partnerId)));
+  if (!user) return;
+  await createNotification(db, {
+    tenantId: scope.tenantId,
+    userId: user.id,
+    type: "assigned_lead",
+    title: `${input.count} leads were assigned to you`,
+    body: "An admin routed these leads to you.",
+    deepLink: "/portal/leads",
+  });
+}
+
 export interface DrainResult {
   sent: number;
   failed: number;

@@ -6,8 +6,8 @@ import dynamic from "next/dynamic";
 import { apiGet } from "@/lib/api";
 import { csrfHeaders } from "@/lib/csrf-client";
 import {
-  AppShell, Card, Badge, Button, Dialog, Select, Input, EmptyState, Skeleton,
-  useToast, Table, THead, TBody, Th, Tr, Td, Pagination,
+  AppShell, Card, Badge, Button, Checkbox, Dialog, Select, Input, EmptyState, Skeleton,
+  useToast, Table, THead, TBody, Th, Tr, Td, Pagination, PartnerTag,
   RowOpenButton, DEFAULT_PAGE_SIZE, usePageHeader, Tooltip,
 } from "@/components";
 import type { StateCoverage } from "@/modules/coverage/map";
@@ -31,6 +31,7 @@ const CountyCoverageMap = dynamic(() => import("@/components/CountyCoverageMap")
 });
 
 interface Partner { id: string; refId: string; name: string; color: string }
+interface CoverageMatch { partnerId: string; refId: string; name: string; color: string; count: number }
 interface StateStats { total: number; byState: { state: string; count: number }[] }
 interface LeadRow {
   refId: string; seller: string; address: string; city: string | null; state: string | null;
@@ -73,7 +74,19 @@ function HeatLegend() {
   );
 }
 
-function AssignModal({ refId, onClose }: { refId: string; onClose: () => void }) {
+/** Invalidate everything an assignment changes (list, stats, backfill, downstream views). */
+function invalidateAfterAssign(qc: ReturnType<typeof useQueryClient>) {
+  qc.invalidateQueries({ queryKey: ["unmatched"] });
+  qc.invalidateQueries({ queryKey: ["unmatched-stats"] });
+  qc.invalidateQueries({ queryKey: ["unmatched-backfill"] });
+  qc.invalidateQueries({ queryKey: ["coverage"] });
+  qc.invalidateQueries({ queryKey: ["leads"] });
+  qc.invalidateQueries({ queryKey: ["dashboard"] });
+}
+
+/** One modal for both flows: a single row's "Assign →" passes one ref, the bulk
+ *  bar passes the selection. Both post to the transactional bulk endpoint. */
+function AssignModal({ refIds, onClose, onAssigned }: { refIds: string[]; onClose: () => void; onAssigned?: () => void }) {
   const qc = useQueryClient();
   const toast = useToast();
   const roster = useQuery({ queryKey: ["partners"], queryFn: () => apiGet<{ partners: Partner[] }>("/api/admin/partners") });
@@ -81,37 +94,37 @@ function AssignModal({ refId, onClose }: { refId: string; onClose: () => void })
 
   const assign = useMutation({
     mutationFn: async () => {
-      const res = await fetch(`/api/leads/${refId}/assign`, {
+      const res = await fetch("/api/leads/assign-bulk", {
         method: "POST",
         headers: { "Content-Type": "application/json", ...csrfHeaders() },
-        body: JSON.stringify({ partnerId }),
+        body: JSON.stringify({ leadRefs: refIds, partnerId }),
       });
       const b = await res.json();
       if (!res.ok) throw new Error(b?.message ?? "Assign failed.");
       return b as { message?: string };
     },
     onSuccess: (b) => {
-      qc.invalidateQueries({ queryKey: ["unmatched"] });
-      qc.invalidateQueries({ queryKey: ["unmatched-stats"] });
-      qc.invalidateQueries({ queryKey: ["coverage"] });
-      qc.invalidateQueries({ queryKey: ["leads"] });
-      qc.invalidateQueries({ queryKey: ["dashboard"] });
-      toast.toast(b.message ?? "Lead assigned.", "success");
+      invalidateAfterAssign(qc);
+      toast.toast(b.message ?? "Leads assigned.", "success");
+      onAssigned?.();
       onClose();
     },
     onError: (e: Error) => toast.toast(e.message, "danger"),
   });
 
   const chosen = partnerId !== PARTNER_PLACEHOLDER;
+  const many = refIds.length > 1;
   return (
     <Dialog
       open
       onClose={onClose}
-      title={<span className="num">Assign {refId}</span>}
+      title={many ? <span>Assign <span className="num">{refIds.length}</span> leads</span> : <span className="num">Assign {refIds[0]}</span>}
       footer={
         <>
           <Button variant="ghost" onClick={onClose} disabled={assign.isPending}>Cancel</Button>
-          <Button variant="primary" onClick={() => assign.mutate()} loading={assign.isPending} disabled={!chosen}>Assign lead</Button>
+          <Button variant="primary" onClick={() => assign.mutate()} loading={assign.isPending} disabled={!chosen}>
+            {many ? `Assign ${refIds.length} leads` : "Assign lead"}
+          </Button>
         </>
       }
     >
@@ -125,9 +138,68 @@ function AssignModal({ refId, onClose }: { refId: string; onClose: () => void })
             ...(roster.data?.partners ?? []).map((p) => ({ value: p.id, label: `${p.name} (${p.refId})` })),
           ]}
         />
-        <p className="text-step-1 text-text-3">Recorded in the activity log. The lead&apos;s original &ldquo;unmatched&rdquo; record is kept — history isn&apos;t rewritten.</p>
+        <p className="text-step-1 text-text-3">Recorded in the activity log. Each lead&apos;s original &ldquo;unmatched&rdquo; record is kept — history isn&apos;t rewritten.</p>
       </div>
     </Dialog>
+  );
+}
+
+/** Owner note #2: after coverage changes, offer to hand matching unmatched leads to
+ *  the covering partner in one click. Renders nothing when coverage matches nothing. */
+function CoverageBackfillCard() {
+  const qc = useQueryClient();
+  const toast = useToast();
+  const matchesQ = useQuery({
+    queryKey: ["unmatched-backfill"],
+    queryFn: () => apiGet<{ matches: CoverageMatch[] }>("/api/leads/unmatched/backfill"),
+  });
+
+  const backfill = useMutation({
+    mutationFn: async (partnerId: string) => {
+      const res = await fetch("/api/leads/unmatched/backfill", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...csrfHeaders() },
+        body: JSON.stringify({ partnerId }),
+      });
+      const b = await res.json();
+      if (!res.ok) throw new Error(b?.message ?? "Assign failed.");
+      return b as { message?: string };
+    },
+    onSuccess: (b) => {
+      invalidateAfterAssign(qc);
+      toast.toast(b.message ?? "Leads assigned.", "success");
+    },
+    onError: (e: Error) => toast.toast(e.message, "danger"),
+  });
+
+  const matches = matchesQ.data?.matches ?? [];
+  if (matches.length === 0) return null;
+  return (
+    <div className="rounded-2xl border border-warn bg-warn-soft p-4">
+      <p className="text-sm font-semibold text-text">Coverage now matches some of these leads</p>
+      <p className="mt-0.5 text-step-1 text-text-2">Partner coverage added after these leads arrived can take them now — assigning goes straight to the partner.</p>
+      <ul className="mt-3 flex flex-col gap-2">
+        {matches.map((m) => (
+          <li key={m.partnerId} className="flex flex-wrap items-center justify-between gap-2">
+            <span className="flex items-center gap-2">
+              <PartnerTag size="sm" name={m.name} color={m.color} refId={m.refId} />
+              <span className="text-step-1 text-text-2">
+                covers <span className="num font-semibold">{m.count}</span> unmatched lead{m.count === 1 ? "" : "s"}
+              </span>
+            </span>
+            <Button
+              size="sm"
+              variant="primary"
+              loading={backfill.isPending && backfill.variables === m.partnerId}
+              disabled={backfill.isPending}
+              onClick={() => backfill.mutate(m.partnerId)}
+            >
+              Assign {m.count} to {m.refId}
+            </Button>
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }
 
@@ -147,7 +219,8 @@ function UnmatchedBody() {
   const statsQ = useQuery({ queryKey: ["unmatched-stats"], queryFn: () => apiGet<StateStats>("/api/leads/unmatched") });
   const [page, setPage] = React.useState(1);
   const [pageSize, setPageSize] = React.useState<number>(DEFAULT_PAGE_SIZE);
-  const [assigningRef, setAssigningRef] = React.useState<string | null>(null);
+  const [assigning, setAssigning] = React.useState<string[] | null>(null);
+  const [selected, setSelected] = React.useState<ReadonlySet<string>>(new Set());
   const [openRef, setOpenRef] = React.useState<string | null>(null);
 
   // T3 filters/sort — state comes from the header chips; q is a debounced search.
@@ -158,10 +231,11 @@ function UnmatchedBody() {
   const [sort, setSort] = React.useState<UnmatchedSort>("received");
   const [dir, setDir] = React.useState<"asc" | "desc">("desc");
 
-  // Admin filterKey pattern: a render-time compare resets `page` when any filter changes.
+  // Admin filterKey pattern: a render-time compare resets `page` (and the bulk
+  // selection — hidden selected rows would be a surprise) when any filter changes.
   const filterKey = `${stateFilter}|${qCommitted}|${sort}|${dir}`;
   const [resetKey, setResetKey] = React.useState(filterKey);
-  if (filterKey !== resetKey) { setResetKey(filterKey); setPage(1); }
+  if (filterKey !== resetKey) { setResetKey(filterKey); setPage(1); setSelected(new Set()); }
 
   const onSort = (field: UnmatchedSort) => {
     if (sort === field) setDir((p) => (p === "asc" ? "desc" : "asc"));
@@ -197,6 +271,27 @@ function UnmatchedBody() {
   }, [gapStates, maxCount]);
 
   const hasFilters = Boolean(stateFilter || qCommitted);
+
+  // Bulk selection (S6): row checkboxes + a header select-all for the current page.
+  // The selection survives paging (assign across pages) and clears on filter change.
+  const pageRefs = React.useMemo(() => (listQ.data?.leads ?? []).map((l) => l.refId), [listQ.data]);
+  const allPageSelected = pageRefs.length > 0 && pageRefs.every((r) => selected.has(r));
+  const toggleRef = (refId: string, on: boolean) =>
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (on) next.add(refId);
+      else next.delete(refId);
+      return next;
+    });
+  const togglePage = (on: boolean) =>
+    setSelected((prev) => {
+      const next = new Set(prev);
+      for (const r of pageRefs) {
+        if (on) next.add(r);
+        else next.delete(r);
+      }
+      return next;
+    });
   const chip = (active: boolean) =>
     active
       ? "inline-flex items-center gap-1.5 rounded-full border border-warn bg-warn-soft px-2.5 py-1 text-xs font-semibold text-warn"
@@ -212,6 +307,9 @@ function UnmatchedBody() {
         <Card><div className="p-8"><EmptyState title="Nothing unmatched — full coverage" description="Every lead you've processed reached a partner. New gaps will show up here." /></div></Card>
       ) : (
         <div className="flex flex-col gap-5">
+          {/* Coverage backfill offer (owner note #2) — only when coverage matches something. */}
+          <CoverageBackfillCard />
+
           {/* Stats: the size of the backlog at a glance (T3 / owner note #3). */}
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
             <StatTile label="Unmatched leads" value={stats!.total.toLocaleString()} accent />
@@ -259,6 +357,19 @@ function UnmatchedBody() {
                 ))}
               </div>
             </div>
+            {selected.size > 0 && (
+              <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-warn bg-warn-soft px-3 py-2">
+                <span className="text-sm font-semibold text-text">
+                  <span className="num">{selected.size}</span> lead{selected.size === 1 ? "" : "s"} selected
+                </span>
+                <span className="flex items-center gap-2">
+                  <Button size="sm" variant="ghost" onClick={() => setSelected(new Set())}>Clear</Button>
+                  <Button size="sm" variant="primary" onClick={() => setAssigning([...selected])}>
+                    Assign selected →
+                  </Button>
+                </span>
+              </div>
+            )}
             <Card>
               {listQ.isPending ? (
                 <div className="flex flex-col gap-3 p-5">{Array.from({ length: 6 }).map((_, i) => <Skeleton key={i} className="h-9 w-full" />)}</div>
@@ -270,6 +381,7 @@ function UnmatchedBody() {
                 <Table>
                   <THead>
                     <Tr>
+                      <Th><Checkbox checked={allPageSelected} onCheckedChange={togglePage} ariaLabel="Select all leads on this page" /></Th>
                       <Th>Lead</Th>
                       <Th sortable sortDir={sortDir("seller")} onSort={() => onSort("seller")}>Seller</Th>
                       <Th>Property</Th><Th>Source</Th>
@@ -280,6 +392,7 @@ function UnmatchedBody() {
                   <TBody>
                     {listQ.data!.leads.map((l) => (
                       <Tr key={l.refId} className="hover:bg-surface-2">
+                        <Td><Checkbox checked={selected.has(l.refId)} onCheckedChange={(v) => toggleRef(l.refId, v)} ariaLabel={`Select ${l.refId}`} /></Td>
                         <Td><RowOpenButton className="text-xs" onClick={() => setOpenRef(l.refId)}>{l.refId}</RowOpenButton></Td>
                         <Td><span className="text-sm text-text">{l.seller}</span></Td>
                         <Td>
@@ -292,7 +405,7 @@ function UnmatchedBody() {
                         </Td>
                         <Td>{l.campaign ? <Badge variant="neutral">{l.campaign}</Badge> : <span className="text-xs text-text-3">—</span>}</Td>
                         <Td align="right"><Tooltip content={new Date(l.receivedAt).toLocaleString()}><span className="num tabular-nums text-text-2" tabIndex={0}>{formatWaiting(l.receivedAt, now)}</span></Tooltip></Td>
-                        <Td align="right"><Button size="sm" variant="primary" onClick={() => setAssigningRef(l.refId)}>Assign →</Button></Td>
+                        <Td align="right"><Button size="sm" variant="primary" onClick={() => setAssigning([l.refId])}>Assign →</Button></Td>
                       </Tr>
                     ))}
                   </TBody>
@@ -322,7 +435,7 @@ function UnmatchedBody() {
         </div>
       )}
 
-      {assigningRef && <AssignModal refId={assigningRef} onClose={() => setAssigningRef(null)} />}
+      {assigning && <AssignModal refIds={assigning} onClose={() => setAssigning(null)} onAssigned={() => setSelected(new Set())} />}
       {openRef && <LeadDialog refId={openRef} onClose={() => setOpenRef(null)} />}
     </>
   );
