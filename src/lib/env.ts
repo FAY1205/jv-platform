@@ -82,6 +82,10 @@ const EnvSchema = z.object({
   AI_PROVIDER: z.enum(["gateway", "google"]).default("gateway"),
   // Google AI Studio API key (AIza…) — only read when AI_PROVIDER=google.
   GOOGLE_GENERATIVE_AI_API_KEY: optionalString,
+  // ADR-0036: master key for AES-256-GCM encryption of per-tenant AI provider
+  // credentials at rest (32 bytes, base64). Optional — when absent, the BYO-key
+  // feature is disabled with a clear message rather than crashing boot.
+  AI_KEY_ENCRYPTION_KEY: optionalString,
 }).refine(
   // Fail fast in production if APP_URL is still the localhost default — otherwise the release cron
   // would email real partners digest links pointing at localhost (audit-api-contract F-2).
@@ -139,6 +143,7 @@ export function readEnv(source: Record<string, string | undefined> = process.env
     AI_TIER: source.AI_TIER,
     AI_PROVIDER: source.AI_PROVIDER,
     GOOGLE_GENERATIVE_AI_API_KEY: source.GOOGLE_GENERATIVE_AI_API_KEY,
+    AI_KEY_ENCRYPTION_KEY: source.AI_KEY_ENCRYPTION_KEY,
   });
 }
 

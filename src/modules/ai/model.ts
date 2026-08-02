@@ -1,7 +1,10 @@
-import { google } from "@ai-sdk/google";
+import { google, createGoogleGenerativeAI } from "@ai-sdk/google";
+import { createOpenAI } from "@ai-sdk/openai";
+import { createAnthropic } from "@ai-sdk/anthropic";
 import type { LanguageModel } from "ai";
 import { env } from "@/lib/env";
 import { AI_MODEL } from "./pricing";
+import type { AiProviderId } from "./credential";
 
 // Runtime model-provider selection (ADR-0027 amendment).
 //
@@ -21,14 +24,35 @@ import { AI_MODEL } from "./pricing";
 // + metering stay keyed on `AI_MODEL` (same model, same Flash-Lite rates).
 export const GOOGLE_MODEL_ID = "gemini-3.1-flash-lite-preview";
 
-/** The `LanguageModel` to run, per the configured provider. */
+/** The `LanguageModel` to run, per the configured PLATFORM provider (legacy path). */
 export function resolveModel(): LanguageModel {
   return env.AI_PROVIDER === "google" ? google(GOOGLE_MODEL_ID) : AI_MODEL;
 }
 
-/** Whether the active provider's credential is configured (drives the chat gate). */
+/** Whether the active PLATFORM provider's credential is configured (legacy gate). */
 export function hasProviderKey(): boolean {
   return env.AI_PROVIDER === "google"
     ? Boolean(env.GOOGLE_GENERATIVE_AI_API_KEY)
     : Boolean(env.AI_GATEWAY_API_KEY);
+}
+
+// ADR-0036: BYO per-tenant model. Each provider's cost-effective default model; the
+// tenant's own key determines access. Pricing/metering in pricing.ts keys on these ids.
+export const PROVIDER_MODELS: Record<AiProviderId, string> = {
+  google: "gemini-2.0-flash",
+  openai: "gpt-4o-mini",
+  anthropic: "claude-3-5-haiku-latest",
+};
+
+/** Build a `LanguageModel` from a tenant's own credential (explicit apiKey, never env). */
+export function resolveTenantModel(cred: { provider: AiProviderId; apiKey: string }): LanguageModel {
+  const modelId = PROVIDER_MODELS[cred.provider];
+  switch (cred.provider) {
+    case "google":
+      return createGoogleGenerativeAI({ apiKey: cred.apiKey })(modelId);
+    case "openai":
+      return createOpenAI({ apiKey: cred.apiKey })(modelId);
+    case "anthropic":
+      return createAnthropic({ apiKey: cred.apiKey })(modelId);
+  }
 }

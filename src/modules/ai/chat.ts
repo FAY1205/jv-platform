@@ -33,13 +33,13 @@ function lastUserText(messages: ChatBody["messages"]): string {
   return (last.parts as { type?: string; text?: string }[]).map((p) => (p?.type === "text" ? (p.text ?? "") : "")).join("");
 }
 
-export async function assistantGate(db: Db, scope: ScopeContext, opts: { appEnv: "development" | "preview" | "production"; aiTier: "paid" | "free-dev"; hasProviderKey: boolean; now: Date }) {
-  // LGL-04/SEC-07 tier guard: prod may never run on the training-permitted free tier.
-  if (opts.appEnv === "production" && opts.aiTier !== "paid") {
-    return { ok: false as const, code: "ai_disabled" as const, status: 503, message: "Assistant unavailable: production requires the paid AI tier (see Settings → AI assistant)." };
-  }
-  if (!opts.hasProviderKey) {
-    return { ok: false as const, code: "ai_disabled" as const, status: 503, message: "Assistant is not configured yet." };
+export async function assistantGate(db: Db, scope: ScopeContext, opts: { hasCredential: boolean; now: Date }) {
+  // ADR-0036 (BYO): the assistant runs on the TENANT's own provider credential. The
+  // old production/free-tier guard (LGL-04, platform key) no longer applies — the
+  // tenant uses their own paid provider account under their own data terms. The
+  // presence of a stored credential is the gate.
+  if (!opts.hasCredential) {
+    return { ok: false as const, code: "ai_disabled" as const, status: 503, message: "Add your AI provider API key in Settings → AI assistant to use the assistant." };
   }
   const settings = await loadAiSettings(scope);
   if (!settings.enabled) {
@@ -54,7 +54,9 @@ export async function assistantGate(db: Db, scope: ScopeContext, opts: { appEnv:
   return { ok: true as const };
 }
 
-export async function assistantResponse(db: Db, scope: ScopeContext, input: ChatBody, deps: { model: LanguageModel; now: Date }): Promise<Response> {
+export async function assistantResponse(db: Db, scope: ScopeContext, input: ChatBody, deps: { model: LanguageModel; modelId?: string; now: Date }): Promise<Response> {
+  // The id metering keys on: the tenant's chosen model (ADR-0036), else the platform default.
+  const meterModel = deps.modelId ?? AI_MODEL;
   if (lastUserText(input.messages).length > MAX_QUESTION_CHARS) {
     return jsonError("invalid_input", "Question too long.", 400);
   }
@@ -72,8 +74,8 @@ export async function assistantResponse(db: Db, scope: ScopeContext, input: Chat
       try {
         const inputTokens = totalUsage.inputTokens ?? 0;
         const outputTokens = totalUsage.outputTokens ?? 0;
-        const cost = costMicroUsd(AI_MODEL, inputTokens, outputTokens) ?? 0;
-        await recordUsage(db, scope, { userId: scope.userId, model: AI_MODEL, inputTokens, outputTokens, costMicroUsd: cost });
+        const cost = costMicroUsd(meterModel, inputTokens, outputTokens) ?? 0;
+        await recordUsage(db, scope, { userId: scope.userId, model: meterModel, inputTokens, outputTokens, costMicroUsd: cost });
       } catch (e) {
         logError("ai_usage_record_failed", { detail: e instanceof Error ? e.message : "unknown" }); // never break the stream (SEC-05: no content)
       }
