@@ -11,6 +11,7 @@ import { suggestionsFor } from "@/modules/ai/suggestions";
 import { screenForPath } from "@/modules/ai/screen";
 import { gateStateFromCode, type AssistantGate } from "@/modules/ai/gate-error";
 import { Orb } from "./Orb";
+import { MiniOrb } from "./MiniOrb";
 import { SuggestionChips } from "./SuggestionChips";
 import { AssistantMessage, type AssistantSource } from "./AssistantMessage";
 import { AssistantIconButton } from "./AssistantIconButton";
@@ -157,7 +158,7 @@ export default function AssistantWidget() {
       >
         {/* Header */}
         <header className={"relative z-[2] flex flex-none items-center gap-3 border-b border-border-soft bg-[linear-gradient(180deg,var(--brand-soft),var(--surface)_130%)] px-4 py-3 transition-shadow " + (scrolled ? "shadow-md" : "")}>
-          <Orb size={30} animate={open} className="shrink-0" />
+          <MiniOrb size={30} className="shrink-0" />
           <div className="min-w-0 flex-1">
             <div className="font-display text-step-3 leading-tight">Assistant</div>
             <div className="mt-0.5 flex min-w-0 items-center gap-1.5 text-step-0 text-text-3">
