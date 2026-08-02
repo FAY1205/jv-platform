@@ -4,12 +4,12 @@ import * as React from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiGet, apiMutate } from "@/lib/api";
 import { csrfHeaders } from "@/lib/csrf-client";
-import { Card, CardBody, CardHeader, CardTitle, Switch, Input, Select, Button, Stat, EmptyState, Skeleton, Badge, useToast } from "@/components";
+import { Card, CardBody, CardHeader, CardTitle, Switch, Input, Select, Button, EmptyState, Skeleton, Badge, useToast } from "@/components";
 
-// SET-11 / ADR-0036: admin-only AI assistant controls — the tenant's OWN provider
-// credential (BYO), enable/disable, a monthly USD allowance, and month-to-date spend.
-// The API key is write-only: the server returns only whether one is configured and for
-// which provider, never the key itself.
+// SET-11 / ADR-0036: admin-only AI assistant control — a single card. The enable switch
+// auto-saves; when ON it reveals the tenant's OWN provider credential (BYO). The API key
+// is write-only: the server returns only whether one is configured and for which
+// provider, never the key itself.
 
 const PROVIDERS = [
   { value: "google", label: "Google Gemini" },
@@ -21,7 +21,6 @@ const PROVIDER_LABEL: Record<string, string> = { google: "Google Gemini", openai
 interface AiSettingsPayload {
   settings: { enabled: boolean };
   credential: { configured: boolean; provider: string | null; encryptionAvailable: boolean };
-  usage: { spentMicroUsd: number; spentUsd: number };
 }
 
 export function AiSettings() {
@@ -29,7 +28,7 @@ export function AiSettings() {
   const { toast } = useToast();
   const q = useQuery({ queryKey: ["settings", "ai"], queryFn: () => apiGet<AiSettingsPayload>("/api/settings/ai") });
 
-  // Seed the editable draft from server data WITHOUT setState-in-effect (adjust during render).
+  // Seed the switch from server data WITHOUT setState-in-effect (adjust during render).
   const [seed, setSeed] = React.useState<AiSettingsPayload["settings"] | null>(null);
   const [enabled, setEnabled] = React.useState(false);
   if (q.data && q.data.settings !== seed) {
@@ -41,13 +40,11 @@ export function AiSettings() {
   const [provider, setProvider] = React.useState("google");
   const [apiKey, setApiKey] = React.useState("");
 
+  // The switch auto-saves on toggle; onSettled re-syncs from the server (reverts on error).
   const save = useMutation({
-    mutationFn: () => apiMutate("/api/settings/ai", "PUT", { enabled }),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["settings", "ai"] });
-      toast("AI settings saved.", "success");
-    },
+    mutationFn: (next: boolean) => apiMutate("/api/settings/ai", "PUT", { enabled: next }),
     onError: (e: Error) => toast(e.message, "danger"),
+    onSettled: () => qc.invalidateQueries({ queryKey: ["settings", "ai"] }),
   });
 
   const saveKey = useMutation({
@@ -70,84 +67,76 @@ export function AiSettings() {
 
   const cred = q.data.credential;
 
+  function toggle(next: boolean) {
+    setEnabled(next);
+    save.mutate(next);
+  }
+
   return (
-    <div className="flex flex-col gap-4">
-      {/* BYO provider credential (ADR-0036) */}
-      <Card>
-        <CardHeader className="flex items-center justify-between gap-3">
-          <CardTitle>AI provider</CardTitle>
-          {cred.configured && cred.provider && <Badge variant="success">{PROVIDER_LABEL[cred.provider] ?? cred.provider} · connected</Badge>}
-        </CardHeader>
-        <CardBody className="flex flex-col gap-4">
-          <p className="text-sm text-text-2">
-            The assistant runs on your own AI account. Choose a provider and paste an API key — it&apos;s stored
-            encrypted and never shown again. Your provider bills you directly; requests go to them under your terms.
-          </p>
-          {!cred.encryptionAvailable ? (
-            <p className="rounded-md bg-warn-soft px-3 py-2 text-sm text-text-2">Secure key storage isn&apos;t configured on this deployment yet. Contact support to enable it.</p>
-          ) : (
-            <>
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
-                <Select label="Provider" required value={provider} onValueChange={setProvider} options={PROVIDERS} className="sm:w-56" />
-                <Input
-                  label={cred.configured ? "Replace API key" : "API key"}
-                  type="password"
-                  autoComplete="off"
-                  required={!cred.configured}
-                  value={apiKey}
-                  onChange={(e) => setApiKey(e.target.value)}
-                  placeholder={cred.configured ? "•••••••• (a key is saved)" : "Paste your API key"}
-                  className="flex-1"
-                />
-              </div>
-              <div className="flex items-center gap-2">
-                <Button
-                  variant="primary"
-                  loading={saveKey.isPending && (saveKey.variables as { action?: string })?.action !== "clear"}
-                  disabled={apiKey.trim().length < 8}
-                  onClick={() => saveKey.mutate({ action: "set", provider, apiKey: apiKey.trim() })}
-                >
-                  {cred.configured ? "Update key" : "Save key"}
-                </Button>
-                {cred.configured && (
+    <Card>
+      <CardHeader className="flex items-center justify-between gap-3">
+        <CardTitle>AI assistant</CardTitle>
+        {enabled && cred.configured && cred.provider && (
+          <Badge variant="success">{PROVIDER_LABEL[cred.provider] ?? cred.provider} · connected</Badge>
+        )}
+      </CardHeader>
+      <CardBody className="flex flex-col gap-5">
+        <label className="flex items-start justify-between gap-4">
+          <span>
+            <span className="block text-sm font-medium text-text">Assistant enabled</span>
+            <span className="block text-step-1 text-text-2">Turn on to connect an AI provider and show the in-app assistant to admins in this workspace.</span>
+          </span>
+          <Switch checked={enabled} onCheckedChange={toggle} disabled={save.isPending} ariaLabel="Assistant enabled" />
+        </label>
+
+        {/* Provider + key: revealed only when the assistant is on (ADR-0036 BYO). */}
+        {enabled && (
+          <div className="flex flex-col gap-4 border-t border-border-soft pt-5">
+            <p className="text-sm text-text-2">
+              The assistant runs on your own AI account. Choose a provider and paste an API key — it&apos;s stored
+              encrypted and never shown again. Your provider bills you directly; requests go to them under your terms.
+            </p>
+            {!cred.encryptionAvailable ? (
+              <p className="rounded-md bg-warn-soft px-3 py-2 text-sm text-text-2">Secure key storage isn&apos;t configured on this deployment yet. Contact support to enable it.</p>
+            ) : (
+              <>
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
+                  <Select label="Provider" required value={provider} onValueChange={setProvider} options={PROVIDERS} className="sm:w-56" />
+                  <Input
+                    label={cred.configured ? "Replace API key" : "API key"}
+                    type="password"
+                    autoComplete="off"
+                    required={!cred.configured}
+                    value={apiKey}
+                    onChange={(e) => setApiKey(e.target.value)}
+                    placeholder={cred.configured ? "•••••••• (a key is saved)" : "Paste your API key"}
+                    className="flex-1"
+                  />
+                </div>
+                <div className="flex items-center gap-2">
                   <Button
-                    variant="secondary"
-                    loading={saveKey.isPending && (saveKey.variables as { action?: string })?.action === "clear"}
-                    onClick={() => saveKey.mutate({ action: "clear" })}
+                    variant="primary"
+                    loading={saveKey.isPending && (saveKey.variables as { action?: string })?.action !== "clear"}
+                    disabled={apiKey.trim().length < 8}
+                    onClick={() => saveKey.mutate({ action: "set", provider, apiKey: apiKey.trim() })}
                   >
-                    Remove key
+                    {cred.configured ? "Update key" : "Save key"}
                   </Button>
-                )}
-              </div>
-            </>
-          )}
-        </CardBody>
-      </Card>
-
-      {/* Enable + read-only usage estimate */}
-      <Card>
-        <CardBody className="flex flex-col gap-5">
-          <label className="flex items-start justify-between gap-4">
-            <span>
-              <span className="block text-sm font-medium text-text">Assistant enabled</span>
-              <span className="block text-step-1 text-text-2">Show the in-app assistant to admins in this workspace. Requires a connected provider above.</span>
-            </span>
-            <Switch checked={enabled} onCheckedChange={setEnabled} ariaLabel="Assistant enabled" />
-          </label>
-
-          <Stat
-            label="Estimated usage this month"
-            value={`~$${q.data.usage.spentUsd.toFixed(2)}`}
-            foot="An in-app estimate from list prices — your provider bills you directly and is the source of truth. Set spend limits in your provider's dashboard."
-          />
-
-          <div>
-            <Button variant="primary" onClick={() => save.mutate()} loading={save.isPending}>
-              Save changes
-            </Button>
+                  {cred.configured && (
+                    <Button
+                      variant="secondary"
+                      loading={saveKey.isPending && (saveKey.variables as { action?: string })?.action === "clear"}
+                      onClick={() => saveKey.mutate({ action: "clear" })}
+                    >
+                      Remove key
+                    </Button>
+                  )}
+                </div>
+              </>
+            )}
           </div>
-        </CardBody>
-      </Card>
-    </div>
+        )}
+      </CardBody>
+    </Card>
   );
 }

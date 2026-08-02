@@ -1,16 +1,14 @@
-import { getDb } from "@/db";
 import { getServerScope } from "@/lib/scope-context";
 import { authErrorResponse, requireAdminResponse, assertCsrf } from "@/lib/auth/guard";
 import { jsonOk, jsonError } from "@/lib/http";
 import { loadAiSettings, saveAiSettings } from "@/modules/ai/settings";
 import { aiCredentialStatus, saveAiCredential, clearAiCredential, AI_PROVIDERS } from "@/modules/ai/credential";
-import { monthToDateMicroUsd } from "@/modules/ai/usage";
 import { z } from "zod";
 
 // SET-11 / ADR-0036: read + update the tenant's AI assistant settings — the enable
-// switch AND the BYO provider credential (write-only key). Plus month-to-date usage
-// (read-only estimate) for the panel. The monthly spend cap was removed — tenants
-// cap spend in their own provider dashboard. Admin-only.
+// switch AND the BYO provider credential (write-only key). The monthly spend cap and
+// the usage estimate were removed — tenants cap spend in their own provider dashboard.
+// Admin-only.
 const PutSchema = z.object({ enabled: z.boolean() });
 // The credential PUT: set a provider + key, or clear it. The key is never echoed back.
 const CredentialSchema = z.discriminatedUnion("action", [
@@ -23,12 +21,8 @@ export async function GET() {
     const scope = await getServerScope();
     const adminOnly = requireAdminResponse(scope);
     if (adminOnly) return adminOnly;
-    const [settings, credential, spentMicroUsd] = await Promise.all([
-      loadAiSettings(scope),
-      aiCredentialStatus(scope),
-      monthToDateMicroUsd(getDb(), scope, new Date()),
-    ]);
-    return jsonOk({ settings, credential, usage: { spentMicroUsd, spentUsd: Math.round(spentMicroUsd / 10_000) / 100 } });
+    const [settings, credential] = await Promise.all([loadAiSettings(scope), aiCredentialStatus(scope)]);
+    return jsonOk({ settings, credential });
   } catch (e) {
     return authErrorResponse(e) ?? jsonError("ai_settings_failed", "Could not load AI settings.", 500);
   }

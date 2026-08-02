@@ -28,29 +28,36 @@ describe("WP-AI-2 AiSettings", () => {
 
   const noCred = { configured: false, provider: null, encryptionAvailable: false };
 
-  it("SET-11: shows the enable switch and read-only month-to-date usage estimate", async () => {
-    apiGet.mockResolvedValue({ settings: { enabled: true }, credential: noCred, usage: { spentMicroUsd: 3_450_000, spentUsd: 0.35 } });
-    wrap(<AiSettings />);
-    expect(await screen.findByText(/\$0\.35/)).toBeTruthy();
-    expect(screen.getByRole("switch")).toBeTruthy();
-    // The removed spend cap: no allowance input is rendered (ADR-0036).
-    expect(screen.queryByLabelText(/allowance/i)).toBeNull();
-  });
-
-  it("BIL-04: saving PUTs only the enabled flag (cap removed, ADR-0036)", async () => {
-    apiGet.mockResolvedValue({ settings: { enabled: false }, credential: noCred, usage: { spentMicroUsd: 0, spentUsd: 0 } });
-    apiMutate.mockResolvedValue({ settings: { enabled: true } });
+  it("SET-11: OFF hides the provider section; no usage estimate is shown (ADR-0036)", async () => {
+    apiGet.mockResolvedValue({ settings: { enabled: false }, credential: { configured: false, provider: null, encryptionAvailable: true } });
     wrap(<AiSettings />);
     await screen.findByRole("switch");
-    await userEvent.click(screen.getByRole("switch"));
-    await userEvent.click(screen.getByRole("button", { name: /save changes/i }));
-    await waitFor(() => expect(apiMutate).toHaveBeenCalledWith("/api/settings/ai", "PUT", { enabled: true }));
+    // Provider/key section is revealed only when the assistant is on — the API key
+    // field (which only exists inside that section) is absent while OFF.
+    expect(screen.queryByLabelText(/api key/i)).toBeNull();
+    // Removed for BYO: no allowance input and no usage-estimate readout.
+    expect(screen.queryByLabelText(/allowance/i)).toBeNull();
+    expect(screen.queryByText(/usage this month/i)).toBeNull();
   });
 
-  it("ADR-0036: saving a provider key POSTs {action:set, provider, apiKey}; the key is never read back from GET", async () => {
+  it("SET-11: toggling the switch auto-saves enabled and reveals the provider section", async () => {
+    // Initial GET is OFF; after the toggle persists, the re-fetch reflects the saved ON state.
+    apiGet
+      .mockResolvedValueOnce({ settings: { enabled: false }, credential: { configured: false, provider: null, encryptionAvailable: true } })
+      .mockResolvedValue({ settings: { enabled: true }, credential: { configured: false, provider: null, encryptionAvailable: true } });
+    apiMutate.mockResolvedValue({ settings: { enabled: true } });
+    wrap(<AiSettings />);
+    await userEvent.click(await screen.findByRole("switch"));
+    // No separate "Save changes" button — the toggle itself persists.
+    await waitFor(() => expect(apiMutate).toHaveBeenCalledWith("/api/settings/ai", "PUT", { enabled: true }));
+    expect(screen.queryByRole("button", { name: /save changes/i })).toBeNull();
+    expect(await screen.findByLabelText(/api key/i)).toBeTruthy();
+  });
+
+  it("ADR-0036: with the assistant on, saving a key POSTs {action:set, provider, apiKey}; the key is never read back from GET", async () => {
     // GET never carries the key — only a status object. Prove the write goes out as a
     // separate POST with the plaintext key in the body (the default provider is google).
-    apiGet.mockResolvedValue({ settings: { enabled: false }, credential: { configured: false, provider: null, encryptionAvailable: true }, usage: { spentMicroUsd: 0, spentUsd: 0 } });
+    apiGet.mockResolvedValue({ settings: { enabled: true }, credential: { configured: false, provider: null, encryptionAvailable: true } });
     const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ code: "ok", credential: { configured: true, provider: "google", encryptionAvailable: true } }) });
     vi.stubGlobal("fetch", fetchMock);
     try {

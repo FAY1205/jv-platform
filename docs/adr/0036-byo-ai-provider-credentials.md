@@ -50,14 +50,19 @@ Two capabilities the codebase lacked:
   in-app guardrail, and usage metering stays (token counts; per-provider default-model
   pricing) — surfaced as a read-only "estimated usage this month".
 
-  **Amendment (2026-08-02, owner follow-up):** the monthly spend CAP was removed. With
-  BYO keys the in-app dollar figure is a list-price *estimate*, not the tenant's real
-  provider invoice, so a hard in-app ceiling on it was misleading. Tenants cap spend in
-  their own provider dashboard instead. Removed: `budgetDecision`/`DEFAULT_MONTHLY_CAP_USD`
-  (budget.ts), the `ai_monthly_cap_usd` setting + `coerceCapUsd` (settings.ts), the
-  `ai_budget_reached` gate branch, and the allowance input. Kept: the rate limit
-  (abuse guardrail), usage metering, and the read-only usage estimate. The client
-  `ai_budget_reached` band stays as harmless defensive code (server no longer emits it).
+  **Amendment (2026-08-02, owner follow-up):** the monthly spend CAP and the usage
+  estimate readout were removed, and Settings → AI collapsed to a SINGLE card — an
+  enable switch that auto-saves on toggle and reveals the provider + key controls only
+  when ON. With BYO keys the in-app dollar figure is a list-price *estimate*, not the
+  tenant's real provider invoice, so both a hard in-app ceiling and a surfaced estimate
+  were misleading; tenants cap/track spend in their own provider dashboard instead.
+  Removed: `budgetDecision`/`DEFAULT_MONTHLY_CAP_USD` (budget.ts), the `ai_monthly_cap_usd`
+  setting + `coerceCapUsd` (settings.ts), the `ai_budget_reached` gate branch, the
+  allowance input, and the usage `Stat` + the GET route's `usage` field. Kept: the rate
+  limit (abuse guardrail) and usage METERING — `recordUsage` still writes `ai_usage`
+  because the rate limiter counts rows there; `monthToDateMicroUsd` remains a helper but
+  is no longer surfaced. The client `ai_budget_reached` band stays as harmless defensive
+  code (server no longer emits it).
 
 - **LGL-04 note:** with the gateway we relied on zero-retention. With BYO keys, data
   goes to the tenant's own provider account under the tenant's agreement with that
