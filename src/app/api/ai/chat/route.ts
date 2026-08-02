@@ -3,7 +3,7 @@ import { getServerScope } from "@/lib/scope-context";
 import { authErrorResponse, requireAdminResponse, assertCsrf } from "@/lib/auth/guard";
 import { jsonError } from "@/lib/http";
 import { ChatBodySchema, assistantGate, assistantResponse } from "@/modules/ai/chat";
-import { resolveTenantModel, PROVIDER_MODELS } from "@/modules/ai/model";
+import { resolveTenantModel, tenantModelId } from "@/modules/ai/model";
 import { loadAiCredential } from "@/modules/ai/credential";
 
 // AIA-01: the assistant chat endpoint. Admin-only, CSRF-gated, Zod-validated,
@@ -24,7 +24,7 @@ export async function POST(request: Request) {
     const gate = await assistantGate(db, scope, { hasCredential: cred !== null, now: new Date() });
     if (!gate.ok) return jsonError(gate.code, gate.message, gate.status);
     const model = resolveTenantModel(cred!); // non-null once the gate passes
-    return await assistantResponse(db, scope, parsed.data, { model, modelId: PROVIDER_MODELS[cred!.provider], now: new Date() });
+    return await assistantResponse(db, scope, parsed.data, { model, modelId: tenantModelId(cred!), now: new Date() });
   } catch (e) {
     return authErrorResponse(e) ?? jsonError("ai_chat_failed", "The assistant hit an error.", 500);
   }

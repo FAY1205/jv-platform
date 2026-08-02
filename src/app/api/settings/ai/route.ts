@@ -2,8 +2,9 @@ import { getServerScope } from "@/lib/scope-context";
 import { authErrorResponse, requireAdminResponse, assertCsrf } from "@/lib/auth/guard";
 import { jsonOk, jsonError } from "@/lib/http";
 import { loadAiSettings, saveAiSettings } from "@/modules/ai/settings";
-import { aiCredentialStatus, saveAiCredential, clearAiCredential, AI_PROVIDERS } from "@/modules/ai/credential";
+import { aiCredentialStatus, saveAiCredential, clearAiCredential, setAiCredentialModel, AI_PROVIDERS } from "@/modules/ai/credential";
 import { testAiCredential } from "@/modules/ai/credential-test";
+import { isValidModel } from "@/modules/ai/models-catalog";
 import { z } from "zod";
 
 // SET-11 / ADR-0036: read + update the tenant's AI assistant settings — the enable
@@ -11,10 +12,11 @@ import { z } from "zod";
 // the usage estimate were removed — tenants cap spend in their own provider dashboard.
 // Admin-only.
 const PutSchema = z.object({ enabled: z.boolean() });
-// The credential POST: set a provider + key, clear it, or test the stored key against
-// the live provider. The key is never echoed back.
+// The credential POST: set a provider + key + model, change only the model, clear it,
+// or test the stored key against the live provider. The key is never echoed back.
 const CredentialSchema = z.discriminatedUnion("action", [
-  z.object({ action: z.literal("set"), provider: z.enum(AI_PROVIDERS), apiKey: z.string().trim().min(8).max(500) }),
+  z.object({ action: z.literal("set"), provider: z.enum(AI_PROVIDERS), apiKey: z.string().trim().min(8).max(500), model: z.string().min(1).max(100) }),
+  z.object({ action: z.literal("set-model"), model: z.string().min(1).max(100) }),
   z.object({ action: z.literal("clear") }),
   z.object({ action: z.literal("test") }),
 ]);
@@ -65,10 +67,22 @@ export async function POST(request: Request) {
       await clearAiCredential(scope);
       return jsonOk({ code: "ok", message: "API key removed.", credential: await aiCredentialStatus(scope) });
     }
+    if (parsed.data.action === "set-model") {
+      // Change the model on the existing key (no re-entry). Validate against the stored provider.
+      const status = await aiCredentialStatus(scope);
+      if (!status.configured || !status.provider) return jsonError("no_key", "Save an API key first.", 409);
+      if (!isValidModel(status.provider, parsed.data.model)) return jsonError("invalid_model", "That model isn't available for this provider.", 400);
+      await setAiCredentialModel(scope, parsed.data.model);
+      return jsonOk({ code: "ok", message: "Model updated.", credential: await aiCredentialStatus(scope) });
+    }
+    // action === "set"
     if (!(await aiCredentialStatus(scope)).encryptionAvailable) {
       return jsonError("encryption_unavailable", "Key storage isn't configured yet — contact support.", 503);
     }
-    await saveAiCredential(scope, { provider: parsed.data.provider, apiKey: parsed.data.apiKey });
+    if (!isValidModel(parsed.data.provider, parsed.data.model)) {
+      return jsonError("invalid_model", "That model isn't available for this provider.", 400);
+    }
+    await saveAiCredential(scope, { provider: parsed.data.provider, apiKey: parsed.data.apiKey, model: parsed.data.model });
     return jsonOk({ code: "ok", message: "API key saved.", credential: await aiCredentialStatus(scope) });
   } catch (e) {
     return authErrorResponse(e) ?? jsonError("ai_credential_save_failed", "Could not save the API key.", 500);

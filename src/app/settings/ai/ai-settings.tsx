@@ -4,6 +4,7 @@ import * as React from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiGet, apiMutate } from "@/lib/api";
 import { csrfHeaders } from "@/lib/csrf-client";
+import { AI_MODELS, coerceModel, type CatalogProvider } from "@/modules/ai/models-catalog";
 import { Card, CardBody, CardHeader, CardTitle, Switch, Input, Select, Button, EmptyState, Skeleton, Badge, useToast } from "@/components";
 
 // SET-11 / ADR-0036: admin-only AI assistant control — a single card. The enable switch
@@ -20,7 +21,7 @@ const PROVIDER_LABEL: Record<string, string> = { google: "Google Gemini", openai
 
 interface AiSettingsPayload {
   settings: { enabled: boolean };
-  credential: { configured: boolean; provider: string | null; encryptionAvailable: boolean };
+  credential: { configured: boolean; provider: string | null; model: string | null; encryptionAvailable: boolean };
 }
 
 export function AiSettings() {
@@ -36,10 +37,27 @@ export function AiSettings() {
     setEnabled(q.data.settings.enabled);
   }
 
-  // Credential draft (write-only key).
-  const [provider, setProvider] = React.useState("google");
+  // Credential draft (write-only key). Provider + model seeded once from the stored
+  // credential; after that the admin drives them.
+  const [provider, setProvider] = React.useState<CatalogProvider>("google");
+  const [model, setModel] = React.useState<string>(AI_MODELS.google[0].id);
   const [apiKey, setApiKey] = React.useState("");
   const [testResult, setTestResult] = React.useState<{ ok: boolean; message?: string; provider?: string; model?: string } | null>(null);
+  const [credSeeded, setCredSeeded] = React.useState(false);
+  if (q.data && !credSeeded) {
+    setCredSeeded(true);
+    const c = q.data.credential;
+    if (c.configured && c.provider) {
+      setProvider(c.provider as CatalogProvider);
+      setModel(coerceModel(c.provider as CatalogProvider, c.model));
+    }
+  }
+
+  function onProviderChange(p: string) {
+    const cp = p as CatalogProvider;
+    setProvider(cp);
+    setModel(AI_MODELS[cp][0].id); // reset to that provider's default model
+  }
 
   // The switch auto-saves on toggle; onSettled re-syncs from the server (reverts on error).
   const save = useMutation({
@@ -55,11 +73,11 @@ export function AiSettings() {
       if (!res.ok) throw new Error(b?.message ?? "Could not save the key.");
       return b;
     },
-    onSuccess: (_d, vars) => {
+    onSuccess: (b: { message?: string }) => {
       setApiKey("");
-      setTestResult(null); // a prior test result no longer applies to the new/removed key
+      setTestResult(null); // a prior test result no longer applies to the new/changed key/model
       qc.invalidateQueries({ queryKey: ["settings", "ai"] });
-      toast((vars as { action?: string }).action === "clear" ? "API key removed." : "API key saved.", "success");
+      toast(b?.message ?? "Saved.", "success");
     },
     onError: (e: Error) => toast(e.message, "danger"),
   });
@@ -84,6 +102,21 @@ export function AiSettings() {
   function toggle(next: boolean) {
     setEnabled(next);
     save.mutate(next);
+  }
+
+  // Save resolution: a new key → "set" (provider+key+model); otherwise, for a configured
+  // tenant on the same provider, a model change alone → "set-model" (no key re-entry).
+  const modelOptions = AI_MODELS[provider].map((m) => ({ value: m.id, label: m.label }));
+  const storedModel = cred.configured && cred.provider ? coerceModel(cred.provider as CatalogProvider, cred.model) : null;
+  const keyEntered = apiKey.trim().length >= 8;
+  const providerChanged = cred.configured ? provider !== cred.provider : true;
+  const canSaveKey = keyEntered;
+  const canSaveModelOnly = cred.configured && !keyEntered && !providerChanged && storedModel !== null && model !== storedModel;
+  const saveLabel = canSaveKey ? (cred.configured ? "Update key" : "Save key") : "Save model";
+  const saveMutating = saveKey.isPending && (saveKey.variables as { action?: string })?.action !== "clear";
+  function onSave() {
+    if (canSaveKey) saveKey.mutate({ action: "set", provider, apiKey: apiKey.trim(), model });
+    else if (canSaveModelOnly) saveKey.mutate({ action: "set-model", model });
   }
 
   return (
@@ -115,26 +148,27 @@ export function AiSettings() {
             ) : (
               <>
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
-                  <Select label="Provider" required value={provider} onValueChange={setProvider} options={PROVIDERS} className="sm:w-56" />
-                  <Input
-                    label={cred.configured ? "Replace API key" : "API key"}
-                    type="password"
-                    autoComplete="off"
-                    required={!cred.configured}
-                    value={apiKey}
-                    onChange={(e) => setApiKey(e.target.value)}
-                    placeholder={cred.configured ? "•••••••• (a key is saved)" : "Paste your API key"}
-                    className="flex-1"
-                  />
+                  <Select label="Provider" required value={provider} onValueChange={onProviderChange} options={PROVIDERS} className="sm:w-48" />
+                  <Select label="Model" required value={model} onValueChange={setModel} options={modelOptions} className="sm:w-56" />
                 </div>
-                <div className="flex items-center gap-2">
+                <Input
+                  label={cred.configured ? "Replace API key" : "API key"}
+                  type="password"
+                  autoComplete="off"
+                  required={!cred.configured}
+                  value={apiKey}
+                  onChange={(e) => setApiKey(e.target.value)}
+                  placeholder={cred.configured ? "•••••••• (a key is saved)" : "Paste your API key"}
+                  hint={cred.configured && providerChanged ? "Switching provider needs a new key for that provider." : undefined}
+                />
+                <div className="flex flex-wrap items-center gap-2">
                   <Button
                     variant="primary"
-                    loading={saveKey.isPending && (saveKey.variables as { action?: string })?.action !== "clear"}
-                    disabled={apiKey.trim().length < 8}
-                    onClick={() => saveKey.mutate({ action: "set", provider, apiKey: apiKey.trim() })}
+                    loading={saveMutating}
+                    disabled={!canSaveKey && !canSaveModelOnly}
+                    onClick={onSave}
                   >
-                    {cred.configured ? "Update key" : "Save key"}
+                    {saveLabel}
                   </Button>
                   {cred.configured && (
                     <>

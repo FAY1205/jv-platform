@@ -1,7 +1,7 @@
 import { generateText } from "ai";
 import type { ScopeContext } from "@/lib/scope";
 import { loadAiCredential, AI_PROVIDER_LABELS } from "./credential";
-import { resolveTenantModel, PROVIDER_MODELS } from "./model";
+import { resolveTenantModel, tenantModelId } from "./model";
 import { isEncryptionConfigured } from "@/lib/crypto/secret-box";
 import { logError } from "@/lib/observability";
 
@@ -49,7 +49,7 @@ export async function testAiCredential(scope: ScopeContext): Promise<CredentialT
       maxOutputTokens: 4,
       abortSignal: AbortSignal.timeout(12_000),
     });
-    return { ok: true, provider: AI_PROVIDER_LABELS[cred.provider], model: PROVIDER_MODELS[cred.provider] };
+    return { ok: true, provider: AI_PROVIDER_LABELS[cred.provider], model: tenantModelId(cred) };
   } catch (e) {
     logError("ai_credential_test_failed", { provider: cred.provider, detail: e instanceof Error ? e.message : "unknown" });
     return { ok: false, reason: "provider", message: providerHint(e) };

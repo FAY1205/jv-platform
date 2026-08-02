@@ -26,6 +26,8 @@ export function isAiProvider(v: unknown): v is AiProviderId {
 interface StoredCredential {
   provider: AiProviderId;
   enc: string;
+  /** Chosen model id (models-catalog). Optional for rows saved before model choice. */
+  model?: string;
 }
 
 async function readCredentialRow(scope: ScopeContext): Promise<StoredCredential | null> {
@@ -34,22 +36,35 @@ async function readCredentialRow(scope: ScopeContext): Promise<StoredCredential 
     .from(schema.settings)
     .where(and(tenantWhere(schema.settings, scope), eq(schema.settings.key, AI_CREDENTIAL_KEY)));
   const v = row?.value as Partial<StoredCredential> | undefined;
-  return v && isAiProvider(v.provider) && typeof v.enc === "string" ? { provider: v.provider, enc: v.enc } : null;
+  if (!v || !isAiProvider(v.provider) || typeof v.enc !== "string") return null;
+  return { provider: v.provider, enc: v.enc, model: typeof v.model === "string" ? v.model : undefined };
 }
 
-/** Client-safe status: whether a key is stored and for which provider — never the key. */
-export async function aiCredentialStatus(scope: ScopeContext): Promise<{ configured: boolean; provider: AiProviderId | null; encryptionAvailable: boolean }> {
+/** Client-safe status: whether a key is stored, for which provider + model — never the key. */
+export async function aiCredentialStatus(scope: ScopeContext): Promise<{ configured: boolean; provider: AiProviderId | null; model: string | null; encryptionAvailable: boolean }> {
   const row = await readCredentialRow(scope);
-  return { configured: row !== null, provider: row?.provider ?? null, encryptionAvailable: isEncryptionConfigured() };
+  return { configured: row !== null, provider: row?.provider ?? null, model: row?.model ?? null, encryptionAvailable: isEncryptionConfigured() };
 }
 
-/** Store (encrypt) a provider + key. Throws if encryption isn't configured. */
-export async function saveAiCredential(scope: ScopeContext, input: { provider: AiProviderId; apiKey: string }): Promise<void> {
-  const value: StoredCredential = { provider: input.provider, enc: encryptSecret(input.apiKey) };
+/** Store (encrypt) a provider + key + model. Throws if encryption isn't configured. */
+export async function saveAiCredential(scope: ScopeContext, input: { provider: AiProviderId; apiKey: string; model: string }): Promise<void> {
+  const value: StoredCredential = { provider: input.provider, enc: encryptSecret(input.apiKey), model: input.model };
   await getDb()
     .insert(schema.settings)
     .values({ tenantId: scope.tenantId, key: AI_CREDENTIAL_KEY, value })
     .onConflictDoUpdate({ target: [schema.settings.tenantId, schema.settings.key], set: { value, updatedAt: new Date() } });
+}
+
+/** Change ONLY the model on an existing credential (no re-entering the key). No-op if unset. */
+export async function setAiCredentialModel(scope: ScopeContext, model: string): Promise<boolean> {
+  const row = await readCredentialRow(scope);
+  if (!row) return false;
+  const value: StoredCredential = { ...row, model };
+  await getDb()
+    .update(schema.settings)
+    .set({ value, updatedAt: new Date() })
+    .where(and(tenantWhere(schema.settings, scope), eq(schema.settings.key, AI_CREDENTIAL_KEY)));
+  return true;
 }
 
 /** Remove the stored credential. */
@@ -60,8 +75,8 @@ export async function clearAiCredential(scope: ScopeContext): Promise<void> {
 }
 
 /** Server-only: the decrypted credential for making a model call, or null. */
-export async function loadAiCredential(scope: ScopeContext): Promise<{ provider: AiProviderId; apiKey: string } | null> {
+export async function loadAiCredential(scope: ScopeContext): Promise<{ provider: AiProviderId; apiKey: string; model?: string } | null> {
   const row = await readCredentialRow(scope);
   if (!row) return null;
-  return { provider: row.provider, apiKey: decryptSecret(row.enc) };
+  return { provider: row.provider, apiKey: decryptSecret(row.enc), model: row.model };
 }

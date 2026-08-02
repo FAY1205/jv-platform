@@ -14,12 +14,11 @@ const PRICES: Record<string, ModelPrice> = {
   "google/gemini-3.1-flash-lite": { inputMicroUsdPerMTok: 250_000, outputMicroUsdPerMTok: 1_500_000 },
   // Pinned fallback (ADR-0027): Claude Haiku 4.5, $1 in / $5 out per 1M tokens.
   "anthropic/claude-haiku-4.5": { inputMicroUsdPerMTok: 1_000_000, outputMicroUsdPerMTok: 5_000_000 },
-  // ADR-0036: BYO per-tenant default models (PROVIDER_MODELS). Public list rates as
-  // of 2026-08 — the tenant pays their own provider; these drive only the in-app
-  // usage estimate. An unpriced model still returns null → cost shown as ~$0.
-  "gemini-2.0-flash": { inputMicroUsdPerMTok: 100_000, outputMicroUsdPerMTok: 400_000 },
-  "gpt-4o-mini": { inputMicroUsdPerMTok: 150_000, outputMicroUsdPerMTok: 600_000 },
-  "claude-3-5-haiku-latest": { inputMicroUsdPerMTok: 800_000, outputMicroUsdPerMTok: 4_000_000 },
+  // ADR-0036: BYO per-tenant models (models-catalog.ts). The tenant pays their own
+  // provider, and the in-app usage $ was removed — so this only feeds the stored
+  // ai_usage.cost column (not shown anywhere). An unpriced model returns null → 0 cost
+  // recorded, which is fine. Priced where a public rate is known (2026-08):
+  "gemini-3.6-flash": { inputMicroUsdPerMTok: 1_500_000, outputMicroUsdPerMTok: 7_500_000 },
 };
 
 export function priceFor(model: string): ModelPrice | null {

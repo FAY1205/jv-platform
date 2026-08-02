@@ -4,6 +4,7 @@ import { createAnthropic } from "@ai-sdk/anthropic";
 import type { LanguageModel } from "ai";
 import { env } from "@/lib/env";
 import { AI_MODEL } from "./pricing";
+import { coerceModel } from "./models-catalog";
 import type { AiProviderId } from "./credential";
 
 // Runtime model-provider selection (ADR-0027 amendment).
@@ -36,17 +37,16 @@ export function hasProviderKey(): boolean {
     : Boolean(env.AI_GATEWAY_API_KEY);
 }
 
-// ADR-0036: BYO per-tenant model. Each provider's cost-effective default model; the
-// tenant's own key determines access. Pricing/metering in pricing.ts keys on these ids.
-export const PROVIDER_MODELS: Record<AiProviderId, string> = {
-  google: "gemini-2.0-flash",
-  openai: "gpt-4o-mini",
-  anthropic: "claude-3-5-haiku-latest",
-};
+// ADR-0036: BYO per-tenant model. The tenant picks BOTH the provider AND the model
+// (models-catalog.ts); their own key determines access. `tenantModelId` resolves the
+// chosen model, coerced to a valid one for the provider (default if unset/stale).
+export function tenantModelId(cred: { provider: AiProviderId; model?: string | null }): string {
+  return coerceModel(cred.provider, cred.model);
+}
 
 /** Build a `LanguageModel` from a tenant's own credential (explicit apiKey, never env). */
-export function resolveTenantModel(cred: { provider: AiProviderId; apiKey: string }): LanguageModel {
-  const modelId = PROVIDER_MODELS[cred.provider];
+export function resolveTenantModel(cred: { provider: AiProviderId; apiKey: string; model?: string | null }): LanguageModel {
+  const modelId = tenantModelId(cred);
   switch (cred.provider) {
     case "google":
       return createGoogleGenerativeAI({ apiKey: cred.apiKey })(modelId);
