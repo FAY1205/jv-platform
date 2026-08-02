@@ -19,7 +19,7 @@ const PROVIDERS = [
 const PROVIDER_LABEL: Record<string, string> = { google: "Google Gemini", openai: "OpenAI", anthropic: "Anthropic Claude" };
 
 interface AiSettingsPayload {
-  settings: { enabled: boolean; capUsd: number };
+  settings: { enabled: boolean };
   credential: { configured: boolean; provider: string | null; encryptionAvailable: boolean };
   usage: { spentMicroUsd: number; spentUsd: number };
 }
@@ -32,11 +32,9 @@ export function AiSettings() {
   // Seed the editable draft from server data WITHOUT setState-in-effect (adjust during render).
   const [seed, setSeed] = React.useState<AiSettingsPayload["settings"] | null>(null);
   const [enabled, setEnabled] = React.useState(false);
-  const [cap, setCap] = React.useState("10");
   if (q.data && q.data.settings !== seed) {
     setSeed(q.data.settings);
     setEnabled(q.data.settings.enabled);
-    setCap(String(q.data.settings.capUsd));
   }
 
   // Credential draft (write-only key).
@@ -44,7 +42,7 @@ export function AiSettings() {
   const [apiKey, setApiKey] = React.useState("");
 
   const save = useMutation({
-    mutationFn: () => apiMutate("/api/settings/ai", "PUT", { enabled, capUsd: Number(cap) }),
+    mutationFn: () => apiMutate("/api/settings/ai", "PUT", { enabled }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["settings", "ai"] });
       toast("AI settings saved.", "success");
@@ -70,8 +68,6 @@ export function AiSettings() {
   if (q.isLoading) return <Skeleton className="h-40 w-full" />;
   if (q.isError || !q.data) return <EmptyState title="Couldn't load AI settings" description="Refresh to try again." />;
 
-  const capNum = Number(cap);
-  const capValid = Number.isFinite(capNum) && capNum > 0 && capNum <= 1000;
   const cred = q.data.credential;
 
   return (
@@ -128,7 +124,7 @@ export function AiSettings() {
         </CardBody>
       </Card>
 
-      {/* Enable + allowance + usage */}
+      {/* Enable + read-only usage estimate */}
       <Card>
         <CardBody className="flex flex-col gap-5">
           <label className="flex items-start justify-between gap-4">
@@ -139,23 +135,14 @@ export function AiSettings() {
             <Switch checked={enabled} onCheckedChange={setEnabled} ariaLabel="Assistant enabled" />
           </label>
 
-          <Input
-            label="Monthly allowance (USD)"
-            type="number"
-            min={1}
-            max={1000}
-            step={1}
-            value={cap}
-            onChange={(e) => setCap(e.target.value)}
-            error={!capValid ? "Enter a whole-dollar amount between $1 and $1,000." : undefined}
-            hint={capValid ? "A self-imposed guardrail: the assistant stops for the rest of the month once your tracked usage reaches this." : undefined}
-            className="max-w-[160px]"
+          <Stat
+            label="Estimated usage this month"
+            value={`~$${q.data.usage.spentUsd.toFixed(2)}`}
+            foot="An in-app estimate from list prices — your provider bills you directly and is the source of truth. Set spend limits in your provider's dashboard."
           />
 
-          <Stat label="Estimated usage this month" value={`$${q.data.usage.spentUsd.toFixed(2)}`} />
-
           <div>
-            <Button variant="primary" onClick={() => save.mutate()} loading={save.isPending} disabled={!capValid}>
+            <Button variant="primary" onClick={() => save.mutate()} loading={save.isPending}>
               Save changes
             </Button>
           </div>

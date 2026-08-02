@@ -79,9 +79,9 @@ suite("WP-AI-1 Task 9: ai_usage metering (AIA-06/BIL-04/SET-11)", () => {
     expect(await questionsInLastMinute(db, scopeA, scopeA.userId, NOW)).toBe(1);
   });
 
-  it("SET-11: ai settings round-trip with defaults (off, $10) until saved", async () => {
-    expect(await loadAiSettings(scopeA)).toEqual({ enabled: false, capUsd: 10 });
-    await saveAiSettings(scopeA, { enabled: true, capUsd: 25 });
-    expect(await loadAiSettings(scopeA)).toEqual({ enabled: true, capUsd: 25 });
+  it("SET-11: ai settings round-trip defaults to OFF until saved (cap removed, ADR-0036)", async () => {
+    expect(await loadAiSettings(scopeA)).toEqual({ enabled: false });
+    await saveAiSettings(scopeA, { enabled: true });
+    expect(await loadAiSettings(scopeA)).toEqual({ enabled: true });
   });
 });

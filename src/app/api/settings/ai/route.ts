@@ -7,10 +7,11 @@ import { aiCredentialStatus, saveAiCredential, clearAiCredential, AI_PROVIDERS }
 import { monthToDateMicroUsd } from "@/modules/ai/usage";
 import { z } from "zod";
 
-// SET-11 / ADR-0036: read + update the tenant's AI assistant settings — enabled,
-// monthly allowance, AND the BYO provider credential (write-only key). Plus
-// month-to-date spend for the panel. Admin-only.
-const PutSchema = z.object({ enabled: z.boolean(), capUsd: z.number().positive().max(1000) });
+// SET-11 / ADR-0036: read + update the tenant's AI assistant settings — the enable
+// switch AND the BYO provider credential (write-only key). Plus month-to-date usage
+// (read-only estimate) for the panel. The monthly spend cap was removed — tenants
+// cap spend in their own provider dashboard. Admin-only.
+const PutSchema = z.object({ enabled: z.boolean() });
 // The credential PUT: set a provider + key, or clear it. The key is never echoed back.
 const CredentialSchema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("set"), provider: z.enum(AI_PROVIDERS), apiKey: z.string().trim().min(8).max(500) }),

@@ -28,30 +28,29 @@ describe("WP-AI-2 AiSettings", () => {
 
   const noCred = { configured: false, provider: null, encryptionAvailable: false };
 
-  it("SET-11: shows the enable switch, cap and month-to-date usage in $", async () => {
-    apiGet.mockResolvedValue({ settings: { enabled: true, capUsd: 10 }, credential: noCred, usage: { spentMicroUsd: 3_450_000, spentUsd: 0.35 } });
+  it("SET-11: shows the enable switch and read-only month-to-date usage estimate", async () => {
+    apiGet.mockResolvedValue({ settings: { enabled: true }, credential: noCred, usage: { spentMicroUsd: 3_450_000, spentUsd: 0.35 } });
     wrap(<AiSettings />);
     expect(await screen.findByText(/\$0\.35/)).toBeTruthy();
     expect(screen.getByRole("switch")).toBeTruthy();
+    // The removed spend cap: no allowance input is rendered (ADR-0036).
+    expect(screen.queryByLabelText(/allowance/i)).toBeNull();
   });
 
-  it("BIL-04: saving PUTs the enabled + cap values", async () => {
-    apiGet.mockResolvedValue({ settings: { enabled: false, capUsd: 10 }, credential: noCred, usage: { spentMicroUsd: 0, spentUsd: 0 } });
-    apiMutate.mockResolvedValue({ settings: { enabled: true, capUsd: 25 } });
+  it("BIL-04: saving PUTs only the enabled flag (cap removed, ADR-0036)", async () => {
+    apiGet.mockResolvedValue({ settings: { enabled: false }, credential: noCred, usage: { spentMicroUsd: 0, spentUsd: 0 } });
+    apiMutate.mockResolvedValue({ settings: { enabled: true } });
     wrap(<AiSettings />);
     await screen.findByRole("switch");
     await userEvent.click(screen.getByRole("switch"));
-    const cap = screen.getByLabelText(/monthly allowance/i);
-    await userEvent.clear(cap);
-    await userEvent.type(cap, "25");
     await userEvent.click(screen.getByRole("button", { name: /save changes/i }));
-    await waitFor(() => expect(apiMutate).toHaveBeenCalledWith("/api/settings/ai", "PUT", { enabled: true, capUsd: 25 }));
+    await waitFor(() => expect(apiMutate).toHaveBeenCalledWith("/api/settings/ai", "PUT", { enabled: true }));
   });
 
   it("ADR-0036: saving a provider key POSTs {action:set, provider, apiKey}; the key is never read back from GET", async () => {
     // GET never carries the key — only a status object. Prove the write goes out as a
     // separate POST with the plaintext key in the body (the default provider is google).
-    apiGet.mockResolvedValue({ settings: { enabled: false, capUsd: 10 }, credential: { configured: false, provider: null, encryptionAvailable: true }, usage: { spentMicroUsd: 0, spentUsd: 0 } });
+    apiGet.mockResolvedValue({ settings: { enabled: false }, credential: { configured: false, provider: null, encryptionAvailable: true }, usage: { spentMicroUsd: 0, spentUsd: 0 } });
     const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ code: "ok", credential: { configured: true, provider: "google", encryptionAvailable: true } }) });
     vi.stubGlobal("fetch", fetchMock);
     try {

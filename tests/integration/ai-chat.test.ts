@@ -19,9 +19,8 @@ const url = process.env.DATABASE_URL;
 const suite = url ? describe : describe.skip;
 const SLUG = "test-ai-chat-wpai1";
 const SLUG_DISABLED = "test-ai-chat-wpai1-disabled";
-const SLUG_CAP = "test-ai-chat-wpai1-cap";
 const SLUG_RATE = "test-ai-chat-wpai1-rate";
-const ALL_SLUGS = [SLUG, SLUG_DISABLED, SLUG_CAP, SLUG_RATE];
+const ALL_SLUGS = [SLUG, SLUG_DISABLED, SLUG_RATE];
 
 const LEAD_REF = "LD-26-90011";
 // Distinctive zip that appears ONLY in the real masked get_lead output — never in
@@ -141,7 +140,7 @@ suite("WP-AI-1 Task 11: assistant core — gate + streamText (AIA-01..06)", () =
       matchMethod: "state_fallback",
     });
 
-    await saveAiSettings(scopeA, { enabled: true, capUsd: 10 });
+    await saveAiSettings(scopeA, { enabled: true });
   });
 
   afterAll(async () => {
@@ -210,18 +209,9 @@ suite("WP-AI-1 Task 11: assistant core — gate + streamText (AIA-01..06)", () =
       expect(res).toEqual({ ok: false, code: "ai_disabled", status: 403, message: expect.any(String) });
     });
 
-    it("gate: capped tenant → ai_budget_reached", async () => {
-      const scope = await seedTenant(SLUG_CAP, "AI Chat Test Cap");
-      await saveAiSettings(scope, { enabled: true, capUsd: 1 });
-      // 1 * 1_000_000 = the cap in µ$ — spend meets it exactly, which is NOT < cap.
-      await db.insert(schema.aiUsage).values({ tenantId: scope.tenantId, userId: scope.userId, model: "google/gemini-3.1-flash-lite", inputTokens: 1, outputTokens: 1, costMicroUsd: 1_000_000 });
-      const res = await assistantGate(db, scope, { hasCredential: true, now: NOW });
-      expect(res).toEqual({ ok: false, code: "ai_budget_reached", status: 402, message: expect.any(String) });
-    });
-
     it("gate: 16th question in a minute → ai_rate_limited", async () => {
       const scope = await seedTenant(SLUG_RATE, "AI Chat Test Rate");
-      await saveAiSettings(scope, { enabled: true, capUsd: 10 });
+      await saveAiSettings(scope, { enabled: true });
       const rows = Array.from({ length: 15 }, () => ({
         tenantId: scope.tenantId,
         userId: scope.userId,

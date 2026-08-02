@@ -20,7 +20,7 @@ export const SCREENS: Record<ScreenKey, string> = {
   coverage: "Coverage: the whole-tenant county map — who owns each state, ZIP-override counts, and uncovered states (amber hatch) with waiting-lead counts.",
   activity: "Activity: the tenant audit trail (imports, rule edits, partner changes, security events), filterable to security-only.",
   rules: "Rules: the MLS removal phrases (on/off only — the pattern text is fixed). File formats live in Settings → Data & Export; coverage is edited on each partner's profile.",
-  settings: "Settings: workspace, notifications, security, appearance, data & export, and the AI assistant's enable switch, monthly allowance and usage.",
+  settings: "Settings: workspace, notifications, security, appearance, data & export, and the AI assistant's enable switch, provider API key and usage.",
   upload: "Upload: drop a weekly lead file; exact formats process immediately, changed formats go through a review-and-confirm mapping step.",
 };
 

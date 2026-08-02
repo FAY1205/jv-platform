@@ -8,9 +8,9 @@ import { jsonError } from "@/lib/http";
 import { buildAiTools } from "./tools";
 import { buildSystemPrompt, ScreenKeySchema } from "./prompt";
 import { AI_MODEL, costMicroUsd } from "./pricing";
-import { budgetDecision, rateDecision } from "./budget";
+import { rateDecision } from "./budget";
 import { loadAiSettings } from "./settings";
-import { monthToDateMicroUsd, questionsInLastMinute, recordUsage } from "./usage";
+import { questionsInLastMinute, recordUsage } from "./usage";
 
 // The assistant core (AIA-01..06). The model is INJECTED so tests drive the real
 // route/tools with ai/test mocks — CI never spends a token. Gates are checked
@@ -48,9 +48,8 @@ export async function assistantGate(db: Db, scope: ScopeContext, opts: { hasCred
   if (!rateDecision({ questionsLastMinute: await questionsInLastMinute(db, scope, scope.userId, opts.now) }).allowed) {
     return { ok: false as const, code: "ai_rate_limited" as const, status: 429, message: "Too many questions — try again in a minute." };
   }
-  if (!budgetDecision({ spentMicroUsd: await monthToDateMicroUsd(db, scope, opts.now), capUsd: settings.capUsd }).allowed) {
-    return { ok: false as const, code: "ai_budget_reached" as const, status: 402, message: "This month's AI allowance is used up. Raise the limit in Settings → AI assistant." };
-  }
+  // The monthly spend cap was removed (ADR-0036 follow-up): each tenant caps spend in
+  // their own provider dashboard. The rate limit above stays as the abuse guardrail.
   return { ok: true as const };
 }
 

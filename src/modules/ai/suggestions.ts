@@ -14,7 +14,7 @@ const BY_SCREEN: Partial<Record<ScreenKey, string[]>> = {
   partners: ["Who is my top partner this month?", "Which partner is slowest to make contact?", "Explain this screen"],
   partner_detail: ["How is this partner performing?", "What territory does this partner cover?", "Explain this screen"],
   coverage: ["Which states have no coverage?", "Who covers the most states?", "Explain this screen"],
-  settings: ["What does the monthly AI allowance do?", "Explain this screen"],
+  settings: ["How do I connect an AI provider key?", "Explain this screen"],
 };
 
 export function suggestionsFor(screen?: ScreenKey): string[] {
