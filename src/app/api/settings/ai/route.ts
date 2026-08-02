@@ -3,6 +3,7 @@ import { authErrorResponse, requireAdminResponse, assertCsrf } from "@/lib/auth/
 import { jsonOk, jsonError } from "@/lib/http";
 import { loadAiSettings, saveAiSettings } from "@/modules/ai/settings";
 import { aiCredentialStatus, saveAiCredential, clearAiCredential, AI_PROVIDERS } from "@/modules/ai/credential";
+import { testAiCredential } from "@/modules/ai/credential-test";
 import { z } from "zod";
 
 // SET-11 / ADR-0036: read + update the tenant's AI assistant settings — the enable
@@ -10,10 +11,12 @@ import { z } from "zod";
 // the usage estimate were removed — tenants cap spend in their own provider dashboard.
 // Admin-only.
 const PutSchema = z.object({ enabled: z.boolean() });
-// The credential PUT: set a provider + key, or clear it. The key is never echoed back.
+// The credential POST: set a provider + key, clear it, or test the stored key against
+// the live provider. The key is never echoed back.
 const CredentialSchema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("set"), provider: z.enum(AI_PROVIDERS), apiKey: z.string().trim().min(8).max(500) }),
   z.object({ action: z.literal("clear") }),
+  z.object({ action: z.literal("test") }),
 ]);
 
 export async function GET() {
@@ -53,6 +56,11 @@ export async function POST(request: Request) {
     if (adminOnly) return adminOnly;
     const parsed = CredentialSchema.safeParse(await request.json().catch(() => null));
     if (!parsed.success) return jsonError("invalid_input", parsed.error.issues[0]?.message ?? "Invalid credential.", 400);
+    if (parsed.data.action === "test") {
+      // Live check of the STORED key — makes one tiny provider call and reports a
+      // precise reason. Always 200; the outcome is in `test.ok`.
+      return jsonOk({ code: "ok", test: await testAiCredential(scope) });
+    }
     if (parsed.data.action === "clear") {
       await clearAiCredential(scope);
       return jsonOk({ code: "ok", message: "API key removed.", credential: await aiCredentialStatus(scope) });

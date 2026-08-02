@@ -39,6 +39,7 @@ export function AiSettings() {
   // Credential draft (write-only key).
   const [provider, setProvider] = React.useState("google");
   const [apiKey, setApiKey] = React.useState("");
+  const [testResult, setTestResult] = React.useState<{ ok: boolean; message?: string; provider?: string; model?: string } | null>(null);
 
   // The switch auto-saves on toggle; onSettled re-syncs from the server (reverts on error).
   const save = useMutation({
@@ -56,10 +57,23 @@ export function AiSettings() {
     },
     onSuccess: (_d, vars) => {
       setApiKey("");
+      setTestResult(null); // a prior test result no longer applies to the new/removed key
       qc.invalidateQueries({ queryKey: ["settings", "ai"] });
       toast((vars as { action?: string }).action === "clear" ? "API key removed." : "API key saved.", "success");
     },
     onError: (e: Error) => toast(e.message, "danger"),
+  });
+
+  // On-demand "test connection": one live provider call against the stored key (ADR-0036).
+  const testKey = useMutation({
+    mutationFn: async () => {
+      const res = await fetch("/api/settings/ai", { method: "POST", headers: { "Content-Type": "application/json", ...csrfHeaders() }, body: JSON.stringify({ action: "test" }) });
+      const b = await res.json();
+      if (!res.ok) throw new Error(b?.message ?? "Couldn't run the test.");
+      return b.test as { ok: boolean; message?: string; provider?: string; model?: string };
+    },
+    onSuccess: (t) => setTestResult(t),
+    onError: (e: Error) => setTestResult({ ok: false, message: e.message }),
   });
 
   if (q.isLoading) return <Skeleton className="h-40 w-full" />;
@@ -123,15 +137,38 @@ export function AiSettings() {
                     {cred.configured ? "Update key" : "Save key"}
                   </Button>
                   {cred.configured && (
-                    <Button
-                      variant="secondary"
-                      loading={saveKey.isPending && (saveKey.variables as { action?: string })?.action === "clear"}
-                      onClick={() => saveKey.mutate({ action: "clear" })}
-                    >
-                      Remove key
-                    </Button>
+                    <>
+                      <Button variant="secondary" loading={testKey.isPending} onClick={() => testKey.mutate()}>
+                        Test connection
+                      </Button>
+                      <Button
+                        variant="secondary"
+                        loading={saveKey.isPending && (saveKey.variables as { action?: string })?.action === "clear"}
+                        onClick={() => saveKey.mutate({ action: "clear" })}
+                      >
+                        Remove key
+                      </Button>
+                    </>
                   )}
                 </div>
+
+                {/* Test result (PRN-14: an icon + text carry the outcome, never colour alone). */}
+                {testResult && (
+                  <p
+                    role="status"
+                    className={
+                      "flex items-start gap-2 rounded-md px-3 py-2 text-sm " +
+                      (testResult.ok ? "bg-success-soft text-success" : "bg-danger-soft text-text-2")
+                    }
+                  >
+                    <span aria-hidden="true" className="font-bold">{testResult.ok ? "✓" : "!"}</span>
+                    <span>
+                      {testResult.ok
+                        ? `Connected to ${testResult.provider}${testResult.model ? ` (${testResult.model})` : ""}.`
+                        : testResult.message}
+                    </span>
+                  </p>
+                )}
               </>
             )}
           </div>

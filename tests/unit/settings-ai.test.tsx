@@ -54,6 +54,21 @@ describe("WP-AI-2 AiSettings", () => {
     expect(await screen.findByLabelText(/api key/i)).toBeTruthy();
   });
 
+  it("ADR-0036: with a key saved, Test connection POSTs {action:test} and shows the result", async () => {
+    apiGet.mockResolvedValue({ settings: { enabled: true }, credential: { configured: true, provider: "google", encryptionAvailable: true } });
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ code: "ok", test: { ok: false, reason: "provider", message: "The provider rejected the key." } }) });
+    vi.stubGlobal("fetch", fetchMock);
+    try {
+      wrap(<AiSettings />);
+      await userEvent.click(await screen.findByRole("button", { name: /test connection/i }));
+      await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+      expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({ action: "test" });
+      expect(await screen.findByText(/provider rejected the key/i)).toBeTruthy();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("ADR-0036: with the assistant on, saving a key POSTs {action:set, provider, apiKey}; the key is never read back from GET", async () => {
     // GET never carries the key — only a status object. Prove the write goes out as a
     // separate POST with the plaintext key in the body (the default provider is google).
