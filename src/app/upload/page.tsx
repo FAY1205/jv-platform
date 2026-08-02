@@ -4,7 +4,7 @@ import * as React from "react";
 import { useRouter } from "next/navigation";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { parseWorkbookInWorker } from "@/lib/xlsx-client";
-import { Card, CardBody, Button, Badge, Input, NativeSelect, AppShell, Tooltip, Spinner } from "@/components";
+import { Card, CardBody, Button, AppShell, Tooltip, Spinner } from "@/components";
 import { csrfHeaders } from "@/lib/csrf-client";
 import { validateUploadFile } from "@/lib/upload-guard";
 // Client-safe: seed-profiles is pure data (its only import is a type, erased at build) —
@@ -15,32 +15,6 @@ interface Parsed {
   filename: string;
   headers: string[];
   rows: Record<string, string>[];
-}
-
-// Friendly labels for the canonical fields the app maps to (ING-03).
-const CANONICAL_LABELS: Record<string, string> = {
-  campaign: "Campaign", dateCreated: "Date created", notes: "Notes", address: "Address",
-  city: "City", state: "State", zip: "ZIP", sellerFirst: "Seller first name",
-  sellerLast: "Seller last name", phone: "Phone", email: "Email",
-  reasonForSelling: "Reason for selling", motivation: "Motivation", timeToSell: "Time to sell",
-};
-
-/** A field missing from the label map still reads as words ("dateCreated" → "Date created"). */
-function fieldLabel(field: string): string {
-  const spaced = field.replace(/([a-z])([A-Z])/g, "$1 $2").toLowerCase();
-  return spaced.charAt(0).toUpperCase() + spaced.slice(1);
-}
-
-interface MappingNeed {
-  kind: "drift" | "unknown";
-  baseProfileId: string | null;
-  baseProfileName: string | null;
-  strictness: "flexible" | "strict";
-  uploadHeaders: string[];
-  suggestedMapping: Record<string, string>;
-  diff: { added: string[]; removed: string[]; renamed: { from: string; to: string }[] } | null;
-  requiredColumns: string[];
-  canonicalFields: string[];
 }
 
 // WP-LS1: the only ingestable format. The retired investorfuse/generic ids left the
@@ -63,45 +37,30 @@ export default function UploadPage() {
   const [phase, setPhase] = React.useState<"idle" | "parsing" | "ready" | "error">("idle");
   const [parsed, setParsed] = React.useState<Parsed | null>(null);
   const [err, setErr] = React.useState<string | null>(null);
-  const [need, setNeed] = React.useState<MappingNeed | null>(null);
-  const [mapping, setMapping] = React.useState<Record<string, string>>({});
-  const [newName, setNewName] = React.useState("");
+  // The file didn't match the supported format. Product decision (owner): end users are
+  // NEVER shown a column-mapping/confirm screen — a new format is added in code by the
+  // developer. So an unrecognized file just reports back, it does not offer self-serve mapping.
+  const [unrecognized, setUnrecognized] = React.useState(false);
 
   const idemKey = React.useRef<string>(crypto.randomUUID());
 
   const process = useMutation({
     mutationFn: (p: Parsed) => post("/api/uploads", { filename: p.filename, headers: p.headers, rows: p.rows, idempotencyKey: idemKey.current }),
-    onSuccess: (data: { result: string; uploadRef?: string } & MappingNeed) => {
+    onSuccess: (data: { result: string; uploadRef?: string }) => {
       if (data.result === "processed" && data.uploadRef) {
         qc.invalidateQueries({ queryKey: ["runs"] });
         router.push(`/imports/${data.uploadRef}`);
-      } else if (data.result === "needs_mapping") {
-        setNeed(data);
-        setMapping({ ...data.suggestedMapping });
+      } else {
+        // "needs_mapping" (drift/unknown) or anything non-processed → unsupported format.
+        setUnrecognized(true);
         setErr(null);
       }
     },
     onError: (e: Error) => setErr(e.message),
   });
 
-  const confirm = useMutation({
-    mutationFn: (p: Parsed) =>
-      post("/api/uploads/confirm", {
-        filename: p.filename, headers: p.headers, rows: p.rows, mapping,
-        baseProfileId: need?.baseProfileId ?? undefined,
-        newFormatName: need?.kind === "unknown" ? newName : undefined,
-        strictness: need?.strictness ?? "flexible",
-        idempotencyKey: idemKey.current,
-      }),
-    onSuccess: (data: { uploadRef: string }) => {
-      qc.invalidateQueries({ queryKey: ["runs"] });
-      router.push(`/imports/${data.uploadRef}`);
-    },
-    onError: (e: Error) => setErr(e.message),
-  });
-
   async function handleFile(file: File) {
-    setErr(null); setParsed(null); setNeed(null);
+    setErr(null); setParsed(null); setUnrecognized(false);
     const check = validateUploadFile({ name: file.name, size: file.size });
     if (!check.ok) { setErr(check.error ?? "That file can't be used."); setPhase("error"); return; }
     setPhase("parsing");
@@ -117,10 +76,8 @@ export default function UploadPage() {
   }
 
   function reset() {
-    setPhase("idle"); setParsed(null); setErr(null); setNeed(null); setMapping({});
+    setPhase("idle"); setParsed(null); setErr(null); setUnrecognized(false);
   }
-
-  const headerOptions = (need?.uploadHeaders ?? []).map((h) => ({ value: h, label: h }));
 
   return (
     <AppShell>
@@ -143,7 +100,19 @@ export default function UploadPage() {
           <CardBody>
             <input ref={inputRef} type="file" accept=".xlsx,.csv" className="hidden" onChange={(e) => e.target.files?.[0] && handleFile(e.target.files[0])} />
 
-            {(phase === "idle" || phase === "error") && !need ? (
+            {unrecognized ? (
+              // ── Unsupported format (no self-serve mapping — owner decision) ──
+              <div className="flex flex-col items-center gap-3 rounded-lg border border-border-soft bg-surface-2 px-6 py-10 text-center">
+                <span className="grid h-11 w-11 place-items-center rounded-full bg-warn-soft text-lg text-warn">!</span>
+                <h2 className="font-display text-base font-semibold text-text">This file isn&apos;t the expected format</h2>
+                <p className="max-w-[46ch] text-sm text-text-2">
+                  We couldn&apos;t recognise the columns in <span className="font-medium text-text">{parsed?.filename}</span>.
+                  Please upload the standard export. Use <span className="font-medium">Download template</span> above to check the
+                  expected columns — and if the format has genuinely changed, contact your administrator to add it.
+                </p>
+                <Button variant="primary" onClick={reset}>Choose another file</Button>
+              </div>
+            ) : (phase === "idle" || phase === "error") ? (
               <button
                 type="button"
                 onClick={() => inputRef.current?.click()}
@@ -164,75 +133,6 @@ export default function UploadPage() {
                 <Spinner size={22} />
                 <span className="text-sm font-semibold text-text">Reading your file…</span>
                 <span className="text-xs text-text-3">Checking the columns — this stays in your browser.</span>
-              </div>
-            ) : need ? (
-              // ── Mapping / drift confirm screen (ING-02/08) ──
-              <div className="flex flex-col gap-4">
-                <div>
-                  <h2 className="font-display text-base font-semibold text-text">
-                    {need.kind === "drift" ? `The ${need.baseProfileName} format changed` : "New file format"}
-                  </h2>
-                  <p className="mt-1 text-sm text-text-2">
-                    {need.kind === "drift"
-                      ? "Confirm how the columns map, and I'll save it as a new version."
-                      : "Tell me which column is which, and I'll save it as a new format."}
-                  </p>
-                </div>
-
-                {need.diff && (need.diff.added.length > 0 || need.diff.removed.length > 0) && (
-                  <div className="flex flex-wrap gap-1.5 rounded-md border border-border-soft bg-surface-2 p-3 text-xs">
-                    {need.diff.renamed.map((r) => <Badge key={r.from} variant="warn">Renamed: {r.from} → {r.to}</Badge>)}
-                    {need.diff.added.filter((a) => !need.diff!.renamed.some((r) => r.to === a)).map((a) => <Badge key={a} variant="success">New column: {a}</Badge>)}
-                    {need.diff.removed.filter((a) => !need.diff!.renamed.some((r) => r.from === a)).map((a) => <Badge key={a} variant="removed">No longer in file: {a}</Badge>)}
-                  </div>
-                )}
-
-                {need.kind === "unknown" && (
-                  <Input label="Format name" required value={newName} onChange={(e) => setNewName(e.target.value)} hint="e.g. Acme CRM export" />
-                )}
-
-                <div className="flex flex-col gap-2">
-                  {need.canonicalFields.map((field) => {
-                    const req = need.requiredColumns.includes(field);
-                    return (
-                      <div key={field} className="grid grid-cols-[1fr_1.4fr] items-center gap-3">
-                        <span className="text-sm text-text-2">
-                          {CANONICAL_LABELS[field] ?? fieldLabel(field)}
-                          {req && <span className="ml-1 text-danger" aria-hidden="true">*</span>}
-                        </span>
-                        <NativeSelect
-                          value={mapping[field] ?? ""}
-                          onChange={(e) => setMapping((m) => ({ ...m, [field]: e.target.value }))}
-                        >
-                          <option value="">— not in file —</option>
-                          {headerOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-                        </NativeSelect>
-                      </div>
-                    );
-                  })}
-                </div>
-
-                {err && <p className="text-sm text-danger">{err}</p>}
-
-                <div className="flex items-center gap-3">
-                  <Button
-                    variant="primary"
-                    loading={confirm.isPending}
-                    // Gate on required fields (owner #27): don't submit an unmapped required
-                    // column and bounce off a server 422 — the field errors show what's missing.
-                    disabled={
-                      (need.kind === "unknown" && !newName.trim()) ||
-                      !need.requiredColumns.every((f) => (mapping[f] ?? "").trim() !== "")
-                    }
-                    onClick={() => parsed && confirm.mutate(parsed)}
-                  >
-                    Confirm &amp; process
-                  </Button>
-                  <Button variant="ghost" onClick={reset} disabled={confirm.isPending}>Cancel</Button>
-                  {!need.requiredColumns.every((f) => (mapping[f] ?? "").trim() !== "") && (
-                    <span className="text-xs text-text-3">Map the required (<span className="text-danger">*</span>) columns to continue.</span>
-                  )}
-                </div>
               </div>
             ) : (
               // ── Ready-to-process screen ──
