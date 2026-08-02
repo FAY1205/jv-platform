@@ -296,7 +296,7 @@ describe("ING-01 LS1: decoding is pinned to UTF-8, so a BOM cannot change the he
   });
 });
 
-describe("ING-02/08 LS1: detection + drift on the 179-column signature", () => {
+describe("ING-02/08 LS1: detection + drift on the consumed-column signature", () => {
   const SIGNATURE = LEAD_SOURCE_1_PROFILE.headerSignature;
 
   it("ING-02: the real export's headers detect as an exact match", () => {
