@@ -46,6 +46,9 @@ export default function SignupPage() {
   const [loading, setLoading] = React.useState(false);
   const [sent, setSent] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
+  const [captchaError, setCaptchaError] = React.useState<string | null>(null);
+  const [resending, setResending] = React.useState(false);
+  const [resendMsg, setResendMsg] = React.useState<string | null>(null);
 
   const renderWidget = React.useCallback(() => {
     if (rendered.current) return;
@@ -53,9 +56,20 @@ export default function SignupPage() {
       rendered.current = true;
       window.turnstile.render(widgetRef.current, {
         sitekey: siteKey,
-        callback: (t: string) => setCaptchaToken(t),
-        "error-callback": () => setCaptchaToken(""),
-        "expired-callback": () => setCaptchaToken(""),
+        callback: (t: string) => {
+          setCaptchaToken(t);
+          setCaptchaError(null);
+        },
+        // Before WP-B these silently cleared the token, leaving the Sign-up button dead with no
+        // explanation. Now the user is told why and what to do.
+        "error-callback": () => {
+          setCaptchaToken("");
+          setCaptchaError("Verification failed. Refresh the page and try again.");
+        },
+        "expired-callback": () => {
+          setCaptchaToken("");
+          setCaptchaError("Verification expired — please complete it again below.");
+        },
       });
       // The widget is up — stop polling now rather than waiting for unmount.
       if (pollId.current != null) {
@@ -87,8 +101,15 @@ export default function SignupPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email, password, workspaceName, inviteCode, captchaToken, tosAccepted }),
       });
-      if (res.ok || res.status === 429) {
+      if (res.ok) {
         setSent(true);
+        return;
+      }
+      // WP-B: a 429 previously showed the "check your email" success state even though no email
+      // was sent (owner-reported). Surface the throttle honestly — 429 is rate-limiting keyed on
+      // email/IP and reveals nothing about whether the account exists (AUT-05 is unaffected).
+      if (res.status === 429) {
+        setError("Too many attempts. Please wait a few minutes and try again.");
         return;
       }
       const body = (await res.json().catch(() => null)) as { message?: string } | null;
@@ -97,6 +118,30 @@ export default function SignupPage() {
       setError("Network error. Please try again.");
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function onResend() {
+    if (resending) return;
+    setResending(true);
+    setResendMsg(null);
+    try {
+      const res = await fetch("/api/auth/signup/resend", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email }),
+      });
+      if (res.ok) {
+        setResendMsg("If your workspace still needs verifying, we've emailed a new link.");
+      } else if (res.status === 429) {
+        setResendMsg("Please wait a minute before requesting another link.");
+      } else {
+        setResendMsg("Couldn't resend just now. Please try again in a moment.");
+      }
+    } catch {
+      setResendMsg("Network error. Please try again.");
+    } finally {
+      setResending(false);
     }
   }
 
@@ -111,8 +156,22 @@ export default function SignupPage() {
           </div>
           {sent ? (
             <div className="flex flex-col gap-4">
-              <p className="text-sm text-text-2">Check your email to finish setting up your workspace.</p>
-              <Link href="/login" className="text-sm font-semibold text-brand-ink hover:underline">
+              <p className="text-sm font-medium text-text">Verify your email to activate your account.</p>
+              <p className="text-sm text-text-2">
+                We&apos;ve sent a verification link to{" "}
+                <span className="font-medium text-text">{email}</span>. Click it to finish setting up your
+                workspace — the link expires in 24 hours. You can&apos;t sign in until your email is verified.
+              </p>
+              <p className="text-xs text-text-3">Didn&apos;t get it? Check your spam folder, or resend below.</p>
+              <Button type="button" variant="secondary" onClick={onResend} loading={resending} className="w-full">
+                Resend verification email
+              </Button>
+              {resendMsg && (
+                <p className="text-xs text-text-3" aria-live="polite">
+                  {resendMsg}
+                </p>
+              )}
+              <Link href="/login" className="text-center text-sm font-semibold text-brand-ink hover:underline">
                 Back to sign in
               </Link>
             </div>
@@ -153,6 +212,14 @@ export default function SignupPage() {
                 hint="Enter the code you were given to create a workspace."
               />
               <div ref={widgetRef} />
+              {!siteKey && (
+                <p className="text-xs text-danger">Verification is unavailable right now. Please try again later.</p>
+              )}
+              {captchaError && (
+                <p className="text-xs text-danger" aria-live="polite">
+                  {captchaError}
+                </p>
+              )}
               <Checkbox
                 checked={tosAccepted}
                 onCheckedChange={setTosAccepted}

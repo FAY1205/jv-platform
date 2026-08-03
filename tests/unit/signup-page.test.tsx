@@ -88,6 +88,44 @@ describe("SignupPage — public signup with Turnstile", () => {
     expect((submit as HTMLButtonElement).disabled).toBe(false);
     await userEvent.click(submit);
 
-    await screen.findByText(/check your email to finish setting up your workspace/i);
+    // WP-B: the completion state now explicitly tells the user they must verify.
+    await screen.findByText(/verify your email to activate your account/i);
+    expect(screen.getByText(/can't sign in until your email is verified/i)).toBeTruthy();
+  });
+
+  // Helper: drive the form to a submittable state with a stubbed CAPTCHA + fetch, then submit.
+  async function submitSignup(fetchImpl: typeof fetch) {
+    vi.stubEnv("NEXT_PUBLIC_TURNSTILE_SITE_KEY", "1x00000000000000000000AA");
+    (window as unknown as { turnstile: { render: (el: HTMLElement, opts: Record<string, unknown>) => void } }).turnstile = {
+      render: (_el, opts) => (opts.callback as (t: string) => void)("tok"),
+    };
+    vi.stubGlobal("fetch", fetchImpl);
+    render(<SignupPage />);
+    await userEvent.type(screen.getByLabelText(/email/i), "new@example.com");
+    await userEvent.type(screen.getByLabelText("Password"), "a-strong-password-1!");
+    await userEvent.type(screen.getByLabelText(/workspace/i), "Acme Realty");
+    await userEvent.type(screen.getByLabelText(/invitation code/i), "ABCD-EFGH-JKLM");
+    await userEvent.click(screen.getByRole("checkbox", { name: /terms of service/i }));
+    await userEvent.click(await screen.findByRole("button", { name: /sign up|create/i }));
+  }
+
+  it("WP-B: a 429 shows an honest rate-limit error, NOT the fake check-your-email state", async () => {
+    await submitSignup(vi.fn(async () => new Response(JSON.stringify({}), { status: 429 })) as unknown as typeof fetch);
+    await screen.findByText(/too many attempts/i);
+    expect(screen.queryByText(/verify your email to activate your account/i)).toBeNull();
+  });
+
+  it("WP-B: the completion state offers a Resend button that POSTs to the resend endpoint", async () => {
+    const calls: string[] = [];
+    const fetchImpl = vi.fn(async (url: string) => {
+      calls.push(url);
+      return new Response(JSON.stringify({}), { status: 200, headers: { "content-type": "application/json" } });
+    });
+    await submitSignup(fetchImpl as unknown as typeof fetch);
+
+    const resend = await screen.findByRole("button", { name: /resend verification email/i });
+    await userEvent.click(resend);
+    expect(calls).toContain("/api/auth/signup/resend");
+    await screen.findByText(/we've emailed a new link/i);
   });
 });

@@ -105,6 +105,16 @@ export const SIGNUP_THROTTLE: ThrottleConfig = {
   perIp: { limit: 20, windowMs: 900_000 }, // 20 / 15min per IP
 };
 
+// WP-B: resend a signup verification email. Tighter per-email than SIGNUP itself — a legit
+// user needs at most a couple of resends, and the endpoint is enumeration-safe, so the limit
+// only caps how often one address (or IP) can trigger an outbound email. Sliding-window ONLY at
+// the call site (like VERIFY): the key is an email, but lockout's escape hatches don't fit a
+// pre-auth "resend my own link" action, and a lockout would strand the very user it should help.
+export const SIGNUP_RESEND_THROTTLE: ThrottleConfig = {
+  perIdentifier: { limit: 4, windowMs: 900_000 }, // 4 / 15min per email
+  perIp: { limit: 20, windowMs: 900_000 }, // 20 / 15min per IP
+};
+
 // WP-SU-14 (AUT-10 growth bound): /api/auth/trust/refresh inserts a trusted_devices row per
 // SUCCESSFUL rotation and was the one insert-per-call auth endpoint with no throttle (audit-data
 // F-1). The growth vector is chain-rotation — each call presents the LATEST token — so the key is

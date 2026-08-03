@@ -59,7 +59,7 @@ export async function POST(request: Request) {
     return jsonError("csrf_origin_rejected", "Request origin not allowed.", 403);
   }
   const parsed = Input.safeParse(await request.json().catch(() => null));
-  if (!parsed.success) return jsonError("invalid_input", "A valid email, password, and workspace name are required.", 400);
+  if (!parsed.success) return jsonError("invalid_input", "A valid email, password, workspace name, and invitation code are required.", 400);
 
   const email = parsed.data.email.toLowerCase();
   const ip = clientIp(request);

@@ -16,6 +16,8 @@ export interface PartnerRow {
   dealTerms: string | null;
   adminNotes: string | null;
   status: "not_invited" | "invited" | "active" | "revoked";
+  /** WP-D: the tenant's own house territory (never invited/deactivated; coverage-only). */
+  isHouse: boolean;
   invitedAt: string | null;
   activatedAt: string | null;
   lastPortalLoginAt: string | null;
@@ -66,6 +68,7 @@ export async function listPartners(scope: ScopeContext): Promise<PartnerRow[]> {
     dealTerms: p.dealTerms,
     adminNotes: p.adminNotes,
     status: p.status,
+    isHouse: p.isHouse,
     invitedAt: iso(p.invitedAt),
     activatedAt: iso(p.activatedAt),
     lastPortalLoginAt: iso(p.lastPortalLoginAt),
@@ -182,6 +185,7 @@ export async function getPartner(
     dealTerms: p.dealTerms,
     adminNotes: p.adminNotes,
     status: p.status,
+    isHouse: p.isHouse,
     invitedAt: iso(p.invitedAt),
     activatedAt: iso(p.activatedAt),
     lastPortalLoginAt: iso(p.lastPortalLoginAt),

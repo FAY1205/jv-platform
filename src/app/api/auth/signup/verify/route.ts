@@ -66,7 +66,21 @@ export async function POST(request: Request) {
   try {
     const store = new SignupStore(db);
     const record = await store.findByHash(sha256Hex(token));
-    if (!record || !verifySignupToken(token, record, now).ok) {
+    // No matching row: unknown, or already swept after expiry — genuinely invalid.
+    if (!record) return jsonError("signup_verify_invalid", "This link is invalid or has expired.", 400);
+
+    const check = verifySignupToken(token, record, now);
+    if (!check.ok) {
+      // WP-B: a token that's already been consumed means the account is verified — the user
+      // clicked twice or refreshed this page after success. Distinguish that benign case from a
+      // genuinely invalid/expired link so the page can say "already verified, sign in" instead of
+      // the alarming "this link is invalid or has expired" for an account that IS active. Safe to
+      // reveal: only the holder of the exact token (which lives solely in their inbox) can reach a
+      // matched-but-used row. Settle as a success so an honest re-click never counts to the throttle.
+      if (check.reason === "used") {
+        verified = true;
+        return jsonOk({ code: "signup_already_verified", message: "Your email is already verified. You can sign in." });
+      }
       return jsonError("signup_verify_invalid", "This link is invalid or has expired.", 400);
     }
 

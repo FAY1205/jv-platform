@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import { Suspense } from "react";
+import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Card, CardBody, Input, Button, Checkbox, Spinner } from "@/components";
 import { APP_NAME } from "@/lib/app";
@@ -162,6 +163,12 @@ function PortalLoginForm() {
               </button>
             </form>
           )}
+          <p className="mt-5 border-t border-border-soft pt-4 text-center text-sm text-text-3">
+            Are you an admin?{" "}
+            <Link href="/login" className="font-semibold text-brand-ink hover:underline">
+              Sign in to the admin portal
+            </Link>
+          </p>
         </CardBody>
       </Card>
     </main>

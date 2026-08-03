@@ -96,6 +96,11 @@ export const partners = pgTable(
     dealTerms: text("deal_terms"),
     adminNotes: text("admin_notes"),
     status: partnerStatusEnum("status").notNull().default("not_invited"),
+    // WP-D (ADR-0037): the tenant's own "house" territory — ZIPs/states the admin manages
+    // themselves. Modeled as a partner row so it flows through coverage, routing, and every map
+    // with zero pipeline special-casing (ASN-02); the distinction is purely presentational. At
+    // most one active house per tenant, enforced by a partial unique index in migration 0031.
+    isHouse: boolean("is_house").notNull().default(false),
     invitedAt: timestamp("invited_at", { withTimezone: true }),
     activatedAt: timestamp("activated_at", { withTimezone: true }),
     lastPortalLoginAt: timestamp("last_portal_login_at", { withTimezone: true }),

@@ -42,4 +42,23 @@ export class SignupStore {
       .set({ usedAt: new Date(usedAt) })
       .where(eq(schema.signupVerifications.id, id));
   }
+
+  /**
+   * WP-B (resend): replace every verification row for a user with a single fresh one,
+   * atomically. Keeping exactly one row per user is load-bearing for the sweep — a
+   * rotated (unexpired) row means the user is no longer a purge candidate, so a resend
+   * can never race the abandoned-signup sweep into deleting a live pending signup. The
+   * old token's hash is gone, so the previous email link stops working (single active
+   * link at a time). Only ever called for an existing unconfirmed signup.
+   */
+  async rotate(rec: SignupTokenRecord): Promise<void> {
+    await this.db.transaction(async (tx) => {
+      await tx.delete(schema.signupVerifications).where(eq(schema.signupVerifications.userId, rec.userId));
+      await tx.insert(schema.signupVerifications).values({
+        userId: rec.userId,
+        tokenHash: rec.tokenHash,
+        expiresAt: new Date(rec.expiresAt),
+      });
+    });
+  }
 }

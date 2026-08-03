@@ -35,3 +35,21 @@ describe("WP-SU-21: login page 'Sign up' link", () => {
     expect(screen.getByRole("link", { name: /forgot password/i })).toBeTruthy();
   });
 });
+
+describe("WP-A: admin sign-in is self-identifying (owner note #5)", () => {
+  it("labels the screen 'Admin portal sign-in'", () => {
+    render(<LoginForm signupEnabled={false} />);
+    expect(screen.getByText(/admin portal sign-in/i)).toBeTruthy();
+  });
+
+  it("exposes the product name as the page's h1", () => {
+    render(<LoginForm signupEnabled={false} />);
+    expect(screen.getByRole("heading", { level: 1 }).textContent).toMatch(/\S/);
+  });
+
+  it("cross-links to the partner portal sign-in (→ /portal/login)", () => {
+    render(<LoginForm signupEnabled={false} />);
+    const link = screen.getByRole("link", { name: /partner portal/i });
+    expect(link.getAttribute("href")).toBe("/portal/login");
+  });
+});

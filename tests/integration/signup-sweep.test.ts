@@ -73,8 +73,12 @@ suite("WP-SU-2: abandoned/orphan-signup cleanup sweep", () => {
 
   const tenantIds: string[] = [];
   const userIds: string[] = [];
+  const codeIds: string[] = [];
 
   async function cleanup() {
+    if (codeIds.length) {
+      await db.delete(schema.signupCodes).where(inArray(schema.signupCodes.id, codeIds));
+    }
     if (userIds.length) {
       await db.delete(schema.signupVerifications).where(inArray(schema.signupVerifications.userId, userIds));
       await db.delete(schema.tosAcceptances).where(inArray(schema.tosAcceptances.userId, userIds));
@@ -271,6 +275,79 @@ suite("WP-SU-2: abandoned/orphan-signup cleanup sweep", () => {
       expect(first.purged).toBe(1);
       const second = await sweepAbandonedSignups(db, admin, { tenantId: seed.tenantId, now });
       expect(second.purged).toBe(0);
+    });
+
+    it("WP-B (resend race): does NOT purge when a fresh, unexpired verification token exists (resent between scan and delete)", async () => {
+      // The candidate query still selects the OLD expired row, but a resend rotated in a live
+      // token. purge's guard 2 sees the live row and declines — the pending signup survives.
+      const seed = await seedSignup({ slug: `su2-resendrace-${randomUUID().slice(0, 8)}`, expiresAt: expired });
+      await db.insert(schema.signupVerifications).values({
+        userId: seed.userId,
+        tokenHash: `live-${randomUUID()}`,
+        expiresAt: notExpired, // unexpired + unused ⇒ a live link
+      });
+      const users = new Map([[seed.userId, seed.authUser]]); // still unconfirmed
+      const { admin, deleteUserCalls } = makeFakeAdmin(users);
+
+      const result = await sweepAbandonedSignups(db, admin, { tenantId: seed.tenantId, now });
+      expect(result.purged).toBe(0);
+      expect(deleteUserCalls).toEqual([]);
+      const tenantRows = await db.select().from(schema.tenants).where(eq(schema.tenants.id, seed.tenantId));
+      expect(tenantRows).toHaveLength(1); // survives — a resent user may still verify
+    });
+
+    it("WP-B (verify race): does NOT purge when the user confirms between the caller's scan and the delete", async () => {
+      // A stateful fake: getUserById reports unconfirmed on the caller's scan, then confirmed on
+      // purge's re-check — exactly the TOCTOU window. purge's guard 1 must abort the delete.
+      const seed = await seedSignup({ slug: `su2-verifyrace-${randomUUID().slice(0, 8)}`, expiresAt: expired });
+      let calls = 0;
+      const deleteUserCalls: string[] = [];
+      const racingAdmin = {
+        auth: {
+          admin: {
+            getUserById: async (uid: string) => {
+              calls += 1;
+              const confirmed = calls > 1 ? now.toISOString() : undefined; // flips to confirmed on re-check
+              return { data: { user: { id: uid, email_confirmed_at: confirmed } }, error: null };
+            },
+            deleteUser: async (uid: string) => {
+              deleteUserCalls.push(uid);
+              return { data: {}, error: null };
+            },
+            listUsers: async () => ({ data: { users: [] }, error: null }),
+          },
+        },
+      } as unknown as SupabaseClient;
+
+      const result = await sweepAbandonedSignups(db, racingAdmin, { tenantId: seed.tenantId, now });
+      expect(result.purged).toBe(0);
+      expect(deleteUserCalls).toEqual([]); // never deleted a now-confirmed account
+      const tenantRows = await db.select().from(schema.tenants).where(eq(schema.tenants.id, seed.tenantId));
+      expect(tenantRows).toHaveLength(1);
+    });
+
+    it("WP-B (code release): purging an abandoned signup frees the invitation code it burned", async () => {
+      const seed = await seedSignup({ slug: `su2-coderel-${randomUUID().slice(0, 8)}`, expiresAt: expired });
+      const [code] = await db
+        .insert(schema.signupCodes)
+        .values({
+          codeHash: `hash-${randomUUID()}`,
+          expiresAt: new Date(now.getTime() + 1000 * 60 * 60 * 48),
+          createdBy: "owner@example.com",
+          usedAt: new Date(now.getTime() - 1000), // burned at provisioning
+          usedByTenantId: seed.tenantId,
+        })
+        .returning({ id: schema.signupCodes.id });
+      codeIds.push(code.id);
+      const users = new Map([[seed.userId, seed.authUser]]);
+      const { admin } = makeFakeAdmin(users);
+
+      const result = await sweepAbandonedSignups(db, admin, { tenantId: seed.tenantId, now });
+      expect(result.purged).toBe(1);
+
+      const [after] = await db.select().from(schema.signupCodes).where(eq(schema.signupCodes.id, code.id));
+      expect(after.usedAt).toBeNull(); // released — the prospect can retry with the same code
+      expect(after.usedByTenantId).toBeNull();
     });
   });
 

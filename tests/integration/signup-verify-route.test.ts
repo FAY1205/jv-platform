@@ -55,7 +55,7 @@ suite("POST /api/auth/signup/verify", () => {
     }
   });
 
-  it("SCP-02: a valid token returns 200 {code:signup_verified}, calls updateUserById(userId,{email_confirm:true}), and is single-use", async () => {
+  it("SCP-02: a valid token returns 200 {code:signup_verified}, calls updateUserById(userId,{email_confirm:true}), and activates only once", async () => {
     const userId = randomUUID();
     userIds.push(userId);
     const store = new SignupStore(getDb());
@@ -73,12 +73,15 @@ suite("POST /api/auth/signup/verify", () => {
     expect(updateUserByIdCalls[0].userId).toBe(userId);
     expect(updateUserByIdCalls[0].attrs).toEqual({ email_confirm: true });
 
-    // Single-use: a second POST with the same token must now fail.
+    // WP-B: a second POST with the same (now-consumed) token is a double-click / refresh, not a
+    // failure. It returns the benign already-verified response — and crucially does NOT re-activate
+    // (updateUserById is still called exactly once), so single-use activation is preserved.
     const req2 = jsonRequest("POST", "/api/auth/signup/verify", { token });
     const res2 = await POST(req2);
-    expect(res2.status).toBe(400);
+    expect(res2.status).toBe(200);
     const body2 = await res2.json();
-    expect(body2.code).toBe("signup_verify_invalid");
+    expect(body2.code).toBe("signup_already_verified");
+    expect(updateUserByIdCalls).toHaveLength(1); // never activated twice
   });
 
   it("SCP-02: an unknown token returns 400", async () => {

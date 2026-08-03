@@ -4,6 +4,7 @@ import * as schema from "@/db/schema";
 import { tenantWhere, type ScopeContext } from "@/lib/scope";
 import { nextPartnerNumber } from "./refs";
 import { pickPartnerColor } from "./colors";
+import { HOUSE_COLOR } from "@/lib/tokens/tokens";
 import { formatPartnerRef } from "@/db/ref-ids";
 import type { PartnerCreateInput, PartnerUpdateInput, DeactivateInput } from "./schema";
 import type { Territory } from "./queries";
@@ -64,44 +65,142 @@ export interface CreatedPartner {
   color: string;
 }
 
+type PartnerTx = Parameters<Parameters<ReturnType<typeof getDb>["transaction"]>[0]>[0];
+
+/**
+ * Create a partner inside a caller-supplied transaction (next PR-### + first unused locked
+ * color, status not_invited). WP-C: extracted so a partner + its first coverage can be created
+ * atomically (createPartnerWithCoverage) — a coverage conflict then rolls the partner back too,
+ * instead of leaving an orphan that a retry would duplicate.
+ */
+export async function createPartnerTx(
+  tx: PartnerTx,
+  scope: ScopeContext,
+  input: PartnerCreateInput,
+): Promise<CreatedPartner> {
+  // Serialize ref/color allocation per tenant (ING-06 pattern) so two concurrent
+  // creates can't collide on PR-### or a color.
+  await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${scope.tenantId + ":partner"})::bigint)`);
+
+  const existing = await tx
+    .select({ refId: schema.partners.refId, color: schema.partners.color, deletedAt: schema.partners.deletedAt })
+    .from(schema.partners)
+    .where(tenantWhere(schema.partners, scope));
+
+  const refId = formatPartnerRef(nextPartnerNumber(existing.map((e) => e.refId)));
+  const usedColors = existing.filter((e) => !e.deletedAt).map((e) => e.color);
+  const color = pickPartnerColor(usedColors);
+
+  const [created] = await tx
+    .insert(schema.partners)
+    .values({
+      tenantId: scope.tenantId,
+      refId,
+      name: input.name,
+      email: input.email ?? null,
+      phone: input.phone ?? null,
+      color,
+      dealTerms: input.dealTerms ?? null,
+      adminNotes: input.adminNotes ?? null,
+      status: "not_invited",
+    })
+    .returning({ id: schema.partners.id });
+
+  await audit(tx, scope, "partner.created", refId, null, { name: input.name, color });
+  return { id: created.id, refId, color };
+}
+
 /** Create a partner: next PR-### + first unused locked color, status not_invited. */
 export async function createPartner(
   scope: ScopeContext,
   input: PartnerCreateInput,
 ): Promise<CreatedPartner> {
-  const db = getDb();
-  return db.transaction(async (tx) => {
-    // Serialize ref/color allocation per tenant (ING-06 pattern) so two concurrent
-    // creates can't collide on PR-### or a color.
+  return getDb().transaction((tx) => createPartnerTx(tx, scope, input));
+}
+
+// WP-D (ADR-0037): the tenant's own "house" territory — a partner row flagged is_house, with a
+// fixed identity (no PR-### number, reserved graphite color, no contact). It never gets invited or
+// deactivated; the admin only edits its coverage. Modeled as a partner so it routes and colors maps
+// with zero pipeline special-casing (ASN-02).
+export const HOUSE_REF = "HOUSE";
+export const HOUSE_NAME = "My Territory";
+
+/**
+ * Return the tenant's house partner, creating it on first use. Idempotent: the per-tenant advisory
+ * lock + the `is_house` partial unique index guarantee at most one. Created lazily (not seeded) so
+ * existing and new tenants get it the same way — the first time the admin sets up their territory.
+ */
+export async function ensureHousePartner(scope: ScopeContext): Promise<CreatedPartner & { name: string }> {
+  return getDb().transaction(async (tx) => {
     await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${scope.tenantId + ":partner"})::bigint)`);
-
-    const existing = await tx
-      .select({ refId: schema.partners.refId, color: schema.partners.color, deletedAt: schema.partners.deletedAt })
+    const [existing] = await tx
+      .select({ id: schema.partners.id, refId: schema.partners.refId, color: schema.partners.color, name: schema.partners.name })
       .from(schema.partners)
-      .where(tenantWhere(schema.partners, scope));
-
-    const refId = formatPartnerRef(nextPartnerNumber(existing.map((e) => e.refId)));
-    const usedColors = existing.filter((e) => !e.deletedAt).map((e) => e.color);
-    const color = pickPartnerColor(usedColors);
+      .where(and(tenantWhere(schema.partners, scope), eq(schema.partners.isHouse, true), isNull(schema.partners.deletedAt)));
+    if (existing) return existing;
 
     const [created] = await tx
       .insert(schema.partners)
       .values({
         tenantId: scope.tenantId,
-        refId,
-        name: input.name,
-        email: input.email ?? null,
-        phone: input.phone ?? null,
-        color,
-        dealTerms: input.dealTerms ?? null,
-        adminNotes: input.adminNotes ?? null,
+        refId: HOUSE_REF,
+        name: HOUSE_NAME,
+        email: null,
+        color: HOUSE_COLOR,
+        isHouse: true,
         status: "not_invited",
       })
       .returning({ id: schema.partners.id });
 
-    await audit(tx, scope, "partner.created", refId, null, { name: input.name, color });
-    return { id: created.id, refId, color };
+    await audit(tx, scope, "partner.house_created", HOUSE_REF, null, { name: HOUSE_NAME });
+    return { id: created.id, refId: HOUSE_REF, color: HOUSE_COLOR, name: HOUSE_NAME };
   });
+}
+
+/** Thrown when an operation that only applies to real partners targets the house row. */
+export class HouseNotAllowedError extends Error {
+  constructor(message = "This action doesn't apply to your own territory.") {
+    super(message);
+    this.name = "HouseNotAllowedError";
+  }
+}
+
+/**
+ * Update a partner's contact details inside a caller-supplied transaction. WP-C: extracted so an
+ * edit's contact + coverage are one atomic unit (updatePartnerWithCoverage) — a coverage conflict
+ * then rolls the contact change back too, instead of leaving contact saved but coverage rejected.
+ * Color + status are not editable here.
+ */
+export async function updatePartnerTx(
+  tx: PartnerTx,
+  scope: ScopeContext,
+  partnerId: string,
+  patch: PartnerUpdateInput,
+): Promise<void> {
+  const [before] = await tx
+    .select()
+    .from(schema.partners)
+    .where(and(tenantWhere(schema.partners, scope), eq(schema.partners.id, partnerId), isNull(schema.partners.deletedAt)));
+  if (!before) throw new PartnerNotFoundError();
+
+  // Partial update: only fields explicitly provided change (undefined = no change).
+  const set: Partial<typeof schema.partners.$inferInsert> = {};
+  if (patch.name !== undefined) set.name = patch.name;
+  if (patch.email !== undefined) set.email = patch.email;
+  if (patch.phone !== undefined) set.phone = patch.phone;
+  if (patch.dealTerms !== undefined) set.dealTerms = patch.dealTerms;
+  if (patch.adminNotes !== undefined) set.adminNotes = patch.adminNotes;
+  if (Object.keys(set).length === 0) return;
+
+  await tx.update(schema.partners).set(set).where(eq(schema.partners.id, before.id));
+  await audit(
+    tx,
+    scope,
+    "partner.updated",
+    before.refId,
+    { name: before.name, email: before.email, phone: before.phone, dealTerms: before.dealTerms },
+    set,
+  );
 }
 
 /** Update a partner's contact details. Color + status are not editable here. */
@@ -110,33 +209,7 @@ export async function updatePartner(
   partnerId: string,
   patch: PartnerUpdateInput,
 ): Promise<void> {
-  const db = getDb();
-  await db.transaction(async (tx) => {
-    const [before] = await tx
-      .select()
-      .from(schema.partners)
-      .where(and(tenantWhere(schema.partners, scope), eq(schema.partners.id, partnerId), isNull(schema.partners.deletedAt)));
-    if (!before) throw new PartnerNotFoundError();
-
-    // Partial update: only fields explicitly provided change (undefined = no change).
-    const set: Partial<typeof schema.partners.$inferInsert> = {};
-    if (patch.name !== undefined) set.name = patch.name;
-    if (patch.email !== undefined) set.email = patch.email;
-    if (patch.phone !== undefined) set.phone = patch.phone;
-    if (patch.dealTerms !== undefined) set.dealTerms = patch.dealTerms;
-    if (patch.adminNotes !== undefined) set.adminNotes = patch.adminNotes;
-    if (Object.keys(set).length === 0) return;
-
-    await tx.update(schema.partners).set(set).where(eq(schema.partners.id, before.id));
-    await audit(
-      tx,
-      scope,
-      "partner.updated",
-      before.refId,
-      { name: before.name, email: before.email, phone: before.phone, dealTerms: before.dealTerms },
-      set,
-    );
-  });
+  await getDb().transaction((tx) => updatePartnerTx(tx, scope, partnerId, patch));
 }
 
 export interface DeactivateResult {
@@ -165,6 +238,7 @@ export async function deactivatePartner(
       .from(schema.partners)
       .where(and(tenantWhere(schema.partners, scope), eq(schema.partners.id, partnerId)));
     if (!partner) throw new PartnerNotFoundError();
+    if (partner.isHouse) throw new HouseNotAllowedError("Your own territory can't be deactivated.");
     if (partner.deletedAt || partner.status === "revoked") throw new AlreadyDeactivatedError();
 
     const states = await tx

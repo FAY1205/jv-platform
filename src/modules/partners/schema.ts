@@ -11,17 +11,18 @@ const optionalText = z.preprocess(
   z.string().optional(),
 );
 
-/** Blank → undefined; otherwise a trimmed, valid email. */
-const optionalEmail = z.preprocess(
-  (v) => (typeof v === "string" ? (v.trim() === "" ? undefined : v.trim()) : v),
-  z.string().email("Enter a valid email").optional(),
+/** WP-C (owner note #1): a partner email is now REQUIRED — an invite can't be sent
+ *  without it, so a partner with no email is a dead-end record. Trimmed + valid. */
+const requiredEmail = z.preprocess(
+  (v) => (typeof v === "string" ? v.trim() : v),
+  z.string().min(1, "Email is required").email("Enter a valid email"),
 );
 
 const name = z.string().trim().min(1, "Name is required").max(120);
 
 export const PartnerCreateSchema = z.object({
   name,
-  email: optionalEmail,
+  email: requiredEmail,
   phone: optionalText,
   dealTerms: optionalText,
   adminNotes: optionalText,
@@ -30,7 +31,7 @@ export type PartnerCreateInput = z.infer<typeof PartnerCreateSchema>;
 
 export const PartnerUpdateSchema = z.object({
   name: name.optional(),
-  email: optionalEmail,
+  email: requiredEmail,
   phone: optionalText,
   dealTerms: optionalText,
   adminNotes: optionalText,

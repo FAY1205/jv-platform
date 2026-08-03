@@ -21,6 +21,8 @@ import {
   Textarea,
   Select,
   Combobox,
+  SegmentedControl,
+  StateMultiSelect,
   PartnerTag,
   EmptyState,
   Skeleton,
@@ -44,6 +46,7 @@ interface Partner {
   dealTerms: string | null;
   adminNotes: string | null;
   status: "not_invited" | "invited" | "active" | "revoked";
+  isHouse: boolean;
   zipCount: number;
   stateCount: number;
 }
@@ -71,10 +74,111 @@ async function send(url: string, method: string, body?: unknown): Promise<Record
 }
 
 // ── Create / edit form ───────────────────────────────────────────────────────
-type FormFields = { name: string; email: string; phone: string; dealTerms: string; adminNotes: string; zips: string; states: string };
-const EMPTY: FormFields = { name: "", email: "", phone: "", dealTerms: "", adminNotes: "", zips: "", states: "" };
+type FormFields = { name: string; email: string; phone: string; dealTerms: string; adminNotes: string; zips: string };
+const EMPTY: FormFields = { name: "", email: "", phone: "", dealTerms: "", adminNotes: "", zips: "" };
 
-function PartnerForm({
+interface CoverageConflict {
+  kind: "zip" | "state";
+  value: string;
+  ownerRefId: string;
+  ownerName: string;
+}
+
+function isValidEmail(e: string): boolean {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e.trim());
+}
+
+// Client-side ZIP token check (UX only — the server re-validates authoritatively). Mirrors
+// modules/coverage/parse: a real ZIP's first digit group is 3–5 digits.
+function zipTokens(raw: string): string[] {
+  return raw.split(/[\s,;]+/).map((t) => t.trim()).filter(Boolean);
+}
+function invalidZipTokens(raw: string): string[] {
+  return zipTokens(raw).filter((t) => {
+    const g = t.split(/\D+/).filter(Boolean)[0] ?? "";
+    return !(g.length >= 3 && g.length <= 5);
+  });
+}
+
+function ConflictPanel({ conflicts }: { conflicts: CoverageConflict[] }) {
+  return (
+    <div className="flex flex-col gap-1.5 rounded-md border border-danger/40 bg-danger-soft px-3 py-2 text-xs text-danger">
+      <p className="font-semibold">Some coverage is already assigned to another partner:</p>
+      <ul className="flex flex-col gap-0.5">
+        {conflicts.map((c) => (
+          <li key={`${c.kind}-${c.value}`}>
+            <span className="num font-medium">{c.value}</span> ({c.kind === "zip" ? "ZIP" : "state"}) is covered by{" "}
+            <span className="font-medium">{c.ownerName}</span> ({c.ownerRefId}).
+          </li>
+        ))}
+      </ul>
+      <p className="text-danger/80">Remove it from that partner first, then save again.</p>
+    </div>
+  );
+}
+
+export // Coverage editor shared by the partner form and the house-territory dialog: a mode toggle
+// (States | ZIP codes, with live counts), a searchable state multi-select, and a validated ZIP
+// paste box. Controlled — the parent owns states/zips/conflicts.
+function CoverageEditor({
+  states,
+  onStatesChange,
+  zips,
+  onZipsChange,
+  conflicts,
+}: {
+  states: string[];
+  onStatesChange: (s: string[]) => void;
+  zips: string;
+  onZipsChange: (z: string) => void;
+  conflicts: CoverageConflict[];
+}) {
+  const [mode, setMode] = React.useState<"states" | "zips">("states");
+  // Open on whichever dimension already has data, once it first arrives (edit seeds after mount).
+  const [modeSeeded, setModeSeeded] = React.useState(false);
+  if (!modeSeeded && (states.length > 0 || zips.trim() !== "")) {
+    setModeSeeded(true);
+    setMode(states.length > 0 ? "states" : "zips");
+  }
+  const zipInvalid = invalidZipTokens(zips);
+  const zipValidCount = zipTokens(zips).length - zipInvalid.length;
+
+  return (
+    <div className="flex flex-col gap-2 rounded-md border border-border-soft p-3">
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-sm font-medium text-text">Coverage</span>
+        <SegmentedControl
+          ariaLabel="Coverage type"
+          value={mode}
+          onValueChange={setMode}
+          options={[
+            { value: "states", label: states.length ? `States · ${states.length}` : "States" },
+            { value: "zips", label: zipValidCount > 0 ? `ZIP codes · ${zipValidCount}` : "ZIP codes" },
+          ]}
+        />
+      </div>
+      {mode === "states" ? (
+        <div className="flex flex-col gap-1.5">
+          <StateMultiSelect selected={states} onChange={onStatesChange} ariaLabel="Add covered states" />
+          <span className="text-xs text-text-3">Whole states covered as a fallback. Search and pick — no typing codes.</span>
+        </div>
+      ) : (
+        <Textarea
+          label="Covered ZIP codes"
+          value={zips}
+          onChange={(e) => onZipsChange(e.target.value)}
+          rows={3}
+          optional
+          error={zipInvalid.length > 0 ? `These aren't valid ZIPs: ${zipInvalid.join(", ")}` : undefined}
+          hint="ZIPs covered, separated by commas or spaces. ZIP coverage beats a state fallback."
+        />
+      )}
+      {conflicts.length > 0 && <ConflictPanel conflicts={conflicts} />}
+    </div>
+  );
+}
+
+export function PartnerForm({
   editing,
   onClose,
 }: {
@@ -92,11 +196,15 @@ function PartnerForm({
           dealTerms: editing.dealTerms ?? "",
           adminNotes: editing.adminNotes ?? "",
           zips: "",
-          states: "",
         }
       : EMPTY,
   );
-  const [err, setErr] = React.useState<string | null>(null);
+  // States are picked from a fixed list (StateMultiSelect) so an invalid state is impossible.
+  const [states, setStates] = React.useState<string[]>([]);
+  const [nameErr, setNameErr] = React.useState<string | null>(null);
+  const [emailErr, setEmailErr] = React.useState<string | null>(null);
+  const [banner, setBanner] = React.useState<string | null>(null);
+  const [conflicts, setConflicts] = React.useState<CoverageConflict[]>([]);
   const set = (k: keyof FormFields) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) =>
     setF((p) => ({ ...p, [k]: e.target.value }));
 
@@ -111,17 +219,24 @@ function PartnerForm({
   if (editing && detail.data && !seeded) {
     setSeeded(true);
     const t = detail.data.partner.territory;
-    setF((p) => ({ ...p, zips: t.zips.join(", "), states: t.states.join(", ") }));
+    setF((p) => ({ ...p, zips: t.zips.join(", ") }));
+    setStates(t.states);
   }
+
+  const zipInvalid = invalidZipTokens(f.zips);
 
   const mutation = useMutation({
     mutationFn: async () => {
       const contact = { name: f.name, email: f.email, phone: f.phone, dealTerms: f.dealTerms, adminNotes: f.adminNotes };
-      const id = editing
-        ? (await send(`/api/admin/partners/${editing.id}`, "PATCH", contact), editing.id)
-        : ((await send("/api/admin/partners", "POST", contact)).partner as { id: string }).id;
-      // CVG-01: apply coverage (validated server-side; rejects unrecognized tokens).
-      await send(`/api/admin/partners/${id}/coverage`, "PUT", { zips: f.zips, states: f.states });
+      const statesStr = states.join(",");
+      // WP-C: contact + coverage travel together in ONE atomic request — create (POST) or edit
+      // (PATCH). A coverage rejection (unrecognized token or territory conflict) rolls the whole
+      // thing back, so there's never an orphan on create or a half-applied edit.
+      if (editing) {
+        await send(`/api/admin/partners/${editing.id}`, "PATCH", { ...contact, zips: f.zips, states: statesStr });
+      } else {
+        await send("/api/admin/partners", "POST", { ...contact, zips: f.zips, states: statesStr });
+      }
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["partners"] });
@@ -133,10 +248,30 @@ function PartnerForm({
       onClose();
     },
     onError: (e: Error & { json?: Record<string, unknown> }) => {
-      const bad = [...((e.json?.invalidZips as string[]) ?? []), ...((e.json?.invalidStates as string[]) ?? [])];
-      setErr(bad.length ? `Not recognized: ${bad.join(", ")}` : e.message);
+      const j = e.json ?? {};
+      // WP-C: a territory conflict names the owning partner(s) so the owner edits them first.
+      if (j.code === "coverage_conflict" && Array.isArray(j.conflicts)) {
+        setConflicts(j.conflicts as CoverageConflict[]);
+        return;
+      }
+      const bad = [...((j.invalidZips as string[]) ?? []), ...((j.invalidStates as string[]) ?? [])];
+      setBanner(bad.length ? `These entries weren't recognized: ${bad.join(", ")}` : e.message);
     },
   });
+
+  const submit = () => {
+    setNameErr(null);
+    setEmailErr(null);
+    setBanner(null);
+    setConflicts([]);
+    let bad = false;
+    if (!f.name.trim()) { setNameErr("Name is required."); bad = true; }
+    if (!f.email.trim()) { setEmailErr("Email is required."); bad = true; }
+    else if (!isValidEmail(f.email)) { setEmailErr("Enter a valid email."); bad = true; }
+    if (zipInvalid.length > 0) bad = true;
+    if (bad) return;
+    mutation.mutate();
+  };
 
   return (
     <Dialog
@@ -148,15 +283,7 @@ function PartnerForm({
           <Button variant="ghost" onClick={onClose}>
             Cancel
           </Button>
-          <Button
-            variant="primary"
-            loading={mutation.isPending}
-            onClick={() => {
-              setErr(null);
-              if (!f.name.trim()) return setErr("Name is required.");
-              mutation.mutate();
-            }}
-          >
+          <Button variant="primary" loading={mutation.isPending} onClick={submit}>
             {editing ? "Save changes" : "Create partner"}
           </Button>
         </>
@@ -166,33 +293,119 @@ function PartnerForm({
         <Input
           label="Name"
           value={f.name}
-          onChange={(e) => { setErr(null); set("name")(e); }}
+          onChange={(e) => { setNameErr(null); set("name")(e); }}
           required
-          error={err ?? undefined}
+          error={nameErr ?? undefined}
           autoFocus
         />
-        <Input label="Email" type="email" value={f.email} onChange={set("email")} optional hint="Needed to send an invite." />
+        <Input
+          label="Email"
+          type="email"
+          value={f.email}
+          onChange={(e) => { setEmailErr(null); set("email")(e); }}
+          required
+          error={emailErr ?? undefined}
+          hint="Needed to send an invite."
+        />
         <Input label="Phone" value={f.phone} onChange={set("phone")} optional />
-        <Textarea
-          label="Coverage — ZIP codes"
-          value={f.zips}
-          onChange={set("zips")}
-          rows={2}
-          optional
-          hint="ZIPs this partner covers, separated by commas or spaces."
+
+        {/* Coverage — pick the type, then the matching editor (owner note #1). */}
+        <CoverageEditor
+          states={states}
+          onStatesChange={setStates}
+          zips={f.zips}
+          onZipsChange={(v) => setF((p) => ({ ...p, zips: v }))}
+          conflicts={conflicts}
         />
-        <Textarea
-          label="Coverage — whole states"
-          value={f.states}
-          onChange={set("states")}
-          rows={1}
-          optional
-          hint="2-letter states (e.g. TX, CA) this partner covers as a fallback."
-        />
+
         <Textarea label="Deal terms" value={f.dealTerms} onChange={set("dealTerms")} rows={2} optional />
         <Textarea label="Admin notes" value={f.adminNotes} onChange={set("adminNotes")} rows={2} optional hint="Private to admins." />
+        {banner && <p className="text-xs text-danger">{banner}</p>}
         {!editing && <p className="text-xs text-text-3">A locked color and PR-### reference are assigned automatically.</p>}
       </div>
+    </Dialog>
+  );
+}
+
+// ── House territory (owner note #7) ──────────────────────────────────────────
+// Coverage-only editor for the tenant's own territory. No contact fields (house has no
+// email/portal identity); saves through the same conflict-aware coverage endpoint, so house
+// and partners can't silently overlap each other.
+function HouseTerritoryDialog({ house, onClose }: { house: Partner; onClose: () => void }) {
+  const qc = useQueryClient();
+  const { toast } = useToast();
+  const [states, setStates] = React.useState<string[]>([]);
+  const [zips, setZips] = React.useState("");
+  const [conflicts, setConflicts] = React.useState<CoverageConflict[]>([]);
+  const [banner, setBanner] = React.useState<string | null>(null);
+
+  const detail = useQuery({
+    queryKey: ["partner", house.id],
+    queryFn: () => apiGet<{ partner: Partner & { territory: Territory } }>(`/api/admin/partners/${house.id}`),
+  });
+  const [seeded, setSeeded] = React.useState(false);
+  if (detail.data && !seeded) {
+    setSeeded(true);
+    const t = detail.data.partner.territory;
+    setStates(t.states);
+    setZips(t.zips.join(", "));
+  }
+  const zipInvalid = invalidZipTokens(zips);
+
+  const mutation = useMutation({
+    mutationFn: () => send(`/api/admin/partners/${house.id}/coverage`, "PUT", { zips, states: states.join(",") }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["partners"] });
+      qc.invalidateQueries({ queryKey: ["coverage"] });
+      qc.invalidateQueries({ queryKey: ["partner", house.id] });
+      toast("Your territory was updated.", "success");
+      onClose();
+    },
+    onError: (e: Error & { json?: Record<string, unknown> }) => {
+      const j = e.json ?? {};
+      if (j.code === "coverage_conflict" && Array.isArray(j.conflicts)) {
+        setConflicts(j.conflicts as CoverageConflict[]);
+        return;
+      }
+      const bad = [...((j.invalidZips as string[]) ?? []), ...((j.invalidStates as string[]) ?? [])];
+      setBanner(bad.length ? `These entries weren't recognized: ${bad.join(", ")}` : e.message);
+    },
+  });
+
+  const submit = () => {
+    setBanner(null);
+    setConflicts([]);
+    if (zipInvalid.length > 0) return;
+    mutation.mutate();
+  };
+
+  return (
+    <Dialog
+      open
+      onClose={onClose}
+      title="My Territory"
+      footer={
+        <>
+          <Button variant="ghost" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button variant="primary" loading={mutation.isPending} disabled={detail.isLoading} onClick={submit}>
+            Save territory
+          </Button>
+        </>
+      }
+    >
+      {detail.isLoading ? (
+        <Skeleton className="h-40" />
+      ) : (
+        <div className="flex flex-col gap-3">
+          <p className="text-sm text-text-2">
+            ZIPs and states you manage yourself. Leads here route to you, and show in your own color on every map.
+          </p>
+          <CoverageEditor states={states} onStatesChange={setStates} zips={zips} onZipsChange={setZips} conflicts={conflicts} />
+          {banner && <p className="text-xs text-danger">{banner}</p>}
+        </div>
+      )}
     </Dialog>
   );
 }
@@ -367,6 +580,8 @@ function PartnersBody() {
   // Topbar carries the title only; the "New partner" action moved in-body
   // (owner testing note #7, 2026-07-15 — same treatment as Imports/Dashboard).
   usePageHeader({ title: "Partners" });
+  const qc = useQueryClient();
+  const { toast } = useToast();
   const { data, isPending, error } = useQuery({
     queryKey: ["partners"],
     queryFn: () => apiGet<{ partners: Partner[] }>("/api/admin/partners"),
@@ -379,12 +594,26 @@ function PartnersBody() {
   const [creating, setCreating] = React.useState(false);
   const [editing, setEditing] = React.useState<Partner | null>(null);
   const [deactivating, setDeactivating] = React.useState<Partner | null>(null);
+  const [editingHouse, setEditingHouse] = React.useState(false);
   const all = React.useMemo(() => data?.partners ?? [], [data]);
+  // WP-D: the house row is the admin's own territory — pulled out of the partner roster and
+  // shown in its own section (never invited/deactivated).
+  const house = React.useMemo(() => all.find((p) => p.isHouse) ?? null, [all]);
+  const partnersOnly = React.useMemo(() => all.filter((p) => !p.isHouse), [all]);
   const roster = React.useMemo(() => {
-    if (!stateFilter) return all;
+    if (!stateFilter) return partnersOnly;
     const owner = coverage.data?.states.find((s) => s.code === stateFilter)?.partnerId ?? null;
-    return owner ? all.filter((p) => p.id === owner) : [];
-  }, [all, stateFilter, coverage.data]);
+    return owner ? partnersOnly.filter((p) => p.id === owner) : [];
+  }, [partnersOnly, stateFilter, coverage.data]);
+
+  const createHouse = useMutation({
+    mutationFn: () => send("/api/admin/partners/house", "POST"),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["partners"] });
+      setEditingHouse(true); // the dialog mounts once the refetched roster includes the house row
+    },
+    onError: (e: Error) => toast(e.message, "danger"),
+  });
 
   return (
     <>
@@ -412,6 +641,40 @@ function PartnersBody() {
           + New partner
         </Button>
       </div>
+
+      {/* WP-D: the admin's own territory (owner note #7) — distinct from partners. */}
+      {data && (
+        <Card className="mb-3">
+          <div className="flex flex-wrap items-center justify-between gap-3 p-4">
+            {house ? (
+              <>
+                <div className="flex flex-wrap items-center gap-3">
+                  <PartnerTag name={house.name} color={house.color} refId={house.refId} />
+                  <span className="num text-xs text-text-3">
+                    {house.zipCount} ZIP{house.zipCount === 1 ? "" : "s"}
+                    {house.stateCount > 0 && ` · ${house.stateCount} state${house.stateCount === 1 ? "" : "s"}`}
+                  </span>
+                </div>
+                <Button variant="secondary" size="sm" onClick={() => setEditingHouse(true)}>
+                  Edit territory
+                </Button>
+              </>
+            ) : (
+              <>
+                <div className="max-w-md">
+                  <p className="text-sm font-medium text-text">Your own territory</p>
+                  <p className="text-xs text-text-3">
+                    Add ZIPs or states you manage yourself — leads there route to you and show in your own color on the maps.
+                  </p>
+                </div>
+                <Button variant="secondary" size="sm" loading={createHouse.isPending} onClick={() => createHouse.mutate()}>
+                  Set up my territory
+                </Button>
+              </>
+            )}
+          </div>
+        </Card>
+      )}
 
         <Card>
           {isPending ? (
@@ -481,6 +744,7 @@ function PartnersBody() {
       {creating && <PartnerForm editing={null} onClose={() => setCreating(false)} />}
       {editing && <PartnerForm editing={editing} onClose={() => setEditing(null)} />}
       {deactivating && <DeactivateModal partner={deactivating} roster={roster} onClose={() => setDeactivating(null)} />}
+      {editingHouse && house && <HouseTerritoryDialog house={house} onClose={() => setEditingHouse(false)} />}
     </>
   );
 }

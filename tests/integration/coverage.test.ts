@@ -5,7 +5,7 @@ import { and, eq, inArray, isNull } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import * as schema from "@/db/schema";
 import { purgeAuditLog } from "../helpers/audit";
-import { setPartnerCoverage } from "@/modules/coverage/commands";
+import { setPartnerCoverage, CoverageConflictError } from "@/modules/coverage/commands";
 import type { ScopeContext } from "@/lib/scope";
 
 const url = process.env.DATABASE_URL;
@@ -65,21 +65,43 @@ suite("WP-031a: per-partner coverage entry (CVG-01, DM-06)", () => {
     expect(await currentZipsOf(alphaId)).toEqual(["75001", "75002"]);
   });
 
-  it("CVG-01/DM-06: assigning a ZIP owned by another partner reassigns it (old row closed, new version)", async () => {
-    const change = await setPartnerCoverage(scope, bravoId, { zips: ["75001"], states: [] });
-    expect(change.reassignedZips).toBe(1);
+  it("WP-C: claiming a ZIP owned by another partner is a hard conflict — nothing is reassigned", async () => {
+    // Bravo tries to take 75001 (Alpha's). Instead of silently stealing it, the save is rejected
+    // with a conflict that names Alpha, and Alpha keeps the ZIP untouched.
+    let caught: CoverageConflictError | null = null;
+    try {
+      await setPartnerCoverage(scope, bravoId, { zips: ["75001"], states: [] });
+    } catch (e) {
+      caught = e as CoverageConflictError;
+    }
+    expect(caught).toBeInstanceOf(CoverageConflictError);
+    expect(caught!.conflicts).toHaveLength(1);
+    expect(caught!.conflicts[0]).toMatchObject({ kind: "zip", value: "75001", ownerRefId: "JV-001", ownerName: "Alpha" });
 
-    // Exactly one CURRENT 75001, now Bravo's, at a bumped version; Alpha's row is closed.
-    const current = await db.select().from(schema.coverageZips).where(and(eq(schema.coverageZips.tenantId, scope.tenantId), eq(schema.coverageZips.zip5, "75001"), isNull(schema.coverageZips.effectiveTo)));
-    expect(current).toHaveLength(1);
-    expect(current[0].partnerId).toBe(bravoId);
-    expect(current[0].version).toBe(2);
-    expect(await currentZipsOf(alphaId)).toEqual(["75002"]); // Alpha keeps its other ZIP
+    // Nothing moved: Alpha still owns 75001 (+75002 from the prior test); Bravo owns nothing.
+    expect(await currentZipsOf(alphaId)).toEqual(["75001", "75002"]);
+    expect(await currentZipsOf(bravoId)).toEqual([]);
+  });
+
+  it("WP-C: claiming a STATE owned by another partner is a hard conflict too", async () => {
+    let caught: CoverageConflictError | null = null;
+    try {
+      await setPartnerCoverage(scope, bravoId, { zips: [], states: ["TX"] });
+    } catch (e) {
+      caught = e as CoverageConflictError;
+    }
+    expect(caught).toBeInstanceOf(CoverageConflictError);
+    expect(caught!.conflicts[0]).toMatchObject({ kind: "state", value: "TX", ownerRefId: "JV-001", ownerName: "Alpha" });
+
+    // TX still Alpha's.
+    const tx = await db.select().from(schema.stateRules).where(and(eq(schema.stateRules.tenantId, scope.tenantId), eq(schema.stateRules.state, "TX")));
+    expect(tx).toHaveLength(1);
+    expect(tx[0].partnerId).toBe(alphaId);
   });
 
   it("CVG-01: an empty entry removes this partner's remaining ZIPs + states", async () => {
     const change = await setPartnerCoverage(scope, alphaId, { zips: [], states: [] });
-    expect(change.removedZips).toBe(1); // 75002 dropped
+    expect(change.removedZips).toBe(2); // 75001 + 75002 dropped (nothing was reassigned away)
     expect(await currentZipsOf(alphaId)).toEqual([]);
     const tx = await db.select().from(schema.stateRules).where(and(eq(schema.stateRules.tenantId, scope.tenantId), eq(schema.stateRules.state, "TX")));
     expect(tx).toHaveLength(0); // TX state rule removed

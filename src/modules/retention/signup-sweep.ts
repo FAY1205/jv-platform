@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray, isNull, lte, sql } from "drizzle-orm";
+import { and, asc, eq, gt, inArray, isNull, lte, sql } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import * as schema from "@/db/schema";
@@ -80,17 +80,45 @@ export interface SignupSweepResult {
  * its tenants row. Any NEW tenant-scoped write reachable before verification MUST be added to
  * this delete order, or the tenants delete will FK-fail (surfacing as item G's per-tenant log).
  *
- * TOCTOU: getUserById is checked before this runs, but an expired signup can never become
- * confirmed in-app between that check and the delete — verifySignupToken rejects expired
- * tokens and there is no resend flow, so the auth user cannot transition to confirmed. If a
- * resend/re-verify feature is ever added, re-check confirmation INSIDE this function.
+ * TOCTOU (WP-B, resend now EXISTS): a signup can become non-abandoned between the caller's
+ * candidate scan and this delete, two ways — the user clicks verify (auth user flips to
+ * confirmed), or the user hits resend (a fresh, unexpired verification row is rotated in). Either
+ * would make purging here destroy a live signup. So this re-checks BOTH conditions immediately
+ * before the destructive tx and returns false (purged nothing) if the signup is no longer provably
+ * abandoned. Returns true only when it actually purged, so callers count accurately.
  */
 async function purgeAbandonedSignup(
   db: DB,
   admin: SupabaseClient,
-  opts: { tenantId: string; userId: string },
-): Promise<void> {
-  const { tenantId, userId } = opts;
+  opts: { tenantId: string; userId: string; now: Date },
+): Promise<boolean> {
+  const { tenantId, userId, now } = opts;
+
+  // Guard 1 — verify-during-sweep: re-read confirmation right before deleting. A user who clicked
+  // the link after the caller's scan is now a real, active tenant; never delete it.
+  const recheck = await admin.auth.admin.getUserById(userId);
+  if (recheck.error || !recheck.data.user) {
+    logError("signup_sweep_recheck_missing_auth_user", { tenantId });
+    return false;
+  }
+  if (recheck.data.user.email_confirmed_at) return false;
+
+  // Guard 2 — resend-during-sweep: if a live (unexpired, unused) verification token now exists, the
+  // user asked for a new link and may still verify. A verified token has used_at set, so this
+  // deliberately does NOT catch that case — guard 1 does, via the confirmed re-check above.
+  const live = await db
+    .select({ id: schema.signupVerifications.id })
+    .from(schema.signupVerifications)
+    .where(
+      and(
+        eq(schema.signupVerifications.userId, userId),
+        isNull(schema.signupVerifications.usedAt),
+        gt(schema.signupVerifications.expiresAt, now),
+      ),
+    )
+    .limit(1);
+  if (live.length) return false;
+
   await db.transaction(async (tx) => {
     // DM-08/ADR-0031 escape hatch: audit_log is append-only (migration 0014's trigger) and
     // audit_log.tenant_id is a hard FK (ON DELETE no action), so the tenant row can never be
@@ -108,6 +136,15 @@ async function purgeAbandonedSignup(
     await tx.delete(schema.users).where(eq(schema.users.id, userId));
     // By userId (not a single verificationId) so a resend path's sibling rows leave no residue (item I).
     await tx.delete(schema.signupVerifications).where(eq(schema.signupVerifications.userId, userId));
+    // WP-B: release the invitation code this tenant burned at provisioning (used_by_tenant_id was
+    // stamped in provisionSignup). Without this, an abandoned signup permanently spends the
+    // prospect's single-use code — they cannot retry until the owner mints a new one. Set it back
+    // to unused; if it hasn't yet hit its own 48h TTL, the same code redeems again. No FK on
+    // used_by_tenant_id, so this is safe in any order relative to the tenants delete.
+    await tx
+      .update(schema.signupCodes)
+      .set({ usedAt: null, usedByTenantId: null })
+      .where(eq(schema.signupCodes.usedByTenantId, tenantId));
     await tx.delete(schema.tenants).where(eq(schema.tenants.id, tenantId));
   });
 
@@ -118,6 +155,7 @@ async function purgeAbandonedSignup(
   if (del.error) {
     logError("signup_sweep_delete_auth_user_failed", { tenantId, message: del.error.message });
   }
+  return true;
 }
 
 /**
@@ -183,9 +221,11 @@ export async function sweepAbandonedSignups(
       continue;
     }
 
-    // Provably abandoned: expired + unconsumed + still-unconfirmed.
-    await purgeAbandonedSignup(db, admin, { tenantId: opts.tenantId, userId: candidate.userId });
-    purged += 1;
+    // Provably abandoned: expired + unconsumed + still-unconfirmed. purge re-checks both race
+    // conditions (verify/resend) at delete time and returns false if it declined — count only real purges.
+    if (await purgeAbandonedSignup(db, admin, { tenantId: opts.tenantId, userId: candidate.userId, now })) {
+      purged += 1;
+    }
   }
 
   return { purged, skipped };
@@ -311,8 +351,10 @@ export async function reconcileDroppedSignups(
   let partials = 0;
   for (const { userId, tenantId } of partialTargets) {
     // Same shared purge tx (+ auth-user delete) the abandoned sweep uses — one delete order.
-    await purgeAbandonedSignup(db, admin, { tenantId, userId });
-    partials += 1;
+    // purge re-checks the verify/resend races at delete time; count only real purges.
+    if (await purgeAbandonedSignup(db, admin, { tenantId, userId, now })) {
+      partials += 1;
+    }
   }
 
   if (orphans > 0) {

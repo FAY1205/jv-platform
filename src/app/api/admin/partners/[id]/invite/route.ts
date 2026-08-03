@@ -32,11 +32,13 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
 
   const db = getDb();
   const [partner] = await db
-    .select({ id: schema.partners.id, refId: schema.partners.refId, email: schema.partners.email, status: schema.partners.status })
+    .select({ id: schema.partners.id, refId: schema.partners.refId, email: schema.partners.email, status: schema.partners.status, isHouse: schema.partners.isHouse })
     .from(schema.partners)
     .where(and(eq(schema.partners.tenantId, scope.tenantId), eq(schema.partners.id, id)));
 
   if (!partner) return jsonError("not_found", "Partner not found.", 404);
+  // WP-D: the house row is the admin's own territory — it has no portal identity to invite.
+  if (partner.isHouse) return jsonError("house_no_invite", "Your own territory can't be invited.", 422);
   if (!partner.email) return jsonError("no_email", "Add an email to this partner before inviting.", 422);
 
   try {

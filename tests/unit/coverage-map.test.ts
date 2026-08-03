@@ -23,6 +23,18 @@ describe("buildStateCoverage", () => {
     expect(ny.gap).toBe(false);
   });
 
+  it("WP-D: the house partner colors its states like any partner (maps show the admin's own territory)", () => {
+    // The house is just an is_house partner in the pipeline; the map builder has no special case,
+    // so a house-owned state fills with the house color and is never a gap (owner note #7).
+    const house = { id: "house", name: "My Territory", refId: "HOUSE", color: "#3A3F4B" };
+    const model = buildStateCoverage([{ state: "TX", partnerId: "house" }], [...P, house], [{ state: "TX", count: 5 }]);
+    const tx = model.states.find((s) => s.code === "TX")!;
+    expect(tx.color).toBe("#3A3F4B");
+    expect(tx.refId).toBe("HOUSE");
+    expect(tx.gap).toBe(false);
+    expect(model.partners.some((p) => p.refId === "HOUSE")).toBe(true); // appears in the legend
+  });
+
   it("MAP-01: a state with no rule is uncovered (null partner)", () => {
     const model = buildStateCoverage([{ state: "NY", partnerId: "p1" }], P, []);
     const tx = model.states.find((s) => s.code === "TX")!;

@@ -7,6 +7,7 @@ import {
   AlreadyDeactivatedError,
   ReassignmentRequiredError,
   InvalidReassignTargetError,
+  HouseNotAllowedError,
 } from "@/modules/partners/commands";
 import { DeactivateSchema } from "@/modules/partners/schema";
 import { jsonOk, jsonError, newTraceId } from "@/lib/http";
@@ -48,6 +49,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       );
     }
     if (e instanceof InvalidReassignTargetError) return jsonError("invalid_target", e.message, 422);
+    if (e instanceof HouseNotAllowedError) return jsonError("house_immutable", e.message, 422);
     if (e instanceof PartnerNotFoundError) return jsonError("not_found", e.message, 404);
     if (e instanceof AlreadyDeactivatedError) return jsonError("already_deactivated", e.message, 409);
     return authErrorResponse(e) ?? jsonError("partner_deactivate_failed", "Could not deactivate the partner.", 500);

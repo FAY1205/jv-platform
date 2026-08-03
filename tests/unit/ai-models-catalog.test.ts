@@ -9,7 +9,9 @@ describe("ADR-0036 model catalog", () => {
   });
 
   it("the dead Gemini 2.0 model is no longer offered (shut down 2026-06-01)", () => {
-    expect(AI_MODELS.google.some((m) => m.id === "gemini-2.0-flash")).toBe(false);
+    // The catalog type no longer includes the dead id, so a literal `===` won't type-check
+    // (that's the guarantee) — widen to string to keep the runtime assertion meaningful.
+    expect(AI_MODELS.google.some((m) => (m.id as string) === "gemini-2.0-flash")).toBe(false);
     expect(AI_MODELS.google[0].id).toBe("gemini-3.6-flash");
   });
 

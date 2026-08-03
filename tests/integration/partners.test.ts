@@ -11,6 +11,8 @@ import {
   deactivatePartner,
   ReassignmentRequiredError,
 } from "@/modules/partners/commands";
+import { createPartnerWithCoverage, updatePartnerWithCoverage } from "@/modules/partners/partner-with-coverage";
+import { CoverageConflictError } from "@/modules/coverage/commands";
 import { listPartners, territoryOf } from "@/modules/partners/queries";
 import type { ScopeContext } from "@/lib/scope";
 
@@ -92,12 +94,38 @@ suite("WP-030: partners CRUD + deactivation → reassignment (ADM-03, PRN-05)", 
   it("ADM-03: update changes contact details but never the locked color", async () => {
     const roster = await listPartners(scope);
     const charlie = roster.find((p) => p.refId === "PR-003")!;
-    await updatePartner(scope, charlie.id, { dealTerms: "60/40", phone: "555-0100" });
+    await updatePartner(scope, charlie.id, { email: "charlie@example.com", dealTerms: "60/40", phone: "555-0100" });
 
     const after = (await listPartners(scope)).find((p) => p.refId === "PR-003")!;
     expect(after.dealTerms).toBe("60/40");
     expect(after.phone).toBe("555-0100");
     expect(after.color).toBe(charlie.color); // unchanged
+  });
+
+  it("WP-C: create-with-coverage is atomic — a territory conflict rolls the partner back (no orphan)", async () => {
+    // Alpha still owns 75001 at this point (deactivation runs later). Creating a new partner that
+    // claims 75001 must fail as a conflict AND leave no partner row behind — otherwise a retry
+    // would duplicate the partner (the orphan bug this WP fixes).
+    const before = (await listPartners(scope)).length;
+    await expect(
+      createPartnerWithCoverage(scope, { name: "Orphan Co", email: "orphan@example.com" }, { zips: ["75001"], states: [] }),
+    ).rejects.toBeInstanceOf(CoverageConflictError);
+
+    const roster = await listPartners(scope);
+    expect(roster.length).toBe(before); // no partner created
+    expect(roster.some((p) => p.name === "Orphan Co")).toBe(false);
+  });
+
+  it("WP-C: edit-with-coverage is atomic — a territory conflict rolls the contact change back too", async () => {
+    // Bravo owns nothing yet; Alpha still owns 75001. Editing Bravo's name AND claiming 75001 in
+    // one shot must fail as a conflict and leave Bravo's name unchanged (no half-applied edit).
+    const nameBefore = (await listPartners(scope)).find((p) => p.id === bravoId)!.name;
+    await expect(
+      updatePartnerWithCoverage(scope, bravoId, { name: "Bravo Renamed", email: "bravo@example.com" }, { zips: ["75001"], states: [] }),
+    ).rejects.toBeInstanceOf(CoverageConflictError);
+
+    const nameAfter = (await listPartners(scope)).find((p) => p.id === bravoId)!.name;
+    expect(nameAfter).toBe(nameBefore); // contact change rolled back with the coverage rejection
   });
 
   it("PRN-05: deactivate → reassign repoints rules + versions coverage; the historical lead is untouched", async () => {

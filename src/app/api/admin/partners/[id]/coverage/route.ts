@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { getServerScope } from "@/lib/scope-context";
 import { authErrorResponse, requireAdminResponse, assertCsrf } from "@/lib/auth/guard";
-import { setPartnerCoverage } from "@/modules/coverage/commands";
+import { setPartnerCoverage, CoverageConflictError } from "@/modules/coverage/commands";
 import { parseZipList, parseStateList } from "@/modules/coverage/parse";
 import { PartnerNotFoundError } from "@/modules/partners/commands";
 import { jsonOk, jsonError, newTraceId } from "@/lib/http";
@@ -46,6 +46,13 @@ export async function PUT(request: Request, { params }: { params: Promise<{ id: 
     return jsonOk({ code: "ok", message: "Coverage updated.", change });
   } catch (e) {
     if (e instanceof PartnerNotFoundError) return jsonError("not_found", e.message, 404);
+    // WP-C: a ZIP/state owned by another partner blocks the save (no silent reassignment).
+    if (e instanceof CoverageConflictError) {
+      return NextResponse.json(
+        { code: "coverage_conflict", message: e.message, traceId: newTraceId(), conflicts: e.conflicts },
+        { status: 409 },
+      );
+    }
     return authErrorResponse(e) ?? jsonError("coverage_failed", "Could not update coverage.", 500);
   }
 }

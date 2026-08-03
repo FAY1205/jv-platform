@@ -15,6 +15,7 @@ export { StatusSelect, type StatusSelectProps } from "./StatusSelect";
 export { SegmentedControl, type SegmentedControlProps, type SegmentOption } from "./SegmentedControl";
 export { NativeSelect, type NativeSelectProps } from "./NativeSelect";
 export { Combobox, type ComboboxProps, type ComboboxOption } from "./Combobox";
+export { StateMultiSelect, type StateMultiSelectProps } from "./StateMultiSelect";
 export { DatePicker, type DatePickerProps, isoToDate, dateToIso } from "./DatePicker";
 export { DateRangePicker, type DateRangePickerProps, type DateRangeValue } from "./DateRangePicker";
 export { Checkbox, type CheckboxProps } from "./Checkbox";

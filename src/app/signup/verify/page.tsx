@@ -17,6 +17,7 @@ function VerifyForm() {
   const token = params.get("token") ?? "";
   const [loading, setLoading] = React.useState(false);
   const [done, setDone] = React.useState(false);
+  const [doneMsg, setDoneMsg] = React.useState("Your email is verified.");
   const [error, setError] = React.useState<string | null>(null);
 
   async function onVerify() {
@@ -28,11 +29,15 @@ function VerifyForm() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ token }),
       });
+      const body = (await res.json().catch(() => null)) as { message?: string } | null;
+      // WP-B: res.ok now covers BOTH signup_verified and signup_already_verified (a double-click
+      // or a refresh of this page after success), so a repeat shows a calm confirmation instead of
+      // the old alarming "this link is invalid or has expired" for an account that is in fact active.
       if (res.ok) {
+        setDoneMsg(body?.message ?? "Your email is verified.");
         setDone(true);
         return;
       }
-      const body = (await res.json().catch(() => null)) as { message?: string } | null;
       setError(body?.message ?? "This link is invalid or has expired.");
     } catch {
       setError("Network error. Please try again.");
@@ -51,7 +56,7 @@ function VerifyForm() {
           </div>
           {done ? (
             <div className="flex flex-col gap-4">
-              <p className="text-sm text-success">Your email is verified.</p>
+              <p className="text-sm text-success">{doneMsg}</p>
               <Link href="/login" className="text-sm font-semibold text-brand-ink hover:underline">
                 Sign in
               </Link>
@@ -71,9 +76,14 @@ function VerifyForm() {
                 Verify my email
               </Button>
               {error && (
-                <Link href="/signup" className="text-center text-sm text-text-3 hover:text-text-2">
-                  Back to sign up
-                </Link>
+                <div className="flex flex-col gap-1 text-center text-sm">
+                  <Link href="/login" className="font-semibold text-brand-ink hover:underline">
+                    Go to sign in
+                  </Link>
+                  <Link href="/signup" className="text-text-3 hover:text-text-2">
+                    Start a new sign up
+                  </Link>
+                </div>
               )}
             </div>
           )}

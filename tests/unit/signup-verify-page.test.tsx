@@ -44,5 +44,24 @@ describe("SignupVerifyPage — confirm email via token link", () => {
     await userEvent.click(screen.getByRole("button", { name: /verify my email/i }));
 
     await screen.findByText(/this link is invalid or has expired\./i);
+    // WP-B: the error state now gives a real exit (sign in), not just a loop back to sign up.
+    expect(screen.getByRole("link", { name: /go to sign in/i })).toBeTruthy();
+  });
+
+  it("WP-B: an already-verified response (double-click / refresh) shows a calm confirmation, not an error", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({
+        ok: true,
+        json: async () => ({ code: "signup_already_verified", message: "Your email is already verified. You can sign in." }),
+      })),
+    );
+
+    render(<VerifyPage />);
+    await userEvent.click(screen.getByRole("button", { name: /verify my email/i }));
+
+    await screen.findByText(/your email is already verified/i);
+    expect(screen.getByRole("link", { name: /sign in/i })).toBeTruthy();
+    expect(screen.queryByText(/invalid or has expired/i)).toBeNull();
   });
 });

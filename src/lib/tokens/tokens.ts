@@ -220,6 +220,13 @@ export const PARTNER_PALETTE: readonly PartnerColor[] = [
 ] as const;
 
 /**
+ * WP-D (ADR-0037): the reserved color for the tenant's own "house" territory. A neutral
+ * graphite deliberately OUTSIDE the partner tint pool below, so house coverage reads as
+ * "yours, not a partner's" on every map and roster. Stays AA with white text via contrastText.
+ */
+export const HOUSE_COLOR = "#3A3F4B";
+
+/**
  * The partner swatch pool (SET-02, ADR-0022) — the Survey "printed-map region"
  * palette: muted, distinguishable tints that stay AA as row/legend fills (the
  * export picks black/white text per fill via contrastText). New partners created

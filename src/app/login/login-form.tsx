@@ -49,8 +49,8 @@ export function LoginForm({ signupEnabled = false }: { signupEnabled?: boolean }
       <Card className="w-full max-w-sm">
         <CardBody>
           <div className="mb-6 flex flex-col gap-1">
-            <span className="font-display text-lg font-semibold text-text">{APP_NAME}</span>
-            <span className="text-sm text-text-3">Sign in to your workspace</span>
+            <h1 className="font-display text-lg font-semibold text-text">{APP_NAME}</h1>
+            <span className="text-sm text-text-3">Admin portal sign-in</span>
           </div>
           <form onSubmit={onSubmit} className="flex flex-col gap-4" noValidate>
             <Input
@@ -77,14 +77,22 @@ export function LoginForm({ signupEnabled = false }: { signupEnabled?: boolean }
               Forgot password?
             </Link>
           </form>
-          {signupEnabled && (
-            <p className="mt-5 border-t border-border-soft pt-4 text-center text-sm text-text-2">
-              Don&apos;t have an account?{" "}
-              <Link href="/signup" className="font-semibold text-brand-ink hover:underline">
-                Sign up
+          <div className="mt-5 flex flex-col gap-3 border-t border-border-soft pt-4 text-center text-sm">
+            {signupEnabled && (
+              <p className="text-text-2">
+                Don&apos;t have an account?{" "}
+                <Link href="/signup" className="font-semibold text-brand-ink hover:underline">
+                  Sign up
+                </Link>
+              </p>
+            )}
+            <p className="text-text-3">
+              Are you a partner?{" "}
+              <Link href="/portal/login" className="font-semibold text-brand-ink hover:underline">
+                Sign in to the partner portal
               </Link>
             </p>
-          )}
+          </div>
         </CardBody>
       </Card>
     </main>
