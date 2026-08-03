@@ -4,7 +4,7 @@ import { render, screen } from "@testing-library/react";
 
 vi.mock("next/navigation", () => ({ usePathname: () => "/settings/data" }));
 
-import { SettingsNav } from "@/app/settings/settings-nav";
+import { SettingsNav } from "@/app/(admin)/settings/settings-nav";
 
 describe("SettingsNav", () => {
   it("groups sections under Account and Organization", () => {

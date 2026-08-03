@@ -10,7 +10,7 @@ const apiMutate = vi.fn();
 vi.mock("@/lib/api", () => ({ apiGet: (...a: unknown[]) => apiGet(...a), apiMutate: (...a: unknown[]) => apiMutate(...a), ApiError: class {} }));
 vi.mock("@/lib/csrf-client", () => ({ csrfHeaders: () => ({ "x-csrf-token": "t" }) }));
 
-import { AiSettings } from "@/app/settings/ai/ai-settings";
+import { AiSettings } from "@/app/(admin)/settings/ai/ai-settings";
 
 // AiSettings calls useToast() unconditionally (per BIL-04's onSuccess/onError), so the
 // harness needs a real <ToastProvider> the same way tests/unit/components/leads-components.test.tsx does.

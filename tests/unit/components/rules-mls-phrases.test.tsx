@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { describe, expect, it } from "vitest";
 import { render, screen } from "@testing-library/react";
-import { MlsPhrasesCard, type MlsPhrase } from "@/app/rules/mls-phrases";
+import { MlsPhrasesCard, type MlsPhrase } from "@/app/(admin)/rules/mls-phrases";
 
 // Render-level guards for the guarantees MlsPhrasesCard documents in its header comment.
 // The pure ordering helper is tested in mls-groups.test.ts; this covers the JSX layer.

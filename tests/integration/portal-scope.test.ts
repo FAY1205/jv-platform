@@ -5,7 +5,7 @@ import { eq, inArray } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import * as schema from "@/db/schema";
 import type { ScopeContext } from "@/lib/scope";
-import { listPartnerLeads, getPartnerLeadDetail } from "@/modules/portal/queries";
+import { listPartnerLeads, getPartnerLeadDetail, getPartnerExportData } from "@/modules/portal/queries";
 import { updateLeadStatus, LeadNotFoundError, LeadRemovedError } from "@/modules/portal/status-update";
 import { releaseTenantLeads } from "../helpers/hold";
 
@@ -53,7 +53,7 @@ suite("TST-08: partner portal scoping", () => {
     await db.insert(schema.users).values({ id: id.pxUser, tenantId: t.id, email: "px@portal.test", role: "partner", partnerId: px.id });
 
     const [up] = await db.insert(schema.uploads).values({ tenantId: t.id, refId: "IM-26-001", filename: "a.xlsx", status: "processed" }).returning({ id: schema.uploads.id });
-    await db.insert(schema.leads).values({ tenantId: t.id, refId: "LD-26-00001", uploadId: up.id, dedupeKey: "x|1", rawJson: {}, partnerId: px.id, matchMethod: "zip", mlsStatus: "kept", sellerFirst: "Xavier", sellerLast: "X" });
+    await db.insert(schema.leads).values({ tenantId: t.id, refId: "LD-26-00001", uploadId: up.id, dedupeKey: "x|1", rawJson: {}, partnerId: px.id, matchMethod: "zip", mlsStatus: "kept", sellerFirst: "Xavier", sellerLast: "X", campaign: "Secret Lead Source A" });
     await db.insert(schema.leads).values({ tenantId: t.id, refId: "LD-26-00002", uploadId: up.id, dedupeKey: "y|2", rawJson: {}, partnerId: py.id, matchMethod: "zip", mlsStatus: "kept", sellerFirst: "Yolanda", sellerLast: "Y" });
     // A removed lead — its status is the read-only "Removed MLS" verdict; workflow
     // status changes must be refused (PRN-04 keeps MLS state authoritative).
@@ -110,6 +110,16 @@ suite("TST-08: partner portal scoping", () => {
     await db.update(schema.leads).set({ createdAt: new Date(Date.now() - 20 * 60 * 1000) }).where(eq(schema.leads.refId, "LD-26-00099"));
     expect((await listPartnerLeads(partnerX())).leads.some((l) => l.refId === "LD-26-00099")).toBe(true);
     expect((await getPartnerLeadDetail(partnerX(), "LD-26-00099"))?.refId).toBe("LD-26-00099");
+  });
+
+  it("PTL-04/PRN-08: the portal export never carries the lead source (Campaign) and fetches only the caller's own partner row", async () => {
+    const data = await getPartnerExportData(partnerX());
+    // Only the partner's own leads, and every campaign value blanked — the lead
+    // source is admin-only; the portal UI/API already omit it, the export must too.
+    expect(data.exportLeads.length).toBeGreaterThan(0);
+    expect(data.exportLeads.every((l) => l.campaign === "")).toBe(true);
+    // No sibling-partner identities in the partners map (PRN-08 discipline).
+    expect([...data.partners.keys()]).toEqual([id.px]);
   });
 
   it("F-12: re-setting the current status is a no-op (changed:false, no new history, so the route skips notify)", async () => {

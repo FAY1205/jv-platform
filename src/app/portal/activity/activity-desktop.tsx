@@ -5,7 +5,7 @@ import { useQuery } from "@tanstack/react-query";
 import { apiGet } from "@/lib/api";
 import { Card, Table, THead, TBody, Th, Tr, Td, Badge, EmptyState, Skeleton, Button } from "@/components";
 
-// WP-PW-4 Task 1: the desktop (>= lg) Activity table (mirrors src/app/activity/page.tsx's
+// WP-PW-4 Task 1: the desktop (>= lg) Activity table (mirrors src/app/(admin)/activity/page.tsx's
 // admin table idiom, portal-scoped). Owns its own query entirely — same query key as
 // ActivityMobile (they never mount together; a returning user reuses the cache).
 // No in-body <h1> — the desktop top bar already shows "Your activity" (WP-PW-1's

@@ -13,7 +13,7 @@ import { statusPillClass } from "@/lib/status-pill";
 import { PORTAL_STATUS_FILTERS, type PortalLeadSort, type PartnerLeadPage } from "@/modules/portal/leads-contract";
 
 // WP-PW-3 Task 2: the desktop (>= lg) Leads table — admin-style sortable, status-
-// filterable, server-side-paginated (mirrors src/app/leads/leads-view.tsx, portal-scoped).
+// filterable, server-side-paginated (mirrors src/app/(admin)/leads/leads-view.tsx, portal-scoped).
 // Owns its own query/state entirely (no shared state with LeadsMobile) — exactly one of
 // the two mounts after the media query settles. Note: on a desktop first paint,
 // useIsDesktop() is false until that first render resolves, so LeadsMobile briefly

@@ -1,7 +1,7 @@
 import { and, asc, desc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import { getDb } from "@/db";
 import * as schema from "@/db/schema";
-import { leadWhere, leadChildWhere, tenantWhere, type ScopeContext } from "@/lib/scope";
+import { leadWhere, leadChildWhere, tenantWhere, requirePartner, type ScopeContext } from "@/lib/scope";
 import { releasedLeads } from "../run/hold-filter";
 import { computeRunSummary, type RunSummary } from "../analytics/run-summary";
 import { partnerPerformanceDetail } from "../analytics/partner-performance";
@@ -337,7 +337,10 @@ export interface PartnerExportData {
   summary: RunSummary;
 }
 
-/** All of the partner's kept leads assembled for the Excel export (PTL-04). Scoped. */
+/** All of the partner's kept leads assembled for the Excel export (PTL-04). Scoped.
+ *  The Campaign value is blanked and only the caller's own partner row is fetched:
+ *  the lead source and sibling-partner identities are admin-only (PRN-08) — the rest
+ *  of the portal already withholds both, and the export must not be the exception. */
 export async function getPartnerExportData(scope: ScopeContext): Promise<PartnerExportData> {
   const db = getDb();
   const [leadRows, partnerRows] = await Promise.all([
@@ -345,7 +348,12 @@ export async function getPartnerExportData(scope: ScopeContext): Promise<Partner
     db
       .select({ id: schema.partners.id, name: schema.partners.name, refId: schema.partners.refId, color: schema.partners.color })
       .from(schema.partners)
-      .where(tenantWhere(schema.partners, scope)),
+      .where(
+        and(
+          tenantWhere(schema.partners, scope),
+          scope.role === "partner" ? eq(schema.partners.id, requirePartner(scope)) : undefined,
+        ),
+      ),
   ]);
 
   const partners = new Map<string, PartnerInfo>(
@@ -356,7 +364,7 @@ export async function getPartnerExportData(scope: ScopeContext): Promise<Partner
   );
   const exportLeads: ExportLead[] = leadRows.map((l) => ({
     leadRefId: l.refId,
-    campaign: l.campaign ?? "",
+    campaign: "", // lead source stays admin-only — never in a partner-facing export
     dateCreated: l.dateCreated ?? "",
     notes: l.notes ?? "",
     address: l.address ?? "",

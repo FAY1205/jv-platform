@@ -25,7 +25,7 @@ type DB = PostgresJsDatabase<typeof schema>;
  * Both reads are scoped to the caller's own tenant/user id (PRN-08).
  *
  * This is the single decision, shared by the API guard below and the page-level gate in
- * `src/app/dashboard/layout.tsx`, so a route and a page can never disagree about who is
+ * `src/app/(admin)/dashboard/layout.tsx`, so a route and a page can never disagree about who is
  * gated — and so the escape hatch (`/tos`) is never itself gated.
  */
 export async function needsTosGate(db: DB, scope: ScopeContext): Promise<boolean> {
