@@ -1,19 +1,21 @@
 "use client";
 
 import * as React from "react";
+import * as Popover from "@radix-ui/react-popover";
 import { cn } from "@/lib/cn";
 import { Input } from "./Input";
 import { US_STATES } from "@/lib/us-states";
 
 // WP-C (owner note #1): a searchable multi-select for whole-state coverage. Picking from the
 // canonical 50-state + DC list means an invalid state is impossible by construction — no
-// free-text parsing, no "Texas vs TX vs 3-letter typo", no multi-word-name edge cases. Built on
-// the same native-input + ARIA combobox pattern as Combobox (no new deps); the listbox's
-// mousedown-preventDefault keeps focus on the input so several states can be added in a row.
+// free-text parsing, no "Texas vs TX vs 3-letter typo", no multi-word-name edge cases.
 //
-// Layout (round-3 fixes): the selected chips sit ABOVE the search so the dropdown never covers
-// them; the dropdown flips upward and caps its height when there isn't room below (it lives inside
-// a Radix dialog whose panel clips overflow, so it must stay within the panel — never spill out).
+// Layout (round-3 fixes):
+//  - selected chips sit ABOVE the search so the menu never covers them;
+//  - the menu is a Radix Popover, PORTALED out of the dialog so the transformed, overflow-auto
+//    dialog panel can't clip it — it opens downward and floats on top, spilling past the dialog
+//    edge if needed (avoidCollisions=false → never flips up). Radix's layering keeps a click on
+//    the menu from dismissing the parent dialog.
 
 export interface StateMultiSelectProps {
   /** Selected 2-letter codes. */
@@ -23,42 +25,11 @@ export interface StateMultiSelectProps {
   disabled?: boolean;
 }
 
-/** The viewport-space rect of the nearest ancestor that clips overflow (a scroll container or a
- *  dialog panel), which is what actually cuts the dropdown off — not the window. Falls back to the
- *  viewport when nothing clips (e.g. the Partners-page filter, or jsdom). */
-function clipRectOf(el: HTMLElement): { top: number; bottom: number } {
-  for (let node = el.parentElement; node; node = node.parentElement) {
-    const oy = getComputedStyle(node).overflowY;
-    if (oy === "auto" || oy === "scroll" || oy === "hidden") {
-      const r = node.getBoundingClientRect();
-      return { top: r.top, bottom: r.bottom };
-    }
-  }
-  return { top: 0, bottom: typeof window !== "undefined" ? window.innerHeight : 800 };
-}
-
-/** Decide whether the dropdown opens up or down, and how tall, given the input's rect and its
- *  clipping ancestor's rect (all viewport-space). PURE — unit-tested. Flips up when there's too
- *  little room below AND more room above; caps height to the room on the chosen side. */
-export function menuPlacement(
-  anchor: { top: number; bottom: number },
-  clip: { top: number; bottom: number },
-): { up: boolean; maxH: number } {
-  const below = clip.bottom - anchor.bottom;
-  const above = anchor.top - clip.top;
-  const up = below < 240 && above > below;
-  return { up, maxH: Math.max(120, Math.min(256, (up ? above : below) - 16)) };
-}
-
 export function StateMultiSelect({ selected, onChange, ariaLabel = "Add states", disabled }: StateMultiSelectProps) {
   const listboxId = React.useId();
   const [text, setText] = React.useState("");
   const [open, setOpen] = React.useState(false);
   const [active, setActive] = React.useState(0);
-  const anchorRef = React.useRef<HTMLDivElement>(null);
-  // Open direction + max height so the menu never spills out of a short dialog panel: downward when
-  // there's room below the input, else flip up; height capped to the available space either way.
-  const [menu, setMenu] = React.useState<{ up: boolean; maxH: number }>({ up: false, maxH: 256 });
 
   const selectedSet = new Set(selected);
   const q = text.trim().toLowerCase();
@@ -66,26 +37,6 @@ export function StateMultiSelect({ selected, onChange, ariaLabel = "Add states",
   const filtered = q
     ? available.filter((s) => s.name.toLowerCase().includes(q) || s.code.toLowerCase().includes(q))
     : available;
-
-  React.useLayoutEffect(() => {
-    if (!open) return;
-    const measure = () => {
-      const el = anchorRef.current;
-      if (!el) return;
-      const r = el.getBoundingClientRect();
-      // Measure room against the nearest CLIPPING ancestor (the dialog panel is overflow-auto and
-      // transformed, so it — not the window — is what cuts the menu off). Fall back to the viewport.
-      setMenu(menuPlacement(r, clipRectOf(el)));
-    };
-    measure();
-    // Recompute if the dialog scrolls or the window resizes while the menu is open.
-    window.addEventListener("resize", measure);
-    window.addEventListener("scroll", measure, true);
-    return () => {
-      window.removeEventListener("resize", measure);
-      window.removeEventListener("scroll", measure, true);
-    };
-  }, [open]);
 
   const add = (code: string) => {
     if (selectedSet.has(code)) return;
@@ -119,7 +70,7 @@ export function StateMultiSelect({ selected, onChange, ariaLabel = "Add states",
 
   return (
     <div>
-      {/* Chips ABOVE the search so the dropdown (which opens from the input) never covers them. */}
+      {/* Chips ABOVE the search so the menu (which opens from the input) never covers them. */}
       {selected.length > 0 && (
         <ul className="mb-2 flex flex-wrap gap-1.5" aria-label="Selected states">
           {selected.map((code) => (
@@ -143,63 +94,71 @@ export function StateMultiSelect({ selected, onChange, ariaLabel = "Add states",
           ))}
         </ul>
       )}
-      <div className="relative" ref={anchorRef}>
-        <Input
-          role="combobox"
-          aria-expanded={open}
-          aria-controls={listboxId}
-          aria-autocomplete="list"
-          aria-activedescendant={open && filtered[active] ? `${listboxId}-${active}` : undefined}
-          aria-label={ariaLabel}
-          value={text}
-          placeholder="Search states…"
-          disabled={disabled}
-          onChange={(e) => {
-            setText(e.target.value);
-            setOpen(true);
-            setActive(0);
-          }}
-          onFocus={() => setOpen(true)}
-          onKeyDown={onKeyDown}
-          onBlur={() => setOpen(false)}
-        />
-        {open && !disabled && (
-          <ul
-            id={listboxId}
-            role="listbox"
-            aria-label={ariaLabel}
-            // preventDefault keeps focus in the input, so adding one state doesn't blur-close the
-            // list — you can add several in a row.
+
+      <Popover.Root open={open && !disabled} onOpenChange={setOpen}>
+        <Popover.Anchor asChild>
+          <div className="relative">
+            <Input
+              role="combobox"
+              aria-expanded={open}
+              aria-controls={listboxId}
+              aria-autocomplete="list"
+              aria-activedescendant={open && filtered[active] ? `${listboxId}-${active}` : undefined}
+              aria-label={ariaLabel}
+              value={text}
+              placeholder="Search states…"
+              disabled={disabled}
+              onChange={(e) => {
+                setText(e.target.value);
+                setOpen(true);
+                setActive(0);
+              }}
+              onFocus={() => setOpen(true)}
+              onKeyDown={onKeyDown}
+            />
+          </div>
+        </Popover.Anchor>
+
+        <Popover.Portal>
+          <Popover.Content
+            side="bottom"
+            align="start"
+            sideOffset={4}
+            // Always open downward and let it overflow the dialog on top — never flip up.
+            avoidCollisions={false}
+            // Keep focus on the input so you can keep typing / add several in a row.
+            onOpenAutoFocus={(e) => e.preventDefault()}
+            onCloseAutoFocus={(e) => e.preventDefault()}
+            // A click on an option must not blur the input (so the menu stays open for multi-add).
             onMouseDown={(e) => e.preventDefault()}
-            style={{ maxHeight: menu.maxH }}
-            className={cn(
-              "absolute z-50 w-full overflow-auto rounded-lg border border-border bg-surface py-1 shadow-md",
-              menu.up ? "bottom-full mb-1" : "mt-1",
-            )}
+            style={{ width: "var(--radix-popover-trigger-width)" }}
+            className="z-[200] max-h-64 overflow-auto rounded-lg border border-border bg-surface py-1 shadow-md"
           >
-            {filtered.length === 0 ? (
-              <li className="px-3 py-1.5 text-sm text-text-3">No matches</li>
-            ) : (
-              filtered.map((s, i) => (
-                <li
-                  key={s.code}
-                  id={`${listboxId}-${i}`}
-                  role="option"
-                  aria-selected={false}
-                  onMouseEnter={() => setActive(i)}
-                  onClick={() => add(s.code)}
-                  className={cn(
-                    "cursor-pointer px-3 py-1.5 text-sm",
-                    i === active ? "bg-brand-soft text-brand-ink" : "text-text-2",
-                  )}
-                >
-                  {s.name} <span className="num text-text-3">({s.code})</span>
-                </li>
-              ))
-            )}
-          </ul>
-        )}
-      </div>
+            <ul id={listboxId} role="listbox" aria-label={ariaLabel}>
+              {filtered.length === 0 ? (
+                <li className="px-3 py-1.5 text-sm text-text-3">No matches</li>
+              ) : (
+                filtered.map((s, i) => (
+                  <li
+                    key={s.code}
+                    id={`${listboxId}-${i}`}
+                    role="option"
+                    aria-selected={false}
+                    onMouseEnter={() => setActive(i)}
+                    onClick={() => add(s.code)}
+                    className={cn(
+                      "cursor-pointer px-3 py-1.5 text-sm",
+                      i === active ? "bg-brand-soft text-brand-ink" : "text-text-2",
+                    )}
+                  >
+                    {s.name} <span className="num text-text-3">({s.code})</span>
+                  </li>
+                ))
+              )}
+            </ul>
+          </Popover.Content>
+        </Popover.Portal>
+      </Popover.Root>
     </div>
   );
 }

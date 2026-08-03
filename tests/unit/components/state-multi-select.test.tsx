@@ -3,7 +3,21 @@ import * as React from "react";
 import { describe, it, expect } from "vitest";
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { StateMultiSelect, menuPlacement } from "@/components/StateMultiSelect";
+import { StateMultiSelect } from "@/components/StateMultiSelect";
+
+// Radix Popover (the menu) uses ResizeObserver + pointer-capture APIs jsdom lacks; stub them.
+class ResizeObserverStub {
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+}
+(globalThis as unknown as { ResizeObserver: unknown }).ResizeObserver = ResizeObserverStub;
+if (typeof Element !== "undefined") {
+  Element.prototype.hasPointerCapture ??= () => false;
+  Element.prototype.setPointerCapture ??= () => {};
+  Element.prototype.releasePointerCapture ??= () => {};
+  Element.prototype.scrollIntoView ??= () => {};
+}
 
 // WP-C: the searchable state picker. Picking from the fixed list makes an invalid state
 // impossible — the whole point of replacing the free-text box.
@@ -50,22 +64,6 @@ describe("StateMultiSelect", () => {
     const combo = screen.getByRole("combobox", { name: /add states/i });
     // The chips list precedes the combobox in document order → it renders above it.
     expect(chips.compareDocumentPosition(combo) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-  });
-
-  it("menuPlacement: opens downward when there's room below (roomy dialog)", () => {
-    // Input high in a tall panel: plenty of room below → open down.
-    const p = menuPlacement({ top: 200, bottom: 240 }, { top: 80, bottom: 760 });
-    expect(p.up).toBe(false);
-    expect(p.maxH).toBeGreaterThan(150);
-  });
-
-  it("menuPlacement: flips UP when the input sits near the bottom of a short panel (My Territory bug)", () => {
-    // Short dialog panel (top 120, bottom 560); input near its bottom → little room below (≈20),
-    // more above (≈300). Must flip up and cap height so the menu stays inside the panel.
-    const p = menuPlacement({ top: 420, bottom: 460 }, { top: 120, bottom: 480 });
-    expect(p.up).toBe(true);
-    expect(p.maxH).toBeGreaterThanOrEqual(120);
-    expect(p.maxH).toBeLessThanOrEqual(256);
   });
 
   it("removes a state when its chip's remove button is clicked", async () => {
