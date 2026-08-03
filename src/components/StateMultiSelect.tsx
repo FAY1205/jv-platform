@@ -23,6 +23,33 @@ export interface StateMultiSelectProps {
   disabled?: boolean;
 }
 
+/** The viewport-space rect of the nearest ancestor that clips overflow (a scroll container or a
+ *  dialog panel), which is what actually cuts the dropdown off — not the window. Falls back to the
+ *  viewport when nothing clips (e.g. the Partners-page filter, or jsdom). */
+function clipRectOf(el: HTMLElement): { top: number; bottom: number } {
+  for (let node = el.parentElement; node; node = node.parentElement) {
+    const oy = getComputedStyle(node).overflowY;
+    if (oy === "auto" || oy === "scroll" || oy === "hidden") {
+      const r = node.getBoundingClientRect();
+      return { top: r.top, bottom: r.bottom };
+    }
+  }
+  return { top: 0, bottom: typeof window !== "undefined" ? window.innerHeight : 800 };
+}
+
+/** Decide whether the dropdown opens up or down, and how tall, given the input's rect and its
+ *  clipping ancestor's rect (all viewport-space). PURE — unit-tested. Flips up when there's too
+ *  little room below AND more room above; caps height to the room on the chosen side. */
+export function menuPlacement(
+  anchor: { top: number; bottom: number },
+  clip: { top: number; bottom: number },
+): { up: boolean; maxH: number } {
+  const below = clip.bottom - anchor.bottom;
+  const above = anchor.top - clip.top;
+  const up = below < 240 && above > below;
+  return { up, maxH: Math.max(120, Math.min(256, (up ? above : below) - 16)) };
+}
+
 export function StateMultiSelect({ selected, onChange, ariaLabel = "Add states", disabled }: StateMultiSelectProps) {
   const listboxId = React.useId();
   const [text, setText] = React.useState("");
@@ -46,10 +73,9 @@ export function StateMultiSelect({ selected, onChange, ariaLabel = "Add states",
       const el = anchorRef.current;
       if (!el) return;
       const r = el.getBoundingClientRect();
-      const below = window.innerHeight - r.bottom;
-      const above = r.top;
-      const up = below < 240 && above > below; // not enough room below and more room above → flip up
-      setMenu({ up, maxH: Math.max(120, Math.min(256, (up ? above : below) - 16)) });
+      // Measure room against the nearest CLIPPING ancestor (the dialog panel is overflow-auto and
+      // transformed, so it — not the window — is what cuts the menu off). Fall back to the viewport.
+      setMenu(menuPlacement(r, clipRectOf(el)));
     };
     measure();
     // Recompute if the dialog scrolls or the window resizes while the menu is open.
