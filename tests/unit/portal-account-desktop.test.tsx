@@ -57,19 +57,25 @@ describe("WP-PW-4 Task 2 AccountDesktop (two-column Profile + Devices grid)", ()
     expect(screen.getByText("Chrome on Mac")).toBeTruthy();
   });
 
-  it("PW4-05: clicking a per-device Sign out fires a revoke fetch for that device", async () => {
-    // WP-PW-4 Task 2 fix-1: the per-device revoke Button now carries a unique
-    // aria-label ("Sign out {deviceLabel}") so it's disambiguated from the
-    // account-level Sign out button (WCAG 2.4.6 / 4.1.2) — query by that name.
+  it("PW4-05 + P-12: per-device Sign out now confirms first (no revoke on the initial click)", async () => {
+    // P-12: the per-device revoke mirrors the admin two-step — the first click reveals a
+    // confirm, and only "Yes, sign out" fires the revoke (a stray click can't sign a device
+    // out). The revoke Button carries a unique aria-label so it's disambiguated from the
+    // account-level Sign out button (WCAG 2.4.6 / 4.1.2).
     const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve({}) });
     vi.stubGlobal("fetch", fetchMock);
     const user = userEvent.setup();
     renderDesktop();
 
     await screen.findByText("Chrome on Mac");
-    const deviceButton = screen.getByRole("button", { name: "Sign out Chrome on Mac" });
-    await user.click(deviceButton);
+    await user.click(screen.getByRole("button", { name: "Sign out Chrome on Mac" }));
 
+    // The first click only reveals the confirm — no revoke request yet.
+    expect(await screen.findByText("Sign out this device?")).toBeTruthy();
+    expect(fetchMock.mock.calls.some((c) => String(c[0]).includes("/revoke"))).toBe(false);
+
+    // Confirming fires the revoke for that device.
+    await user.click(screen.getByRole("button", { name: "Confirm sign out Chrome on Mac" }));
     await waitFor(() => {
       const revoke = fetchMock.mock.calls.find((c) => String(c[0]).includes("/api/sessions/fam-1/revoke"));
       expect(revoke).toBeTruthy();

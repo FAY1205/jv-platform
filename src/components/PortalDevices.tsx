@@ -30,6 +30,10 @@ function fmt(iso: string | null): string {
 
 export function PortalDevices() {
   const qc = useQueryClient();
+  // P-12: which device is awaiting a revoke confirmation — mirrors the admin
+  // "Sign out everywhere" two-step (reveal consequence → confirm) so a partner can't
+  // sign a device out (possibly the one they're on) with a single stray click.
+  const [confirmId, setConfirmId] = React.useState<string | null>(null);
   const { data, isLoading, error } = useQuery({
     queryKey: ["sessions"],
     queryFn: () => apiGet<{ devices: Device[] }>("/api/sessions"),
@@ -44,7 +48,10 @@ export function PortalDevices() {
       });
       if (!res.ok) throw new Error("Could not sign out that device.");
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["sessions"] }),
+    onSuccess: () => {
+      setConfirmId(null);
+      return qc.invalidateQueries({ queryKey: ["sessions"] });
+    },
   });
 
   const devices = data?.devices ?? [];
@@ -70,15 +77,37 @@ export function PortalDevices() {
                   last seen {fmt(d.lastSeenAt)} · {d.ip ?? "—"}
                 </p>
               </div>
-              <Button
-                variant="secondary"
-                size="lg"
-                loading={revoke.isPending && revoke.variables === d.familyId}
-                onClick={() => revoke.mutate(d.familyId)}
-                aria-label={`Sign out ${d.deviceLabel ?? "this device"}`}
-              >
-                Sign out
-              </Button>
+              {confirmId === d.familyId ? (
+                <div className="flex flex-wrap items-center justify-end gap-2">
+                  <span className="text-sm text-text-2">Sign out this device?</span>
+                  <Button
+                    variant="danger"
+                    size="lg"
+                    loading={revoke.isPending && revoke.variables === d.familyId}
+                    onClick={() => revoke.mutate(d.familyId)}
+                    aria-label={`Confirm sign out ${d.deviceLabel ?? "this device"}`}
+                  >
+                    Yes, sign out
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="lg"
+                    disabled={revoke.isPending}
+                    onClick={() => setConfirmId(null)}
+                  >
+                    Cancel
+                  </Button>
+                </div>
+              ) : (
+                <Button
+                  variant="secondary"
+                  size="lg"
+                  onClick={() => setConfirmId(d.familyId)}
+                  aria-label={`Sign out ${d.deviceLabel ?? "this device"}`}
+                >
+                  Sign out
+                </Button>
+              )}
             </li>
           ))}
         </ul>
