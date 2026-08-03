@@ -14,6 +14,7 @@ import {
   CardBody,
   Stat,
   HeroKpi,
+  AccountMenuTrigger,
   PartnerTag,
   Input,
   NativeSelect,
@@ -641,6 +642,20 @@ function Gallery() {
                 </DropdownMenu>
                 <Button variant="secondary" size="sm" onClick={() => setDialogOpen(true)}>Open Dialog</Button>
                 <RowOpenButton onClick={() => setDialogOpen(true)}>LD-26-00404</RowOpenButton>
+              </CardBody>
+            </Card>
+
+            <Card>
+              <CardHeader><CardTitle>Account menu trigger (WP-PP-6)</CardTitle></CardHeader>
+              <CardBody className="flex flex-col gap-3">
+                {/* Shared rail-foot trigger for the admin & portal account menus — normally
+                    wrapped by DropdownMenuTrigger asChild; shown standalone here. */}
+                <div className="max-w-[240px] rounded-md border border-border-soft p-1">
+                  <AccountMenuTrigger email="jordan@meridianbuyers.com" role="partner" />
+                </div>
+                <div className="max-w-[240px] rounded-md border border-border-soft p-1">
+                  <AccountMenuTrigger email="" />
+                </div>
               </CardBody>
             </Card>
 

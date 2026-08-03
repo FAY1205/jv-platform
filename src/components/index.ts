@@ -65,4 +65,5 @@ export { PageHeaderProvider, PageHeaderSlot, usePageHeader } from "./PageHeader"
 export { ThemeToggle } from "./ThemeToggle";
 export { CountyCoverageMap, type CountyCoverageMapProps } from "./CountyCoverageMap";
 export { HeroKpi } from "./HeroKpi";
+export { AccountMenuTrigger } from "./AccountMenuTrigger";
 export { PortalDevices } from "./PortalDevices";

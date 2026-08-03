@@ -4,12 +4,12 @@ import * as React from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { csrfHeaders } from "@/lib/csrf-client";
 
-// WP-PW-4 Task 2: the portal account sign-out (AUT-14 — server-side revoke, then a full
-// navigation that drops the client cache), extracted VERBATIM from the pre-WP-PW-4
-// PortalAccount body so AccountMobile and AccountDesktop share one implementation
-// instead of two copies that could drift. Behavior-preserving DRY: same fetch/body/
-// headers, same qc.clear(), same navigation.
-export function useSignOut() {
+// The one account sign-out (AUT-14 — server-side revoke, then a full navigation that
+// drops the client cache). Extracted from the portal account body (WP-PW-4) and, since
+// WP-PP-6, shared by the admin ProfileMenu too via the `redirectTo` option (the admin
+// lands on /login, the portal on /portal/login). Behavior-preserving DRY: same fetch/
+// body/headers, same qc.clear(), same navigation — one implementation, not three copies.
+export function useSignOut(redirectTo: string = "/portal/login") {
   const qc = useQueryClient();
   const [signingOut, setSigningOut] = React.useState(false);
 
@@ -25,7 +25,7 @@ export function useSignOut() {
       // Navigate away regardless — the session cookie is HttpOnly + server-revoked.
     }
     qc.clear();
-    window.location.assign("/portal/login");
+    window.location.assign(redirectTo);
   }
 
   return { signOut, signingOut };
