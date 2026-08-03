@@ -9,8 +9,15 @@ export const dynamic = "force-dynamic";
 export default async function LeadsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ q?: string | string[] }>;
+  searchParams: Promise<{ q?: string | string[]; open?: string | string[] }>;
 }) {
-  const { q } = await searchParams;
-  return <LeadsView initialQ={typeof q === "string" ? q : ""} />;
+  const { q, open } = await searchParams;
+  // ?open=<ref> deep-links a single lead straight into the dialog (P-1: the
+  // status-change notification and AI citations land here, not the retired page).
+  return (
+    <LeadsView
+      initialQ={typeof q === "string" ? q : ""}
+      initialOpenRef={typeof open === "string" ? open : null}
+    />
+  );
 }

@@ -1,63 +1,13 @@
-import Link from "next/link";
-import { notFound, redirect } from "next/navigation";
-import { getServerScope } from "@/lib/scope-context";
-import { getPartnerLeadDetail } from "@/modules/portal/queries";
-import { Card, CardBody, CardHeader, CardTitle, Badge, NotesPanel, ListingBadge, AppShell } from "@/components";
+import { redirect } from "next/navigation";
 
-// Admin lead detail — a per-lead view for the admin (the run tables only list them).
-// Reuses the scoped detail query (admin scope sees the whole tenant) and hosts the
-// admin note stream (PRN-13). Admin-only.
+// P-1 (portal-parity audit): this page used to be a read-only lead view with no status
+// control or history — a dead end for the status-change notification that deep-linked here.
+// It is retired in favor of the full leads dialog. Kept as a redirect so already-sent
+// notifications and AI citations that carry the old /leads/<ref> URL still land on the
+// capable surface (the dialog auto-opens from ?open=<ref>).
 export const dynamic = "force-dynamic";
 
-function Field({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="flex flex-col gap-0.5">
-      <span className="text-xs font-semibold uppercase tracking-wide text-text-3">{label}</span>
-      <span className="text-sm text-text-2">{value || "—"}</span>
-    </div>
-  );
-}
-
-export default async function AdminLeadPage({ params }: { params: Promise<{ ref: string }> }) {
+export default async function AdminLeadRedirect({ params }: { params: Promise<{ ref: string }> }) {
   const { ref } = await params;
-  const scope = await getServerScope().catch(() => null);
-  if (!scope) redirect("/login");
-  if (scope.role !== "admin") redirect("/portal");
-
-  const detail = await getPartnerLeadDetail(scope, ref);
-  if (!detail) notFound();
-
-  return (
-    <AppShell>
-      <div className="mx-auto w-full max-w-2xl">
-      <Link href="/imports" className="mb-4 inline-block text-sm text-text-3 hover:text-text-2">
-        ← Back to imports
-      </Link>
-      <div className="flex flex-col gap-4">
-        <Card>
-          <CardHeader className="flex items-center justify-between">
-            <CardTitle>
-              <span className="font-mono">{detail.refId}</span>
-            </CardTitle>
-            <Badge>{detail.status}</Badge>
-          </CardHeader>
-          <CardBody className="grid grid-cols-2 gap-4">
-            <Field label="Seller" value={`${detail.seller.first} ${detail.seller.last}`.trim()} />
-            <Field label="Received" value={new Date(detail.receivedAt).toLocaleString()} />
-            <Field label="Phone" value={detail.seller.phone} />
-            <Field label="Email" value={detail.seller.email} />
-            <Field label="Property" value={`${detail.address}, ${detail.city} ${detail.state} ${detail.zip}`.trim()} />
-            <Field label="Reason for selling" value={detail.reasonForSelling} />
-            <div className="flex flex-col gap-1">
-              <span className="text-xs font-semibold uppercase tracking-wide text-text-3">Listing check</span>
-              <ListingBadge status={detail.listing.status} link={detail.listing.link} />
-            </div>
-          </CardBody>
-        </Card>
-
-        <NotesPanel leadRef={ref} title="Admin notes" />
-      </div>
-      </div>
-    </AppShell>
-  );
+  redirect(`/leads?open=${encodeURIComponent(ref)}`);
 }

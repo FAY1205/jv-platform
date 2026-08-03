@@ -39,17 +39,17 @@ const PARTNER_ALL = "__all__";
 const PARTNER_UNMATCHED = "unmatched";
 const SOURCE_ALL = "__all__";
 
-export function LeadsView({ initialQ }: { initialQ: string }) {
+export function LeadsView({ initialQ, initialOpenRef = null }: { initialQ: string; initialOpenRef?: string | null }) {
   return (
     <AppShell>
-      <LeadsBody initialQ={initialQ} />
+      <LeadsBody initialQ={initialQ} initialOpenRef={initialOpenRef} />
     </AppShell>
   );
 }
 
 // Rendered inside AppShell's PageHeaderProvider so usePageHeader resolves — the "Leads"
 // title lives in the topbar (WP-E shell pattern), so no in-body <h1>.
-function LeadsBody({ initialQ }: { initialQ: string }) {
+function LeadsBody({ initialQ, initialOpenRef = null }: { initialQ: string; initialOpenRef?: string | null }) {
   usePageHeader({ title: "Leads" });
 
   const [filters, setFilters] = React.useState<Filters>({ ...EMPTY, q: initialQ });
@@ -57,7 +57,8 @@ function LeadsBody({ initialQ }: { initialQ: string }) {
   const [dir, setDir] = React.useState<"asc" | "desc">("desc");
   const [page, setPage] = React.useState(1);
   const [pageSize, setPageSize] = React.useState<number>(DEFAULT_PAGE_SIZE);
-  const [openRef, setOpenRef] = React.useState<string | null>(null);
+  // Seed the open dialog from ?open=<ref> (P-1 deep link); user opens/closes take over after.
+  const [openRef, setOpenRef] = React.useState<string | null>(initialOpenRef);
 
   const filterKey = `${filters.q}|${filters.partnerId}|${filters.state}|${filters.source}|${filters.statuses.join(",")}|${filters.dateFrom}|${filters.dateTo}|${sort}|${dir}`;
   const [resetKey, setResetKey] = React.useState(filterKey);

@@ -16,9 +16,13 @@ import {
 import { initialsFromEmail } from "@/lib/identity";
 
 // WS-7d / WP-B: the account menu, now a user block at the sidebar foot (theme moved to the
-// topbar ThemeToggle). Identity from /api/me; links to Settings + (dev) the gallery + Help;
-// and sign out (AUT-14 — server-side revoke via /api/auth/logout, then a full navigation
-// that drops the client cache so the back button reveals no authed data).
+// topbar ThemeToggle). Identity from /api/me; links to Settings + (dev) the gallery and the
+// email preview; and sign out (AUT-14 — server-side revoke via /api/auth/logout, then a full
+// navigation that drops the client cache so the back button reveals no authed data).
+// P-2 (portal-parity audit): the old "Help & guides" item pointed at /dev/emails, which
+// notFound()s in production — a permanent 404 on every admin screen. There is no real help
+// destination yet, so the dev email preview is now honestly labeled and dev-gated (like the
+// gallery); a genuine Help link is a follow-up when help content exists.
 
 interface Me {
   email: string;
@@ -83,9 +87,11 @@ export function ProfileMenu() {
             <Link href="/gallery">Component gallery</Link>
           </DropdownMenuItem>
         )}
-        <DropdownMenuItem asChild>
-          <Link href="/dev/emails">Help &amp; guides</Link>
-        </DropdownMenuItem>
+        {isDev && (
+          <DropdownMenuItem asChild>
+            <Link href="/dev/emails">Email preview (dev)</Link>
+          </DropdownMenuItem>
+        )}
         <DropdownMenuSeparator />
         <DropdownMenuItem destructive onSelect={() => signOut()}>
           Sign out

@@ -101,6 +101,10 @@ suite("WP-029: notification center + prefs (NTF-04/05)", () => {
     await db.delete(schema.notifications).where(eq(schema.notifications.tenantId, adminScope.tenantId));
     await notifyStatusChange(db, partnerScope, { leadRef: "LD-26-00001", status: "Contacted" });
     const adminNotifs = await listNotifications(adminScope);
-    expect(adminNotifs.some((n) => n.type === "status_change" && n.title.includes("Contacted"))).toBe(true);
+    const hit = adminNotifs.find((n) => n.type === "status_change" && n.title.includes("Contacted"));
+    expect(hit).toBeTruthy();
+    // P-1: the deep link must open the capable leads dialog, never the retired
+    // read-only /leads/[ref] page (which has no status control or history).
+    expect(hit!.deepLink).toBe("/leads?open=LD-26-00001");
   });
 });

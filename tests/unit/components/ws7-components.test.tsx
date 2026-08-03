@@ -54,8 +54,10 @@ describe("ProfileMenu", () => {
 
     wrap(<ProfileMenu />);
     await user.click(await screen.findByRole("button", { name: /Account menu/ }));
-    // WP-B: Help & guides moved into the menu; the Theme item moved to the topbar toggle.
-    expect(await screen.findByText("Help & guides")).toBeInTheDocument();
+    // P-2: the old "Help & guides" item (which 404'd in prod at /dev/emails) is gone;
+    // the dev email preview is now honestly labeled and dev-gated. Theme moved to the topbar.
+    expect(screen.queryByText("Help & guides")).toBeNull();
+    expect(await screen.findByText("Email preview (dev)")).toBeInTheDocument();
     expect(screen.queryByText(/^Theme:/)).toBeNull();
     await user.click(await screen.findByText("Sign out"));
 
