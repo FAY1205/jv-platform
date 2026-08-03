@@ -10,6 +10,10 @@ import { US_STATES } from "@/lib/us-states";
 // free-text parsing, no "Texas vs TX vs 3-letter typo", no multi-word-name edge cases. Built on
 // the same native-input + ARIA combobox pattern as Combobox (no new deps); the listbox's
 // mousedown-preventDefault keeps focus on the input so several states can be added in a row.
+//
+// Layout (round-3 fixes): the selected chips sit ABOVE the search so the dropdown never covers
+// them; the dropdown flips upward and caps its height when there isn't room below (it lives inside
+// a Radix dialog whose panel clips overflow, so it must stay within the panel — never spill out).
 
 export interface StateMultiSelectProps {
   /** Selected 2-letter codes. */
@@ -24,6 +28,10 @@ export function StateMultiSelect({ selected, onChange, ariaLabel = "Add states",
   const [text, setText] = React.useState("");
   const [open, setOpen] = React.useState(false);
   const [active, setActive] = React.useState(0);
+  const anchorRef = React.useRef<HTMLDivElement>(null);
+  // Open direction + max height so the menu never spills out of a short dialog panel: downward when
+  // there's room below the input, else flip up; height capped to the available space either way.
+  const [menu, setMenu] = React.useState<{ up: boolean; maxH: number }>({ up: false, maxH: 256 });
 
   const selectedSet = new Set(selected);
   const q = text.trim().toLowerCase();
@@ -31,6 +39,27 @@ export function StateMultiSelect({ selected, onChange, ariaLabel = "Add states",
   const filtered = q
     ? available.filter((s) => s.name.toLowerCase().includes(q) || s.code.toLowerCase().includes(q))
     : available;
+
+  React.useLayoutEffect(() => {
+    if (!open) return;
+    const measure = () => {
+      const el = anchorRef.current;
+      if (!el) return;
+      const r = el.getBoundingClientRect();
+      const below = window.innerHeight - r.bottom;
+      const above = r.top;
+      const up = below < 240 && above > below; // not enough room below and more room above → flip up
+      setMenu({ up, maxH: Math.max(120, Math.min(256, (up ? above : below) - 16)) });
+    };
+    measure();
+    // Recompute if the dialog scrolls or the window resizes while the menu is open.
+    window.addEventListener("resize", measure);
+    window.addEventListener("scroll", measure, true);
+    return () => {
+      window.removeEventListener("resize", measure);
+      window.removeEventListener("scroll", measure, true);
+    };
+  }, [open]);
 
   const add = (code: string) => {
     if (selectedSet.has(code)) return;
@@ -64,7 +93,31 @@ export function StateMultiSelect({ selected, onChange, ariaLabel = "Add states",
 
   return (
     <div>
-      <div className="relative">
+      {/* Chips ABOVE the search so the dropdown (which opens from the input) never covers them. */}
+      {selected.length > 0 && (
+        <ul className="mb-2 flex flex-wrap gap-1.5" aria-label="Selected states">
+          {selected.map((code) => (
+            <li
+              key={code}
+              className="inline-flex items-center gap-1 rounded-full border border-border-soft bg-surface-2 px-2 py-0.5 text-xs font-medium text-text-2"
+            >
+              <span className="num">{code}</span>
+              <button
+                type="button"
+                aria-label={`Remove ${code}`}
+                disabled={disabled}
+                onClick={() => remove(code)}
+                className="grid h-4 w-4 place-items-center rounded-full text-text-3 transition-colors hover:text-danger focus:outline-none focus-visible:ring-1 focus-visible:ring-brand-ink"
+              >
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" aria-hidden="true">
+                  <path d="M18 6 6 18M6 6l12 12" />
+                </svg>
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      <div className="relative" ref={anchorRef}>
         <Input
           role="combobox"
           aria-expanded={open}
@@ -89,10 +142,14 @@ export function StateMultiSelect({ selected, onChange, ariaLabel = "Add states",
             id={listboxId}
             role="listbox"
             aria-label={ariaLabel}
-            // preventDefault keeps focus in the input, so adding one state doesn't blur-close
-            // the list — you can add several in a row.
+            // preventDefault keeps focus in the input, so adding one state doesn't blur-close the
+            // list — you can add several in a row.
             onMouseDown={(e) => e.preventDefault()}
-            className="absolute z-50 mt-1 max-h-64 w-full overflow-auto rounded-lg border border-border bg-surface py-1 shadow-md"
+            style={{ maxHeight: menu.maxH }}
+            className={cn(
+              "absolute z-50 w-full overflow-auto rounded-lg border border-border bg-surface py-1 shadow-md",
+              menu.up ? "bottom-full mb-1" : "mt-1",
+            )}
           >
             {filtered.length === 0 ? (
               <li className="px-3 py-1.5 text-sm text-text-3">No matches</li>
@@ -117,29 +174,6 @@ export function StateMultiSelect({ selected, onChange, ariaLabel = "Add states",
           </ul>
         )}
       </div>
-      {selected.length > 0 && (
-        <ul className="mt-2 flex flex-wrap gap-1.5" aria-label="Selected states">
-          {selected.map((code) => (
-            <li
-              key={code}
-              className="inline-flex items-center gap-1 rounded-full border border-border-soft bg-surface-2 px-2 py-0.5 text-xs font-medium text-text-2"
-            >
-              <span className="num">{code}</span>
-              <button
-                type="button"
-                aria-label={`Remove ${code}`}
-                disabled={disabled}
-                onClick={() => remove(code)}
-                className="grid h-4 w-4 place-items-center rounded-full text-text-3 transition-colors hover:text-danger focus:outline-none focus-visible:ring-1 focus-visible:ring-brand-ink"
-              >
-                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" aria-hidden="true">
-                  <path d="M18 6 6 18M6 6l12 12" />
-                </svg>
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
     </div>
   );
 }

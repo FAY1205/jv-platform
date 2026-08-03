@@ -44,6 +44,14 @@ describe("StateMultiSelect", () => {
     expect(screen.queryByRole("option", { name: /texas/i })).toBeNull();
   });
 
+  it("renders the selected chips ABOVE the search input (so the dropdown can't cover them)", () => {
+    render(<Harness initial={["TX"]} />);
+    const chips = screen.getByRole("list", { name: /selected states/i });
+    const combo = screen.getByRole("combobox", { name: /add states/i });
+    // The chips list precedes the combobox in document order → it renders above it.
+    expect(chips.compareDocumentPosition(combo) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
   it("removes a state when its chip's remove button is clicked", async () => {
     const user = userEvent.setup();
     render(<Harness initial={["TX", "CA"]} />);
