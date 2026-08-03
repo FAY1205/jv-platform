@@ -54,22 +54,26 @@ no source filter; no attention pills; `neutralUncovered` map anonymization; acti
 own-actions-only (no actor filter); 4-KPI dashboard without admin charts; notes mutual
 invisibility (PRN-13) enforced server-side.
 
-## Proposed slices (ordered by user impact)
+## Slices — ALL LANDED (phase-2/distribution, 2026-08-03)
 
-1. **WP-PP-1 dead-end fixes (S):** P-1 (repoint deep link at the leads list/dialog, retire or
-   redirect `/leads/[ref]`) + P-2 (remove/replace Help & guides).
-2. **WP-PP-2 portal toast (S):** P-3 — mount `ToastProvider` in PortalShell + success toast on
-   the portal status mutation.
-3. **WP-PP-3 portal leads search (M):** P-4 — `q` param through `listPartnerLeads` (scoped
-   ILIKE over seller/address/zip/ref) + debounced input in LeadsDesktop.
-4. **WP-PP-4 consistency batch (S):** P-5 mobile badge, P-8 `role="alert"`, P-10 returning
-   marker, P-11 `next=` threading, P-7 gallery entry.
-5. **WP-PP-5 activity pagination (M):** P-9 — `total` on `listPartnerActivity` + shared
-   `Pagination` in both activity views.
-6. **WP-PP-6 account-menu primitive (S/M):** P-6 — extract `AccountMenuTrigger`, unify
-   `useSignOut`.
-7. **Owner decisions:** P-12 device sign-out confirm; whether admin should ever preview the
-   portal (currently redirected away by design).
+1. **WP-PP-1 dead-end fixes (57ae127):** P-1 — status-change notification + AI citation now
+   deep-link `/leads?open=<ref>` (auto-opens the full dialog); retired `/leads/[ref]` → redirect.
+   P-2 — "Help & guides" (404'd in prod) relabeled to dev-gated "Email preview (dev)".
+2. **WP-PP-2 portal toast (e23214a):** P-3 — PortalShell mounts `ToastProvider`; portal status
+   mutation toasts success (mirrors admin StatusSelect).
+3. **WP-PP-3 portal leads search (7f13021):** P-4 — `q` param on `listPartnerLeads` (ilike over
+   seller/address/city/zip/ref, ANDed into the scoped baseWhere; PRN-08) + debounced input.
+4. **WP-PP-4 consistency batch (06793ce):** P-5 mobile leads badge, P-8 `role="alert"`, P-10
+   returning marker, P-11 `next=` threading, P-7 HeroKpi gallery entry.
+5. **WP-PP-5 activity pagination (81fa49a):** P-9 — real `total` (two scoped count(*)) +
+   selectable pageSize; both activity views use the shared `Pagination`.
+6. **WP-PP-6 account-menu primitive (25bfb36):** P-6 — shared `AccountMenuTrigger` + generalized
+   `useSignOut(redirectTo)`; gallery entry.
+
+**Open owner decisions (not built):** P-12 device sign-out confirm; whether admin should ever
+preview the portal (currently redirected away by design). Adjacent candidates carried from the
+pr-review: role-gate `/api/portal/*` routes explicitly; dedupe the double `getServerScope()` on
+`/dashboard`.
 
 Raw agent reports: this synthesis supersedes them; state matrix and full evidence live in the
 session transcript (agents were read-only; no `docs/audit/raw` files written).
