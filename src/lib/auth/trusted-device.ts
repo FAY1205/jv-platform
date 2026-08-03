@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { and, eq, isNull, ne } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import * as schema from "@/db/schema";
 import { sha256Hex } from "./hash";
@@ -130,6 +130,22 @@ export class TrustedDeviceService {
       .update(schema.trustedDevices)
       .set({ revokedAt: new Date(now) })
       .where(eq(schema.trustedDevices.familyId, familyId));
+  }
+
+  /** Revoke every still-active remembered device for a user (global sign-out — AUT-14). */
+  async revokeAllForUser(userId: string, now: number): Promise<void> {
+    await this.db
+      .update(schema.trustedDevices)
+      .set({ revokedAt: new Date(now) })
+      .where(and(eq(schema.trustedDevices.userId, userId), isNull(schema.trustedDevices.revokedAt)));
+  }
+
+  /** Revoke a user's other remembered devices, keeping one family ("sign out others"). */
+  async revokeOtherFamilies(userId: string, keepFamilyId: string, now: number): Promise<void> {
+    await this.db
+      .update(schema.trustedDevices)
+      .set({ revokedAt: new Date(now) })
+      .where(and(eq(schema.trustedDevices.userId, userId), ne(schema.trustedDevices.familyId, keepFamilyId), isNull(schema.trustedDevices.revokedAt)));
   }
 
   /** Active device families for a user (ACC-02 list). One entry per family. */
