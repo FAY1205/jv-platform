@@ -24,7 +24,8 @@ describe("SEC-05/PRN-10: mask projections", () => {
     const m = maskLeadDetail(detail);
     expect(m).toMatchObject({ refId: "LD-00291", city: "Charleston", state: "SC", zip: "29407", status: "Contacted", campaign: "webinar-list", matchMethod: "zip" });
     expect(m.partner).toEqual({ name: "Meridian Buyers", refId: "PR-003" });
-    expect(m.path).toBe("/leads/LD-00291");
+    // P-1 (WP-PP-1): the citation opens the leads dialog (?open=), not the retired page.
+    expect(m.path).toBe("/leads?open=LD-00291");
     const json = JSON.stringify(m);
     expect(json).not.toContain("555-0100");
     expect(json).not.toContain("pat@example.test");
