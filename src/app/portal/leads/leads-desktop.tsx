@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
 import { apiGet } from "@/lib/api";
 import {
-  Button, Card, FilterPill, Table, THead, TBody, Th, Tr, Td, Pagination, DEFAULT_PAGE_SIZE, Skeleton, EmptyState,
+  Button, Card, FilterPill, Input, Table, THead, TBody, Th, Tr, Td, Pagination, DEFAULT_PAGE_SIZE, Skeleton, EmptyState,
 } from "@/components";
 import { statusPillClass } from "@/lib/status-pill";
 // leads-contract, NOT ./queries: this is a "use client" component and a VALUE import
@@ -38,9 +38,18 @@ export function LeadsDesktop() {
   const [page, setPage] = React.useState(1);
   const [pageSize, setPageSize] = React.useState<number>(DEFAULT_PAGE_SIZE);
 
+  // WP-PP-3: debounced free-text search (mirrors the admin leads-view 300ms debounce so
+  // keystrokes don't refetch on every character; the committed value drives the query).
+  const [qInput, setQInput] = React.useState("");
+  const [qCommitted, setQCommitted] = React.useState("");
+  React.useEffect(() => {
+    const t = setTimeout(() => setQCommitted(qInput.trim()), 300);
+    return () => clearTimeout(t);
+  }, [qInput]);
+
   // Admin compare pattern (leads-view.tsx): a derived key that resets `page` to 1 the
-  // moment sort/dir/statuses/pageSize change — a render-time compare, NOT an effect.
-  const filterKey = `${sort}|${dir}|${statuses.join(",")}|${pageSize}`;
+  // moment search/sort/dir/statuses/pageSize change — a render-time compare, NOT an effect.
+  const filterKey = `${qCommitted}|${sort}|${dir}|${statuses.join(",")}|${pageSize}`;
   const [resetKey, setResetKey] = React.useState(filterKey);
   if (filterKey !== resetKey) {
     setResetKey(filterKey);
@@ -62,35 +71,45 @@ export function LeadsDesktop() {
     queryFn: () => {
       const params = new URLSearchParams({ sort, dir, page: String(page), pageSize: String(pageSize) });
       if (statuses.length) params.set("status", statuses.join(","));
+      if (qCommitted) params.set("q", qCommitted);
       return apiGet<PartnerLeadPage>(`/api/portal/leads?${params.toString()}`);
     },
   });
 
   const data = leadsQ.data;
   const sortDir = (f: PortalLeadSort) => (sort === f ? dir : null);
+  const hasFilters = statuses.length > 0 || qCommitted !== "";
 
   return (
     <main className="mx-auto w-full flex-1 p-4 md:p-0">
-      {/* T7a: admin list-page order — filters row (pills left, in-body action right),
-          live result count, then the table in a Card (the admin leads-view idiom). */}
-      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-        {/* D3: the shared FilterPill primitive (the second former copy of the recipe). */}
-        <div className="flex flex-wrap items-center gap-1.5">
-          <span className="mr-1 text-xs font-semibold text-text-3">Status</span>
-          <FilterPill active={statuses.length === 0} onClick={() => setStatuses([])}>
-            All
-          </FilterPill>
-          {PORTAL_STATUS_FILTERS.map((s) => (
-            <FilterPill key={s} active={statuses.includes(s)} onClick={() => toggleStatus(s)}>
-              {s}
-            </FilterPill>
-          ))}
+      {/* T7a: admin list-page order — search + filters row (search left, in-body action
+          right), live result count, then the table in a Card (the admin leads-view idiom). */}
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+        <div className="w-full max-w-[300px]">
+          <Input
+            value={qInput}
+            onChange={(e) => setQInput(e.target.value)}
+            placeholder="Search seller, address, ZIP, lead ID…"
+            aria-label="Search your leads"
+          />
         </div>
         <a href="/api/portal/leads/export" download>
           <Button variant="secondary" size="lg">
             Export
           </Button>
         </a>
+      </div>
+      {/* D3: the shared FilterPill primitive (the second former copy of the recipe). */}
+      <div className="mb-4 flex flex-wrap items-center gap-1.5">
+        <span className="mr-1 text-xs font-semibold text-text-3">Status</span>
+        <FilterPill active={statuses.length === 0} onClick={() => setStatuses([])}>
+          All
+        </FilterPill>
+        {PORTAL_STATUS_FILTERS.map((s) => (
+          <FilterPill key={s} active={statuses.includes(s)} onClick={() => toggleStatus(s)}>
+            {s}
+          </FilterPill>
+        ))}
       </div>
 
       {/* Live result count (admin T2 copy) — re-announces as the filter narrows the set.
@@ -99,7 +118,7 @@ export function LeadsDesktop() {
       {data && data.total > 0 && !leadsQ.error && (
         <p className="mb-2 text-step-1 text-text-3" aria-live="polite">
           <span className="num font-semibold text-text-2">{data.total.toLocaleString()}</span>{" "}
-          {data.total === 1 ? "lead" : "leads"}{statuses.length ? " match the filters" : ""}
+          {data.total === 1 ? "lead" : "leads"}{hasFilters ? " match the filters" : ""}
         </p>
       )}
 
@@ -119,7 +138,7 @@ export function LeadsDesktop() {
           <div className="p-6">
             <EmptyState
               title="No leads found"
-              description={statuses.length ? "Try widening the status filter." : "Leads assigned to you will appear here after the next upload."}
+              description={hasFilters ? "Try widening your search or status filter." : "Leads assigned to you will appear here after the next upload."}
             />
           </div>
         ) : (

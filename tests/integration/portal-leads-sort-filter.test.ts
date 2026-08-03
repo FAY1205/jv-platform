@@ -121,6 +121,26 @@ suite("WP-PW-3 Task 1: listPartnerLeads sort + status filter (PRN-08)", () => {
     expect(page.total).toBe(page.leads.length); // count-consistency: no js-filter-after-fetch drift
   });
 
+  it("PP-3-01: q search matches the partner's own leads by seller/city/ref, count-consistent", async () => {
+    // Seller last name "Two" → only PX's LD-26-30002.
+    const bySeller = await listPartnerLeads(partnerX(), { q: "Two" });
+    expect(bySeller.leads.map((l) => l.refId)).toEqual(["LD-26-30002"]);
+    expect(bySeller.total).toBe(1);
+    // City "Boston" → only PX's LD-26-30002.
+    const byCity = await listPartnerLeads(partnerX(), { q: "boston" });
+    expect(byCity.leads.map((l) => l.refId)).toEqual(["LD-26-30002"]);
+    // Ref substring → LD-26-30001.
+    const byRef = await listPartnerLeads(partnerX(), { q: "30001" });
+    expect(byRef.leads.map((l) => l.refId)).toEqual(["LD-26-30001"]);
+  });
+
+  it("PP-3-02: q search can never reach another partner's lead (PRN-08)", async () => {
+    // "Aardvark" and seller "Four" belong to PY — PX searching them finds nothing.
+    expect((await listPartnerLeads(partnerX(), { q: "Aardvark" })).total).toBe(0);
+    expect((await listPartnerLeads(partnerX(), { q: "Four" })).leads).toHaveLength(0);
+    expect((await listPartnerLeads(partnerX(), { q: "LD-26-30004" })).total).toBe(0);
+  });
+
   it("PW3-03: an unknown sort value falls back to received/desc, no throw", async () => {
     const baseline = await listPartnerLeads(partnerX());
     // dir intentionally omitted here: `sort` and `dir` validate independently (an unknown

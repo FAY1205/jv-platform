@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, inArray, isNull, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, ilike, inArray, isNull, or, sql } from "drizzle-orm";
 import { getDb } from "@/db";
 import * as schema from "@/db/schema";
 import { leadWhere, leadChildWhere, tenantWhere, requirePartner, type ScopeContext } from "@/lib/scope";
@@ -46,6 +46,8 @@ export interface ListPartnerLeadsOpts {
   sort?: PortalLeadSort;
   dir?: "asc" | "desc";
   statuses?: readonly string[];
+  /** Free-text search over the partner's OWN rows (seller/address/city/zip/ref). */
+  q?: string;
 }
 
 // Correlated latest-status subquery — the current workflow status per lead. Portal
@@ -149,13 +151,30 @@ export async function listPartnerLeads(scope: ScopeContext, opts: ListPartnerLea
   // (`${s}`), never string-concatenated.
   const statusFilters = (opts.statuses ?? []).filter((s) => (PORTAL_STATUS_FILTERS as readonly string[]).includes(s));
 
+  // WP-PP-3: free-text search over the partner's own rows — same column set the admin
+  // leads query uses (seller/address/city/zip/ref). Bound via ilike (never concatenated),
+  // and ANDed INTO the shared scoped baseWhere, so it can only ever narrow the caller's
+  // OWN visible set — never widen scope (PRN-08).
+  const q = opts.q?.trim();
+  const textMatch = q
+    ? or(
+        ilike(schema.leads.sellerFirst, `%${q}%`),
+        ilike(schema.leads.sellerLast, `%${q}%`),
+        ilike(schema.leads.address, `%${q}%`),
+        ilike(schema.leads.city, `%${q}%`),
+        ilike(schema.leads.zip, `%${q}%`),
+        ilike(schema.leads.refId, `%${q}%`),
+      )
+    : undefined;
+
   // Visibility (scope + kept + WP-J2 soft-delete + distribution hold) comes from the
-  // shared visibleLeadsWhere; the status filter is pushed INTO this shared baseWhere so
-  // the row select and the count(*) below stay identically scoped/filtered
-  // (count-consistency) — never a JS filter-after-fetch.
+  // shared visibleLeadsWhere; the status filter and text search are pushed INTO this
+  // shared baseWhere so the row select and the count(*) below stay identically
+  // scoped/filtered (count-consistency) — never a JS filter-after-fetch.
   const baseWhere = and(
     visibleLeadsWhere(scope),
     statusFilters.length > 0 ? or(...statusFilters.map((s) => sql`${sExpr} = ${s}`)) : undefined,
+    textMatch,
   );
 
   const [rows, totalRows] = await Promise.all([

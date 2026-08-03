@@ -73,6 +73,22 @@ describe("WP-PW-3 Task 2 LeadsDesktop (sortable, filterable, paginated table)", 
     expect(lastCallUrl()).toContain("dir=desc");
   });
 
+  it("PP-3: typing in the search box re-requests with q= (debounced) and resets to page 1", async () => {
+    renderPage();
+    await screen.findByText("JV-2001");
+
+    // Move off page 1 first, so we can prove the search commit resets it.
+    fireEvent.click(screen.getByRole("button", { name: /next page/i }));
+    await waitFor(() => expect(lastCallUrl()).toContain("page=2"));
+
+    vi.mocked(apiGet).mockClear();
+    fireEvent.change(screen.getByRole("textbox", { name: /search your leads/i }), { target: { value: "Ruiz" } });
+
+    // 300ms debounce — waitFor rides the default 5s asyncUtilTimeout.
+    await waitFor(() => expect(lastCallUrl()).toContain("q=Ruiz"));
+    expect(lastCallUrl()).toContain("page=1");
+  });
+
   it("PW3-02: selecting a status filter includes status= and resets to page 1", async () => {
     renderPage();
     await screen.findByText("JV-2001");

@@ -30,9 +30,15 @@ function parseStatuses(v: string | null): string[] {
 function parsePageSize(v: string | null): number | undefined {
   return v == null ? undefined : portalPageSizeSchema.parse(v);
 }
+// WP-PP-3: free-text search — trimmed and length-capped (defensive; the query binds it via
+// ilike regardless). Empty/whitespace degrades to undefined so the no-search path is unchanged.
+function parseQ(v: string | null): string | undefined {
+  const q = v?.trim().slice(0, 100);
+  return q ? q : undefined;
+}
 
-// GET /api/portal/leads?page=&sort=&dir=&status=&pageSize= — the caller's own leads,
-// server-side paginated, sorted, and status-filtered (PTL-02, FEP-03, WP-PW-3 Task 1).
+// GET /api/portal/leads?page=&sort=&dir=&status=&pageSize=&q= — the caller's own leads,
+// server-side paginated, sorted, status-filtered, and text-searched (PTL-02, FEP-03).
 export async function GET(request: Request) {
   try {
     const scope = await getServerScope();
@@ -47,6 +53,7 @@ export async function GET(request: Request) {
         sort: parseSort(params.get("sort")),
         dir: parseDir(params.get("dir")),
         statuses: parseStatuses(params.get("status")),
+        q: parseQ(params.get("q")),
       }),
     );
   } catch (e) {
