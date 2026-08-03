@@ -15,7 +15,7 @@ vi.mock("@/lib/api", () => ({
       : { email: "ops@meridianbuyers.com", role: "partner", workspace: { name: "Meridian Buyers" } }),
 }));
 
-import { PortalShell } from "@/components";
+import { PortalShell, useToast } from "@/components";
 
 function renderShell() {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -76,6 +76,21 @@ describe("PortalShell", () => {
     renderShell();
     expect(screen.queryByRole("navigation", { name: "Portal" })).toBeNull();
     expect(screen.getByText("page body")).toBeInTheDocument();
+  });
+
+  it("P-3: mounts a ToastProvider — a child calling useToast() renders (no admin/portal drift)", () => {
+    mockPath = "/portal/leads";
+    function ToastChild() {
+      useToast(); // throws "must be used within <ToastProvider>" if the shell doesn't mount one
+      return <p>toast ok</p>;
+    }
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={qc}>
+        <PortalShell><ToastChild /></PortalShell>
+      </QueryClientProvider>,
+    );
+    expect(screen.getByText("toast ok")).toBeInTheDocument();
   });
 });
 

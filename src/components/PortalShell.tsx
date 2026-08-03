@@ -9,6 +9,7 @@ import { NotificationBell } from "./NotificationBell";
 import { ThemeToggle } from "./ThemeToggle";
 import { IconButton } from "./IconButton";
 import { PortalProfileMenu } from "./PortalProfileMenu";
+import { ToastProvider } from "./Toast";
 import { useApplyTheme, usePreferences, setPreferences } from "@/lib/preferences";
 import { cn } from "@/lib/cn";
 import { apiGet } from "@/lib/api";
@@ -110,6 +111,11 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
   );
 
   return (
+    // P-3 (portal-parity audit): the portal shell mounts ToastProvider like AppShell
+    // (ADR-0030) so portal pages get the same success/failure toast pattern the admin
+    // trains — and no shared leaf calling useToast() can crash here. Bare routes
+    // (login/tos) render outside the shell, exactly as their admin counterparts do.
+    <ToastProvider>
     <div className={cn("md:min-h-screen", navOpen ? "md:grid md:grid-cols-[236px_1fr]" : "md:grid md:grid-cols-1")}>
       {/* ===== Desktop left rail (≥ md) — admin AppShell metrics (T7a) ===== */}
       <aside
@@ -229,5 +235,6 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
         </nav>
       </div>
     </div>
+    </ToastProvider>
   );
 }

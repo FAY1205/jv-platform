@@ -6,7 +6,7 @@ import { useParams } from "next/navigation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiGet } from "@/lib/api";
 import { csrfHeaders } from "@/lib/csrf-client";
-import { Card, CardBody, CardHeader, CardTitle, NativeSelect, Badge, Skeleton, EmptyState, NotesPanel, ListingBadge, Spinner } from "@/components";
+import { Card, CardBody, CardHeader, CardTitle, NativeSelect, Badge, Skeleton, EmptyState, NotesPanel, ListingBadge, Spinner, useToast } from "@/components";
 
 interface LeadDetail {
   refId: string;
@@ -40,6 +40,7 @@ export default function PortalLeadDetailPage() {
   const params = useParams();
   const ref = String(params.ref);
   const qc = useQueryClient();
+  const toast = useToast();
 
   const { data, isLoading, error } = useQuery({
     queryKey: ["portal-lead", ref],
@@ -57,8 +58,15 @@ export default function PortalLeadDetailPage() {
         const b = (await res.json().catch(() => null)) as { message?: string } | null;
         throw new Error(b?.message ?? "Could not update the status.");
       }
+      return status;
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["portal-lead", ref] }),
+    // P-3: confirm the save like the admin StatusSelect does, plus keep the count badge
+    // fresh (a status move can change the "New" count the nav badge reflects).
+    onSuccess: (status) => {
+      qc.invalidateQueries({ queryKey: ["portal-lead", ref] });
+      qc.invalidateQueries({ queryKey: ["portal-leads"] });
+      toast.toast(`Status → ${status}`, "success");
+    },
   });
 
   return (
