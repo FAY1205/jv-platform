@@ -30,6 +30,7 @@ export function StateMultiSelect({ selected, onChange, ariaLabel = "Add states",
   const [text, setText] = React.useState("");
   const [open, setOpen] = React.useState(false);
   const [active, setActive] = React.useState(0);
+  const anchorRef = React.useRef<HTMLDivElement>(null);
 
   const selectedSet = new Set(selected);
   const q = text.trim().toLowerCase();
@@ -97,7 +98,7 @@ export function StateMultiSelect({ selected, onChange, ariaLabel = "Add states",
 
       <Popover.Root open={open && !disabled} onOpenChange={setOpen}>
         <Popover.Anchor asChild>
-          <div className="relative">
+          <div className="relative" ref={anchorRef}>
             <Input
               role="combobox"
               aria-expanded={open}
@@ -129,6 +130,16 @@ export function StateMultiSelect({ selected, onChange, ariaLabel = "Add states",
             // Keep focus on the input so you can keep typing / add several in a row.
             onOpenAutoFocus={(e) => e.preventDefault()}
             onCloseAutoFocus={(e) => e.preventDefault()}
+            // The input is an ANCHOR, not a Popover trigger — so without these guards Radix
+            // treats focus/clicks on the input itself as an "outside interaction" and dismisses
+            // the menu the instant it opens (owner-reported open-then-close flicker). Interactions
+            // on the anchor are ours; genuinely-outside ones still close the menu.
+            onFocusOutside={(e) => {
+              if (anchorRef.current?.contains(e.target as Node)) e.preventDefault();
+            }}
+            onInteractOutside={(e) => {
+              if (anchorRef.current?.contains(e.target as Node)) e.preventDefault();
+            }}
             // A click on an option must not blur the input (so the menu stays open for multi-add).
             onMouseDown={(e) => e.preventDefault()}
             style={{ width: "var(--radix-popover-trigger-width)" }}

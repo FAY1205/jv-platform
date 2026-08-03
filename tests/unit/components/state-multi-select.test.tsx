@@ -32,6 +32,22 @@ describe("StateMultiSelect", () => {
     expect(screen.getByRole("combobox", { name: /add states/i })).toBeTruthy();
   });
 
+  it("clicking the input opens the menu and it STAYS open (anchor interactions are not 'outside')", async () => {
+    // Regression (owner report): the input is a Popover ANCHOR, so Radix used to treat focus on it
+    // as an outside interaction and dismiss the menu the instant it opened (open-close flicker).
+    const user = userEvent.setup();
+    render(<Harness />);
+    const input = screen.getByRole("combobox", { name: /add states/i });
+
+    await user.click(input);
+    expect(await screen.findByRole("listbox")).toBeTruthy();
+
+    // A second click on the already-focused input must not close it either.
+    await user.click(input);
+    expect(screen.getByRole("listbox")).toBeTruthy();
+    expect(screen.getAllByRole("option").length).toBeGreaterThan(0);
+  });
+
   it("picks states from the list and shows them as chips (invalid input is impossible)", async () => {
     const user = userEvent.setup();
     render(<Harness />);
