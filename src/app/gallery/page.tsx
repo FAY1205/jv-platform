@@ -13,6 +13,7 @@ import {
   CardTitle,
   CardBody,
   Stat,
+  HeroKpi,
   PartnerTag,
   Input,
   NativeSelect,
@@ -345,6 +346,21 @@ function Gallery() {
             <Card><CardBody><Stat label="Unmatched · gaps" value="2" delta={{ dir: "down", text: "2" }} foot="TX, MS — no partner rule" /></CardBody></Card>
             <Card><CardBody><Stat label="Processing time" value={<>41<span className="text-text-3 text-xl">s</span></>} foot="upload → distributed · 8 steps" /></CardBody></Card>
           </div>
+        </Section>
+
+        <Section title="Hero KPI — shared by the admin & partner dashboards (P-7)">
+          {/* Loading/error are the CALLER's concern (both dashboards skeleton the whole hero);
+              this cell renders the settled number, an optional prior-window delta, tone, and a
+              calc tooltip. `dense` trims padding for the portal's mobile tiles. */}
+          <div className="grid grid-cols-2 overflow-hidden rounded-2xl border border-border-soft lg:grid-cols-4">
+            <HeroKpi label="Leads this week" value={412} delta={16} tip="Distributed to you in the selected range" />
+            <HeroKpi label="Contacted" value={318} delta={0} tone="brand" />
+            <HeroKpi label="Untouched" value={12} delta={-4} tone="warn" tip="No status change since assignment" />
+            <HeroKpi label="Closed" value={57} delta={null} />
+          </div>
+          <p className="mt-2 text-step-1 text-text-3">
+            <code>delta</code>: a number renders “↑/↓ N vs prior”, <code>0</code> renders “same”, <code>null</code> renders “all time”; omit it for no delta line.
+          </p>
         </Section>
 
         <Section title="Form controls">

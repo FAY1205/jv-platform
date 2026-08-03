@@ -217,17 +217,31 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
         <nav aria-label="Portal" className="md:hidden sticky bottom-0 z-20 mx-auto flex w-full max-w-[520px] border-t border-border-soft bg-bg/90 px-2 pb-2 pt-1.5 backdrop-blur-md">
           {TABS.map((t) => {
             const on = t.active(path);
+            const showBadge = t.badge && count > 0;
             return (
               <Link
                 key={t.href}
                 href={t.href}
                 aria-current={on ? "page" : undefined}
+                // P-5: the Leads count reaches phones too (the desktop rail already shows it).
+                // The count composes into the accessible name; the corner badge is aria-hidden.
+                aria-label={showBadge ? `${t.label}, ${count.toLocaleString()}` : undefined}
                 className={cn(
                   "flex min-h-[48px] flex-1 flex-col items-center justify-center gap-0.5 rounded-lg text-step-1 font-semibold transition-colors",
                   on ? "bg-brand-soft text-brand-ink" : "text-text-3 hover:text-text",
                 )}
               >
-                {t.icon("h-[22px] w-[22px]")}
+                <span className="relative">
+                  {t.icon("h-[22px] w-[22px]")}
+                  {showBadge && (
+                    <span
+                      className="num absolute -right-2.5 -top-1.5 grid min-h-[16px] min-w-[16px] place-items-center rounded-full bg-brand px-1 text-[.6rem] font-bold leading-none text-brand-contrast"
+                      aria-hidden="true"
+                    >
+                      {count > 99 ? "99+" : count.toLocaleString()}
+                    </span>
+                  )}
+                </span>
                 {t.label}
               </Link>
             );

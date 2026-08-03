@@ -41,7 +41,9 @@ export default function PortalTosPage() {
       <Card>
         <CardBody>
           <p className="mb-5 text-sm leading-relaxed text-text-2">{TOS_SUMMARY}</p>
-          {error && <p className="mb-3 text-sm text-danger">{error}</p>}
+          {/* P-8: role="alert" so a screen reader announces the failure — matches the admin
+              ToS page (this is the first authenticated screen a new partner sees). */}
+          {error && <p role="alert" className="mb-3 text-sm text-danger">{error}</p>}
           <Button variant="primary" size="lg" loading={loading} onClick={accept} className="w-full">
             I agree — continue
           </Button>

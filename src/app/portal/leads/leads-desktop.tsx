@@ -165,7 +165,12 @@ export function LeadsDesktop() {
                       {l.refId}
                     </Link>
                   </Td>
-                  <Td><span className="text-sm text-text">{l.sellerFirst} {l.sellerLast}</span></Td>
+                  <Td>
+                    <span className="text-sm text-text">{l.sellerFirst} {l.sellerLast}</span>
+                    {/* P-10: the "returning seller" signal the mobile card list already shows —
+                        restored on the desktop table so the more-capable surface isn't poorer. */}
+                    {l.previouslyMatched && <span className="ml-1.5 text-xs text-text-3">· returning</span>}
+                  </Td>
                   <Td>
                     <span className="text-sm text-text-2">{l.address}</span>
                     <span className="ml-1.5 text-xs text-text-3">{[l.city, l.state].filter(Boolean).join(", ")} <span className="num">{l.zip}</span></span>

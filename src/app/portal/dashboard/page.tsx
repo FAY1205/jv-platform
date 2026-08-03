@@ -14,7 +14,8 @@ export default async function PortalDashboardPage() {
   try {
     userId = (await getServerScope()).userId;
   } catch {
-    redirect("/portal/login");
+    // P-11: preserve the target like the proxy does (secondary scope failure past the proxy).
+    redirect("/portal/login?next=/portal/dashboard");
   }
   const accepted = await latestTosVersion(getDb(), userId);
   if (needsTosAcceptance(accepted)) redirect("/portal/tos");

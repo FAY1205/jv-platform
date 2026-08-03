@@ -107,15 +107,18 @@ describe("PortalShell T7a admin parity", () => {
     expect(screen.getByText("Partner portal")).toBeInTheDocument();
   });
 
-  it("T7a/D2: the Leads rail item carries the count in ITS accessible name ('Leads, 412'), badge aria-hidden", async () => {
+  it("T7a/D2 + P-5: BOTH the rail and the mobile Leads tab carry the count in the accessible name ('Leads, 412'), badge aria-hidden", async () => {
     mockPath = "/portal/dashboard";
     mockCount = { count: 412 };
     renderShell();
-    // D2 accname polish: the count composes into the link name, not a badge label.
-    const rail = await screen.findByRole("link", { name: "Leads, 412" });
-    expect(rail).toHaveAttribute("href", "/portal/leads");
-    // The mobile tab (no badge) keeps the plain name.
-    expect(screen.getAllByRole("link", { name: "Leads" })).toHaveLength(1);
+    // D2 accname polish: the count composes into the link name, not a badge label. P-5:
+    // the mobile bottom tab now shows the badge too (jsdom renders both navs), so both
+    // "Leads" links carry the count — phones are no longer the only surface without it.
+    const withCount = await screen.findAllByRole("link", { name: "Leads, 412" });
+    expect(withCount).toHaveLength(2);
+    for (const link of withCount) expect(link).toHaveAttribute("href", "/portal/leads");
+    // No "Leads" link keeps the bare name once there is a count.
+    expect(screen.queryByRole("link", { name: "Leads" })).toBeNull();
   });
 
   it("T7a: a zero count renders no badge and leaves the plain link name", () => {

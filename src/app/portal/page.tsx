@@ -14,7 +14,9 @@ export default async function PortalHome() {
   try {
     userId = (await getServerScope()).userId;
   } catch {
-    redirect("/portal/login");
+    // P-11: preserve the target like the proxy does, so a secondary scope failure returns
+    // the partner here after re-auth instead of dumping them on the default landing.
+    redirect("/portal/login?next=/portal");
   }
 
   const accepted = await latestTosVersion(getDb(), userId);
