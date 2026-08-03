@@ -115,31 +115,58 @@ export interface PartnerActivityItem {
   detail: string;
 }
 
-const PAGE_SIZE = 50; // partner activity: bounded fetch merged + paged in memory
+export interface PartnerActivityPage {
+  items: PartnerActivityItem[];
+  page: number;
+  pageSize: number;
+  total: number;
+}
 
-/** ACT-02: a partner's own actions on their own leads (status updates + notes). */
-export async function listPartnerActivity(scope: ScopeContext, page = 1): Promise<{ items: PartnerActivityItem[]; page: number; pageSize: number }> {
+export interface ListPartnerActivityOpts {
+  page?: number;
+  pageSize?: number;
+}
+
+// WP-PP-5: selectable page size (matches the shared Pagination rows-per-page + the admin
+// activity table); default 20 aligns with DEFAULT_PAGE_SIZE. Anything off-list degrades to
+// the default (never throws) — same graceful posture as the portal leads route.
+const ACTIVITY_PAGE_SIZES = [10, 20, 50] as const;
+const DEFAULT_ACTIVITY_PAGE_SIZE = 20;
+
+/** ACT-02: a partner's own actions on their own leads (status updates + notes). Server-side
+ *  paginated with a real `total` so the shared Pagination primitive drives it (WP-PP-5). */
+export async function listPartnerActivity(scope: ScopeContext, opts: ListPartnerActivityOpts = {}): Promise<PartnerActivityPage> {
   const db = getDb();
   const partnerId = requirePartner(scope);
-  const current = Math.max(1, Math.floor(page) || 1);
-  const window = current * PAGE_SIZE; // bounded fetch, merged + paged in memory
+  const current = Math.max(1, Math.floor(opts.page ?? 1) || 1);
+  const pageSize = (ACTIVITY_PAGE_SIZES as readonly number[]).includes(opts.pageSize as number)
+    ? (opts.pageSize as number)
+    : DEFAULT_ACTIVITY_PAGE_SIZE;
+  const window = current * pageSize; // bounded fetch, merged + paged in memory
 
-  const [statuses, notes] = await Promise.all([
+  // The two sources share identical scope/lifecycle predicates; build once so the row
+  // fetch and the count(*) below can never drift (count-consistency).
+  const statusWhere = and(tenantWhere(schema.leadStatusHistory, scope), eq(schema.leadStatusHistory.changedByUserId, scope.userId), partnerOwnsLead(partnerId), isNull(schema.leads.deletedAt), releasedLeads());
+  const noteWhere = and(tenantWhere(schema.leadNotes, scope), eq(schema.leadNotes.authorUserId, scope.userId), partnerOwnsLead(partnerId), isNull(schema.leads.deletedAt), releasedLeads());
+
+  const [statuses, notes, statusCount, noteCount] = await Promise.all([
     db
       .select({ when: schema.leadStatusHistory.createdAt, status: schema.leadStatusHistory.status, ref: schema.leads.refId })
       .from(schema.leadStatusHistory)
       .innerJoin(schema.leads, eq(schema.leads.id, schema.leadStatusHistory.leadId))
       // WP-J2: a recalled (soft-deleted) lead's activity must not surface. Distribution hold: nor a held one.
-      .where(and(tenantWhere(schema.leadStatusHistory, scope), eq(schema.leadStatusHistory.changedByUserId, scope.userId), partnerOwnsLead(partnerId), isNull(schema.leads.deletedAt), releasedLeads()))
+      .where(statusWhere)
       .orderBy(desc(schema.leadStatusHistory.createdAt))
       .limit(window),
     db
       .select({ when: schema.leadNotes.createdAt, ref: schema.leads.refId })
       .from(schema.leadNotes)
       .innerJoin(schema.leads, eq(schema.leads.id, schema.leadNotes.leadId))
-      .where(and(tenantWhere(schema.leadNotes, scope), eq(schema.leadNotes.authorUserId, scope.userId), partnerOwnsLead(partnerId), isNull(schema.leads.deletedAt), releasedLeads()))
+      .where(noteWhere)
       .orderBy(desc(schema.leadNotes.createdAt))
       .limit(window),
+    db.select({ n: count() }).from(schema.leadStatusHistory).innerJoin(schema.leads, eq(schema.leads.id, schema.leadStatusHistory.leadId)).where(statusWhere),
+    db.select({ n: count() }).from(schema.leadNotes).innerJoin(schema.leads, eq(schema.leads.id, schema.leadNotes.leadId)).where(noteWhere),
   ]);
 
   const merged: PartnerActivityItem[] = [
@@ -147,6 +174,7 @@ export async function listPartnerActivity(scope: ScopeContext, page = 1): Promis
     ...notes.map((n) => ({ when: n.when.toISOString(), kind: "note" as const, detail: `Note on ${n.ref}` })),
   ].sort((a, b) => (a.when < b.when ? 1 : -1));
 
-  const offset = (current - 1) * PAGE_SIZE;
-  return { items: merged.slice(offset, offset + PAGE_SIZE), page: current, pageSize: PAGE_SIZE };
+  const offset = (current - 1) * pageSize;
+  const total = (statusCount[0]?.n ?? 0) + (noteCount[0]?.n ?? 0);
+  return { items: merged.slice(offset, offset + pageSize), page: current, pageSize, total };
 }

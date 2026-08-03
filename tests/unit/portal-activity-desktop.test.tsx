@@ -14,7 +14,8 @@ const ACTIVITY_PAGE = {
     { when: "2026-07-09T09:30:00.000Z", kind: "note", detail: "Left a voicemail" },
   ],
   page: 1,
-  pageSize: 2, // matches items.length so Next is enabled
+  pageSize: 20,
+  total: 45, // > one page, so the shared Pagination shows and "Next page" is enabled
 };
 
 vi.mock("@/lib/api", () => ({ apiGet: vi.fn(async () => ACTIVITY_PAGE) }));
@@ -48,32 +49,25 @@ describe("WP-PW-4 Task 1 ActivityDesktop (table)", () => {
     expect(screen.getByText(new Date(ACTIVITY_PAGE.items[0].when).toLocaleString())).toBeTruthy();
   });
 
-  it("PW4-02: Next is enabled on a full page, then disabled once the next page is short", async () => {
+  it("PW4-02 + WP-PP-5: the shared Pagination shows a real total and enables Next when more pages exist", async () => {
     renderPage();
     await screen.findByRole("table");
-    // page 1: items.length (2) === pageSize (2) -> pager shows, Next enabled.
-    const next = screen.getByRole("button", { name: /next/i });
+    // total 45 > pageSize 20 → "Next page" enabled (3 pages).
+    const next = screen.getByRole("button", { name: /next page/i });
     expect((next as HTMLButtonElement).disabled).toBe(false);
-
-    // page 2: fewer items than pageSize -> pager still shows (page > 1), Next disabled.
-    vi.mocked(apiGet).mockResolvedValueOnce({
-      items: [{ when: "2026-07-08T08:00:00.000Z", kind: "note", detail: "Only one left" }],
-      page: 2,
-      pageSize: 2,
-    });
-    fireEvent.click(next);
-    await waitFor(() => expect(screen.getByText("Only one left")).toBeTruthy());
-    expect((screen.getByRole("button", { name: /next/i }) as HTMLButtonElement).disabled).toBe(true);
+    // The shared control shows the "of {total}" range, unlike the old prev/next pager.
+    expect(screen.getByText(/of 45/)).toBeTruthy();
   });
 
-  it("PW4-03: clicking Next refetches with page=2", async () => {
+  it("PW4-03 + WP-PP-5: clicking Next page refetches with page=2 (and carries pageSize)", async () => {
     renderPage();
     await screen.findByRole("table");
     vi.mocked(apiGet).mockClear();
 
-    fireEvent.click(screen.getByRole("button", { name: /next/i }));
+    fireEvent.click(screen.getByRole("button", { name: /next page/i }));
 
     await waitFor(() => expect(apiGet).toHaveBeenCalled());
     expect(lastCallUrl()).toContain("page=2");
+    expect(lastCallUrl()).toContain("pageSize=20");
   });
 });

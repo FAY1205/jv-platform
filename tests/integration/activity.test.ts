@@ -75,5 +75,7 @@ suite("WP-034: activity views (ACT-01/02/04)", () => {
     expect(p.items).toHaveLength(2);
     expect(p.items.some((i) => i.kind === "status" && i.detail.includes("Contacted"))).toBe(true);
     expect(p.items.some((i) => i.kind === "note" && i.detail.includes("LD-26-00001"))).toBe(true);
+    // WP-PP-5: a real total (statuses + notes) so the shared Pagination can drive the view.
+    expect(p.total).toBe(2);
   });
 });

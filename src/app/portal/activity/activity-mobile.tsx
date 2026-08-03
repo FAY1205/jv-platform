@@ -3,22 +3,22 @@
 import * as React from "react";
 import { useQuery } from "@tanstack/react-query";
 import { apiGet } from "@/lib/api";
-import { Card, CardBody, Badge, EmptyState, Skeleton, Button } from "@/components";
+import { Card, CardBody, Badge, EmptyState, Skeleton, Pagination, DEFAULT_PAGE_SIZE } from "@/components";
 
-// WP-PW-4 Task 1: the mobile (< lg) Activity view, extracted verbatim from the
-// pre-WP-PW-4 page.tsx (same markup/classes/behavior, same page-only query) so mobile
-// stays pixel- and behavior-identical — only the gate in page.tsx changed, not this
-// component.
+// WP-PW-4 Task 1: the mobile (< lg) Activity view. WP-PP-5: shares the desktop's query
+// (real `total`) and the shared Pagination primitive instead of a hand-rolled prev/next —
+// both surfaces now match the admin activity table's pagination.
 
 // ACT-02: the partner's own actions on their own leads (status updates + notes).
 interface Item { when: string; kind: "status" | "note"; detail: string }
-interface Page { items: Item[]; page: number; pageSize: number }
+interface Page { items: Item[]; page: number; pageSize: number; total: number }
 
 export function ActivityMobile() {
   const [page, setPage] = React.useState(1);
+  const [pageSize, setPageSize] = React.useState<number>(DEFAULT_PAGE_SIZE);
   const { data, isLoading, error } = useQuery({
-    queryKey: ["portal-activity", page],
-    queryFn: () => apiGet<Page>(`/api/portal/activity?page=${page}`),
+    queryKey: ["portal-activity", page, pageSize],
+    queryFn: () => apiGet<Page>(`/api/portal/activity?page=${page}&pageSize=${pageSize}`),
   });
   const items = data?.items ?? [];
 
@@ -46,11 +46,15 @@ export function ActivityMobile() {
               ))}
             </ul>
           )}
-          {(page > 1 || items.length === (data?.pageSize ?? 50)) && (
-            <div className="mt-4 flex justify-between">
-              <Button variant="secondary" size="lg" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>Previous</Button>
-              <Button variant="secondary" size="lg" disabled={items.length < (data?.pageSize ?? 50)} onClick={() => setPage((p) => p + 1)}>Next</Button>
-            </div>
+          {data && data.total > 0 && (
+            <Pagination
+              className="mt-4"
+              page={data.page}
+              pageSize={data.pageSize}
+              total={data.total}
+              onPageChange={setPage}
+              onPageSizeChange={(n) => { setPageSize(n); setPage(1); }}
+            />
           )}
         </CardBody>
       </Card>

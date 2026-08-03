@@ -3,25 +3,26 @@
 import * as React from "react";
 import { useQuery } from "@tanstack/react-query";
 import { apiGet } from "@/lib/api";
-import { Card, Table, THead, TBody, Th, Tr, Td, Badge, EmptyState, Skeleton, Button } from "@/components";
+import { Card, Table, THead, TBody, Th, Tr, Td, Badge, EmptyState, Skeleton, Pagination, DEFAULT_PAGE_SIZE } from "@/components";
 
 // WP-PW-4 Task 1: the desktop (>= lg) Activity table (mirrors src/app/(admin)/activity/page.tsx's
 // admin table idiom, portal-scoped). Owns its own query entirely — same query key as
 // ActivityMobile (they never mount together; a returning user reuses the cache).
 // No in-body <h1> — the desktop top bar already shows "Your activity" (WP-PW-1's
-// portalTitleForPath). The endpoint has no sort (plain Th, not sortable) and no
-// `total` (prev/next pager, not the Pagination primitive) — matches ActivityMobile's
-// pager exactly.
+// portalTitleForPath). WP-PP-5: the endpoint now returns a real `total`, so this uses the
+// shared Pagination primitive (rows-per-page + jump) like the admin activity table — the
+// hand-rolled prev/next pager is gone.
 
 // ACT-02: the partner's own actions on their own leads (status updates + notes).
 interface Item { when: string; kind: "status" | "note"; detail: string }
-interface Page { items: Item[]; page: number; pageSize: number }
+interface Page { items: Item[]; page: number; pageSize: number; total: number }
 
 export function ActivityDesktop() {
   const [page, setPage] = React.useState(1);
+  const [pageSize, setPageSize] = React.useState<number>(DEFAULT_PAGE_SIZE);
   const { data, isLoading, error } = useQuery({
-    queryKey: ["portal-activity", page],
-    queryFn: () => apiGet<Page>(`/api/portal/activity?page=${page}`),
+    queryKey: ["portal-activity", page, pageSize],
+    queryFn: () => apiGet<Page>(`/api/portal/activity?page=${page}&pageSize=${pageSize}`),
   });
   const items = data?.items ?? [];
 
@@ -55,11 +56,15 @@ export function ActivityDesktop() {
           </Table>
         )}
       </Card>
-      {(page > 1 || items.length === (data?.pageSize ?? 50)) && (
-        <div className="mt-4 flex justify-between">
-          <Button variant="secondary" size="lg" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>Previous</Button>
-          <Button variant="secondary" size="lg" disabled={items.length < (data?.pageSize ?? 50)} onClick={() => setPage((p) => p + 1)}>Next</Button>
-        </div>
+      {data && data.total > 0 && (
+        <Pagination
+          className="mt-4"
+          page={data.page}
+          pageSize={data.pageSize}
+          total={data.total}
+          onPageChange={setPage}
+          onPageSizeChange={(n) => { setPageSize(n); setPage(1); }}
+        />
       )}
     </main>
   );
