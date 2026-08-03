@@ -234,6 +234,7 @@ export default function PartnerDetailPage() {
                     {coverageQ.data ? (
                       <CountyCoverageMap
                         states={coverageQ.data.states}
+                        counties={coverageQ.data.counties}
                         selectedPartnerId={partner.id}
                         interactive={false}
                         caption={{ title: partner.name, subtitle: `${partner.stateCount} state${partner.stateCount === 1 ? "" : "s"}` }}

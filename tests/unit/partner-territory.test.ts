@@ -25,4 +25,21 @@ describe("PTL/PRN-08: scoped partner territory", () => {
   it("covers all 51 hex states (50 + DC)", () => {
     expect(t.states).toHaveLength(51);
   });
+
+  it("has no counties when no ZIPs / resolver are supplied (state-only territory)", () => {
+    expect(t.counties).toEqual([]);
+  });
+
+  it("WP-E: resolves the partner's own ZIPs to their counties, all in the partner's color (no leak)", () => {
+    // 53033 = King County WA (98101); 41051 = Multnomah County OR (97201).
+    const xwalk: Record<string, string> = { "98101": "53033", "97201": "41051" };
+    const tt = buildPartnerTerritory({
+      ownStates: ["WA"],
+      ownZips: ["98101", "97201"],
+      partner: PARTNER,
+      zipToCounty: (z) => xwalk[z] ?? null,
+    });
+    expect(tt.counties.map((c) => c.fips).sort()).toEqual(["41051", "53033"]);
+    expect(tt.counties.every((c) => c.partnerId === "p1" && c.color === "#C79A3E")).toBe(true);
+  });
 });

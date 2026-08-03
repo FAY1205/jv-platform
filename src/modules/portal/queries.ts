@@ -6,6 +6,7 @@ import { releasedLeads } from "../run/hold-filter";
 import { computeRunSummary, type RunSummary } from "../analytics/run-summary";
 import { partnerPerformanceDetail } from "../analytics/partner-performance";
 import { buildPartnerTerritory, type PartnerTerritory } from "../coverage/partner-territory";
+import { zipToCounty } from "@/lib/geo/zip-county";
 import { deltaOf, type RangeKey } from "../analytics/ranges";
 import type { ExportLead, PartnerInfo } from "../export/render";
 import { currentStatus, SEED_LEAD_STATUSES } from "./statuses";
@@ -305,11 +306,29 @@ export async function partnerTerritory(scope: ScopeContext): Promise<PartnerTerr
     .select({ id: schema.partners.id, name: schema.partners.name, refId: schema.partners.refId, color: schema.partners.color })
     .from(schema.partners)
     .where(and(tenantWhere(schema.partners, scope), eq(schema.partners.id, scope.partnerId)));
-  const rules = await db
-    .select({ state: schema.stateRules.state })
-    .from(schema.stateRules)
-    .where(and(tenantWhere(schema.stateRules, scope), eq(schema.stateRules.partnerId, scope.partnerId)));
-  return buildPartnerTerritory({ ownStates: rules.map((r) => r.state), partner: partner ?? empty });
+  const [rules, zips] = await Promise.all([
+    db
+      .select({ state: schema.stateRules.state })
+      .from(schema.stateRules)
+      .where(and(tenantWhere(schema.stateRules, scope), eq(schema.stateRules.partnerId, scope.partnerId))),
+    // WP-E: the partner's own current ZIP coverage → their own counties (only theirs; PRN-08).
+    db
+      .select({ zip5: schema.coverageZips.zip5 })
+      .from(schema.coverageZips)
+      .where(
+        and(
+          tenantWhere(schema.coverageZips, scope),
+          eq(schema.coverageZips.partnerId, scope.partnerId),
+          isNull(schema.coverageZips.effectiveTo),
+        ),
+      ),
+  ]);
+  return buildPartnerTerritory({
+    ownStates: rules.map((r) => r.state),
+    ownZips: zips.map((z) => z.zip5),
+    partner: partner ?? empty,
+    zipToCounty,
+  });
 }
 
 export interface PartnerExportData {

@@ -6,12 +6,14 @@ import { useQuery } from "@tanstack/react-query";
 import { apiGet } from "@/lib/api";
 import { AppShell, CountyCoverageMap, PartnerTag, EmptyState, Skeleton, usePageHeader } from "@/components";
 import { MapHatch } from "@/components/map";
-import type { StateCoverage, CoveragePartner } from "@/modules/coverage/map";
+import type { StateCoverage, CoveragePartner, CountyCoverage } from "@/modules/coverage/map";
 
 // MAP-01. Read-only coverage overview: the county map colors each state by its
-// partner; the legend and gap panel make ownership and holes explicit (PRN-14).
+// partner (WP-E: counties a partner covers by ZIP color at county level); the legend
+// and gap panel make ownership and holes explicit (PRN-14).
 interface CoverageResponse {
   states: StateCoverage[];
+  counties: CountyCoverage[];
   coveredCount: number;
   gapCount: number;
   partners: CoveragePartner[];
@@ -76,6 +78,7 @@ function CoverageBody() {
               <h2 className="mb-4 font-display text-step-3 font-semibold tracking-tight">County map</h2>
               <CountyCoverageMap
                 states={data!.states}
+                counties={data!.counties}
                 selectedPartnerId={selected}
                 onSelectPartner={toggle}
                 caption={{ title: "US coverage", subtitle: `${data!.coveredCount}/51 states · ${data!.zipCoverageCount} ZIP overrides` }}
@@ -91,7 +94,7 @@ function CoverageBody() {
                   </span>
                   Uncovered
                 </span>
-                <span className="text-text-3">Counties inherit their state&apos;s partner · scroll or use +/− to zoom, drag to pan · click to highlight a partner. Prefer the keyboard? Use the Partners list to highlight and open each territory.</span>
+                <span className="text-text-3">Counties a partner covers by ZIP show at county level; the rest follow their state&apos;s partner · scroll or use +/− to zoom, drag to pan · click to highlight a partner. Prefer the keyboard? Use the Partners list to highlight and open each territory.</span>
               </div>
             </section>
 

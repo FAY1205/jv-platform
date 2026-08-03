@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import type { StateCoverage } from "@/modules/coverage/map";
+import type { StateCoverage, CountyCoverage } from "@/modules/coverage/map";
 import { stateCodeForCounty } from "@/lib/geo/us-state-fips";
 import { PartnerTag } from "./PartnerTag";
 import { Skeleton } from "./Skeleton";
@@ -14,8 +14,12 @@ interface CountyGeo {
 }
 
 export interface CountyCoverageMapProps {
-  /** Per-state coverage (reused from the state view); counties inherit their state's partner. */
+  /** Per-state coverage (reused from the state view); a county with no ZIP-level owner below
+   *  inherits its state's partner. */
   states: readonly StateCoverage[];
+  /** WP-E (owner note #6): counties a partner covers via ZIPs. These color at county level and
+   *  override the state fallback for that county. Omit for a pure state-level map. */
+  counties?: readonly CountyCoverage[];
   selectedPartnerId?: string | null;
   onSelectPartner?: (partnerId: string | null) => void;
   /** Optional blurred title plate; WP-E pages supply the content. */
@@ -41,13 +45,13 @@ export interface CountyCoverageMapProps {
 let geoCache: CountyGeo | null = null;
 
 /**
- * CountyCoverageMap (MAP-01) — a real US county choropleth. Each county is filled
- * by its state-fallback partner (counties inherit the state's owner; ZIP-level
- * refinement is a later step). Geometry is a pre-projected static asset loaded on
- * demand. 3,142 county paths render once; hover/click use event delegation and a
- * single highlight overlay so mouse-move never re-renders the whole map.
+ * CountyCoverageMap (MAP-01) — a real US county choropleth. A county the partner covers by ZIP
+ * (WP-E, `counties`) is filled at county level; every other county inherits its state's owner (the
+ * state fallback). Geometry is a pre-projected static asset loaded on demand. 3,142 county paths
+ * render once; hover/click use event delegation and a single highlight overlay so mouse-move never
+ * re-renders the whole map.
  */
-export function CountyCoverageMap({ states, selectedPartnerId = null, onSelectPartner, caption, interactive = true, neutralUncovered = false, ariaLabel, uncoveredHoverLabel }: CountyCoverageMapProps) {
+export function CountyCoverageMap({ states, counties = [], selectedPartnerId = null, onSelectPartner, caption, interactive = true, neutralUncovered = false, ariaLabel, uncoveredHoverLabel }: CountyCoverageMapProps) {
   const [geo, setGeo] = React.useState<CountyGeo | null>(geoCache);
   const [failed, setFailed] = React.useState(false);
   const wrapRef = React.useRef<HTMLDivElement>(null);
@@ -70,14 +74,22 @@ export function CountyCoverageMap({ states, selectedPartnerId = null, onSelectPa
   }, []);
 
   const byState = React.useMemo(() => new Map(states.map((s) => [s.code, s])), [states]);
+  const byCounty = React.useMemo(() => new Map(counties.map((c) => [c.fips, c])), [counties]);
   const dByFips = React.useMemo(() => new Map((geo?.counties ?? []).map((c) => [c.f, c.d])), [geo]);
   const nameByFips = React.useMemo(() => new Map((geo?.counties ?? []).map((c) => [c.f, c.n])), [geo]);
   const covOfCounty = React.useCallback(
     (fips: string): StateCoverage | undefined => {
       const code = stateCodeForCounty(fips);
-      return code ? byState.get(code) : undefined;
+      const st = code ? byState.get(code) : undefined;
+      // WP-E: a county the partner covers by ZIP takes that partner's color, overlaid on the
+      // state entry (so the tooltip keeps the state name + lead count). ZIP beats state fallback.
+      const cc = byCounty.get(fips);
+      if (cc && st) {
+        return { ...st, partnerId: cc.partnerId, partnerName: cc.partnerName, refId: cc.refId, color: cc.color, gap: false };
+      }
+      return st;
     },
-    [byState],
+    [byState, byCounty],
   );
 
   // Rendered once; only re-runs when geometry or the selection changes (not on hover).

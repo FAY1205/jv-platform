@@ -93,9 +93,10 @@ export function PortalDashboard() {
       {territory.data ? (
         <CountyCoverageMap
           states={territory.data.states}
+          counties={territory.data.counties}
           neutralUncovered
           interactive={false}
-          ariaLabel="County map highlighting your covered states"
+          ariaLabel="County map highlighting your covered states and counties"
           // T7a: the admin hero's blurred caption plate, desktop only (mobile keeps the
           // shipped plateless map). PartnerTag stays BELOW the map (PRN-14, WP-F.3).
           caption={

@@ -235,6 +235,7 @@ function DashboardBody() {
                 <>
                   <CountyCoverageMap
                     states={coverage.data.states}
+                    counties={coverage.data.counties}
                     caption={{
                       title: "Coverage",
                       subtitle: `${coverage.data.partners.length} partner${coverage.data.partners.length === 1 ? "" : "s"} · ${coverage.data.coveredCount} state${coverage.data.coveredCount === 1 ? "" : "s"}`,

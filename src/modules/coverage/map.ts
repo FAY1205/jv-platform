@@ -44,6 +44,17 @@ export interface CoveragePartner {
   stateCount: number;
 }
 
+// WP-E: a county colored by a partner's ZIP-level coverage (overrides the state fallback for that
+// county). Only covered counties are listed; the map falls back to state ownership elsewhere.
+export interface CountyCoverage {
+  /** 5-digit county FIPS (matches the county geometry keys). */
+  fips: string;
+  partnerId: string;
+  partnerName: string;
+  refId: string;
+  color: string;
+}
+
 export interface CoverageMapModel {
   states: StateCoverage[];
   coveredCount: number;
@@ -55,6 +66,9 @@ export interface CoverageMapModel {
  *  in this PURE module so client pages import the one canonical shape (not a hand-
  *  copied duplicate); the server builder in `queries.ts` returns it. */
 export interface CoverageMapResponse extends CoverageMapModel {
+  /** WP-E: counties a partner covers via ZIPs — the map colors these at county level, overriding
+   *  the state fallback. Empty until the ZIP→county crosswalk has data for the covered ZIPs. */
+  counties: CountyCoverage[];
   /** Current ZIP-level coverage rows (overrides that beat the state fallback). */
   zipCoverageCount: number;
   /** Kept leads that matched no partner — the routing gaps, in raw count (ASN-03). */
