@@ -60,11 +60,16 @@ export default function PortalLeadDetailPage() {
       }
       return status;
     },
-    // P-3: confirm the save like the admin StatusSelect does, plus keep the count badge
-    // fresh (a status move can change the "New" count the nav badge reflects).
+    // P-3: confirm the save like the admin StatusSelect does, plus refresh every leads
+    // surface. NOTE (pr-review F-1): a plain queryKey filter is element-wise, so
+    // ["portal-leads"] does NOT match the desktop table's ["portal-leads-desktop", …] key.
+    // Use a predicate on the first segment so the desktop table, mobile list, and nav-badge
+    // count all refetch (a status move can change the "New" count the badge reflects).
     onSuccess: (status) => {
       qc.invalidateQueries({ queryKey: ["portal-lead", ref] });
-      qc.invalidateQueries({ queryKey: ["portal-leads"] });
+      qc.invalidateQueries({
+        predicate: (q) => typeof q.queryKey[0] === "string" && q.queryKey[0].startsWith("portal-leads"),
+      });
       toast.toast(`Status → ${status}`, "success");
     },
   });

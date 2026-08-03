@@ -26,7 +26,7 @@ export function maskLeadDetail(d: AdminLeadDetail) {
     manualAssignment: d.assignment.manual,
     matchMethod: d.assignment.matchMethod,
     contactAndNotes: "Not available to the assistant - open the lead page.",
-    path: `/leads?open=${d.refId}`,
+    path: `/leads?open=${encodeURIComponent(d.refId)}`,
   };
 }
 

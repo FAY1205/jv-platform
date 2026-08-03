@@ -282,8 +282,9 @@ export async function notifyStatusChange(
         title,
         body: "A partner updated a lead's status.",
         // Open the full leads dialog (status control + history + notes), not the
-        // retired read-only /leads/[ref] page — P-1 (portal-parity audit).
-        deepLink: `/leads?open=${input.leadRef}`,
+        // retired read-only /leads/[ref] page — P-1 (portal-parity audit). Encoded for
+        // defense-in-depth (pr-review F-3) even though leadRef is format-constrained.
+        deepLink: `/leads?open=${encodeURIComponent(input.leadRef)}`,
       });
     }
   }

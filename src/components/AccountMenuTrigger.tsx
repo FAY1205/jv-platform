@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import { initialsFromEmail } from "@/lib/identity";
+import { cn } from "@/lib/cn";
 
 // WP-PP-6: the account-menu trigger button — avatar initials, name/role block, chevron.
 // Promoted from the byte-identical copies in ProfileMenu (admin) and PortalProfileMenu
@@ -11,13 +12,16 @@ import { initialsFromEmail } from "@/lib/identity";
 export const AccountMenuTrigger = React.forwardRef<
   HTMLButtonElement,
   { email: string; role?: string } & React.ButtonHTMLAttributes<HTMLButtonElement>
->(function AccountMenuTrigger({ email, role, ...props }, ref) {
+>(function AccountMenuTrigger({ email, role, className, ...props }, ref) {
   return (
     <button
       ref={ref}
       type="button"
       aria-label="Account menu"
-      className="flex w-full items-center gap-2.5 rounded-md px-2 py-2 text-left transition-[background-color,transform] hover:bg-surface-3 active:scale-[0.99]"
+      className={cn(
+        "flex w-full items-center gap-2.5 rounded-md px-2 py-2 text-left transition-[background-color,transform] hover:bg-surface-3 active:scale-[0.99]",
+        className,
+      )}
       {...props}
     >
       <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-surface-3 text-step-1 font-semibold text-text-2">
