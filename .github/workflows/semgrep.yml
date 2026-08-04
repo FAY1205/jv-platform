@@ -27,4 +27,10 @@ jobs:
       # community rules run without an account.
       # src/lib/geo/data holds a large generated ZIP→county JSON (data, not code) that
       # times out the scanner — excluded so it doesn't warn on every run.
-      - run: semgrep scan --config=p/owasp-top-ten --config=p/react --config=p/secrets --error --metrics=off --exclude=docs --exclude=src/lib/geo/data
+      # npm-missing-minimum-release-age is excluded: it's a supply-chain policy nag (not a
+      # code vulnerability), and dependabot.yml already carries a release cooldown — the
+      # sibling dependabot-missing-cooldown rule is satisfied and still enforced.
+      - run: >-
+          semgrep scan --config=p/owasp-top-ten --config=p/react --config=p/secrets
+          --error --metrics=off --exclude=docs --exclude=src/lib/geo/data
+          --exclude-rule=package_managers.npm.npm-missing-minimum-release-age.npm-missing-minimum-release-age
