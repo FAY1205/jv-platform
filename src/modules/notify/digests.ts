@@ -127,6 +127,99 @@ function adminSummaryHtml(input: AdminSummaryInput): string {
   });
 }
 
+// ── Hot-lead alerts (SCR / NTF) ───────────────────────────────────────────────
+// SEC-05: like every digest, a hot alert carries the reference ID, coarse location,
+// and the score — never seller phone/email/identity.
+
+export interface HotAlertLead {
+  refId: string;
+  city: string | null;
+  state: string | null;
+  score: number;
+}
+
+/** Shared HTML rows for a hot-lead list (refId · location · score/50). */
+function hotRowsHtml(leads: HotAlertLead[]): string {
+  const C = EMAIL_COLORS;
+  const F = EMAIL_FONTS;
+  return leads
+    .map(
+      (l) =>
+        `<tr><td style="padding:12px 0;border-bottom:1px solid ${C.border};font-family:${F.body}">` +
+        `<span style="font-family:${F.mono};font-weight:600;color:${C.text}">${escapeHtml(l.refId)}</span>` +
+        `<span style="color:${C.text3};font-size:14px"> · ${escapeHtml(locationOf(l))}</span>` +
+        `<span style="float:right;font-family:${F.mono};font-weight:600;color:${C.text}">${l.score}/50</span>` +
+        `</td></tr>`,
+    )
+    .join("");
+}
+
+export interface PartnerHotAlertInput {
+  appName: string;
+  partnerName: string;
+  partnerRef: string;
+  partnerColor: string;
+  portalUrl: string;
+  leads: HotAlertLead[];
+}
+
+/** A partner's hot-lead alert for a run (only their own assigned hot leads). */
+export function buildPartnerHotAlert(input: PartnerHotAlertInput): DigestContent {
+  const C = EMAIL_COLORS;
+  const F = EMAIL_FONTS;
+  const n = input.leads.length;
+  const noun = n === 1 ? "hot lead" : "hot leads";
+  const hex = /^#[0-9a-f]{6}$/i.test(input.partnerColor) ? input.partnerColor : null;
+  const swatch = hex
+    ? `<span style="display:inline-block;width:11px;height:11px;border-radius:3px;background:${hex};border:1px solid ${C.swatchBorder};vertical-align:middle;margin-right:6px"></span>`
+    : "";
+  const content =
+    `<p style="font-family:${F.body};color:${C.text2};font-size:15px">` +
+    `${swatch}<strong style="color:${C.text}">${escapeHtml(input.partnerName)} (${escapeHtml(input.partnerRef)})</strong> — ` +
+    `you have ${n} high-priority ${noun} in this run. Call them first.</p>` +
+    `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse">${hotRowsHtml(input.leads)}</table>` +
+    `<div style="margin-top:22px">${emailButton({ href: input.portalUrl, label: "Open your leads →" })}</div>`;
+  const lines = input.leads.map((l) => `  • ${l.refId} — ${locationOf(l)} — ${l.score}/50`);
+  const body =
+    `Hi ${input.partnerName},\n\n` +
+    `You have ${n} high-priority ${noun} in the latest run:\n\n${lines.join("\n")}\n\n` +
+    `Open your portal:\n${input.portalUrl}\n\n— ${input.appName}`;
+  return {
+    subject: `${n} hot ${n === 1 ? "lead" : "leads"} in your territory — ${input.appName}`,
+    body,
+    html: renderEmailDocument({ title: `${n} ${noun} — ${input.appName}`, preheader: `${n} high-priority ${noun}`, heading: "Hot leads", contentHtml: content }),
+  };
+}
+
+export interface AdminHotAlertInput {
+  appName: string;
+  uploadRef: string;
+  leads: HotAlertLead[];
+  /** Deep link to the hot-filtered leads list. */
+  hotUrl?: string;
+}
+
+/** The admin's hot-lead alert for a run (every hot kept lead, incl. house + unmatched). */
+export function buildAdminHotAlert(input: AdminHotAlertInput): DigestContent {
+  const C = EMAIL_COLORS;
+  const F = EMAIL_FONTS;
+  const n = input.leads.length;
+  const noun = n === 1 ? "hot lead" : "hot leads";
+  const cta = input.hotUrl ? `<div style="margin-top:22px">${emailButton({ href: input.hotUrl, label: "View hot leads →" })}</div>` : "";
+  const content =
+    `<p style="font-family:${F.body};color:${C.text2};font-size:15px">Run ` +
+    `<strong style="color:${C.text}">${escapeHtml(input.uploadRef)}</strong> produced ${n} high-priority ${noun}.</p>` +
+    `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse">${hotRowsHtml(input.leads)}</table>${cta}`;
+  const lines = input.leads.map((l) => `  • ${l.refId} — ${locationOf(l)} — ${l.score}/50`);
+  const body =
+    `Run ${input.uploadRef} produced ${n} high-priority ${noun}:\n\n${lines.join("\n")}\n\n— ${input.appName}`;
+  return {
+    subject: `${n} hot ${n === 1 ? "lead" : "leads"} — ${input.appName}`,
+    body,
+    html: renderEmailDocument({ title: `${n} ${noun} — ${input.appName}`, preheader: `${n} high-priority ${noun} in ${input.uploadRef}`, heading: "Hot leads", contentHtml: content }),
+  };
+}
+
 /** NTF-02: the admin run-summary email. */
 export function buildAdminRunSummary(input: AdminSummaryInput): DigestContent {
   const s = input.summary;

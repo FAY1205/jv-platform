@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray, isNull, lt, lte, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, lt, lte, or, sql } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import * as schema from "@/db/schema";
 import { tenantWhere, type ScopeContext } from "@/lib/scope";
@@ -9,9 +9,9 @@ import { logError } from "@/lib/observability";
 import { sendEmail, type EmailTransport } from "./email";
 import { resolveEmailTransport } from "./transport";
 import { renderEmailDocument, escapeHtml, EMAIL_COLORS, EMAIL_FONTS } from "./email-template";
-import { buildPartnerDigest, buildAdminRunSummary, type PartnerDigestLead } from "./digests";
+import { buildPartnerDigest, buildAdminRunSummary, buildPartnerHotAlert, buildAdminHotAlert, type PartnerDigestLead, type HotAlertLead } from "./digests";
 import { createNotification } from "./notifications";
-import { resolvePref, loadNotificationPrefs, type NotificationPrefs } from "./prefs";
+import { resolvePref, loadNotificationPrefs, type NotificationPrefs, type NotifEvent } from "./prefs";
 import type { RunSummary } from "../analytics/run-summary";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -110,9 +110,9 @@ export async function enqueueRunDigests(
   input: EnqueueRunDigestsInput,
 ): Promise<number> {
   const audience = input.audience ?? "all";
-  const emailOn = (role: "admin" | "partner", ev: "run_summary" | "status_change" | "new_leads") =>
+  const emailOn = (role: "admin" | "partner", ev: NotifEvent) =>
     !input.prefs || resolvePref(input.prefs, role, ev).email;
-  const inAppOn = (role: "admin" | "partner", ev: "run_summary" | "status_change" | "new_leads") =>
+  const inAppOn = (role: "admin" | "partner", ev: NotifEvent) =>
     !!input.prefs && resolvePref(input.prefs, role, ev).inApp;
 
   let enqueued = 0;
@@ -131,10 +131,13 @@ export async function enqueueRunDigests(
           city: schema.leads.city,
           state: schema.leads.state,
           partnerId: schema.leads.partnerId,
+          scoreGroup: schema.leads.scoreGroup,
+          scoreTotal: schema.leads.scoreTotal,
           pName: schema.partners.name,
           pEmail: schema.partners.email,
           pRef: schema.partners.refId,
           pColor: schema.partners.color,
+          pIsHouse: schema.partners.isHouse,
         })
         .from(schema.leads)
         .innerJoin(schema.partners, eq(schema.partners.id, schema.leads.partnerId))
@@ -208,6 +211,36 @@ export async function enqueueRunDigests(
           });
         }
       }
+
+      // Hot-lead alert per partner (SCR). A HOUSE-territory hot lead is admin-only, so
+      // house partners are excluded here (they're covered by the admin alert). Unmatched
+      // hot leads never reach this loop (no partnerId → no inner join row).
+      interface HotGroup { name: string; email: string | null; ref: string; color: string; leads: HotAlertLead[] }
+      const hotByPartner = new Map<string, HotGroup>();
+      for (const r of rows) {
+        if (!r.partnerId || r.pIsHouse || r.scoreGroup !== "hot" || r.scoreTotal == null) continue;
+        const g = hotByPartner.get(r.partnerId) ?? { name: r.pName, email: r.pEmail, ref: r.pRef, color: r.pColor, leads: [] };
+        g.leads.push({ refId: r.refId, city: r.city, state: r.state, score: r.scoreTotal });
+        hotByPartner.set(r.partnerId, g);
+      }
+      for (const [partnerId, g] of hotByPartner) {
+        const c = buildPartnerHotAlert({ appName: APP_NAME, partnerName: g.name, partnerRef: g.ref, partnerColor: g.color, portalUrl: `${input.portalBaseUrl}/portal/leads`, leads: g.leads });
+        if (g.email && emailOn("partner", "hot_leads")) {
+          await enqueueEmail(db, { tenantId: scope.tenantId, to: g.email, subject: c.subject, body: c.body, html: c.html, kind: "hot_leads", meta: { uploadRef: input.uploadRef, partnerRef: g.ref } });
+          enqueued++;
+        }
+        const uid = userByPartner.get(partnerId);
+        if (uid && inAppOn("partner", "hot_leads")) {
+          await createNotification(db, {
+            tenantId: scope.tenantId,
+            userId: uid,
+            type: "hot_leads",
+            title: `${g.leads.length} hot lead${g.leads.length === 1 ? "" : "s"} in your territory`,
+            body: "High-priority leads routed to you — call them first.",
+            deepLink: "/portal/leads",
+          });
+        }
+      }
     }
   }
 
@@ -243,6 +276,46 @@ export async function enqueueRunDigests(
         body: `${input.summary.kept} distributed · ${input.summary.removed} removed · ${input.summary.unmatched} unmatched.`,
         deepLink: `/imports/${input.uploadRef}`,
       });
+    }
+  }
+
+  // Admin hot-lead alert (SCR) — every hot KEPT lead in this run, including house-territory
+  // and unmatched hot leads (which never reach a partner). Fired at IMPORT (audience "admin"/
+  // "all"), instant like the run-summary; the partner-facing alert is held to release above.
+  if (audience !== "partner") {
+    const hotRows = await db
+      .select({ refId: schema.leads.refId, city: schema.leads.city, state: schema.leads.state, scoreTotal: schema.leads.scoreTotal })
+      .from(schema.leads)
+      .innerJoin(schema.uploads, eq(schema.uploads.id, schema.leads.uploadId))
+      .where(
+        and(
+          tenantWhere(schema.leads, scope),
+          eq(schema.uploads.refId, input.uploadRef),
+          eq(schema.leads.mlsStatus, "kept"),
+          eq(schema.leads.scoreGroup, "hot"),
+          isNull(schema.leads.deletedAt),
+        ),
+      )
+      .orderBy(desc(schema.leads.scoreTotal), asc(schema.leads.refId));
+    if (hotRows.length > 0) {
+      const leads: HotAlertLead[] = hotRows.map((r) => ({ refId: r.refId, city: r.city, state: r.state, score: r.scoreTotal ?? 0 }));
+      const c = buildAdminHotAlert({ appName: APP_NAME, uploadRef: input.uploadRef, leads, hotUrl: `${input.portalBaseUrl}/leads?hot=1` });
+      if (emailOn("admin", "hot_leads")) {
+        for (const email of dedupe(input.adminEmails ?? [])) {
+          await enqueueEmail(db, { tenantId: scope.tenantId, to: email, subject: c.subject, body: c.body, html: c.html, kind: "hot_leads", meta: { uploadRef: input.uploadRef } });
+          enqueued++;
+        }
+      }
+      if (input.adminUserId && inAppOn("admin", "hot_leads")) {
+        await createNotification(db, {
+          tenantId: scope.tenantId,
+          userId: input.adminUserId,
+          type: "hot_leads",
+          title: `${leads.length} hot lead${leads.length === 1 ? "" : "s"} in ${input.uploadRef}`,
+          body: "High-priority leads found in this import.",
+          deepLink: "/leads?hot=1",
+        });
+      }
     }
   }
 

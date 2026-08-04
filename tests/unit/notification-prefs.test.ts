@@ -35,4 +35,12 @@ describe("notification prefs", () => {
     expect(keys).toContain("admin.run_summary");
     expect(keys).toContain("partner.new_leads");
   });
+
+  it("SCR-12: hot-lead alerts default fully on (email + in-app) for both roles", () => {
+    expect(resolvePref(DEFAULT_NOTIFICATION_PREFS, "admin", "hot_leads")).toEqual({ email: true, inApp: true });
+    expect(resolvePref(DEFAULT_NOTIFICATION_PREFS, "partner", "hot_leads")).toEqual({ email: true, inApp: true });
+    const keys = NOTIFICATION_EVENTS.map((e) => `${e.role}.${e.key}`);
+    expect(keys).toContain("admin.hot_leads");
+    expect(keys).toContain("partner.hot_leads");
+  });
 });
