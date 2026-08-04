@@ -12,6 +12,7 @@ import { PageHeaderProvider, PageHeaderSlot } from "./PageHeader";
 import { ThemeToggle } from "./ThemeToggle";
 import { ToastProvider } from "./Toast";
 import { IconButton } from "./IconButton";
+import { NavIcon, type NavIconName } from "./NavIcon";
 import { usePreferences, setPreferences, useApplyTheme } from "@/lib/preferences";
 
 // The admin app shell (DSN): a minimal sidebar + a clean top bar. Every admin page
@@ -24,28 +25,7 @@ import { usePreferences, setPreferences, useApplyTheme } from "@/lib/preferences
 // /imports/[ref] and /partners/[id] broken. Pages must NOT nest a second provider: it
 // would render a duplicate live region and double-announce.
 
-type IconName = "dashboard" | "leads" | "unmatched" | "runs" | "partners" | "coverage" | "analytics" | "rules" | "activity" | "settings" | "menu";
-
-function Icon({ name }: { name: IconName }) {
-  const p: Record<IconName, React.ReactNode> = {
-    dashboard: (<><rect x="3" y="3" width="7" height="9" rx="2" /><rect x="14" y="3" width="7" height="5" rx="2" /><rect x="14" y="12" width="7" height="9" rx="2" /><rect x="3" y="16" width="7" height="5" rx="2" /></>),
-    leads: (<><path d="M4 13V6a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v7" /><path d="M4 13h4l2 3h4l2-3h4" /><path d="M4 13v5a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-5" /></>),
-    unmatched: (<><path d="M12 9v4" /><path d="M12 17h.01" /><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z" /></>),
-    runs: (<><path d="M4 6h16M4 12h16M4 18h10" /></>),
-    partners: (<><circle cx="9" cy="8" r="3.2" /><path d="M3.5 20a5.5 5.5 0 0 1 11 0M16 11a3.2 3.2 0 0 0 0-6" /></>),
-    coverage: (<><path d="M9 3 3 5.5v15L9 18l6 3 6-2.5v-15L15 6 9 3Z" /><path d="M9 3v15M15 6v15" /></>),
-    analytics: (<><path d="M4 20V4M4 20h16" /><rect x="7" y="12" width="3" height="5" rx="1" /><rect x="12" y="8" width="3" height="9" rx="1" /><rect x="17" y="5" width="3" height="12" rx="1" /></>),
-    rules: (<><path d="M4 5h16M4 12h16M4 19h16" /><circle cx="8" cy="5" r="1.6" fill="currentColor" stroke="none" /><circle cx="15" cy="12" r="1.6" fill="currentColor" stroke="none" /><circle cx="10" cy="19" r="1.6" fill="currentColor" stroke="none" /></>),
-    activity: (<><circle cx="12" cy="12" r="8.5" /><path d="M12 8v4l3 2" /></>),
-    settings: (<><circle cx="12" cy="12" r="3" /><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" /></>),
-    menu: (<><path d="M4 6h16M4 12h16M4 18h16" /></>),
-  };
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.85" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      {p[name]}
-    </svg>
-  );
-}
+type IconName = NavIconName;
 
 // Grouped navigation: sections keep the rail scannable and give future pages an
 // obvious home (Leads and Unmatched join the "Leads" section in later phases).
@@ -142,7 +122,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <span className="block text-step-1 leading-tight text-text-3">Operations</span>
         </span>
       </Link>
-      <nav className="flex flex-col gap-0.5">
+      <nav aria-label="Primary" className="flex flex-col gap-0.5">
         {NAV_SECTIONS.map((section, i) => (
           <React.Fragment key={section.label}>
             <div className={"px-3 pb-1.5 text-step-1 font-semibold uppercase tracking-[.08em] text-text-3 " + (i === 0 ? "pt-1" : "pt-5")}>
@@ -171,11 +151,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 >
                   <span
                     className={
-                      "h-[18px] w-[18px] transition-transform duration-150 group-hover:scale-110 " +
+                      "transition-transform duration-150 group-hover:scale-110 " +
                       (on ? "text-brand-ink" : "text-text-3")
                     }
                   >
-                    <Icon name={item.icon} />
+                    <NavIcon name={item.icon} className="h-[18px] w-[18px]" />
                   </span>
                   {item.label}
                   {item.badge === "unmatched" && unmatchedCount > 0 && (
@@ -247,7 +227,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             aria-label="Toggle navigation"
             aria-expanded={navOpen}
           >
-            <span className="h-[18px] w-[18px]"><Icon name="menu" /></span>
+            <NavIcon name="menu" className="h-[18px] w-[18px]" />
           </IconButton>
           <PageHeaderSlot />
           <div className="ml-auto flex items-center gap-1.5">

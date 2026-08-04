@@ -190,7 +190,6 @@ export async function listPartnerLeads(scope: ScopeContext, opts: ListPartnerLea
         zip: schema.leads.zip,
         firstMatchedAt: schema.leads.firstMatchedAt,
         createdAt: schema.leads.createdAt,
-        previouslyMatched: schema.leads.previouslyMatched,
         scoreTotal: schema.leads.scoreTotal,
         scoreGroup: schema.leads.scoreGroup,
       })
@@ -214,7 +213,6 @@ export async function listPartnerLeads(scope: ScopeContext, opts: ListPartnerLea
     zip: r.zip ?? "",
     receivedAt: (r.firstMatchedAt ?? r.createdAt).toISOString(),
     status: currentStatus(statuses.get(r.id) ?? []),
-    previouslyMatched: r.previouslyMatched,
     scoreTotal: r.scoreTotal,
     scoreGroup: r.scoreGroup,
   }));
@@ -234,7 +232,6 @@ export interface PartnerLeadDetail {
   timeToSell: string;
   notes: string;
   receivedAt: string;
-  previouslyMatched: boolean;
   status: string;
   history: { status: string; changedAt: string }[];
   availableStatuses: string[];
@@ -280,7 +277,6 @@ export async function getPartnerLeadDetail(scope: ScopeContext, refId: string): 
     timeToSell: lead.timeToSell ?? "",
     notes: lead.notes ?? "",
     receivedAt: (lead.firstMatchedAt ?? lead.createdAt).toISOString(),
-    previouslyMatched: lead.previouslyMatched,
     status: currentStatus(history.map((h) => ({ status: h.status, createdAt: h.changedAt }))),
     history,
     availableStatuses: [...SEED_LEAD_STATUSES],
@@ -383,7 +379,7 @@ export async function getPartnerExportData(scope: ScopeContext): Promise<Partner
     partnerRows.map((p) => [p.id, { id: p.id, name: p.name, refId: p.refId, color: p.color }]),
   );
   const summary = computeRunSummary(
-    leadRows.map((l) => ({ mlsStatus: l.mlsStatus, matchMethod: l.matchMethod, partnerId: l.partnerId, previouslyMatched: l.previouslyMatched })),
+    leadRows.map((l) => ({ mlsStatus: l.mlsStatus, matchMethod: l.matchMethod, partnerId: l.partnerId })),
   );
   const exportLeads: ExportLead[] = leadRows.map((l) => ({
     leadRefId: l.refId,
@@ -402,7 +398,6 @@ export async function getPartnerExportData(scope: ScopeContext): Promise<Partner
     motivation: l.motivation ?? "",
     timeToSell: l.timeToSell ?? "",
     partnerId: l.partnerId,
-    previouslyMatched: l.previouslyMatched,
     possibleMlsListing: l.possibleMlsListing,
   }));
 

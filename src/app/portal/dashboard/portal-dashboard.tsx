@@ -95,7 +95,13 @@ export function PortalDashboard() {
           states={territory.data.states}
           counties={territory.data.counties}
           neutralUncovered
-          interactive={false}
+          // VP-2: parity with the admin dashboard hero — interactive on desktop (hover
+          // tooltips + zoom/pan), static on phones so the map never traps page-scroll
+          // (`touch-none` only binds when interactive). Non-owned states are anonymized
+          // server-side (PRN-08), so the tooltip says "Outside your territory", never a
+          // partner name or a coverage-gap alarm.
+          interactive={isDesktop}
+          uncoveredHoverLabel={() => "Outside your territory"}
           ariaLabel="County map highlighting your covered states and counties"
           // T7a: the admin hero's blurred caption plate, desktop only (mobile keeps the
           // shipped plateless map). PartnerTag stays BELOW the map (PRN-14, WP-F.3).
@@ -114,6 +120,13 @@ export function PortalDashboard() {
         <Skeleton className="h-full w-full rounded-lg" />
       )}
     </>
+  );
+  // VP-2: mirror the admin coverage map's interaction hint, so zoom/pan is discoverable.
+  // Desktop only (the mobile map is static). aria-hidden — purely a visual affordance.
+  const mapHint = isDesktop && territory.data && (
+    <p className={`mt-2 text-text-3 ${label13}`} aria-hidden="true">
+      Scroll or use +/− to zoom · drag to pan
+    </p>
   );
   // Partner token below the map (PRN-14) — never over the highlighted territory.
   const partnerTag = territory.data && territory.data.partner.name && (
@@ -255,6 +268,7 @@ export function PortalDashboard() {
         </div>
         <div className="relative flex min-h-[280px] flex-col border-l border-border bg-surface-2 p-4">
           <div className="relative min-h-[220px] flex-1">{isDesktop ? mapPanel : null}</div>
+          {mapHint}
           {partnerTag}
         </div>
       </section>

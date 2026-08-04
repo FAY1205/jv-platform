@@ -20,7 +20,6 @@ const { leads } = planRun(
   LEAD_SOURCE_1_WEEK_ROWS as Record<string, unknown>[],
   LEAD_SOURCE_1_PROFILE,
   { mlsPatterns: DEFAULT_MLS_PATTERNS, coverage: buildCoverage(ZIP_COVERAGE, STATE_RULES) },
-  new Map(),
 );
 
 const { hash } = buildRulesSnapshot({
@@ -38,7 +37,6 @@ const outcomes = leads
     mls: l.mlsStatus,
     match: l.matchMethod,
     partner: l.partnerId,
-    prev: l.previouslyMatched,
     patternKey: l.mlsPatternKey,
     span: l.mlsMatchSpan,
   }))

@@ -52,6 +52,8 @@ export { Tooltip, type TooltipProps } from "./Tooltip";
 export { ToastProvider, useToast } from "./Toast";
 export { Skeleton } from "./Skeleton";
 export { EmptyState, type EmptyStateProps } from "./EmptyState";
+export { ClampedText, type ClampedTextProps } from "./ClampedText";
+export { NavIcon, NAV_ICON_NAMES, type NavIconName, type NavIconProps } from "./NavIcon";
 export { NotesPanel } from "./NotesPanel";
 export { PasswordChangeForm } from "./PasswordChangeForm";
 export { NotificationBell } from "./NotificationBell";

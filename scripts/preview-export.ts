@@ -2,16 +2,10 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { applyProfile } from "../src/modules/sources/index";
 import { INVESTORFUSE_PROFILE } from "../src/modules/sources/seed-profiles";
-import {
-  normalizeZip,
-  normalizeState,
-  normalizePhone,
-  computeDedupeKey,
-} from "../src/modules/pipeline/normalize";
+import { normalizeZip, normalizeState } from "../src/modules/pipeline/normalize";
 import { evaluate } from "../src/modules/pipeline/mls";
 import { DEFAULT_MLS_PATTERNS } from "../src/modules/pipeline/mls-patterns";
 import { assign, buildCoverage } from "../src/modules/pipeline/assign";
-import { dedupeRun, type DedupeInput } from "../src/modules/pipeline/dedupe";
 import { computeRunSummary, type RunSummaryLead } from "../src/modules/analytics/run-summary";
 import { renderExport, type ExportLead, type PartnerInfo } from "../src/modules/export/render";
 import { PARTNER_PALETTE } from "../src/lib/tokens/tokens";
@@ -20,6 +14,7 @@ import { SAMPLE_STATE_RULES, SAMPLE_ZIP_COVERAGE } from "../tests/fixtures/sampl
 // Dev-only PREVIEW composer (NOT the production run path — that's WP-017). Runs the pure
 // pipeline over the anonymized real week using SAMPLE coverage so it distributes, and renders
 // the colored .xlsx so the owner can eyeball the deliverable. Real coverage is deferred.
+// ADR-0038: no dedup step — every row is a lead.
 
 const partners = new Map<string, PartnerInfo>(
   PARTNER_PALETTE.map((p, i) => [
@@ -39,36 +34,26 @@ const processed = rows.map((row) => {
   return {
     canonical,
     mls: evaluate(canonical.notes, DEFAULT_MLS_PATTERNS).verdict,
-    dedupeInput: {
-      dedupeKey: computeDedupeKey(canonical.address, canonical.zip),
-      phoneNorm: normalizePhone(canonical.phone),
-      partnerId: a.partnerId,
-      matchMethod: a.matchMethod,
-    } satisfies DedupeInput,
+    partnerId: a.partnerId,
+    matchMethod: a.matchMethod,
   };
 });
 
-const deduped = dedupeRun(
-  processed.map((p) => p.dedupeInput),
-  new Map(),
-);
-
 const summary = computeRunSummary(
   processed.map(
-    (p, i): RunSummaryLead => ({
+    (p): RunSummaryLead => ({
       mlsStatus: p.mls,
-      matchMethod: deduped[i].matchMethod,
-      partnerId: deduped[i].partnerId,
-      previouslyMatched: deduped[i].previouslyMatched,
+      matchMethod: p.matchMethod,
+      partnerId: p.partnerId,
     }),
   ),
 );
 
 // The partner deliverable sheet excludes MLS-removed leads (summarised only).
 const exportLeads: ExportLead[] = processed
-  .map((p, i) => ({ p, d: deduped[i], i }))
+  .map((p, i) => ({ p, i }))
   .filter(({ p }) => p.mls === "kept")
-  .map(({ p, d, i }) => ({
+  .map(({ p, i }) => ({
     leadRefId: `LD-26-${String(i + 1).padStart(5, "0")}`,
     campaign: p.canonical.campaign ?? "",
     dateCreated: p.canonical.dateCreated ?? "",
@@ -84,8 +69,7 @@ const exportLeads: ExportLead[] = processed
     reasonForSelling: p.canonical.reasonForSelling ?? "",
     motivation: p.canonical.motivation ?? "",
     timeToSell: p.canonical.timeToSell ?? "",
-    partnerId: d.partnerId,
-    previouslyMatched: d.previouslyMatched,
+    partnerId: p.partnerId,
     possibleMlsListing: "pending" as const,
   }));
 
@@ -94,7 +78,7 @@ renderExport(exportLeads, partners, summary, { colorCoding: true }).then((bytes)
   writeFileSync(out, bytes);
   console.log(`Wrote ${out}`);
   console.log(
-    `  total ${summary.total} · kept ${summary.kept} · removed ${summary.removed} · unmatched ${summary.unmatched} · prev-matched ${summary.previouslyMatched}`,
+    `  total ${summary.total} · kept ${summary.kept} · removed ${summary.removed} · unmatched ${summary.unmatched}`,
   );
   console.log(`  per-partner: ${summary.perPartner.map((p) => `${p.partnerId}=${p.count}`).join(", ")}`);
 });

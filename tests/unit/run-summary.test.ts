@@ -2,13 +2,14 @@ import { describe, expect, it } from "vitest";
 import { computeRunSummary, type RunSummaryLead } from "@/modules/analytics/run-summary";
 
 function mk(over: Partial<RunSummaryLead>): RunSummaryLead {
-  return { mlsStatus: "kept", matchMethod: "state_fallback", partnerId: "p1", previouslyMatched: false, ...over };
+  return { mlsStatus: "kept", matchMethod: "state_fallback", partnerId: "p1", ...over };
 }
 
-// A representative processed run: delivered-to-partners, removed (MLS), unmatched, previously-matched.
+// A representative processed run: delivered-to-partners, removed (MLS), unmatched.
+// ADR-0038: no previously-matched concept — every row is an ordinary lead.
 const LEADS: RunSummaryLead[] = [
   mk({ partnerId: "p1" }),
-  mk({ partnerId: "p1", previouslyMatched: true }),
+  mk({ partnerId: "p1" }),
   mk({ partnerId: "p2" }),
   mk({ mlsStatus: "removed", partnerId: "p2" }), // MLS-listed → not delivered
   mk({ matchMethod: "none", partnerId: null }), // unmatched, kept
@@ -30,10 +31,6 @@ describe("EXP-04 / PRN-15: computeRunSummary (single source of run stats)", () =
     expect(s.unmatched).toBe(1);
   });
 
-  it("counts previously-matched leads", () => {
-    expect(s.previouslyMatched).toBe(1);
-  });
-
   it("per-partner counts only delivered (kept + assigned) leads, sorted deterministically", () => {
     expect(s.perPartner).toEqual([
       { partnerId: "p1", count: 2 },
@@ -51,7 +48,6 @@ describe("EXP-04 / PRN-15: computeRunSummary (single source of run stats)", () =
       kept: 0,
       removed: 0,
       unmatched: 0,
-      previouslyMatched: 0,
       perPartner: [],
     });
   });

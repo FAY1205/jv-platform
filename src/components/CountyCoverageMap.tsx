@@ -25,8 +25,9 @@ export interface CountyCoverageMapProps {
   /** Optional blurred title plate; WP-E pages supply the content. */
   caption?: MapCaptionProps;
   /** When false, render a static role="img" territory illustration — no zoom controls,
-   *  wheel-zoom, drag-pan, or hover (used inside the lead dialog matchcard, where the
-   *  mouse-only pan would be a keyboard trap; SC 2.1.1). Defaults to true. */
+   *  wheel-zoom, drag-pan, or hover. Used on PHONES (VP-2), where the interactive map's
+   *  `touch-none` would otherwise trap page-scroll, and anywhere a mouse-only pan would be
+   *  a keyboard trap (SC 2.1.1). Defaults to true. */
   interactive?: boolean;
   /** Portal (WP-F.3): render non-covered states as a plain neutral fill instead of the
    *  `--warn` gap hatch. The partner's own dashboard shows "not yours" as calm land, never

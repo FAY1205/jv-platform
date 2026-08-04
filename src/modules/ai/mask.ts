@@ -47,7 +47,7 @@ export function maskRunDetail(d: RunDetail) {
     // Project summary to safe scalars only — DROP perPartner ({partnerId,count}[])
     // which carries a raw internal partner UUID; `distribution` below already
     // carries the named per-partner breakdown ({name,refId}).
-    summary: { total: d.summary.total, kept: d.summary.kept, removed: d.summary.removed, unmatched: d.summary.unmatched, previouslyMatched: d.summary.previouslyMatched },
+    summary: { total: d.summary.total, kept: d.summary.kept, removed: d.summary.removed, unmatched: d.summary.unmatched },
     distribution: d.distribution.map((x) => ({ name: x.name, refId: x.refId, count: x.count })),
     path: `/imports/${d.upload.refId}`,
   };

@@ -3,7 +3,7 @@
 import * as React from "react";
 import { useQuery } from "@tanstack/react-query";
 import { apiGet } from "@/lib/api";
-import { Button, EmptyState, LinkCard, Skeleton, HotLeadMark } from "@/components";
+import { Button, EmptyState, Skeleton, HotLeadMark } from "@/components";
 import { statusPillClass } from "@/lib/status-pill";
 
 // WP-PW-3 Task 2: the mobile (< lg) Leads view, extracted verbatim from the pre-WP-PW-3
@@ -20,7 +20,6 @@ interface Lead {
   zip: string;
   receivedAt: string;
   status: string;
-  previouslyMatched: boolean;
   scoreTotal: number | null;
   scoreGroup: "hot" | "warm" | "nurture" | null;
 }
@@ -35,7 +34,7 @@ function fmtDate(iso: string): string {
   return new Date(iso).toLocaleDateString();
 }
 
-export function LeadsMobile() {
+export function LeadsMobile({ onOpen }: { onOpen: (refId: string) => void }) {
   const [page, setPage] = React.useState(1);
   const { data, isLoading, error } = useQuery({
     queryKey: ["portal-leads", page],
@@ -75,10 +74,11 @@ export function LeadsMobile() {
         <>
           <div className="flex flex-col gap-3">
             {leads.map((l) => (
-              <LinkCard
+              <button
                 key={l.refId}
-                href={`/portal/leads/${l.refId}`}
-                className="block p-4 shadow-sm"
+                type="button"
+                onClick={() => onOpen(l.refId)}
+                className="block w-full rounded-xl border border-border bg-surface p-4 text-left shadow-sm transition-[background-color,border-color,transform] hover:border-text-3 hover:bg-surface-2 focus-visible:border-brand-ink focus-visible:outline-none active:scale-[.99]"
               >
                 <div className="flex items-center gap-2">
                   <span className="num text-step-1 text-text-3">{l.refId}</span>
@@ -94,9 +94,8 @@ export function LeadsMobile() {
                   </span>
                   <span className="num text-text-3">{l.zip}</span>
                   <span className="text-text-3">· {fmtDate(l.receivedAt)}</span>
-                  {l.previouslyMatched && <span className="text-text-3">· returning</span>}
                 </div>
-              </LinkCard>
+              </button>
             ))}
           </div>
           {totalPages > 1 && (

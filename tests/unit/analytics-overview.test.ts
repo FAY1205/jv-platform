@@ -13,12 +13,12 @@ const runs: AnalyticsRun[] = [
 // u1: 2 delivered (zip→p1, state→p2), 1 unmatched, 1 removed(MLS: on market)
 // u2: 1 delivered (zip→p1), 1 removed (MLS: active)
 const leads: AnalyticsLead[] = [
-  { uploadId: "u1", mlsStatus: "kept", matchMethod: "zip", partnerId: "p1", mlsReason: null, previouslyMatched: false },
-  { uploadId: "u1", mlsStatus: "kept", matchMethod: "state_fallback", partnerId: "p2", mlsReason: null, previouslyMatched: true },
-  { uploadId: "u1", mlsStatus: "kept", matchMethod: "none", partnerId: null, mlsReason: null, previouslyMatched: false },
-  { uploadId: "u1", mlsStatus: "removed", matchMethod: "none", partnerId: null, mlsReason: "Listed on market", previouslyMatched: false },
-  { uploadId: "u2", mlsStatus: "kept", matchMethod: "zip", partnerId: "p1", mlsReason: null, previouslyMatched: false },
-  { uploadId: "u2", mlsStatus: "removed", matchMethod: "none", partnerId: null, mlsReason: "Active on MLS", previouslyMatched: false },
+  { uploadId: "u1", mlsStatus: "kept", matchMethod: "zip", partnerId: "p1", mlsReason: null },
+  { uploadId: "u1", mlsStatus: "kept", matchMethod: "state_fallback", partnerId: "p2", mlsReason: null },
+  { uploadId: "u1", mlsStatus: "kept", matchMethod: "none", partnerId: null, mlsReason: null },
+  { uploadId: "u1", mlsStatus: "removed", matchMethod: "none", partnerId: null, mlsReason: "Listed on market" },
+  { uploadId: "u2", mlsStatus: "kept", matchMethod: "zip", partnerId: "p1", mlsReason: null },
+  { uploadId: "u2", mlsStatus: "removed", matchMethod: "none", partnerId: null, mlsReason: "Active on MLS" },
 ];
 
 describe("buildAnalytics", () => {
@@ -30,10 +30,6 @@ describe("buildAnalytics", () => {
     expect(a.totals.unmatched).toBe(1);
     expect(a.totals.removed).toBe(2);
     expect(a.totals.delivered + a.totals.unmatched + a.totals.removed).toBe(a.totals.total);
-  });
-
-  it("ANA-01: counts previously-matched leads", () => {
-    expect(a.totals.previouslyMatched).toBe(1);
   });
 
   it("ANA-01: delivery and removal rates are shares of total", () => {
@@ -69,14 +65,14 @@ describe("buildAnalytics", () => {
 
   it("ANA-01: empty input yields zeroed totals and empty series", () => {
     const e = buildAnalytics([], []);
-    expect(e.totals).toEqual({ total: 0, delivered: 0, unmatched: 0, removed: 0, previouslyMatched: 0, deliveryRate: 0, removalRate: 0 });
+    expect(e.totals).toEqual({ total: 0, delivered: 0, unmatched: 0, removed: 0, deliveryRate: 0, removalRate: 0 });
     expect(e.series).toEqual([]);
     expect(e.partnerTotals).toEqual([]);
   });
 
   it("ANA-01: removed leads with no reason fall under a stable label", () => {
     const r = buildAnalytics(
-      [{ uploadId: "u1", mlsStatus: "removed", matchMethod: "none", partnerId: null, mlsReason: null, previouslyMatched: false }],
+      [{ uploadId: "u1", mlsStatus: "removed", matchMethod: "none", partnerId: null, mlsReason: null }],
       [{ uploadId: "u1", refId: "IM-26-001", createdAt: "2026-01-01T00:00:00Z" }],
     );
     expect(r.removalReasons).toEqual([{ reason: "Listed on MLS", count: 1 }]);

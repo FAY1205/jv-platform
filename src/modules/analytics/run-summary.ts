@@ -4,13 +4,14 @@ import type { MatchMethod } from "../pipeline/assign";
 // Run summary (EXP-04). The SINGLE home of these computed statistics (PRN-15) —
 // both the export's Run_Summary sheet (WP-016) and the on-screen summary (WP-019)
 // consume this one function; no number is re-derived elsewhere. PURE (PRN-01).
+// previouslyMatched was removed with the dedup retirement (ADR-0038): every row
+// becomes a lead, so total partitions exactly into delivered + unmatched + removed.
 // ─────────────────────────────────────────────────────────────────────────────
 
 export interface RunSummaryLead {
   mlsStatus: "kept" | "removed";
   matchMethod: MatchMethod;
   partnerId: string | null;
-  previouslyMatched: boolean;
 }
 
 export interface RunSummary {
@@ -18,7 +19,6 @@ export interface RunSummary {
   kept: number;
   removed: number;
   unmatched: number;
-  previouslyMatched: number;
   /** Delivered (kept + assigned) leads per partner, sorted by partnerId for determinism. */
   perPartner: { partnerId: string; count: number }[];
 }
@@ -27,7 +27,6 @@ export function computeRunSummary(leads: readonly RunSummaryLead[]): RunSummary 
   let kept = 0;
   let removed = 0;
   let unmatched = 0;
-  let previouslyMatched = 0;
   const perPartner = new Map<string, number>();
 
   for (const lead of leads) {
@@ -37,7 +36,6 @@ export function computeRunSummary(leads: readonly RunSummaryLead[]): RunSummary 
     // a routing gap. Total then partitions cleanly into delivered + unmatched +
     // removed — the same numbers the run tables and buildAnalytics show.
     if (lead.mlsStatus === "kept" && lead.matchMethod === "none") unmatched++;
-    if (lead.previouslyMatched) previouslyMatched++;
 
     // Per-partner counts only the delivered leads: kept AND assigned to a partner.
     if (lead.mlsStatus === "kept" && lead.partnerId !== null) {
@@ -50,7 +48,6 @@ export function computeRunSummary(leads: readonly RunSummaryLead[]): RunSummary 
     kept,
     removed,
     unmatched,
-    previouslyMatched,
     perPartner: [...perPartner.entries()]
       .map(([partnerId, count]) => ({ partnerId, count }))
       .sort((a, b) => (a.partnerId < b.partnerId ? -1 : a.partnerId > b.partnerId ? 1 : 0)),

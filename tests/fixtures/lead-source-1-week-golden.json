@@ -7,7 +7,6 @@
       "mls": "kept",
       "match": "none",
       "partner": null,
-      "prev": false,
       "patternKey": null,
       "span": null
     },
@@ -17,7 +16,6 @@
       "mls": "removed",
       "match": "zip",
       "partner": "Joe Lieber",
-      "prev": false,
       "patternKey": "dq_ls1_listed_yes",
       "span": {
         "start": 0,
@@ -31,7 +29,6 @@
       "mls": "removed",
       "match": "zip",
       "partner": "Joe Lieber",
-      "prev": true,
       "patternKey": "dq_ls1_listed_yes",
       "span": {
         "start": 0,
@@ -45,7 +42,6 @@
       "mls": "removed",
       "match": "state_fallback",
       "partner": "Dylan Tanaka",
-      "prev": false,
       "patternKey": "dq_ls1_listed_mls_yes",
       "span": {
         "start": 49,
@@ -59,7 +55,6 @@
       "mls": "kept",
       "match": "zip",
       "partner": "Jason Beery",
-      "prev": false,
       "patternKey": null,
       "span": null
     },
@@ -69,7 +64,6 @@
       "mls": "kept",
       "match": "zip",
       "partner": "Joe Lieber",
-      "prev": false,
       "patternKey": null,
       "span": null
     },
@@ -79,7 +73,6 @@
       "mls": "removed",
       "match": "state_fallback",
       "partner": "Blake McCreight",
-      "prev": false,
       "patternKey": "dq_ls1_is_it_listed_yes",
       "span": {
         "start": 0,
@@ -93,7 +86,6 @@
       "mls": "kept",
       "match": "state_fallback",
       "partner": "Blake McCreight",
-      "prev": false,
       "patternKey": null,
       "span": null
     },
@@ -103,7 +95,6 @@
       "mls": "kept",
       "match": "state_fallback",
       "partner": "Jason Beery",
-      "prev": false,
       "patternKey": null,
       "span": null
     },
@@ -113,7 +104,6 @@
       "mls": "kept",
       "match": "state_fallback",
       "partner": "Jeff Lister",
-      "prev": false,
       "patternKey": null,
       "span": null
     },
@@ -123,7 +113,6 @@
       "mls": "kept",
       "match": "none",
       "partner": null,
-      "prev": false,
       "patternKey": null,
       "span": null
     }

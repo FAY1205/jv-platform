@@ -45,7 +45,7 @@ suite("WP-028a: email outbox + digests (NTF-01/02/03)", () => {
     await db.delete(schema.tenants).where(inArray(schema.tenants.id, tids));
   }
 
-  const summary: RunSummary = { total: 3, kept: 3, removed: 0, unmatched: 0, previouslyMatched: 0, perPartner: [] };
+  const summary: RunSummary = { total: 3, kept: 3, removed: 0, unmatched: 0, perPartner: [] };
 
   beforeAll(async () => {
     client = postgres(url!, { prepare: false, max: 1 });
@@ -171,7 +171,7 @@ suite("SCR-12: hot-lead fan-out", () => {
     await db.delete(schema.tenants).where(inArray(schema.tenants.id, tids));
   }
 
-  const summary: RunSummary = { total: 4, kept: 4, removed: 0, unmatched: 1, previouslyMatched: 0, perPartner: [] };
+  const summary: RunSummary = { total: 4, kept: 4, removed: 0, unmatched: 1, perPartner: [] };
 
   beforeAll(async () => {
     client = postgres(url!, { prepare: false, max: 1 });

@@ -34,7 +34,6 @@ export interface RunLeadView {
   matchMethod: MatchMethod;
   mlsStatus: "kept" | "removed";
   mlsPatternKey: string | null;
-  previouslyMatched: boolean;
   possibleMlsListing: string;
 }
 

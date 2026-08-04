@@ -18,11 +18,14 @@ export interface StatusSelectProps {
   refId: string;
   status: string;
   mlsStatus: "kept" | "removed";
+  /** VP-3: "admin" (default) posts to /api/leads and refreshes the admin caches; "portal"
+   *  posts to /api/portal/leads and refreshes the partner caches. Same pill UI either way. */
+  scope?: "admin" | "portal";
   /** Currently unconsumed — a forward-looking hook for WS-4/5 rows (unmatched/partner). */
   onChanged?: (status: string) => void;
 }
 
-export function StatusSelect({ refId, status, mlsStatus, onChanged }: StatusSelectProps) {
+export function StatusSelect({ refId, status, mlsStatus, scope = "admin", onChanged }: StatusSelectProps) {
   const qc = useQueryClient();
   const toast = useToast();
 
@@ -36,14 +39,15 @@ export function StatusSelect({ refId, status, mlsStatus, onChanged }: StatusSele
 
   const mut = useMutation({
     mutationFn: async (next: string) => {
-      const res = await fetch(`/api/leads/${refId}/status`, {
+      const url = scope === "portal" ? `/api/portal/leads/${refId}/status` : `/api/leads/${refId}/status`;
+      const res = await fetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/json", ...csrfHeaders() },
         body: JSON.stringify({ status: next }),
       });
-      const b = await res.json();
-      if (!res.ok) throw new Error(b?.message ?? "Status update failed.");
-      return b as { status: string };
+      const b = await res.json().catch(() => null);
+      if (!res.ok) throw new Error((b as { message?: string } | null)?.message ?? "Status update failed.");
+      return { status: (b as { status?: string } | null)?.status ?? next };
     },
     onMutate: (next: string) => {
       const prev = val;
@@ -51,9 +55,19 @@ export function StatusSelect({ refId, status, mlsStatus, onChanged }: StatusSele
       return { prev };
     },
     onSuccess: (b) => {
-      qc.invalidateQueries({ queryKey: ["leads"] });
-      qc.invalidateQueries({ queryKey: ["dashboard"] });
-      qc.invalidateQueries({ queryKey: ["lead", refId] });
+      if (scope === "portal") {
+        // A plain queryKey filter is element-wise, so ["portal-leads"] does NOT match the
+        // desktop table's ["portal-leads-desktop", …]; a first-segment predicate refreshes
+        // the table, mobile list, dialog, and the nav-badge "New" count together (F-1).
+        qc.invalidateQueries({ queryKey: ["portal-lead", refId] });
+        qc.invalidateQueries({
+          predicate: (query) => typeof query.queryKey[0] === "string" && (query.queryKey[0] as string).startsWith("portal-leads"),
+        });
+      } else {
+        qc.invalidateQueries({ queryKey: ["leads"] });
+        qc.invalidateQueries({ queryKey: ["dashboard"] });
+        qc.invalidateQueries({ queryKey: ["lead", refId] });
+      }
       toast.toast(`Status → ${b.status}`, "success");
       onChanged?.(b.status);
     },

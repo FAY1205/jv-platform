@@ -11,8 +11,8 @@ import golden from "../fixtures/lead-source-1-week-golden.json";
 // ─────────────────────────────────────────────────────────────────────────────
 // TST-05 golden gate. The whole PURE pipeline over a sanitized "Lead Source 1" week
 // under a FIXED rule set must reproduce the pinned, hand-verified outcome exactly — a
-// semantic zero-diff on the decision-bearing fields (MLS verdict, assignment, campaign,
-// previously-matched). Any code change that shifts an outcome fails here; the owner then
+// semantic zero-diff on the decision-bearing fields (MLS verdict, assignment, campaign).
+// Any code change that shifts an outcome fails here; the owner then
 // either confirms the change (regenerate via scripts/gen-golden.ts) or fixes the bug.
 // Regenerate deliberately, never casually.
 //
@@ -27,11 +27,10 @@ const { leads } = planRun(
   LEAD_SOURCE_1_WEEK_ROWS as Record<string, unknown>[],
   LEAD_SOURCE_1_PROFILE,
   { mlsPatterns: DEFAULT_MLS_PATTERNS, coverage: buildCoverage(ZIP_COVERAGE, STATE_RULES) },
-  new Map(),
 );
 
 const actual = leads
-  .map((l) => ({ key: l.dedupeKey, campaign: l.campaign, mls: l.mlsStatus, match: l.matchMethod, partner: l.partnerId, prev: l.previouslyMatched, patternKey: l.mlsPatternKey, span: l.mlsMatchSpan }))
+  .map((l) => ({ key: l.dedupeKey, campaign: l.campaign, mls: l.mlsStatus, match: l.matchMethod, partner: l.partnerId, patternKey: l.mlsPatternKey, span: l.mlsMatchSpan }))
   .sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
 
 describe("TST-05: golden semantic zero-diff (sanitized Lead Source 1 week)", () => {

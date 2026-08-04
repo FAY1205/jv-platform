@@ -64,7 +64,7 @@ suite("WP-018: void-run (ING-09)", () => {
 
   const DKEY = "1 a st|08034";
 
-  it("voids a run, records the reason + audit, and drops its leads from future dedupe (ING-09)", async () => {
+  it("voids a run, records the reason + audit, and soft-deletes its leads (ING-09)", async () => {
     // A run that lands one NJ lead (dedupe_key = DKEY).
     const rules = { mlsPatterns: DEFAULT_MLS_PATTERNS, coverage: buildCoverage([], [{ state: "NJ", partnerId: partnerNJ }]) };
     const snapshotInput = { sourceProfile: { id: GENERIC_PROFILE.id, version: GENERIC_PROFILE.version }, mlsPatterns: DEFAULT_MLS_PATTERNS, stateRules: [{ state: "NJ", partnerId: partnerNJ }], zipCoverage: [] };
@@ -74,8 +74,9 @@ suite("WP-018: void-run (ING-09)", () => {
       { store, clock: () => "2026-07-08T12:00:00.000Z" },
     );
 
-    // Before voiding, the lead is in dedupe history.
-    expect((await store.loadHistory(scope.tenantId)).has(DKEY)).toBe(true);
+    // Before voiding, the lead row is live.
+    const liveBefore = await db.select({ id: schema.leads.id }).from(schema.leads).where(and(eq(schema.leads.tenantId, scope.tenantId), eq(schema.leads.dedupeKey, DKEY)));
+    expect(liveBefore.length).toBe(1);
 
     const voided = await voidUpload(scope, result.uploadRefId, "wrong file uploaded");
     expect(voided.uploadRef).toBe(result.uploadRefId);
@@ -89,8 +90,12 @@ suite("WP-018: void-run (ING-09)", () => {
     const audits = await db.select().from(schema.auditLog).where(and(eq(schema.auditLog.tenantId, scope.tenantId), eq(schema.auditLog.action, "upload.voided")));
     expect(audits.some((a) => a.entityRef === result.uploadRefId)).toBe(true);
 
-    // ING-09 poison-prevention: the voided lead is no longer in dedupe history.
-    expect((await store.loadHistory(scope.tenantId)).has(DKEY)).toBe(false);
+    // ING-09: the voided run's lead is soft-deleted (its key redacted by the WP-GL-B purge).
+    const liveAfter = await db
+      .select({ deletedAt: schema.leads.deletedAt })
+      .from(schema.leads)
+      .where(and(eq(schema.leads.tenantId, scope.tenantId), eq(schema.leads.dedupeKey, DKEY)));
+    expect(liveAfter.every((l) => l.deletedAt !== null)).toBe(true);
   });
 
   it("rejects voiding an already-voided run", async () => {
@@ -164,11 +169,10 @@ suite("WP-018: void-run (ING-09)", () => {
     await expect(voidUpload(scope, olderRef, "now latest")).resolves.toBeTruthy();
   });
 
-  it("ING-09/DM-09: a corrected re-upload re-inserts a soft-deleted lead's dedupe_key (partial unique index)", async () => {
-    await voidUpload(scope, await processNjRun("77 Reupload Way"), "wrong file"); // soft-deletes the lead, frees the key
-    // Re-processing the SAME address inserts a fresh live row with that dedupe_key. The old row is
-    // soft-deleted (and its key sentineled by the WP-GL-B purge), so the partial unique index
-    // (WHERE deleted_at IS NULL) excludes it — no collision.
+  it("ING-09/DM-09: a corrected re-upload of a voided run's address imports cleanly (ADR-0038: no unique key)", async () => {
+    await voidUpload(scope, await processNjRun("77 Reupload Way"), "wrong file"); // soft-deletes the lead
+    // Re-processing the SAME address inserts a fresh live row — dedup collapse and the
+    // unique dedupe index were retired (ADR-0038), so nothing can collide.
     await expect(processNjRun("77 Reupload Way")).resolves.toBeTruthy();
   });
 

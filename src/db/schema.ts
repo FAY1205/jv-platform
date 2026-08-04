@@ -218,6 +218,9 @@ export const uploads = pgTable(
     rowCount: integer("row_count"),
     rulesHash: text("rules_hash"), // rules snapshot (DM-08)
     rulesSnapshot: jsonb("rules_snapshot"),
+    // ADR-0038: SHA-256 of the raw uploaded file — powers the identical-file re-upload
+    // warn-and-confirm. NULL for pre-ADR uploads (never backfilled).
+    contentHash: text("content_hash"),
     voidReason: text("void_reason"), // ING-09
     voidedAt: timestamp("voided_at", { withTimezone: true }),
     // Distribution hold: NULL = the partner push (digest + notifications) hasn't been sent yet.
@@ -234,6 +237,8 @@ export const uploads = pgTable(
     index("uploads_pending_release_idx")
       .on(t.tenantId, t.createdAt)
       .where(sql`${t.distributedAt} is null and ${t.voidedAt} is null`),
+    // ADR-0038: duplicate-file lookup — "has this tenant already imported these bytes?"
+    index("uploads_tenant_content_hash_idx").on(t.tenantId, t.contentHash),
   ],
 );
 
@@ -270,6 +275,10 @@ export const leads = pgTable(
     // Decision columns (DM-03)
     partnerId: uuid("partner_id").references(() => partners.id),
     matchMethod: matchMethodEnum("match_method").notNull().default("none"),
+    // DM-03: the exact ZIP5 or state code the router matched on (assign.ts matchedOn).
+    // NULL for a previously-matched revert (decided by history, not this run's coverage) or
+    // an unmatched lead. Written once at insert, never rewritten (PRN-05); shown in the lead dialog.
+    matchedOn: text("matched_on"),
     mlsStatus: mlsStatusEnum("mls_status").notNull().default("kept"),
     mlsReason: text("mls_reason"),
     mlsPatternKey: text("mls_pattern_key"),
@@ -301,9 +310,9 @@ export const leads = pgTable(
     createdAt: createdAt(),
   },
   (t) => [
-    // Partial (DM-09 / WP-J2): voiding soft-deletes a run's leads; a corrected re-upload must be
-    // able to re-insert the same dedupe_key, so uniqueness applies only to live (non-deleted) rows.
-    uniqueIndex("leads_tenant_dedupe_idx").on(t.tenantId, t.dedupeKey).where(sql`${t.deletedAt} is null`),
+    // ADR-0038: dedup collapse retired — dedupe_key is stored for grouping/reporting only,
+    // so the old partial UNIQUE became a plain index (same-key rows are now legitimate).
+    index("leads_tenant_dedupe_idx").on(t.tenantId, t.dedupeKey),
     index("leads_tenant_upload_idx").on(t.tenantId, t.uploadId),
     index("leads_tenant_partner_created_idx").on(t.tenantId, t.partnerId, t.createdAt),
     index("leads_tenant_manual_partner_idx").on(t.tenantId, t.manualPartnerId),

@@ -29,7 +29,6 @@ export interface PartnerLeadRow {
   zip: string;
   receivedAt: string;
   status: string;
-  previouslyMatched: boolean;
   /** Scoring (SCR). Portal leads are always kept, so a hot group shows the target mark. */
   scoreTotal: number | null;
   scoreGroup: "hot" | "warm" | "nurture" | null;

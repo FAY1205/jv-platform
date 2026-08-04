@@ -43,7 +43,7 @@ describe("SEC-05/PRN-10: mask projections", () => {
   });
   it("SEC-05: run detail keeps summary + distribution, drops per-lead rows", () => {
     const PARTNER_UUID = "22222222-2222-4222-8222-222222222222";
-    const run = { upload: { refId: "UP-2026-001", filename: "week.xlsx", status: "processed", rowCount: 50, createdAt: "2026-07-01T00:00:00.000Z", voidReason: null }, summary: { total: 50, kept: 24, removed: 26, unmatched: 1, previouslyMatched: 0, perPartner: [{ partnerId: PARTNER_UUID, count: 7 }] }, distribution: [{ partnerId: PARTNER_UUID, count: 7, name: "Meridian Buyers", refId: "PR-003", color: "#abc" }], partners: {}, leads: [{ refId: "LD-1" }] } as unknown as RunDetail;
+    const run = { upload: { refId: "UP-2026-001", filename: "week.xlsx", status: "processed", rowCount: 50, createdAt: "2026-07-01T00:00:00.000Z", voidReason: null }, summary: { total: 50, kept: 24, removed: 26, unmatched: 1, perPartner: [{ partnerId: PARTNER_UUID, count: 7 }] }, distribution: [{ partnerId: PARTNER_UUID, count: 7, name: "Meridian Buyers", refId: "PR-003", color: "#abc" }], partners: {}, leads: [{ refId: "LD-1" }] } as unknown as RunDetail;
     const m = maskRunDetail(run);
     expect((m as Record<string, unknown>).leads).toBeUndefined();
     expect(m.distribution[0]).toEqual({ name: "Meridian Buyers", refId: "PR-003", count: 7 });

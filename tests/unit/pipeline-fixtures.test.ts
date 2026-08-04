@@ -2,14 +2,8 @@ import { describe, it, expect } from "vitest";
 import { detectProfile, applyProfile, GENERIC_PROFILE } from "@/modules/sources";
 import { evaluate } from "@/modules/pipeline/mls";
 import { DEFAULT_MLS_PATTERNS } from "@/modules/pipeline/mls-patterns";
-import {
-  normalizeZip,
-  normalizeState,
-  normalizePhone,
-  computeDedupeKey,
-} from "@/modules/pipeline/normalize";
+import { normalizeZip, normalizeState, computeDedupeKey } from "@/modules/pipeline/normalize";
 import { assign, buildCoverage } from "@/modules/pipeline/assign";
-import { dedupeRun, type HistoryEntry } from "@/modules/pipeline/dedupe";
 import {
   BEES_PROFILE,
   ZOLO_ROWS,
@@ -24,7 +18,7 @@ const PROFILES = [GENERIC_PROFILE, BEES_PROFILE];
 const COVERAGE = buildCoverage([], SYNTH_STATE_FALLBACKS);
 
 // TST-05 (provisional): the full pure pipeline over a synthetic multi-source week.
-// Assignment + dedupe are added in Phase 1; the golden then pins to a rules snapshot.
+// Dedup collapse was retired (ADR-0038) — the pipeline is apply → normalize → MLS → assign.
 describe("TST-05 (provisional): synthetic multi-source week", () => {
   it("auto-detects each source format exactly", () => {
     expect(detectProfile(Object.keys(ZOLO_ROWS[0].row), PROFILES)).toMatchObject({
@@ -87,31 +81,12 @@ describe("TST-05 (provisional): synthetic multi-source week", () => {
     return applyProfile(l.row, detected.profile!).canonical;
   };
 
-  it("DED-01/PRN-05: a week-1 lead reappearing in week-2 keeps its ORIGINAL partner + first-matched date", () => {
+  it("ADR-0038: the dedupe key is still computed and stable — repeats stay groupable", () => {
+    // Dedup collapse was retired, but the key remains stored for same-house
+    // grouping/reporting, so its normalization must stay deterministic.
     const nj = canonicalOf(ZOLO_ROWS[0]); // 142 Garden State Ave / NJ / 08034
     const key = computeDedupeKey(nj.address, nj.zip);
-
-    // Week-1 originally matched this lead to a partner that DIFFERS from today's state fallback,
-    // e.g. because coverage changed. History must win (PRN-05).
-    const history = new Map<string, HistoryEntry>([
-      [key, { partnerId: "week1-original", matchMethod: "zip", firstMatchedAt: "2026-06-29T00:00:00Z", phoneNorm: normalizePhone(nj.phone) }],
-    ]);
-
-    const fresh = canonicalOf(BEES_ROWS[5]); // Brooklyn NY — brand new, unmatched
-    const [repeat, brandNew] = dedupeRun(
-      [
-        { dedupeKey: key, phoneNorm: normalizePhone(nj.phone), partnerId: "Josh Ax", matchMethod: "state_fallback" },
-        { dedupeKey: computeDedupeKey(fresh.address, fresh.zip), phoneNorm: normalizePhone(fresh.phone), partnerId: null, matchMethod: "none" },
-      ],
-      history,
-    );
-
-    expect(repeat).toMatchObject({
-      previouslyMatched: true,
-      partnerId: "week1-original", // original beats the current "Josh Ax" fallback
-      firstMatchedAt: "2026-06-29T00:00:00Z",
-      phoneConfirmed: true,
-    });
-    expect(brandNew).toMatchObject({ previouslyMatched: false, firstMatchedAt: null });
+    expect(key).toBe(computeDedupeKey(nj.address, nj.zip));
+    expect(key).toMatch(/\|\d{5}$/); // normalized(address)|zip5
   });
 });

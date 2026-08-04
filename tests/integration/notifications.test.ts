@@ -19,7 +19,7 @@ suite("WP-029: notification center + prefs (NTF-04/05)", () => {
   let db: PostgresJsDatabase<typeof schema>;
   let adminScope: ScopeContext;
   let partnerScope: ScopeContext;
-  const summary: RunSummary = { total: 2, kept: 2, removed: 0, unmatched: 0, previouslyMatched: 0, perPartner: [] };
+  const summary: RunSummary = { total: 2, kept: 2, removed: 0, unmatched: 0, perPartner: [] };
 
   async function cleanup() {
     const t = await db.select({ id: schema.tenants.id }).from(schema.tenants).where(eq(schema.tenants.slug, SLUG));

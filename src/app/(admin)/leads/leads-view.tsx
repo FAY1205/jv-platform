@@ -7,7 +7,7 @@ import { apiGet } from "@/lib/api";
 import { LEAD_STATUS_FILTERS, DEFAULT_STATUS_FILTERS, isDefaultStatuses, type LeadSortField } from "@/modules/leads/schema";
 import {
   AppShell, Card, Table, THead, TBody, Th, Tr, Td, PartnerTag, EmptyState, Skeleton,
-  Input, Select, Combobox, DateRangePicker, Pagination, RowOpenButton, StatusSelect,
+  Input, Combobox, DateRangePicker, Pagination, RowOpenButton, StatusSelect,
   DEFAULT_PAGE_SIZE, usePageHeader, FilterPill, Tooltip, HotLeadMark, HotLeadIcon,
 } from "@/components";
 import { US_STATES } from "@/lib/us-states";
@@ -37,9 +37,8 @@ export interface Filters {
 const EMPTY: Filters = { q: "", partnerId: "", state: "", source: "", statuses: [...DEFAULT_STATUS_FILTERS], hot: false, dateFrom: "", dateTo: "" };
 
 const DEFAULT_DIR: Record<LeadSortField, "asc" | "desc"> = { lead: "desc", received: "desc", modified: "desc", seller: "asc" };
-const PARTNER_ALL = "__all__";
+// "" = no partner filter (all). The pipeline treats the "unmatched" sentinel specially.
 const PARTNER_UNMATCHED = "unmatched";
-const SOURCE_ALL = "__all__";
 
 export function LeadsView({ initialQ, initialOpenRef = null, initialHot = false }: { initialQ: string; initialOpenRef?: string | null; initialHot?: boolean }) {
   return (
@@ -96,10 +95,10 @@ function LeadsBody({ initialQ, initialOpenRef = null, initialHot = false }: { in
 // ── Filter bar (isolated; owns raw text + debounce, lifts committed filters) ──
 const LeadsFilterBar = React.memo(function LeadsFilterBar({ seedQ, seedHot = false, onChange }: { seedQ: string; seedHot?: boolean; onChange: (f: Filters) => void }) {
   const [qInput, setQInput] = React.useState(seedQ);
-  // State filter — a searchable full-name Combobox (owner note #2); selection commits
-  // the 2-letter code directly (no debounce — picking is an explicit act).
+  // Partner / Source / State are ALL searchable Comboboxes (owner: make them match) — one
+  // control shape, "" = the "All …" placeholder, selection commits directly (no debounce).
   const [state, setState] = React.useState("");
-  const [partnerId, setPartnerId] = React.useState(PARTNER_ALL);
+  const [partnerId, setPartnerId] = React.useState("");
   const [source, setSource] = React.useState("");
   const [statuses, setStatuses] = React.useState<string[]>([...DEFAULT_STATUS_FILTERS]);
   const [hot, setHot] = React.useState(seedHot);
@@ -122,44 +121,51 @@ const LeadsFilterBar = React.memo(function LeadsFilterBar({ seedQ, seedHot = fal
   const clearAll = () => {
     setQInput(""); setQCommitted("");
     setState("");
-    setPartnerId(PARTNER_ALL); setSource(""); setStatuses([...DEFAULT_STATUS_FILTERS]); setHot(false); setRange({ from: null, to: null });
+    setPartnerId(""); setSource(""); setStatuses([...DEFAULT_STATUS_FILTERS]); setHot(false); setRange({ from: null, to: null });
   };
 
   // Commit filters upward whenever a committed value changes. On "Clear all" the committed
   // text is reset in the same batch, so this fires once with the default (not empty) set.
   React.useEffect(() => {
-    onChange({ q: qCommitted, state, partnerId: partnerId === PARTNER_ALL ? "" : partnerId, source, statuses, hot, dateFrom: range.from ?? "", dateTo: range.to ?? "" });
+    onChange({ q: qCommitted, state, partnerId, source, statuses, hot, dateFrom: range.from ?? "", dateTo: range.to ?? "" });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [qCommitted, state, partnerId, source, statuses.join(","), hot, range.from, range.to]);
 
   const toggleStatus = (s: string) => setStatuses((prev) => (prev.includes(s) ? prev.filter((x) => x !== s) : [...prev, s]));
   // "Filters active" ignores the default status selection — only a change from it counts.
-  const hasFilters = Boolean(qInput || state || partnerId !== PARTNER_ALL || source || hot || !isDefaultStatuses(statuses) || range.from);
+  const hasFilters = Boolean(qInput || state || partnerId || source || hot || !isDefaultStatuses(statuses) || range.from);
 
   return (
     <>
       <div className="mb-3 flex flex-wrap items-end gap-2.5">
         <div className="w-full max-w-[300px]">
-          <Input value={qInput} onChange={(e) => setQInput(e.target.value)} placeholder="Search seller, address, ZIP, lead ID…" aria-label="Search leads" />
+          <Input
+            value={qInput}
+            onChange={(e) => setQInput(e.target.value)}
+            onClear={() => { setQInput(""); setQCommitted(""); }}
+            placeholder="Search seller, address, ZIP, lead ID…"
+            aria-label="Search leads"
+          />
         </div>
         <div className="w-48">
-          <Select
+          <Combobox
             ariaLabel="Filter by partner"
+            placeholder="All partners"
             value={partnerId}
             onValueChange={setPartnerId}
             options={[
-              { value: PARTNER_ALL, label: "All partners" },
               { value: PARTNER_UNMATCHED, label: "Unmatched only" },
               ...(roster.data?.partners ?? []).map((p) => ({ value: p.id, label: `${p.name} (${p.refId})` })),
             ]}
           />
         </div>
-        <div className="w-44">
-          <Select
+        <div className="w-48">
+          <Combobox
             ariaLabel="Filter by source"
-            value={source || SOURCE_ALL}
-            onValueChange={(v) => setSource(v === SOURCE_ALL ? "" : v)}
-            options={[{ value: SOURCE_ALL, label: "All sources" }, ...(sourcesQ.data?.sources ?? []).map((s) => ({ value: s, label: s }))]}
+            placeholder="All sources"
+            value={source}
+            onValueChange={setSource}
+            options={(sourcesQ.data?.sources ?? []).map((s) => ({ value: s, label: s }))}
           />
         </div>
         <div className="w-48">
@@ -174,11 +180,16 @@ const LeadsFilterBar = React.memo(function LeadsFilterBar({ seedQ, seedHot = fal
         <div className="w-52">
           <DateRangePicker value={range} onChange={setRange} placeholder="Received range" />
         </div>
-        {hasFilters && (
-          <button type="button" onClick={clearAll} className="text-xs text-text-3 underline-offset-2 hover:text-text hover:underline">
-            Clear all
-          </button>
-        )}
+        {/* Clear all holds a fixed slot at the row's end (ml-auto) — no more jumping as
+            filters appear/disappear; disabled until there's something to clear. */}
+        <button
+          type="button"
+          onClick={clearAll}
+          disabled={!hasFilters}
+          className="ml-auto self-center text-xs underline-offset-2 transition-colors enabled:text-text-3 enabled:hover:text-text enabled:hover:underline disabled:cursor-default disabled:text-text-3/40"
+        >
+          Clear all
+        </button>
       </div>
 
       {/* D3: the shared FilterPill primitive (was a hand-rolled recipe duplicated in the

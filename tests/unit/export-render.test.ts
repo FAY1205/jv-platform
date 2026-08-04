@@ -10,7 +10,7 @@ describe("renderExport — Run_Summary sheet (EXP-04, D5)", () => {
     const partners = new Map<string, PartnerInfo>([
       ["p1", { id: "p1", name: "Alpha", refId: "JV-001", color: "#f4c95d" }],
     ]);
-    const summary: RunSummary = { total: 2, kept: 1, removed: 1, unmatched: 0, previouslyMatched: 0, perPartner: [{ partnerId: "p1", count: 1 }] };
+    const summary: RunSummary = { total: 2, kept: 1, removed: 1, unmatched: 0, perPartner: [{ partnerId: "p1", count: 1 }] };
     const leads: ExportLead[] = [];
     const bytes = await renderExport(leads, partners, summary, { colorCoding: false });
 

@@ -359,37 +359,19 @@ describe("ING-08 SEAM: a confirmed drift must not lose the transform", () => {
   });
 });
 
-describe("DM-01/PRN-05 LS1: dedupe on re-upload", () => {
+describe("DM-01 LS1: dedupe key on re-upload (ADR-0038: key stored for grouping, no collapse)", () => {
   const rules = { mlsPatterns: DEFAULT_MLS_PATTERNS, coverage: buildCoverage([], [{ state: "IL", partnerId: "partner-a" }]) };
 
-  it("DM-01: the same property re-sent produces an identical dedupe key", () => {
+  it("DM-01: the same property re-sent produces an identical dedupe key — and BOTH rows become leads", () => {
     const { leads } = planRun(
       [vendorARow(), vendorARow({ "Created on": "2026-07-09T10:00:00.000Z" })],
       LEAD_SOURCE_1_PROFILE,
       rules,
-      new Map(),
     );
+    expect(leads).toHaveLength(2);
     expect(leads[0].dedupeKey).toBe(leads[1].dedupeKey);
     expect(leads[0].dedupeKey).toBe("12 invented st|62704");
-  });
-
-  it("PRN-05: a re-uploaded lead keeps its ORIGINAL partner — history is never rewritten", () => {
-    // The lead was first matched in an earlier run, to a partner who no longer holds
-    // this territory. Coverage changes must affect FUTURE runs only.
-    const history = new Map([
-      [
-        "12 invented st|62704",
-        {
-          partnerId: "original-partner",
-          matchMethod: "state_fallback" as const,
-          firstMatchedAt: "2026-07-01T00:00:00.000Z",
-          phoneNorm: "5555550100",
-        },
-      ],
-    ]);
-    const { leads } = planRun([vendorARow()], LEAD_SOURCE_1_PROFILE, rules, history);
-    expect(leads[0].previouslyMatched).toBe(true);
-    expect(leads[0].partnerId).toBe("original-partner");
-    expect(leads[0].firstMatchedAt).toBe("2026-07-01T00:00:00.000Z");
+    // ADR-0038: no history revert — each occurrence routes by the CURRENT coverage.
+    expect(leads[1].partnerId).toBe("partner-a");
   });
 });

@@ -13,7 +13,6 @@ export interface AnalyticsLead {
   matchMethod: MatchMethod;
   partnerId: string | null;
   mlsReason: string | null;
-  previouslyMatched: boolean;
 }
 
 export interface AnalyticsRun {
@@ -27,7 +26,6 @@ export interface AnalyticsTotals {
   delivered: number;
   unmatched: number;
   removed: number;
-  previouslyMatched: number;
   deliveryRate: number;
   removalRate: number;
 }
@@ -65,7 +63,6 @@ export function buildAnalytics(
     delivered: 0,
     unmatched: 0,
     removed: 0,
-    previouslyMatched: 0,
     deliveryRate: 0,
     removalRate: 0,
   };
@@ -86,7 +83,6 @@ export function buildAnalytics(
     if (delivered) totals.delivered += 1;
     if (unmatched) totals.unmatched += 1;
     if (removed) totals.removed += 1;
-    if (lead.previouslyMatched) totals.previouslyMatched += 1;
 
     const point = byRun.get(lead.uploadId);
     if (point) {

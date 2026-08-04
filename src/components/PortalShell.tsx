@@ -8,6 +8,7 @@ import { APP_NAME } from "@/lib/app";
 import { NotificationBell } from "./NotificationBell";
 import { ThemeToggle } from "./ThemeToggle";
 import { IconButton } from "./IconButton";
+import { NavIcon, type NavIconName } from "./NavIcon";
 import { PortalProfileMenu } from "./PortalProfileMenu";
 import { ToastProvider } from "./Toast";
 import { useApplyTheme, usePreferences, setPreferences } from "@/lib/preferences";
@@ -27,53 +28,21 @@ import { portalTitleForPath } from "@/lib/portal-nav";
 // pre-ToS-acceptance) routes render bare (no chrome). The content region is a plain <div>
 // so each page keeps its own single <main> landmark. Tokens only (PRN-12).
 
-// Icons take the size class from the call site: the desktop rail renders them at the
-// admin 18px inside a color/motion wrapper span, the mobile bottom tabs keep their
-// shipped 22px — one path definition, two chrome sizes.
+// VP-1: nav glyphs come from the shared NavIcon module (identical to the admin rail); the
+// SIZE is set at the call site — 18px in the desktop rail, 22px in the mobile bottom tabs.
 type Tab = {
   href: string;
   label: string;
-  icon: (cls: string) => React.ReactNode;
+  icon: NavIconName;
   active: (p: string) => boolean;
   badge?: boolean;
 };
 
-const stroke = {
-  viewBox: "0 0 24 24",
-  fill: "none",
-  stroke: "currentColor",
-  strokeWidth: 1.85,
-  strokeLinecap: "round" as const,
-  strokeLinejoin: "round" as const,
-  "aria-hidden": true,
-};
-
 const TABS: Tab[] = [
-  {
-    href: "/portal/dashboard",
-    label: "Dashboard",
-    active: (p) => p === "/portal/dashboard",
-    icon: (cls) => <svg {...stroke} className={cls}><path d="M3 13h8V3H3zM13 21h8V3h-8zM3 21h8v-6H3z" /></svg>,
-  },
-  {
-    href: "/portal/leads",
-    label: "Leads",
-    active: (p) => p.startsWith("/portal/leads"),
-    badge: true,
-    icon: (cls) => <svg {...stroke} className={cls}><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M3 9h18" /></svg>,
-  },
-  {
-    href: "/portal/activity",
-    label: "Activity",
-    active: (p) => p.startsWith("/portal/activity"),
-    icon: (cls) => <svg {...stroke} className={cls}><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></svg>,
-  },
-  {
-    href: "/portal",
-    label: "Account",
-    active: (p) => p === "/portal" || p.startsWith("/portal/devices"),
-    icon: (cls) => <svg {...stroke} className={cls}><circle cx="12" cy="8" r="4" /><path d="M4 20c0-4 4-6 8-6s8 2 8 6" /></svg>,
-  },
+  { href: "/portal/dashboard", label: "Dashboard", icon: "dashboard", active: (p) => p === "/portal/dashboard" },
+  { href: "/portal/leads", label: "Leads", icon: "leads", badge: true, active: (p) => p.startsWith("/portal/leads") },
+  { href: "/portal/activity", label: "Activity", icon: "activity", active: (p) => p.startsWith("/portal/activity") },
+  { href: "/portal", label: "Account", icon: "account", active: (p) => p === "/portal" || p.startsWith("/portal/devices") },
 ];
 
 export function PortalShell({ children }: { children: React.ReactNode }) {
@@ -136,7 +105,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
             <span className="block text-step-1 leading-tight text-text-3">Partner portal</span>
           </span>
         </Link>
-        <nav aria-label="Portal" className="flex flex-col gap-0.5">
+        <nav aria-label="Primary" className="flex flex-col gap-0.5">
           <div className="px-3 pb-1.5 pt-1 text-step-1 font-semibold uppercase tracking-[.08em] text-text-3">Portal</div>
           {/* Owner call (T7a): NO "Account" item in the DESKTOP rail — like the admin rail,
               account destinations live only in the PortalProfileMenu foot below. The mobile
@@ -160,11 +129,11 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
               >
                 <span
                   className={
-                    "h-[18px] w-[18px] transition-transform duration-150 group-hover:scale-110 " +
+                    "transition-transform duration-150 group-hover:scale-110 " +
                     (on ? "text-brand-ink" : "text-text-3")
                   }
                 >
-                  {t.icon("h-[18px] w-[18px]")}
+                  <NavIcon name={t.icon} className="h-[18px] w-[18px]" />
                 </span>
                 {t.label}
                 {t.badge && count > 0 && (
@@ -184,7 +153,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
       {/* ===== Content column ===== */}
       <div className="flex min-h-screen min-w-0 flex-col">
         {/* Mobile top bar (< md) — UNCHANGED from the shipped shell */}
-        <header className="md:hidden sticky top-0 z-20 mx-auto flex w-full max-w-[520px] items-center gap-2 border-b border-border-soft bg-bg/85 px-4 py-2 backdrop-blur-md">
+        <header className="md:hidden sticky top-0 z-20 mx-auto flex w-full max-w-[520px] items-center gap-2 border-b border-border-soft bg-bg/80 px-4 py-2 backdrop-blur-md">
           <Link href="/portal/dashboard" className="flex items-center gap-2">{brand}</Link>
           <div className="ml-auto flex items-center gap-1"><NotificationBell /><ThemeToggle /></div>
         </header>
@@ -196,9 +165,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
             aria-label="Toggle navigation"
             aria-expanded={navOpen}
           >
-            <span className="h-[18px] w-[18px]">
-              <svg {...stroke} className="h-[18px] w-[18px]"><path d="M4 6h16M4 12h16M4 18h16" /></svg>
-            </span>
+            <NavIcon name="menu" className="h-[18px] w-[18px]" />
           </IconButton>
           {title && <h1 className="truncate font-display text-lg font-semibold tracking-tight text-text">{title}</h1>}
           <div className="ml-auto flex items-center gap-1.5"><NotificationBell /><ThemeToggle /></div>
@@ -232,7 +199,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
                 )}
               >
                 <span className="relative">
-                  {t.icon("h-[22px] w-[22px]")}
+                  <NavIcon name={t.icon} className="h-[22px] w-[22px]" />
                   {showBadge && (
                     <span
                       className="num absolute -right-2.5 -top-1.5 grid min-h-[16px] min-w-[16px] place-items-center rounded-full bg-brand px-1 text-[.6rem] font-bold leading-none text-brand-contrast"
