@@ -161,6 +161,9 @@ suite("SCR-12: hot-lead fan-out", () => {
     const tids = t.map((x) => x.id);
     if (tids.length === 0) return;
     await db.delete(schema.emailOutbox).where(inArray(schema.emailOutbox.tenantId, tids));
+    // The admin hot-alert case creates an in-app notification (FK → users/tenant), so it
+    // must be cleared before those parents or the teardown FK-fails.
+    await db.delete(schema.notifications).where(inArray(schema.notifications.tenantId, tids));
     await db.delete(schema.leads).where(inArray(schema.leads.tenantId, tids));
     await db.delete(schema.uploads).where(inArray(schema.uploads.tenantId, tids));
     await db.delete(schema.users).where(inArray(schema.users.tenantId, tids));

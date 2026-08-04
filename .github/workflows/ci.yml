@@ -15,7 +15,10 @@ permissions:
   contents: read
 
 jobs:
-  # Fast gate on every PR and push: typecheck, lint, unit + integration tests.
+  # Fast gate on every PR and push: typecheck, lint, unit tests. Integration tests need a
+  # Postgres service and run in the `integration` job below — running the full suite here
+  # (no DATABASE_URL) fails at collection for the integration files that open a connection
+  # eagerly, so this job runs the unit suite only.
   verify:
     runs-on: ubuntu-latest
     steps:
@@ -28,7 +31,7 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm run typecheck
       - run: pnpm run lint
-      - run: pnpm run test
+      - run: pnpm run test:unit
 
   # Integration tests (TST-01 isolation, and future TST-05/08/11/12) run on every
   # merge against an ephemeral Postgres — never the cloud dev/prod project.
