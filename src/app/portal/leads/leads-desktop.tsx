@@ -3,6 +3,7 @@
 import * as React from "react";
 import { useQuery } from "@tanstack/react-query";
 import { apiGet } from "@/lib/api";
+import { useDebouncedValue } from "@/lib/use-debounced-value";
 import {
   Button, Card, FilterPill, Input, Table, THead, TBody, Th, Tr, Td, Pagination, DEFAULT_PAGE_SIZE, Skeleton, EmptyState, HotLeadMark, RowOpenButton, StatusSelect,
 } from "@/components";
@@ -39,11 +40,7 @@ export function LeadsDesktop({ onOpen }: { onOpen: (refId: string) => void }) {
   // WP-PP-3: debounced free-text search (mirrors the admin leads-view 300ms debounce so
   // keystrokes don't refetch on every character; the committed value drives the query).
   const [qInput, setQInput] = React.useState("");
-  const [qCommitted, setQCommitted] = React.useState("");
-  React.useEffect(() => {
-    const t = setTimeout(() => setQCommitted(qInput.trim()), 300);
-    return () => clearTimeout(t);
-  }, [qInput]);
+  const qCommitted = useDebouncedValue(qInput.trim());
 
   // Admin compare pattern (leads-view.tsx): a derived key that resets `page` to 1 the
   // moment search/sort/dir/statuses/pageSize change — a render-time compare, NOT an effect.

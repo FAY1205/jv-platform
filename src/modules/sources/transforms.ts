@@ -1,4 +1,5 @@
 import { normalizeHeader } from "./signature";
+import { repairMojibake } from "./mojibake";
 import type { CanonicalField } from "./types";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -108,8 +109,10 @@ function splitName(raw: string): { first: string; last: string } {
 // ─────────────────────────────────────────────────────────────────────────────
 
 export const transformLeadSource1: ProfileTransform = (row, mapped) => {
-  const rawNotes = mapped.notes ?? pick(row, "Notes");
-  const notes = stripSkipTrace(rawNotes);
+  // FU-1: the CRM bakes UTF-8-as-Windows-1252 mojibake into the notes ("âš ï¸ …").
+  // Repair it at ingestion so the partner-visible notes (and the fields derived from
+  // them) read cleanly; genuine text is left untouched (see mojibake.ts).
+  const notes = stripSkipTrace(repairMojibake(mapped.notes ?? pick(row, "Notes")));
 
   // The dedicated `State` column is 0% populated in this export (measured) — the
   // territory key comes from Property Address, with the notes line as the fallback.

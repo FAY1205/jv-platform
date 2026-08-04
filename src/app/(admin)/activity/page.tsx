@@ -3,6 +3,7 @@
 import * as React from "react";
 import { useQuery } from "@tanstack/react-query";
 import { apiGet } from "@/lib/api";
+import { useDebouncedValue } from "@/lib/use-debounced-value";
 import { AppShell, Card, Table, THead, TBody, Th, Tr, Td, Badge, Input, Select, DateRangePicker, Pagination, EmptyState, Skeleton, usePageHeader } from "@/components";
 import type { DateRangeValue } from "@/components/DateRangePicker";
 import { activityActionLabel, activityEntityLabel } from "@/modules/activity/labels";
@@ -45,11 +46,7 @@ function ActivityBody() {
   const [range, setRange] = React.useState<DateRangeValue>({ from: null, to: null });
   const [dir, setDir] = React.useState<"asc" | "desc">("desc");
   const [q, setQ] = React.useState("");
-  const [qDebounced, setQDebounced] = React.useState("");
-  React.useEffect(() => {
-    const t = setTimeout(() => setQDebounced(q.trim()), 300);
-    return () => clearTimeout(t);
-  }, [q]);
+  const qDebounced = useDebouncedValue(q.trim());
 
   const reset = () => setPage(1); // any filter change returns to page 1
 

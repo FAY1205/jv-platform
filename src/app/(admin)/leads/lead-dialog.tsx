@@ -379,7 +379,6 @@ function EditForm({
     zip: d.zip,
     campaign: d.campaign,
     reasonForSelling: d.reasonForSelling,
-    motivation: d.motivation,
     timeToSell: d.timeToSell,
     notes: d.notes,
   });
@@ -478,9 +477,9 @@ function EditForm({
         />
       </div>
 
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+      {/* Motivation dropped (VP-4c/FU-2): never populated for Lead Source 1. */}
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <Input label="Reason for selling" value={f.reasonForSelling} onChange={set("reasonForSelling")} />
-        <Input label="Motivation" value={f.motivation} onChange={set("motivation")} />
         <Input label="Time to sell" value={f.timeToSell} onChange={set("timeToSell")} />
       </div>
 

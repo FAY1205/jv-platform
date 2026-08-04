@@ -4,6 +4,7 @@ import * as React from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import dynamic from "next/dynamic";
 import { apiGet } from "@/lib/api";
+import { useDebouncedValue } from "@/lib/use-debounced-value";
 import { csrfHeaders } from "@/lib/csrf-client";
 import {
   AppShell, Card, Badge, Button, Checkbox, Dialog, Select, Input, EmptyState, Skeleton,
@@ -227,8 +228,7 @@ function UnmatchedBody() {
   // T3 filters/sort — state comes from the header chips; q is a debounced search.
   const [stateFilter, setStateFilter] = React.useState("");
   const [qInput, setQInput] = React.useState("");
-  const [qCommitted, setQCommitted] = React.useState("");
-  React.useEffect(() => { const t = setTimeout(() => setQCommitted(qInput.trim()), 300); return () => clearTimeout(t); }, [qInput]);
+  const qCommitted = useDebouncedValue(qInput.trim());
   const [sort, setSort] = React.useState<UnmatchedSort>("received");
   const [dir, setDir] = React.useState<"asc" | "desc">("desc");
 
