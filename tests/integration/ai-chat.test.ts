@@ -161,7 +161,8 @@ suite("WP-AI-1 Task 11: assistant core — gate + streamText (AIA-01..06)", () =
       // seeded value, so these two assertions can ONLY pass if the REAL scoped
       // get_lead ran and its masked output (path + zip) was serialized into the
       // UI-message stream by toUIMessageStreamResponse — proof of the tool loop.
-      expect(text).toContain(`/leads/${LEAD_REF}`);
+      // The mask's deep link is the P-1 form (/leads?open=<ref>), not the retired page.
+      expect(text).toContain(`/leads?open=${LEAD_REF}`);
       expect(text).toContain(LEAD_ZIP);
     });
 

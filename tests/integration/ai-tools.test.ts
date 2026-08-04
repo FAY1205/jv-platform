@@ -138,7 +138,7 @@ suite("WP-AI-1 Task 10: AI tool surface (SEAM-07/AIA-02/SEC-05)", () => {
     const out = JSON.stringify(await exec(toolsA.get_lead as unknown as ToolExec, { refId: LEAD_REF }));
     expect(out).not.toContain(PII_PHONE);
     expect(out).not.toContain("IGNORE PREVIOUS");
-    expect(out).toContain('"path":"/leads/');
+    expect(out).toContain('"path":"/leads?open='); // P-1 deep link (the retired /leads/[ref] page is gone)
   });
 
   it("find_leads masks rows and paginates", async () => {

@@ -30,6 +30,7 @@ describe("ai prompt assembly (AIA-03/PRN-10)", () => {
   });
   it("PRN-10: link whitelist allows only known internal path prefixes", () => {
     expect(isInternalPath("/leads/LD-00291")).toBe(true);
+    expect(isInternalPath("/leads?open=LD-26-90011")).toBe(true); // P-1 deep link (query string, not a path segment)
     expect(isInternalPath("/partners/8a3d2f1e-0000-4000-8000-000000000000")).toBe(true);
     expect(isInternalPath("/coverage")).toBe(true); // bare prefix must still match via `$`
     expect(isInternalPath("https://evil.example/x")).toBe(false);
