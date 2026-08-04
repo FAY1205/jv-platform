@@ -2,6 +2,9 @@
 # keeps the SHA-pinned actions (F-47) fresh — Dependabot bumps the pin + the version
 # comment together. The npm updates surface transitive advisories (e.g. the dev-only
 # esbuild<0.24.3 under drizzle-kit, F-46) as reviewable PRs rather than a blind override.
+# A cooldown holds new releases for a few days before Dependabot proposes them, so a
+# freshly-compromised or -yanked version isn't adopted in its riskiest first days
+# (OpenSSF supply-chain guidance; longer for majors, shorter for patches).
 version: 2
 updates:
   - package-ecosystem: npm
@@ -9,6 +12,11 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 10
+    cooldown:
+      default-days: 7
+      semver-major-days: 14
+      semver-minor-days: 7
+      semver-patch-days: 3
     groups:
       dev-dependencies:
         dependency-type: development
@@ -17,3 +25,5 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 10
+    cooldown:
+      default-days: 7
