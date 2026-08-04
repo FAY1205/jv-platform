@@ -4,11 +4,11 @@ import * as React from "react";
 import { useQuery } from "@tanstack/react-query";
 import dynamic from "next/dynamic";
 import { apiGet } from "@/lib/api";
-import { LEAD_STATUS_FILTERS, type LeadSortField } from "@/modules/leads/schema";
+import { LEAD_STATUS_FILTERS, DEFAULT_STATUS_FILTERS, isDefaultStatuses, type LeadSortField } from "@/modules/leads/schema";
 import {
   AppShell, Card, Table, THead, TBody, Th, Tr, Td, PartnerTag, EmptyState, Skeleton,
   Input, Select, Combobox, DateRangePicker, Pagination, RowOpenButton, StatusSelect,
-  DEFAULT_PAGE_SIZE, usePageHeader, FilterPill, Tooltip,
+  DEFAULT_PAGE_SIZE, usePageHeader, FilterPill, Tooltip, HotLeadMark, HotLeadIcon,
 } from "@/components";
 import { US_STATES } from "@/lib/us-states";
 import { googleSearchUrl } from "@/lib/search-links";
@@ -23,6 +23,7 @@ const LeadDialog = dynamic(() => import("./lead-dialog").then((m) => m.LeadDialo
 interface LeadRow {
   refId: string; seller: string; address: string; city: string | null; state: string | null;
   zip: string | null; campaign: string | null; mlsStatus: "kept" | "removed"; status: string;
+  scoreTotal: number | null; scoreGroup: "hot" | "warm" | "nurture" | null;
   partner: { id: string; name: string; refId: string; color: string } | null;
   receivedAt: string; modifiedAt: string | null;
 }
@@ -30,29 +31,30 @@ interface LeadsPage { leads: LeadRow[]; page: number; pageSize: number; total: n
 interface Partner { id: string; refId: string; name: string; color: string }
 
 export interface Filters {
-  q: string; partnerId: string; state: string; source: string; statuses: string[]; dateFrom: string; dateTo: string;
+  q: string; partnerId: string; state: string; source: string; statuses: string[]; hot: boolean; dateFrom: string; dateTo: string;
 }
-const EMPTY: Filters = { q: "", partnerId: "", state: "", source: "", statuses: [], dateFrom: "", dateTo: "" };
+// Opens with all workflow statuses selected but Removed MLS off (owner decision).
+const EMPTY: Filters = { q: "", partnerId: "", state: "", source: "", statuses: [...DEFAULT_STATUS_FILTERS], hot: false, dateFrom: "", dateTo: "" };
 
 const DEFAULT_DIR: Record<LeadSortField, "asc" | "desc"> = { received: "desc", modified: "desc", status: "desc", partner: "asc", seller: "asc" };
 const PARTNER_ALL = "__all__";
 const PARTNER_UNMATCHED = "unmatched";
 const SOURCE_ALL = "__all__";
 
-export function LeadsView({ initialQ, initialOpenRef = null }: { initialQ: string; initialOpenRef?: string | null }) {
+export function LeadsView({ initialQ, initialOpenRef = null, initialHot = false }: { initialQ: string; initialOpenRef?: string | null; initialHot?: boolean }) {
   return (
     <AppShell>
-      <LeadsBody initialQ={initialQ} initialOpenRef={initialOpenRef} />
+      <LeadsBody initialQ={initialQ} initialOpenRef={initialOpenRef} initialHot={initialHot} />
     </AppShell>
   );
 }
 
 // Rendered inside AppShell's PageHeaderProvider so usePageHeader resolves — the "Leads"
 // title lives in the topbar (WP-E shell pattern), so no in-body <h1>.
-function LeadsBody({ initialQ, initialOpenRef = null }: { initialQ: string; initialOpenRef?: string | null }) {
+function LeadsBody({ initialQ, initialOpenRef = null, initialHot = false }: { initialQ: string; initialOpenRef?: string | null; initialHot?: boolean }) {
   usePageHeader({ title: "Leads" });
 
-  const [filters, setFilters] = React.useState<Filters>({ ...EMPTY, q: initialQ });
+  const [filters, setFilters] = React.useState<Filters>({ ...EMPTY, q: initialQ, hot: initialHot });
   const [sort, setSort] = React.useState<LeadSortField>("received");
   const [dir, setDir] = React.useState<"asc" | "desc">("desc");
   const [page, setPage] = React.useState(1);
@@ -60,7 +62,7 @@ function LeadsBody({ initialQ, initialOpenRef = null }: { initialQ: string; init
   // Seed the open dialog from ?open=<ref> (P-1 deep link); user opens/closes take over after.
   const [openRef, setOpenRef] = React.useState<string | null>(initialOpenRef);
 
-  const filterKey = `${filters.q}|${filters.partnerId}|${filters.state}|${filters.source}|${filters.statuses.join(",")}|${filters.dateFrom}|${filters.dateTo}|${sort}|${dir}`;
+  const filterKey = `${filters.q}|${filters.partnerId}|${filters.state}|${filters.source}|${filters.statuses.join(",")}|${filters.hot}|${filters.dateFrom}|${filters.dateTo}|${sort}|${dir}`;
   const [resetKey, setResetKey] = React.useState(filterKey);
   if (filterKey !== resetKey) { setResetKey(filterKey); setPage(1); }
 
@@ -71,7 +73,7 @@ function LeadsBody({ initialQ, initialOpenRef = null }: { initialQ: string; init
 
   return (
     <>
-      <LeadsFilterBar seedQ={initialQ} onChange={setFilters} />
+      <LeadsFilterBar seedQ={initialQ} seedHot={initialHot} onChange={setFilters} />
 
       <LeadsTable
         filterKey={filterKey}
@@ -92,14 +94,15 @@ function LeadsBody({ initialQ, initialOpenRef = null }: { initialQ: string; init
 }
 
 // ── Filter bar (isolated; owns raw text + debounce, lifts committed filters) ──
-const LeadsFilterBar = React.memo(function LeadsFilterBar({ seedQ, onChange }: { seedQ: string; onChange: (f: Filters) => void }) {
+const LeadsFilterBar = React.memo(function LeadsFilterBar({ seedQ, seedHot = false, onChange }: { seedQ: string; seedHot?: boolean; onChange: (f: Filters) => void }) {
   const [qInput, setQInput] = React.useState(seedQ);
   // State filter — a searchable full-name Combobox (owner note #2); selection commits
   // the 2-letter code directly (no debounce — picking is an explicit act).
   const [state, setState] = React.useState("");
   const [partnerId, setPartnerId] = React.useState(PARTNER_ALL);
   const [source, setSource] = React.useState("");
-  const [statuses, setStatuses] = React.useState<string[]>([]);
+  const [statuses, setStatuses] = React.useState<string[]>([...DEFAULT_STATUS_FILTERS]);
+  const [hot, setHot] = React.useState(seedHot);
   const [range, setRange] = React.useState<{ from: string | null; to: string | null }>({ from: null, to: null });
 
   // Committed (debounced) search text, held as state so "Clear all" can reset it
@@ -119,18 +122,19 @@ const LeadsFilterBar = React.memo(function LeadsFilterBar({ seedQ, onChange }: {
   const clearAll = () => {
     setQInput(""); setQCommitted("");
     setState("");
-    setPartnerId(PARTNER_ALL); setSource(""); setStatuses([]); setRange({ from: null, to: null });
+    setPartnerId(PARTNER_ALL); setSource(""); setStatuses([...DEFAULT_STATUS_FILTERS]); setHot(false); setRange({ from: null, to: null });
   };
 
   // Commit filters upward whenever a committed value changes. On "Clear all" the committed
-  // text is reset in the same batch, so this fires once with a fully-empty, correct set.
+  // text is reset in the same batch, so this fires once with the default (not empty) set.
   React.useEffect(() => {
-    onChange({ q: qCommitted, state, partnerId: partnerId === PARTNER_ALL ? "" : partnerId, source, statuses, dateFrom: range.from ?? "", dateTo: range.to ?? "" });
+    onChange({ q: qCommitted, state, partnerId: partnerId === PARTNER_ALL ? "" : partnerId, source, statuses, hot, dateFrom: range.from ?? "", dateTo: range.to ?? "" });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [qCommitted, state, partnerId, source, statuses.join(","), range.from, range.to]);
+  }, [qCommitted, state, partnerId, source, statuses.join(","), hot, range.from, range.to]);
 
   const toggleStatus = (s: string) => setStatuses((prev) => (prev.includes(s) ? prev.filter((x) => x !== s) : [...prev, s]));
-  const hasFilters = Boolean(qInput || state || partnerId !== PARTNER_ALL || source || statuses.length || range.from);
+  // "Filters active" ignores the default status selection — only a change from it counts.
+  const hasFilters = Boolean(qInput || state || partnerId !== PARTNER_ALL || source || hot || !isDefaultStatuses(statuses) || range.from);
 
   return (
     <>
@@ -180,6 +184,11 @@ const LeadsFilterBar = React.memo(function LeadsFilterBar({ seedQ, onChange }: {
       {/* D3: the shared FilterPill primitive (was a hand-rolled recipe duplicated in the
           portal leads table — FRONTEND_STANDARDS §2 promotion rule). */}
       <div className="mb-4 flex flex-wrap items-center gap-1.5">
+        {/* Hot-leads quick filter (SCR) — the target mark ties it to the row icon. */}
+        <FilterPill active={hot} onClick={() => setHot((v) => !v)}>
+          <span className="inline-flex items-center gap-1"><HotLeadIcon size={12} />Hot</span>
+        </FilterPill>
+        <span className="mx-1 h-4 w-px bg-border" aria-hidden="true" />
         <span className="mr-1 text-xs font-semibold text-text-3">Status</span>
         {LEAD_STATUS_FILTERS.map((s) => (
           <FilterPill key={s} active={statuses.includes(s)} onClick={() => toggleStatus(s)}>
@@ -206,13 +215,14 @@ function LeadsTable({
       if (filters.state) params.set("state", filters.state);
       if (filters.source) params.set("source", filters.source);
       if (filters.statuses.length) params.set("statuses", filters.statuses.join(","));
+      if (filters.hot) params.set("hot", "1");
       if (filters.dateFrom) params.set("dateFrom", filters.dateFrom);
       if (filters.dateTo) params.set("dateTo", filters.dateTo);
       return apiGet<LeadsPage>(`/api/leads?${params.toString()}`);
     },
   });
   const data = leadsQ.data;
-  const hasFilters = Boolean(filters.q || filters.partnerId || filters.state || filters.source || filters.statuses.length || filters.dateFrom);
+  const hasFilters = Boolean(filters.q || filters.partnerId || filters.state || filters.source || filters.hot || !isDefaultStatuses(filters.statuses) || filters.dateFrom);
   const sortDir = (f: LeadSortField) => (sort === f ? dir : null);
 
   return (
@@ -250,7 +260,15 @@ function LeadsTable({
             <TBody>
               {data!.leads.map((l) => (
                 <Tr key={l.refId} className="hover:bg-surface-2">
-                  <Td><RowOpenButton className="text-xs" onClick={() => onOpen(l.refId)}>{l.refId}</RowOpenButton></Td>
+                  <Td>
+                    <span className="inline-flex items-center gap-1.5">
+                      {/* Hot mark only for KEPT hot leads — a removed (MLS-listed) lead shows none. */}
+                      {l.mlsStatus === "kept" && l.scoreGroup === "hot" && l.scoreTotal !== null && (
+                        <HotLeadMark score={l.scoreTotal} />
+                      )}
+                      <RowOpenButton className="text-xs" onClick={() => onOpen(l.refId)}>{l.refId}</RowOpenButton>
+                    </span>
+                  </Td>
                   <Td><span className="text-sm text-text">{l.seller}</span></Td>
                   <Td>
                     <Tooltip content="Search this property on Google">

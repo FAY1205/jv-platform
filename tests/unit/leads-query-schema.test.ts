@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { LeadsQuerySchema } from "@/modules/leads/schema";
+import { LeadsQuerySchema, DEFAULT_STATUS_FILTERS, isDefaultStatuses } from "@/modules/leads/schema";
 
 // ADM/FEP-03: the global leads list — every query param is Zod-validated and
 // normalized so the query layer only ever sees safe, canonical values.
@@ -9,7 +9,14 @@ const parse = (input: Record<string, unknown>) => LeadsQuerySchema.parse(input);
 describe("LeadsQuerySchema", () => {
   it("applies defaults: page 1, pageSize 20, received-desc sort, empty filters", () => {
     // D3: dateFrom/dateTo ride the shared dateParam() — missing/invalid → undefined (was "").
-    expect(parse({})).toEqual({ q: "", page: 1, pageSize: 20, partnerId: null, state: "", statuses: [], source: "", dateFrom: undefined, dateTo: undefined, sort: "received", dir: "desc" });
+    expect(parse({})).toEqual({ q: "", page: 1, pageSize: 20, partnerId: null, state: "", statuses: [], hot: false, source: "", dateFrom: undefined, dateTo: undefined, sort: "received", dir: "desc" });
+  });
+
+  it("SCR: parses the hot-only flag from truthy tokens, else false", () => {
+    expect(parse({ hot: "1" }).hot).toBe(true);
+    expect(parse({ hot: "true" }).hot).toBe(true);
+    expect(parse({ hot: "0" }).hot).toBe(false);
+    expect(parse({}).hot).toBe(false);
   });
 
   it("FEP-03: whitelists pageSize to {10,20,50}, else 20", () => {
@@ -61,5 +68,20 @@ describe("LeadsQuerySchema", () => {
   it("restricts sort field + direction to known values", () => {
     expect(parse({ sort: "modified", dir: "asc" })).toMatchObject({ sort: "modified", dir: "asc" });
     expect(parse({ sort: "nonsense", dir: "sideways" })).toMatchObject({ sort: "received", dir: "desc" });
+  });
+});
+
+describe("SCR: default leads status filter (all workflow statuses, no Removed MLS)", () => {
+  it("the default set is the 6 workflow statuses and excludes Removed MLS", () => {
+    expect(DEFAULT_STATUS_FILTERS).toHaveLength(6);
+    expect(DEFAULT_STATUS_FILTERS).not.toContain("Removed MLS");
+    expect(DEFAULT_STATUS_FILTERS).toContain("New");
+  });
+
+  it("isDefaultStatuses recognizes the default set regardless of order", () => {
+    expect(isDefaultStatuses([...DEFAULT_STATUS_FILTERS].reverse())).toBe(true);
+    expect(isDefaultStatuses([])).toBe(false); // cleared = show all, not the default
+    expect(isDefaultStatuses([...DEFAULT_STATUS_FILTERS, "Removed MLS"])).toBe(false);
+    expect(isDefaultStatuses(["New"])).toBe(false);
   });
 });

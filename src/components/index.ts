@@ -56,6 +56,7 @@ export { NotesPanel } from "./NotesPanel";
 export { PasswordChangeForm } from "./PasswordChangeForm";
 export { NotificationBell } from "./NotificationBell";
 export { NotificationTypeIcon, type NotificationTypeIconProps } from "./NotificationTypeIcon";
+export { HotLeadIcon, HotLeadMark, type HotLeadIconProps, type HotLeadMarkProps } from "./HotLeadMark";
 export { ProfileMenu } from "./ProfileMenu";
 export { PortalProfileMenu } from "./PortalProfileMenu";
 export { ListingBadge, type ListingStatus } from "./ListingBadge";

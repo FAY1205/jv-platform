@@ -19,8 +19,11 @@ export default function WorkspaceSettingsPage() {
   const { data, isPending, error } = useQuery({ queryKey: ["me"], queryFn: () => apiGet<Me>("/api/me") });
 
   const [name, setName] = React.useState("");
-  // Seed the field once the workspace loads; keep local edits after that.
+  // Seed the field once the workspace loads; keep local edits after that. This is the
+  // intended one-way sync from server data into an editable field — the rule's
+  // cascading-render concern doesn't apply (it fires only when the loaded name changes).
   React.useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (data?.workspace.name !== undefined) setName(data.workspace.name);
   }, [data?.workspace.name]);
 

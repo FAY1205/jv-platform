@@ -17,7 +17,10 @@ import {
   EmptyState,
   useToast,
   Tooltip,
+  HotLeadMark,
+  HotLeadIcon,
 } from "@/components";
+import type { ScoreBreakdown, ScoreGroup } from "@/modules/pipeline/score";
 import { matchMethodLabel } from "@/lib/match-method";
 import { googleSearchUrl } from "@/lib/search-links";
 import { offersUnassign } from "@/lib/unassign";
@@ -55,6 +58,7 @@ interface LeadDetail {
   mlsStatus: "kept" | "removed";
   mlsReason: string;
   status: string;
+  score: { total: number | null; group: ScoreGroup | null; status: "complete" | "incomplete"; breakdown: ScoreBreakdown | null };
   editable: boolean;
   receivedAt: string;
   modifiedAt: string | null;
@@ -111,6 +115,10 @@ export function LeadDialog({ refId, onClose }: { refId: string; onClose: () => v
       size="xl"
       title={
         <span className="flex items-center gap-2.5">
+          {/* Target mark only for a kept hot lead — mirrors the leads table. */}
+          {d && d.mlsStatus === "kept" && d.score.group === "hot" && d.score.total !== null && (
+            <HotLeadMark score={d.score.total} size={16} />
+          )}
           <span className="num">{refId}</span>
           {d && d.mlsStatus === "removed" && <Badge variant="removed">Removed · MLS</Badge>}
         </span>
@@ -243,6 +251,8 @@ function ViewMode({ d, onEdit }: { d: LeadDetail; onEdit: () => void }) {
         )}
       </div>
 
+      <ScorePanel score={d.score} kept={d.mlsStatus === "kept"} />
+
       <ActivityLog activity={d.activity} />
 
       <div className="border-t border-border-soft pt-4">
@@ -250,6 +260,68 @@ function ViewMode({ d, onEdit }: { d: LeadDetail; onEdit: () => void }) {
       </div>
     </div>
   );
+}
+
+// ── Lead score (SCR) ────────────────────────────────────────────────────────
+const GROUP_META: Record<ScoreGroup, { label: string; badge: "warn" | "neutral" | "outline" }> = {
+  hot: { label: "Hot", badge: "warn" },
+  warm: { label: "Warm", badge: "neutral" },
+  nurture: { label: "Nurture", badge: "outline" },
+};
+const CRITERION_ORDER: (keyof Omit<ScoreBreakdown, "penalty">)[] = ["state", "motivation", "timeline", "equity", "mortgage"];
+const CRITERION_NAME: Record<keyof Omit<ScoreBreakdown, "penalty">, string> = {
+  state: "State", motivation: "Motivation", timeline: "Timeline", equity: "Equity", mortgage: "Mortgage",
+};
+
+function ScorePanel({ score, kept }: { score: LeadDetail["score"]; kept: boolean }) {
+  const { breakdown } = score;
+  return (
+    <div className="rounded-xl border border-border-soft bg-surface-2 p-4">
+      <div className="mb-3 flex items-center justify-between gap-2">
+        <h3 className="text-step-1 font-semibold uppercase tracking-wide text-text-3">Lead score</h3>
+        {score.status === "complete" && score.group ? (
+          <Badge variant={GROUP_META[score.group].badge} className="gap-1.5">
+            {/* Icon only for a kept hot lead (owner: no hot mark on MLS-listed). */}
+            {kept && score.group === "hot" && <HotLeadIcon size={12} />}
+            {GROUP_META[score.group].label} · <span className="num tabular-nums">{score.total}/50</span>
+          </Badge>
+        ) : (
+          <Badge variant="outline">Not scored</Badge>
+        )}
+      </div>
+      {score.status === "complete" && breakdown ? (
+        <ul className="flex flex-col gap-1.5">
+          {CRITERION_ORDER.map((key) => (
+            <li key={key} className="flex items-baseline justify-between gap-3 text-sm">
+              <span className="text-text-3">{CRITERION_NAME[key]}</span>
+              <span className="flex items-baseline gap-2">
+                <span className="text-text-2">{breakdown[key].label}</span>
+                <span className="num w-6 text-right font-semibold tabular-nums text-text">{breakdown[key].points}</span>
+              </span>
+            </li>
+          ))}
+          {breakdown.penalty !== 0 && (
+            <li className="flex items-baseline justify-between gap-3 text-sm">
+              <span className="text-danger">Penalty</span>
+              <span className="num font-semibold tabular-nums text-danger">{breakdown.penalty}</span>
+            </li>
+          )}
+        </ul>
+      ) : (
+        <p className="text-sm text-text-3">
+          {missingReason(breakdown)}
+        </p>
+      )}
+    </div>
+  );
+}
+
+/** Human "why not scored" from the breakdown's null criteria. */
+function missingReason(breakdown: ScoreBreakdown | null): string {
+  if (!breakdown) return "This lead is missing the details needed to score.";
+  const missing = CRITERION_ORDER.filter((k) => breakdown[k].points === null).map((k) => CRITERION_NAME[k].toLowerCase());
+  if (missing.length === 0) return "This lead couldn't be scored.";
+  return `Not enough data to score — missing ${missing.join(", ")}.`;
 }
 
 function ActivityLog({ activity }: { activity: Activity[] }) {

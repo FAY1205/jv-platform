@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
 import { apiGet } from "@/lib/api";
 import {
-  Button, Card, FilterPill, Input, Table, THead, TBody, Th, Tr, Td, Pagination, DEFAULT_PAGE_SIZE, Skeleton, EmptyState,
+  Button, Card, FilterPill, Input, Table, THead, TBody, Th, Tr, Td, Pagination, DEFAULT_PAGE_SIZE, Skeleton, EmptyState, HotLeadMark,
 } from "@/components";
 import { statusPillClass } from "@/lib/status-pill";
 // leads-contract, NOT ./queries: this is a "use client" component and a VALUE import
@@ -158,12 +158,15 @@ export function LeadsDesktop() {
               {data!.leads.map((l) => (
                 <Tr key={l.refId} className="hover:bg-surface-2">
                   <Td>
-                    <Link
-                      href={`/portal/leads/${l.refId}`}
-                      className="num rounded font-medium text-brand-ink outline-none hover:underline focus-visible:ring-1 focus-visible:ring-brand-ink"
-                    >
-                      {l.refId}
-                    </Link>
+                    <span className="inline-flex items-center gap-1.5">
+                      {l.scoreGroup === "hot" && l.scoreTotal !== null && <HotLeadMark score={l.scoreTotal} />}
+                      <Link
+                        href={`/portal/leads/${l.refId}`}
+                        className="num rounded font-medium text-brand-ink outline-none hover:underline focus-visible:ring-1 focus-visible:ring-brand-ink"
+                      >
+                        {l.refId}
+                      </Link>
+                    </span>
                   </Td>
                   <Td>
                     <span className="text-sm text-text">{l.sellerFirst} {l.sellerLast}</span>

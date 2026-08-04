@@ -150,6 +150,10 @@ export class DrizzleRunStore implements RunStore {
             previouslyMatched: false,
             firstMatchedAt: new Date(lead.firstMatchedAt),
             possibleMlsListing: lead.possibleMlsListing,
+            scoreTotal: lead.scoreTotal,
+            scoreGroup: lead.scoreGroup,
+            scoreStatus: lead.scoreStatus,
+            scoreBreakdown: lead.scoreBreakdown,
           };
         });
         const inserted = await tx

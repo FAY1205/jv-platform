@@ -47,4 +47,11 @@ describe("DM-08: rules snapshot pins the rule set for determinism", () => {
     expect(snapshot.mlsPatterns).toHaveLength(2);
     expect(snapshot.zipCoverage).toEqual([{ zip5: "77021", partnerId: "p-joe" }]);
   });
+
+  it("DM-08: records the scoring scheme version, and a scheme change re-hashes", () => {
+    const { snapshot } = buildRulesSnapshot(BASE);
+    expect(snapshot.scoringVersion).toBeTruthy(); // defaults to the code-pinned SCORING_VERSION
+    const rescored: RulesSnapshotInput = { ...BASE, scoringVersion: "residi-v2-hypothetical" };
+    expect(buildRulesSnapshot(rescored).hash).not.toBe(buildRulesSnapshot(BASE).hash);
+  });
 });

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildPartnerDigest, buildAdminRunSummary } from "@/modules/notify/digests";
+import { buildPartnerDigest, buildAdminRunSummary, buildPartnerHotAlert, buildAdminHotAlert } from "@/modules/notify/digests";
 import { backoffMs, MAX_OUTBOX_ATTEMPTS } from "@/modules/notify/outbox";
 import { lightColors } from "@/lib/tokens/tokens";
 
@@ -121,6 +121,38 @@ describe("buildAdminRunSummary — HTML (WP-G)", () => {
     expect(html).toMatch(/^<!DOCTYPE html>/i);
     expect(html).toContain("24");
     expect(html).toContain("https://app.test/imports/IM-26-014");
+  });
+});
+
+describe("SCR-12: hot-lead alerts", () => {
+  const leads = [
+    { refId: "LD-26-00007", city: "Austin", state: "TX", score: 45 },
+    { refId: "LD-26-00008", city: "Dallas", state: "TX", score: 42 },
+  ];
+
+  it("SCR-12: the partner hot alert lists refId · location · score and links to the portal", () => {
+    const out = buildPartnerHotAlert({ appName: "JV Platform", partnerName: "Randy Wolfe", partnerRef: "JV-001", partnerColor: "#B4623F", portalUrl: "https://app.test/portal/leads", leads });
+    expect(out.subject).toMatch(/2 hot leads/i);
+    expect(out.body).toContain("LD-26-00007");
+    expect(out.body).toContain("45/50");
+    expect(out.body).toContain("https://app.test/portal/leads");
+  });
+
+  it("SCR-12: the admin hot alert carries the run ref, scores and the hot-filter deep link", () => {
+    const out = buildAdminHotAlert({ appName: "JV Platform", uploadRef: "IM-26-014", leads, hotUrl: "https://app.test/leads?hot=1" });
+    expect(out.subject).toMatch(/2 hot leads/i);
+    expect(out.html).toContain("IM-26-014");
+    expect(out.html).toContain("https://app.test/leads?hot=1");
+    expect(out.html).toContain("42/50");
+  });
+
+  it("SCR-12: singular wording for a single hot lead", () => {
+    expect(buildAdminHotAlert({ appName: "JV Platform", uploadRef: "IM-26-014", leads: [leads[0]] }).subject).toMatch(/1 hot lead\b/i);
+  });
+
+  it("SCR-12/SEC-05: hot alerts never leak seller PII (no email addresses)", () => {
+    expect(buildPartnerHotAlert({ appName: "JV Platform", partnerName: "Randy Wolfe", partnerRef: "JV-001", partnerColor: "#B4623F", portalUrl: "https://app.test/portal/leads", leads }).body).not.toMatch(/@/);
+    expect(buildAdminHotAlert({ appName: "JV Platform", uploadRef: "IM-26-014", leads }).body).not.toMatch(/@/);
   });
 });
 

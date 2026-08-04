@@ -4,6 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { apiGet } from "@/lib/api";
 import { Card, CardBody, Skeleton, EmptyState, AppShell, usePageHeader } from "@/components";
 import { LockedNote, MlsPhrasesCard, type MlsPhrase } from "./mls-phrases";
+import { ScoringCard } from "./scoring-card";
 
 // WS-6 · CVG-02: the Rules area — MLS filter phrases only. READ-ONLY (2026-08-01, owner
 // note): the phrase set and whether each runs are fixed in code (seed + migrations, PRN-04);
@@ -19,9 +20,11 @@ function RulesBody() {
   return (
     <div className="flex max-w-3xl flex-col gap-5">
       <div>
-        <p className="text-sm text-text-2">These are the phrases that decide which already-listed properties are removed before leads are routed to partners.</p>
+        <p className="text-sm text-text-2">How the import decides which leads are removed as already-listed, and how every kept lead is scored.</p>
         <LockedNote />
       </div>
+
+      <ScoringCard />
 
       {error ? (
         <Card><CardBody><EmptyState title="Couldn't load rules" description={(error as Error).message} /></CardBody></Card>

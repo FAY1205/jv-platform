@@ -35,6 +35,7 @@ describe("WP-AI-2 AssistantWidget — New chat", () => {
     setMessages.mockClear();
     clearError.mockClear();
     stop.mockClear();
+    window.sessionStorage.clear(); // WP-AI-PERSIST: isolate the per-session open/transcript mirror
   });
 
   it("shows a New chat control once the transcript is non-empty", async () => {

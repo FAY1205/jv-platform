@@ -29,6 +29,10 @@ export const partnerStatusEnum = pgEnum("partner_status", [
 ]);
 export const matchMethodEnum = pgEnum("match_method", ["zip", "state_fallback", "none"]);
 export const mlsStatusEnum = pgEnum("mls_status", ["kept", "removed"]);
+// Lead scoring (SCR-01..10). Group is null until a lead scores; status distinguishes
+// a real 0 from "not enough data to score".
+export const scoreGroupEnum = pgEnum("score_group", ["hot", "warm", "nurture"]);
+export const scoreStatusEnum = pgEnum("score_status", ["complete", "incomplete"]);
 export const possibleMlsEnum = pgEnum("possible_mls", ["yes", "no", "unknown", "pending"]);
 export const uploadStatusEnum = pgEnum("upload_status", [
   "queued",
@@ -274,6 +278,14 @@ export const leads = pgTable(
     originalPartnerId: uuid("original_partner_id").references(() => partners.id),
     firstMatchedAt: timestamp("first_matched_at", { withTimezone: true }),
     possibleMlsListing: possibleMlsEnum("possible_mls_listing").notNull().default("pending"),
+    // Scoring (SCR-01..10). Computed at import from the RESIDI scheme (score.ts,
+    // pinned by SCORING_VERSION in the run's rules snapshot). scoreTotal/scoreGroup
+    // are NULL when scoreStatus = 'incomplete' (a required input was missing);
+    // scoreBreakdown holds the per-criterion points + labels for the lead dialog.
+    scoreTotal: integer("score_total"),
+    scoreGroup: scoreGroupEnum("score_group"),
+    scoreStatus: scoreStatusEnum("score_status").notNull().default("incomplete"),
+    scoreBreakdown: jsonb("score_breakdown"),
     // Manual-assignment overlay (ADM / ASN-03). ADDITIVE — the snapshot columns
     // (partnerId / matchMethod) are NEVER rewritten (PRN-05: history is immutable).
     // The "effective" owner is manualPartnerId ?? partnerId, derived in the read
@@ -299,6 +311,9 @@ export const leads = pgTable(
     index("leads_tenant_created_idx").on(t.tenantId, t.createdAt),
     index("leads_tenant_state_idx").on(t.tenantId, t.state),
     index("leads_tenant_campaign_idx").on(t.tenantId, t.campaign),
+    // Hot-lead filter (SCR / F-09): the leads list can filter to a score group; keyed
+    // with created_at so "hot leads, newest first" is index-covered (DM-11).
+    index("leads_tenant_score_idx").on(t.tenantId, t.scoreGroup, t.createdAt),
     // WP-GL-B: the retention sweep scans only soft-deleted-not-yet-purged rows — a small set —
     // so a partial index keyed on exactly that predicate keeps the sweep cheap at any table size.
     index("leads_pii_purge_idx")

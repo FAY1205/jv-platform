@@ -11,6 +11,19 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 export const LEAD_STATUS_FILTERS = ["New", "Contacted", "Appointment", "Under contract", "Closed", "Dead", "Removed MLS"] as const;
 export type LeadStatusFilter = (typeof LEAD_STATUS_FILTERS)[number];
 
+// The leads list opens with every workflow status selected but "Removed MLS" off, so
+// MLS-filtered leads don't clutter the default view (owner decision). Clearing the
+// status filter (selecting none) falls back to showing everything.
+export const DEFAULT_STATUS_FILTERS = LEAD_STATUS_FILTERS.filter((s) => s !== "Removed MLS");
+
+/** True when a status selection equals the default (all workflow statuses, no Removed MLS). */
+export function isDefaultStatuses(statuses: readonly string[]): boolean {
+  return (
+    statuses.length === DEFAULT_STATUS_FILTERS.length &&
+    DEFAULT_STATUS_FILTERS.every((s) => statuses.includes(s))
+  );
+}
+
 const SORT_FIELDS = ["received", "modified", "status", "partner", "seller"] as const;
 export type LeadSortField = (typeof SORT_FIELDS)[number];
 
@@ -27,6 +40,8 @@ export const LeadsQuerySchema = z.object({
   state: z.unknown().optional().transform((v) => (typeof v === "string" && /^[a-z]{2}$/i.test(v.trim()) ? v.trim().toUpperCase() : "")),
   /** Multi-select workflow-status + "Removed MLS" filter (comma-separated). */
   statuses: z.unknown().optional().transform((v) => csv(v, LEAD_STATUS_FILTERS)),
+  /** Hot-leads-only filter (SCR). Shows only kept leads whose score group is Hot. */
+  hot: z.unknown().optional().transform((v) => v === "1" || v === "true" || v === true),
   /** Lead-source / campaign exact match. */
   source: z.unknown().optional().transform((v) => (typeof v === "string" ? v.trim().slice(0, 80) : "")),
   // D3: the shared dateParam() (lib/query-params) — same YYYY-MM-DD shape check plus

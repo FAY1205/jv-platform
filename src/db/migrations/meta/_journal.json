@@ -225,6 +225,13 @@
       "when": 1785736801505,
       "tag": "0031_nostalgic_starhawk",
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1785788263297,
+      "tag": "0032_lead_scoring",
+      "breakpoints": true
     }
   ]
 }

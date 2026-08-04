@@ -8,6 +8,13 @@ import {
 import { evaluate, type MlsPattern } from "../pipeline/mls";
 import { assign, type Coverage, type MatchMethod } from "../pipeline/assign";
 import { dedupeRun, type HistoryEntry } from "../pipeline/dedupe";
+import {
+  scoreLead,
+  extractScoringInput,
+  type ScoreGroup,
+  type ScoreStatus,
+  type ScoreBreakdown,
+} from "../pipeline/score";
 import { computeRunSummary, type RunSummary } from "../analytics/run-summary";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -59,6 +66,12 @@ export interface PlannedLead {
   firstMatchedAt: string | null;
   phoneConfirmed: boolean;
   possibleMlsListing: "pending";
+  // Scoring (SCR-01..10). Computed for every lead; the "hot" treatment (icon,
+  // alert) is gated on mlsStatus === "kept" downstream, never here.
+  scoreTotal: number | null;
+  scoreGroup: ScoreGroup | null;
+  scoreStatus: ScoreStatus;
+  scoreBreakdown: ScoreBreakdown;
   rowErrors: string[];
 }
 
@@ -100,6 +113,16 @@ export function planRun(
 
   const leads: PlannedLead[] = pre.map((p, i) => {
     const d = deduped[i];
+    // SCR-10: motivation = reason-for-selling, timeline = time-to-sell for this data;
+    // equity + loan type are dug out of the (skip-trace-stripped) canonical notes.
+    const score = scoreLead(
+      extractScoringInput({
+        state: p.stateCode,
+        motivation: p.c.reasonForSelling ?? "",
+        timeline: p.c.timeToSell ?? "",
+        notes: p.c.notes ?? "",
+      }),
+    );
     return {
       rawJson: p.applied.raw,
       campaign: p.c.campaign ?? "",
@@ -134,6 +157,10 @@ export function planRun(
       firstMatchedAt: d.firstMatchedAt,
       phoneConfirmed: d.phoneConfirmed,
       possibleMlsListing: "pending",
+      scoreTotal: score.total,
+      scoreGroup: score.group,
+      scoreStatus: score.status,
+      scoreBreakdown: score.breakdown,
       rowErrors: findRowErrors(p.applied),
     };
   });

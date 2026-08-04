@@ -104,7 +104,7 @@ export default function InvitationsPage() {
           </Button>
         </CardHeader>
         <CardBody>
-          <p className="mb-3 text-sm text-text-2">Each code works once and expires 48 hours after it's created. Share it with the person you want to let sign up.</p>
+          <p className="mb-3 text-sm text-text-2">Each code works once and expires 48 hours after it&rsquo;s created. Share it with the person you want to let sign up.</p>
           {fresh && (
             <div className="mb-4 flex flex-wrap items-center gap-3 rounded-xl border border-brand-line bg-brand-soft p-3">
               <span className="num select-all text-lg font-semibold tracking-wider text-brand-ink">{fresh}</span>

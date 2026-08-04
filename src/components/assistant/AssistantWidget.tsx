@@ -15,6 +15,7 @@ import { MiniOrb } from "./MiniOrb";
 import { SuggestionChips } from "./SuggestionChips";
 import { AssistantMessage, type AssistantSource } from "./AssistantMessage";
 import { AssistantIconButton } from "./AssistantIconButton";
+import { loadOpen, saveOpen, loadMessages, saveMessages } from "./assistant-session";
 
 const WELCOME = "Hi — I can answer questions about your workspace: partners, leads, coverage, imports, or what a screen does.";
 
@@ -39,7 +40,10 @@ export default function AssistantWidget() {
   const path = usePathname() ?? "";
   const screen = screenForPath(path);
 
-  const [open, setOpen] = React.useState(false);
+  // Open state restores from the session mirror so a hard refresh reopens the panel
+  // (WP-AI-PERSIST). Across client navigation it persists natively — the widget now
+  // lives in the admin layout, which doesn't remount.
+  const [open, setOpen] = React.useState<boolean>(loadOpen);
   const [draft, setDraft] = React.useState("");
   const [gate, setGate] = React.useState<AssistantGate | null>(null);
   const [scrolled, setScrolled] = React.useState(false);
@@ -72,6 +76,19 @@ export default function AssistantWidget() {
 
   const busy = status === "submitted" || status === "streaming";
   const blocked = gate !== null;
+
+  // WP-AI-PERSIST: mirror open state + transcript to sessionStorage so both survive a
+  // hard refresh and clear when the tab closes ("saved for this session"). Seed once on
+  // mount (covers a refresh); after that the live transcript is the source of truth.
+  React.useEffect(() => { saveOpen(open); }, [open]);
+  const seededRef = React.useRef(false);
+  React.useEffect(() => {
+    if (seededRef.current) return;
+    seededRef.current = true;
+    const saved = loadMessages();
+    if (saved.length > 0) setMessages(saved);
+  }, [setMessages]);
+  React.useEffect(() => { saveMessages(messages); }, [messages]);
 
   // Start over: the chat route caps history at 24 messages (ChatBodySchema), so a long
   // session eventually 400s. "New chat" lets the user reset the transcript before/at that
@@ -163,7 +180,7 @@ export default function AssistantWidget() {
             <div className="font-display text-step-3 leading-tight">Assistant</div>
             <div className="mt-0.5 flex min-w-0 items-center gap-1.5 text-step-0 text-text-3">
               <span aria-hidden="true" className="h-[7px] w-[7px] shrink-0 rounded-full bg-success" />
-              <span className="truncate">Answers from your workspace · not saved</span>
+              <span className="truncate">Answers from your workspace · saved for this session</span>
             </div>
           </div>
           <div className="ml-auto flex items-center gap-1">
@@ -186,13 +203,13 @@ export default function AssistantWidget() {
               <SuggestionChips items={suggestionsFor(screen)} onSelect={send} disabled={blocked || busy} />
             </>
           )}
-          {messages.map((m) =>
+          {messages.map((m, i) =>
             m.role === "user" ? (
               <div key={m.id} className="max-w-[90%] self-end rounded-[15px] rounded-br-[5px] border border-brand-line bg-brand-soft px-3 py-2.5 text-step-2 leading-relaxed text-text">
                 {textOf(m)}
               </div>
             ) : (
-              <AssistantMessage key={m.id} id={m.id} text={textOf(m)} sources={sourcesOf(m)} onFeedback={sendFeedback} />
+              <AssistantMessage key={m.id} id={m.id} text={textOf(m)} sources={sourcesOf(m)} onFeedback={sendFeedback} pending={busy && i === messages.length - 1} />
             ),
           )}
           {busy && messages[messages.length - 1]?.role === "user" && (

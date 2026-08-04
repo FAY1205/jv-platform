@@ -13,7 +13,9 @@ vi.mock("@ai-sdk/react", () => ({
 import AssistantWidget from "@/components/assistant/AssistantWidget";
 
 describe("WP-AI-2 AssistantWidget", () => {
-  beforeEach(() => sendMessage.mockClear());
+  // WP-AI-PERSIST: the widget mirrors open/transcript to sessionStorage, which the jsdom
+  // env shares across tests — clear it so each case starts from a closed, empty panel.
+  beforeEach(() => { sendMessage.mockClear(); window.sessionStorage.clear(); });
 
   it("renders the launcher collapsed by default", () => {
     render(<AssistantWidget />);

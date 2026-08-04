@@ -3,6 +3,7 @@ import { getDb } from "@/db";
 import * as schema from "@/db/schema";
 import { tenantWhere, partnerOwnsLead, leadWhere, type ScopeContext } from "@/lib/scope";
 import { SEED_LEAD_STATUSES, currentStatus } from "@/modules/portal/statuses";
+import type { ScoreGroup, ScoreStatus, ScoreBreakdown } from "@/modules/pipeline/score";
 import type { LeadsQuery } from "./schema";
 
 /** Currently-unmatched = kept, not pipeline-routed, not yet manually assigned.
@@ -32,6 +33,9 @@ export interface GlobalLeadRow {
   mlsStatus: "kept" | "removed";
   /** Derived: "Removed MLS" for removed leads, else the current workflow status. */
   status: string;
+  /** Scoring (SCR). Group is null when the lead couldn't be scored (incomplete). */
+  scoreTotal: number | null;
+  scoreGroup: "hot" | "warm" | "nurture" | null;
   partner: { id: string; name: string; refId: string; color: string } | null;
   receivedAt: string;
   /** Last activity (latest status change or manual assignment), or null. */
@@ -82,6 +86,8 @@ export async function listLeads(scope: ScopeContext, query: LeadsQuery): Promise
   }
   if (query.state) conds.push(eq(schema.leads.state, query.state));
   if (query.source) conds.push(eq(schema.leads.campaign, query.source));
+  // Hot filter (SCR): kept leads only — an MLS-removed lead is never treated as hot.
+  if (query.hot) conds.push(and(eq(schema.leads.scoreGroup, "hot"), eq(schema.leads.mlsStatus, "kept"))!);
   if (query.dateFrom) conds.push(gte(schema.leads.createdAt, new Date(`${query.dateFrom}T00:00:00Z`)));
   if (query.dateTo) conds.push(lte(schema.leads.createdAt, new Date(`${query.dateTo}T23:59:59Z`)));
   // Built once per call so the status filter, sort column, and select projection below
@@ -124,6 +130,8 @@ export async function listLeads(scope: ScopeContext, query: LeadsQuery): Promise
         zip: schema.leads.zip,
         campaign: schema.leads.campaign,
         mlsStatus: schema.leads.mlsStatus,
+        scoreTotal: schema.leads.scoreTotal,
+        scoreGroup: schema.leads.scoreGroup,
         createdAt: schema.leads.createdAt,
         status: sExpr,
         modifiedAt: mExpr,
@@ -153,6 +161,8 @@ export async function listLeads(scope: ScopeContext, query: LeadsQuery): Promise
       campaign: r.campaign,
       mlsStatus: r.mlsStatus,
       status: r.status,
+      scoreTotal: r.scoreTotal,
+      scoreGroup: r.scoreGroup,
       partner: r.pId ? { id: r.pId, name: r.pName!, refId: r.pRef!, color: r.pColor! } : null,
       receivedAt: r.createdAt.toISOString(),
       modifiedAt: r.modifiedAt ? new Date(r.modifiedAt).toISOString() : null,
@@ -210,6 +220,8 @@ export interface AdminLeadDetail {
   mlsReason: string;
   /** Derived: "Removed MLS" for removed leads, else the current workflow status. */
   status: string;
+  /** Scoring (SCR) — breakdown + total for the dialog; null total when incomplete. */
+  score: { total: number | null; group: ScoreGroup | null; status: ScoreStatus; breakdown: ScoreBreakdown | null };
   editable: boolean;
   receivedAt: string;
   modifiedAt: string | null;
@@ -312,6 +324,12 @@ export async function getAdminLeadDetail(scope: ScopeContext, refId: string): Pr
     mlsStatus: lead.mlsStatus,
     mlsReason: lead.mlsReason ?? "",
     status: derivedStatus,
+    score: {
+      total: lead.scoreTotal,
+      group: lead.scoreGroup,
+      status: lead.scoreStatus,
+      breakdown: (lead.scoreBreakdown as ScoreBreakdown | null) ?? null,
+    },
     editable: lead.mlsStatus === "kept",
     receivedAt: lead.createdAt.toISOString(),
     modifiedAt: modifiedAt ? modifiedAt.toISOString() : null,
