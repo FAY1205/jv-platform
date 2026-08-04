@@ -10,8 +10,8 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 const LEADS_PAGE = {
   leads: [
-    { refId: "JV-2001", sellerFirst: "Ana", sellerLast: "Ruiz", address: "12 Elm St", city: "Austin", state: "TX", zip: "78701", receivedAt: "2026-07-10T00:00:00.000Z", status: "New", previouslyMatched: false },
-    { refId: "JV-2002", sellerFirst: "Bo", sellerLast: "Kim", address: "88 Oak Ave", city: "Dallas", state: "TX", zip: "75201", receivedAt: "2026-07-09T00:00:00.000Z", status: "Contacted", previouslyMatched: true },
+    { refId: "JV-2001", sellerFirst: "Ana", sellerLast: "Ruiz", address: "12 Elm St", city: "Austin", state: "TX", zip: "78701", receivedAt: "2026-07-10T00:00:00.000Z", status: "New" },
+    { refId: "JV-2002", sellerFirst: "Bo", sellerLast: "Kim", address: "88 Oak Ave", city: "Dallas", state: "TX", zip: "75201", receivedAt: "2026-07-09T00:00:00.000Z", status: "Contacted" },
   ],
   page: 1,
   pageSize: 20,
@@ -22,13 +22,18 @@ vi.mock("@/lib/api", () => ({ apiGet: vi.fn(async () => LEADS_PAGE) }));
 vi.mock("@/lib/use-media-query", () => ({ useIsDesktop: () => true }));
 
 import { apiGet } from "@/lib/api";
-import PortalLeadsPage from "@/app/portal/leads/page";
+import { ToastProvider } from "@/components";
+import { PortalLeadsView } from "@/app/portal/leads/portal-leads-view";
 
+// VP-4: the page is now a server component; render the client gate directly. ToastProvider
+// wraps it because the desktop table's inline StatusSelect cells call useToast().
 function renderPage() {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={qc}>
-      <PortalLeadsPage />
+      <ToastProvider>
+        <PortalLeadsView initialOpenRef={null} />
+      </ToastProvider>
     </QueryClientProvider>,
   );
 }

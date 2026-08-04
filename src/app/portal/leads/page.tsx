@@ -1,19 +1,17 @@
-"use client";
+import { PortalLeadsView } from "./portal-leads-view";
 
-import { useIsDesktop } from "@/lib/use-media-query";
-import { LeadsDesktop } from "./leads-desktop";
-import { LeadsMobile } from "./leads-mobile";
+// Server shell (mirrors the admin leads page): reads ?open=<ref> and hands it to the client
+// gate, which mounts one of the two lists (mobile card list < lg, admin-style table >= lg —
+// see the breakpoint note in portal-leads-view / leads-desktop) plus the shared lead dialog.
+// A server component prop, not useSearchParams()+Suspense — that construct froze hydration
+// on the admin route (Next 16), so the portal follows the same boring, reliable path.
+export const dynamic = "force-dynamic";
 
-// WP-PW-3 Task 2: gate on the shared lg breakpoint (unconditional hook, before any
-// return) so exactly one of the two lead lists mounts — mobile (< lg) is byte-identical
-// to the pre-WP-PW-3 page; desktop (>= lg) gets the admin-style sortable/filterable table.
-// Each child owns its own hooks/query entirely (no conditional hooks in one component,
-// no shared state, no double-fetch).
-// INTENTIONAL asymmetry: the portal shell switches chrome (rail vs. bottom nav) at md
-// (768), but this page gates content at lg (1024, useIsDesktop) because the 7-column
-// desktop table needs >=1024px — so 768-1024 shows desktop chrome + the mobile card
-// list on purpose. Don't "fix" this to match the shell's md breakpoint.
-export default function PortalLeadsPage() {
-  const isDesktop = useIsDesktop();
-  return isDesktop ? <LeadsDesktop /> : <LeadsMobile />;
+export default async function PortalLeadsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ open?: string | string[] }>;
+}) {
+  const { open } = await searchParams;
+  return <PortalLeadsView initialOpenRef={typeof open === "string" ? open : null} />;
 }

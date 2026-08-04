@@ -11,6 +11,9 @@ export interface InputProps extends React.InputHTMLAttributes<HTMLInputElement> 
   /** Render a muted "(optional)" tag on the label (#27). `required` (a native attr)
    *  renders the red asterisk. */
   optional?: boolean;
+  /** Opt-in trailing ✕ that clears the field (VP-5+). Shown only while there is a value;
+   *  the caller resets its own state. Not combinable with a password field. */
+  onClear?: () => void;
 }
 
 function EyeIcon({ off }: { off: boolean }) {
@@ -29,7 +32,7 @@ function EyeIcon({ off }: { off: boolean }) {
  * fields get a built-in show/hide toggle (default/hover/focus-visible states).
  */
 export const Input = React.forwardRef<HTMLInputElement, InputProps>(function Input(
-  { label, error, hint, id, className, type = "text", optional, required, ...rest },
+  { label, error, hint, id, className, type = "text", optional, required, onClear, ...rest },
   ref,
 ) {
   const autoId = React.useId();
@@ -39,6 +42,8 @@ export const Input = React.forwardRef<HTMLInputElement, InputProps>(function Inp
   const isPassword = type === "password";
   const [revealed, setRevealed] = React.useState(false);
   const effectiveType = isPassword && revealed ? "text" : type;
+  // Clear ✕ (VP-5+): opt-in, non-password, and only while the controlled field has a value.
+  const showClear = Boolean(onClear) && !isPassword && !rest.disabled && String(rest.value ?? "").length > 0;
 
   return (
     <div className="flex flex-col gap-1.5">
@@ -57,7 +62,7 @@ export const Input = React.forwardRef<HTMLInputElement, InputProps>(function Inp
           aria-describedby={describedBy}
           className={cn(
             "w-full rounded-md border bg-surface px-3 py-2 text-sm text-text",
-            isPassword && "pr-10",
+            (isPassword || showClear) && "pr-10",
             "placeholder:text-text-3 transition-[border-color] duration-[120ms]",
             // Single focus treatment: brand border + a flush same-color ring reads as one
             // crisp edge. outline-none opts out of the global :focus-visible outline so it
@@ -82,6 +87,23 @@ export const Input = React.forwardRef<HTMLInputElement, InputProps>(function Inp
             )}
           >
             <EyeIcon off={revealed} />
+          </button>
+        )}
+        {showClear && (
+          <button
+            type="button"
+            onClick={onClear}
+            aria-label="Clear"
+            tabIndex={rest.disabled ? -1 : 0}
+            className={cn(
+              "absolute right-1.5 top-1/2 grid h-7 w-7 -translate-y-1/2 place-items-center rounded",
+              "text-text-3 transition-colors hover:text-text-2",
+              "focus:outline-none focus-visible:ring-1 focus-visible:ring-brand-ink",
+            )}
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
+              <path d="M18 6 6 18M6 6l12 12" />
+            </svg>
           </button>
         )}
       </div>

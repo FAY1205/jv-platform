@@ -1,13 +1,11 @@
 "use client";
 
 import * as React from "react";
-import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
 import { apiGet } from "@/lib/api";
 import {
-  Button, Card, FilterPill, Input, Table, THead, TBody, Th, Tr, Td, Pagination, DEFAULT_PAGE_SIZE, Skeleton, EmptyState, HotLeadMark,
+  Button, Card, FilterPill, Input, Table, THead, TBody, Th, Tr, Td, Pagination, DEFAULT_PAGE_SIZE, Skeleton, EmptyState, HotLeadMark, RowOpenButton, StatusSelect,
 } from "@/components";
-import { statusPillClass } from "@/lib/status-pill";
 // leads-contract, NOT ./queries: this is a "use client" component and a VALUE import
 // from queries would pull its @/db → postgres → node:fs chain into the client bundle.
 import { PORTAL_STATUS_FILTERS, type PortalLeadSort, type PartnerLeadPage } from "@/modules/portal/leads-contract";
@@ -31,7 +29,7 @@ function fmtDate(iso: string): string {
   return new Date(iso).toLocaleDateString();
 }
 
-export function LeadsDesktop() {
+export function LeadsDesktop({ onOpen }: { onOpen: (refId: string) => void }) {
   const [sort, setSort] = React.useState<PortalLeadSort>("received");
   const [dir, setDir] = React.useState<"asc" | "desc">("desc");
   const [statuses, setStatuses] = React.useState<string[]>([]);
@@ -151,7 +149,9 @@ export function LeadsDesktop() {
                 <Th sortable sortDir={sortDir("city")} onSort={() => onSort("city")}>City</Th>
                 <Th sortable sortDir={sortDir("state")} onSort={() => onSort("state")}>State</Th>
                 <Th sortable sortDir={sortDir("received")} onSort={() => onSort("received")} align="right">Received</Th>
-                <Th sortable sortDir={sortDir("status")} onSort={() => onSort("status")}>Status</Th>
+                {/* Status is not sortable — matches the admin leads table (a workflow value,
+                    not an ordered dimension); it is edited inline in the cell below. */}
+                <Th>Status</Th>
               </Tr>
             </THead>
             <TBody>
@@ -159,20 +159,12 @@ export function LeadsDesktop() {
                 <Tr key={l.refId} className="hover:bg-surface-2">
                   <Td>
                     <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
-                      <Link
-                        href={`/portal/leads/${l.refId}`}
-                        className="num rounded font-medium text-brand-ink outline-none hover:underline focus-visible:ring-1 focus-visible:ring-brand-ink"
-                      >
-                        {l.refId}
-                      </Link>
+                      <RowOpenButton onClick={() => onOpen(l.refId)}>{l.refId}</RowOpenButton>
                       {l.scoreGroup === "hot" && l.scoreTotal !== null && <HotLeadMark score={l.scoreTotal} />}
                     </span>
                   </Td>
                   <Td>
                     <span className="text-sm text-text">{l.sellerFirst} {l.sellerLast}</span>
-                    {/* P-10: the "returning seller" signal the mobile card list already shows —
-                        restored on the desktop table so the more-capable surface isn't poorer. */}
-                    {l.previouslyMatched && <span className="ml-1.5 text-xs text-text-3">· returning</span>}
                   </Td>
                   <Td>
                     <span className="text-sm text-text-2">{l.address}</span>
@@ -181,7 +173,7 @@ export function LeadsDesktop() {
                   <Td><span className="text-sm text-text-2">{l.city}</span></Td>
                   <Td><span className="num text-sm text-text-2">{l.state}</span></Td>
                   <Td align="right"><span className="num text-xs text-text-3 tabular-nums">{fmtDate(l.receivedAt)}</span></Td>
-                  <Td><span className={statusPillClass(l.status)}>{l.status}</span></Td>
+                  <Td><StatusSelect refId={l.refId} status={l.status} mlsStatus="kept" scope="portal" /></Td>
                 </Tr>
               ))}
             </TBody>

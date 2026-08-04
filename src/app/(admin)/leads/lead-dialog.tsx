@@ -13,6 +13,7 @@ import {
   Select,
   PartnerTag,
   NotesPanel,
+  ClampedText,
   Skeleton,
   EmptyState,
   useToast,
@@ -21,7 +22,7 @@ import {
   HotLeadIcon,
 } from "@/components";
 import type { ScoreBreakdown, ScoreGroup } from "@/modules/pipeline/score";
-import { matchMethodLabel } from "@/lib/match-method";
+import { routedByLabel } from "@/lib/match-method";
 import { googleSearchUrl } from "@/lib/search-links";
 import { offersUnassign } from "@/lib/unassign";
 
@@ -67,6 +68,7 @@ interface LeadDetail {
     manual: boolean;
     assignedAt: string | null;
     matchMethod: string;
+    matchedOn: string | null;
     original: DetailPartner | null;
   };
   availableStatuses: string[];
@@ -223,8 +225,8 @@ function ViewMode({ d, onEdit }: { d: LeadDetail; onEdit: () => void }) {
           {d.assignment.manual ? (
             <Badge variant="neutral">Manual assignment</Badge>
           ) : (
-            <Badge variant={matchMethodLabel(d.assignment.matchMethod).badge}>
-              {matchMethodLabel(d.assignment.matchMethod).label}
+            <Badge variant={routedByLabel(d.assignment.matchMethod, d.assignment.matchedOn).badge}>
+              {routedByLabel(d.assignment.matchMethod, d.assignment.matchedOn).label}
             </Badge>
           )}
         </Field>
@@ -234,8 +236,9 @@ function ViewMode({ d, onEdit }: { d: LeadDetail; onEdit: () => void }) {
             <PartnerTag size="sm" name={d.assignment.original.name} color={d.assignment.original.color} refId={d.assignment.original.refId} />
           </Field>
         )}
+        {/* "Motivation" dropped (VP-4c): for Lead Source 1 it is never populated —
+            reason-for-selling carries the seller's motivation, and the scorer uses it as such. */}
         <Field label="Reason for selling">{d.reasonForSelling || "—"}</Field>
-        <Field label="Motivation">{d.motivation || "—"}</Field>
         <Field label="Time to sell">{d.timeToSell || "—"}</Field>
         {d.mlsStatus === "removed" && (
           <div className="col-span-2 sm:col-span-3">
@@ -243,10 +246,12 @@ function ViewMode({ d, onEdit }: { d: LeadDetail; onEdit: () => void }) {
           </div>
         )}
         {d.notes && (
-          <div className="col-span-2 sm:col-span-3">
-            <Field label="Source notes">
-              <span className="whitespace-pre-wrap text-text-2">{d.notes}</span>
-            </Field>
+          <div className="col-span-2 flex flex-col gap-1 sm:col-span-3">
+            <span className="text-step-1 font-semibold uppercase tracking-wide text-text-3">Source notes</span>
+            {/* VP-4c: boxed so the long note reads as its own block, not another field. */}
+            <div className="rounded-lg border border-border-soft bg-surface-2 px-3.5 py-3">
+              <ClampedText>{d.notes}</ClampedText>
+            </div>
           </div>
         )}
       </div>

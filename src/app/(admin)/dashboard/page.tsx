@@ -25,6 +25,7 @@ import {
 } from "@/components";
 import { formatContactTime, AVG_CONTACT_DEFINITION, type RangeKey } from "@/modules/analytics/ranges";
 import { matchRate, formatMatchRatePct, MATCH_RATE_DEFINITION } from "@/modules/analytics/match-rate";
+import { useIsDesktop } from "@/lib/use-media-query";
 import type { DashboardData } from "@/modules/analytics/queries";
 import type { CoverageMapResponse } from "@/modules/coverage/map";
 
@@ -130,6 +131,7 @@ export default function DashboardPage() {
 
 function DashboardBody() {
   const [range, setRange] = React.useState<RangeKey>("30d");
+  const isDesktop = useIsDesktop(); // VP-2: gate the hero map's interactivity to desktop
   const dash = useQuery({ queryKey: ["dashboard", range], queryFn: () => apiGet<DashboardData>(`/api/dashboard?range=${range}`) });
   const coverage = useQuery({ queryKey: ["coverage"], queryFn: () => apiGet<CoverageMapResponse>("/api/coverage") });
 
@@ -236,6 +238,9 @@ function DashboardBody() {
                   <CountyCoverageMap
                     states={coverage.data.states}
                     counties={coverage.data.counties}
+                    // VP-2: interactive on desktop, static on phones — the interactive map's
+                    // `touch-none` otherwise swallows page-scroll over the hero on mobile.
+                    interactive={isDesktop}
                     caption={{
                       title: "Coverage",
                       subtitle: `${coverage.data.partners.length} partner${coverage.data.partners.length === 1 ? "" : "s"} · ${coverage.data.coveredCount} state${coverage.data.coveredCount === 1 ? "" : "s"}`,
