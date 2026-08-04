@@ -27,7 +27,9 @@ export function PartnerTag({ name, color, refId, size = "md", className }: Partn
         aria-hidden="true"
       />
       <span className={size === "sm" ? "text-xs" : "text-sm"}>{name}</span>
-      {refId && (
+      {/* The house territory (ADR-0037, ref "HOUSE") is singular and self-identifying —
+          "My Territory" alone is unambiguous, so its sentinel ref is not shown (owner). */}
+      {refId && refId !== "HOUSE" && (
         <span className="num text-step-0 font-medium text-text-3" aria-label={`Reference ${refId}`}>
           {refId}
         </span>

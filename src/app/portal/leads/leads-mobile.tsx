@@ -81,8 +81,8 @@ export function LeadsMobile() {
                 className="block p-4 shadow-sm"
               >
                 <div className="flex items-center gap-2">
-                  {l.scoreGroup === "hot" && l.scoreTotal !== null && <HotLeadMark score={l.scoreTotal} />}
                   <span className="num text-step-1 text-text-3">{l.refId}</span>
+                  {l.scoreGroup === "hot" && l.scoreTotal !== null && <HotLeadMark score={l.scoreTotal} />}
                   <span className={statusPillClass(l.status, "ml-auto")}>
                     {l.status}
                   </span>

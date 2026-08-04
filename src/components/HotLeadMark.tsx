@@ -1,5 +1,8 @@
+"use client";
+
 import * as React from "react";
 import { cn } from "@/lib/cn";
+import { Tooltip } from "./Tooltip";
 
 // Hot-lead visual language (SCR / WP-SCORE-2). A concentric-circle "target" mark —
 // chosen over a flame (owner: too friendly) to read as "priority / act now" in a B2B
@@ -51,8 +54,10 @@ export interface HotLeadMarkProps {
 export function HotLeadMark({ score, outOf = 50, size = 14, className }: HotLeadMarkProps) {
   const label = `Hot lead — ${score} out of ${outOf}`;
   return (
-    <span className={cn("inline-flex text-warn", className)} title={label} role="img" aria-label={label}>
-      <HotLeadIcon size={size} />
-    </span>
+    <Tooltip content={`Hot lead · ${score}/${outOf}`}>
+      <span className={cn("inline-flex text-warn", className)} role="img" aria-label={label}>
+        <HotLeadIcon size={size} />
+      </span>
+    </Tooltip>
   );
 }

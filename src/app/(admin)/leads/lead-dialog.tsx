@@ -115,11 +115,11 @@ export function LeadDialog({ refId, onClose }: { refId: string; onClose: () => v
       size="xl"
       title={
         <span className="flex items-center gap-2.5">
-          {/* Target mark only for a kept hot lead — mirrors the leads table. */}
+          <span className="num">{refId}</span>
+          {/* Target mark after the ref (mirrors the leads table), only for a kept hot lead. */}
           {d && d.mlsStatus === "kept" && d.score.group === "hot" && d.score.total !== null && (
             <HotLeadMark score={d.score.total} size={16} />
           )}
-          <span className="num">{refId}</span>
           {d && d.mlsStatus === "removed" && <Badge variant="removed">Removed · MLS</Badge>}
         </span>
       }

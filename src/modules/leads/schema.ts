@@ -24,7 +24,9 @@ export function isDefaultStatuses(statuses: readonly string[]): boolean {
   );
 }
 
-const SORT_FIELDS = ["received", "modified", "status", "partner", "seller"] as const;
+// Sortable columns (owner note): Lead (by reference number), Seller, Received, Modified.
+// Partner and Status are deliberately NOT sortable.
+const SORT_FIELDS = ["lead", "received", "modified", "seller"] as const;
 export type LeadSortField = (typeof SORT_FIELDS)[number];
 
 const csv = (v: unknown, allowed: readonly string[]): string[] => {
