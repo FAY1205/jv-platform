@@ -25,4 +25,6 @@ jobs:
       # sinks, and hardcoded secrets. `--error` fails the build on a finding; docs/ holds
       # static design mockups (not shipped code) and is excluded. No SEMGREP_APP_TOKEN —
       # community rules run without an account.
-      - run: semgrep scan --config=p/owasp-top-ten --config=p/react --config=p/secrets --error --metrics=off --exclude=docs
+      # src/lib/geo/data holds a large generated ZIP→county JSON (data, not code) that
+      # times out the scanner — excluded so it doesn't warn on every run.
+      - run: semgrep scan --config=p/owasp-top-ten --config=p/react --config=p/secrets --error --metrics=off --exclude=docs --exclude=src/lib/geo/data

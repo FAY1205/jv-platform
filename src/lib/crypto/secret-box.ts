@@ -11,6 +11,8 @@ import { env } from "@/lib/env";
 
 const VERSION = "v1";
 const IV_BYTES = 12; // GCM standard nonce length
+const TAG_BYTES = 16; // full 128-bit GCM auth tag — pinned so decrypt REJECTS a truncated
+// tag (a shortened tag weakens integrity; without authTagLength, GCM would accept it).
 
 /** The 32-byte master key, or null when unconfigured (feature disabled, not crashed). */
 function masterKey(): Buffer | null {
@@ -36,7 +38,7 @@ export function encryptSecret(plaintext: string): string {
   const key = masterKey();
   if (!key) throw new EncryptionUnavailableError();
   const iv = randomBytes(IV_BYTES);
-  const cipher = createCipheriv("aes-256-gcm", key, iv);
+  const cipher = createCipheriv("aes-256-gcm", key, iv, { authTagLength: TAG_BYTES });
   const ct = Buffer.concat([cipher.update(plaintext, "utf8"), cipher.final()]);
   const tag = cipher.getAuthTag();
   return [VERSION, iv.toString("base64url"), tag.toString("base64url"), ct.toString("base64url")].join(".");
@@ -47,7 +49,7 @@ export function decryptSecret(blob: string): string {
   if (!key) throw new EncryptionUnavailableError();
   const [version, ivB64, tagB64, ctB64] = blob.split(".");
   if (version !== VERSION || !ivB64 || !tagB64 || !ctB64) throw new Error("malformed secret blob");
-  const decipher = createDecipheriv("aes-256-gcm", key, Buffer.from(ivB64, "base64url"));
+  const decipher = createDecipheriv("aes-256-gcm", key, Buffer.from(ivB64, "base64url"), { authTagLength: TAG_BYTES });
   decipher.setAuthTag(Buffer.from(tagB64, "base64url"));
   return Buffer.concat([decipher.update(Buffer.from(ctB64, "base64url")), decipher.final()]).toString("utf8");
 }
