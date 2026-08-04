@@ -1,0 +1,28 @@
+# F-45 (OpenSSF): SAST for JS/TS via Semgrep. Replaces CodeQL, which can only report by
+# uploading to GitHub code scanning — unavailable on this private repo without GitHub
+# Advanced Security. Semgrep gates the CI job DIRECTLY (`--error` exits non-zero on a
+# finding), so no code-scanning upload / GHAS is needed. Runs on PRs, main pushes, weekly.
+name: semgrep
+on:
+  pull_request:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "0 6 * * 1" # Mondays 06:00 UTC
+
+# F-47 (OpenSSF Token-Permissions): least-privilege — the scan only reads the checkout.
+permissions:
+  contents: read
+
+jobs:
+  semgrep:
+    runs-on: ubuntu-latest
+    container:
+      image: semgrep/semgrep
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      # Focused, high-signal security packs (not style): OWASP Top 10, React-specific
+      # sinks, and hardcoded secrets. `--error` fails the build on a finding; docs/ holds
+      # static design mockups (not shipped code) and is excluded. No SEMGREP_APP_TOKEN —
+      # community rules run without an account.
+      - run: semgrep scan --config=p/owasp-top-ten --config=p/react --config=p/secrets --error --metrics=off --exclude=docs
