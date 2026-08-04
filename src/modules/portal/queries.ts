@@ -191,6 +191,8 @@ export async function listPartnerLeads(scope: ScopeContext, opts: ListPartnerLea
         firstMatchedAt: schema.leads.firstMatchedAt,
         createdAt: schema.leads.createdAt,
         previouslyMatched: schema.leads.previouslyMatched,
+        scoreTotal: schema.leads.scoreTotal,
+        scoreGroup: schema.leads.scoreGroup,
       })
       .from(schema.leads)
       .where(baseWhere)
@@ -213,6 +215,8 @@ export async function listPartnerLeads(scope: ScopeContext, opts: ListPartnerLea
     receivedAt: (r.firstMatchedAt ?? r.createdAt).toISOString(),
     status: currentStatus(statuses.get(r.id) ?? []),
     previouslyMatched: r.previouslyMatched,
+    scoreTotal: r.scoreTotal,
+    scoreGroup: r.scoreGroup,
   }));
 
   return { leads, page: current, pageSize, total: totalRows[0]?.total ?? 0 };

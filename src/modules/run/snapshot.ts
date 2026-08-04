@@ -1,11 +1,12 @@
 import { createHash } from "node:crypto";
+import { SCORING_VERSION } from "../pipeline/score";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Rules snapshot (DM-08). Every run stores a hash + snapshot of the rule set it
-// used (MLS patterns, recodes, coverage, source-profile version) so past runs stay
-// reproducible and the golden file can be pinned when rules evolve. Deterministic
-// and ORDER-INDEPENDENT: the same rule set hashes identically regardless of row
-// order. Only output-affecting fields are hashed (labels are excluded).
+// used (MLS patterns, recodes, coverage, source-profile version, scoring scheme) so
+// past runs stay reproducible and the golden file can be pinned when rules evolve.
+// Deterministic and ORDER-INDEPENDENT: the same rule set hashes identically
+// regardless of row order. Only output-affecting fields are hashed (labels excluded).
 // ─────────────────────────────────────────────────────────────────────────────
 
 export interface RulesSnapshotInput {
@@ -13,6 +14,8 @@ export interface RulesSnapshotInput {
   mlsPatterns: readonly { id: string; type: string; regex: string; flags?: string }[];
   stateRules: readonly { state: string; partnerId: string }[];
   zipCoverage: readonly { zip5: string; partnerId: string }[];
+  /** Scoring scheme version (SCR / DM-08). Defaults to the code-pinned SCORING_VERSION. */
+  scoringVersion?: string;
 }
 
 export interface RulesSnapshotShape {
@@ -20,6 +23,7 @@ export interface RulesSnapshotShape {
   mlsPatterns: { id: string; type: string; regex: string; flags: string }[];
   stateRules: { state: string; partnerId: string }[];
   zipCoverage: { zip5: string; partnerId: string }[];
+  scoringVersion: string;
 }
 
 export interface RulesSnapshot {
@@ -44,6 +48,7 @@ export function buildRulesSnapshot(input: RulesSnapshotInput): RulesSnapshot {
     zipCoverage: input.zipCoverage
       .map((z) => ({ zip5: z.zip5, partnerId: z.partnerId }))
       .sort(byKey((z) => z.zip5)),
+    scoringVersion: input.scoringVersion ?? SCORING_VERSION,
   };
 
   const hash = createHash("sha256").update(JSON.stringify(snapshot)).digest("hex");

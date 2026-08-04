@@ -137,6 +137,28 @@ Tables: `tenants, users, partners, coverage_zips, state_rules, mls_patterns, cam
 | ASN-02 | No special-case partner code. Regional exceptions (e.g., Virginia Beach, Philadelphia metro) emerge from ZIP precedence; adding exception code is forbidden. |
 | ASN-03 | Unmatched view with ZIP/state so coverage gaps become visible decisions. |
 
+### 6.4a Lead scoring (SCR) — WP-SCORE-1/2/3
+
+Scores each kept lead 0–50 from the RESIDI scoring workbook so the highest-intent
+sellers surface first. The engine (`src/modules/pipeline/score.ts`) is PURE (PRN-01);
+the scheme is fixed in code for v1 (owner decision) and pinned by `SCORING_VERSION`
+into every run's rules snapshot (DM-08).
+
+| ID | Requirement |
+| -- | ----------- |
+| SCR-01 | State points: AZ/CA/TX/FL/CO=10; HI/NV/GA/NJ/DC=7; all other=5. Blank state ⇒ missing. |
+| SCR-02 | Motivation (from reason-for-selling): inheritance/financial-hardship/emergency/foreclosure/needs-money-for-investment=10; any other stated reason=7 (owner: unmapped ⇒ Other, never a blocker); blank ⇒ missing. |
+| SCR-03 | Timeline (from time-to-sell): ASAP/urgent/within-30-days/within-1–3-months=10; 3–6 months=7; 6+ months/no-hurry=3; unrecognized or blank ⇒ missing. |
+| SCR-04 | Equity from loan-to-value (debt ÷ estimated value): free-and-clear=10; <20%=8; 20–70%=5; ≥70%=3; no equity data ⇒ missing. |
+| SCR-05 | Mortgage (loan type): no-mortgage/new-conventional=10; HELOC/construction=5; USDA/VA/FHA=3; other/unknown=0 (owner: unknown ⇒ 0, still scoreable). Free-and-clear auto-scores 10. |
+| SCR-06 | Penalty: loan at 80%+ of value AND a USDA/VA/FHA loan ⇒ −15. |
+| SCR-07 | Groups: Hot 38–50, Warm 25–37, Nurture 0–24 (Hot threshold fixed at 38). |
+| SCR-08 | Any missing required input ⇒ status "incomplete", null total/group — never a misleading number; an incomplete lead never becomes Hot, so it never alerts. |
+| SCR-09 | Deterministic (PRN-01): same inputs ⇒ same result; the workbook's four Formula-Test cases are pinned. |
+| SCR-10 | Equity + loan type are extracted from the notes blob per vendor (LeadZolo, Real Estate Bees) with anchored per-line reads; a blank numeric line is never coerced to 0. |
+| SCR-11 | UI: a kept, Hot lead shows a small target mark before its reference ID (admin + portal lists) and a "Hot · N/50" badge + criterion breakdown in the lead dialog; an MLS-removed lead shows no mark (owner). Meaning never rides on color alone (PRN-14). A "Hot" filter and the read-only scoring scheme on Rules complete the surface. |
+| SCR-12 | Notifications: a hot lead alerts the admin instantly at import and the assigned partner at distribution-release (respecting the 10-min hold, ADR-0026); a house-territory or unmatched hot lead alerts the admin only; refId + coarse location + score only, no seller PII (SEC-05); on/off in notification preferences per role. |
+
 ### 6.5 Dedupe & history (DED)
 
 | ID | Requirement |
@@ -296,6 +318,7 @@ Tables: `tenants, users, partners, coverage_zips, state_rules, mls_patterns, cam
 | AUT-12 | **Cookie security:** session cookies are HttpOnly, Secure, SameSite=Lax with `__Host-` prefix; tokens never in localStorage; CSRF protection on state-changing routes (SameSite + token). |
 | AUT-13 | **Session expiration:** short-lived access tokens (≤ 1 h); refresh idle timeout 7 days (30 on trusted devices); absolute lifetime 90 days; authed pages served with `Cache-Control: no-store`. |
 | AUT-14 | **Logout correctness:** server-side refresh-token revocation (not just cookie deletion); "sign out all devices" available; client cache cleared; back button after logout reveals no authenticated data. |
+| AUT-16 | **Client session-state teardown:** any client-side session-scoped store that can hold tenant or user data (e.g. the assistant transcript mirror in sessionStorage) is cleared on sign-out, alongside the server-side revoke (AUT-14) — sessionStorage is per-tab, not per-login, so a re-login in the same tab must not inherit it. |
 
 **Delegation boundary (implementation note):** Supabase Auth supplies the primitives — password hashing, email OTP, refresh-token rotation with reuse detection. The following are **application-layer responsibilities built on top**: progressive lockout + notifications (AUT-04), uniform enumeration responses (AUT-05), password strength + breach checking (AUT-02), CAPTCHA attachment (AUT-11), and the per-device session registry backing ACC-02 (maintain an app-owned sessions table keyed to refresh-token families; do not assume Supabase exposes a session list).
 

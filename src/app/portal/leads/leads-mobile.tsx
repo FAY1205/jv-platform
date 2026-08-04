@@ -3,7 +3,7 @@
 import * as React from "react";
 import { useQuery } from "@tanstack/react-query";
 import { apiGet } from "@/lib/api";
-import { Button, EmptyState, LinkCard, Skeleton } from "@/components";
+import { Button, EmptyState, LinkCard, Skeleton, HotLeadMark } from "@/components";
 import { statusPillClass } from "@/lib/status-pill";
 
 // WP-PW-3 Task 2: the mobile (< lg) Leads view, extracted verbatim from the pre-WP-PW-3
@@ -21,6 +21,8 @@ interface Lead {
   receivedAt: string;
   status: string;
   previouslyMatched: boolean;
+  scoreTotal: number | null;
+  scoreGroup: "hot" | "warm" | "nurture" | null;
 }
 interface LeadsPage {
   leads: Lead[];
@@ -79,6 +81,7 @@ export function LeadsMobile() {
                 className="block p-4 shadow-sm"
               >
                 <div className="flex items-center gap-2">
+                  {l.scoreGroup === "hot" && l.scoreTotal !== null && <HotLeadMark score={l.scoreTotal} />}
                   <span className="num text-step-1 text-text-3">{l.refId}</span>
                   <span className={statusPillClass(l.status, "ml-auto")}>
                     {l.status}
