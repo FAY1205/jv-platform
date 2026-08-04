@@ -158,14 +158,14 @@ export function LeadsDesktop() {
               {data!.leads.map((l) => (
                 <Tr key={l.refId} className="hover:bg-surface-2">
                   <Td>
-                    <span className="inline-flex items-center gap-1.5">
-                      {l.scoreGroup === "hot" && l.scoreTotal !== null && <HotLeadMark score={l.scoreTotal} />}
+                    <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
                       <Link
                         href={`/portal/leads/${l.refId}`}
                         className="num rounded font-medium text-brand-ink outline-none hover:underline focus-visible:ring-1 focus-visible:ring-brand-ink"
                       >
                         {l.refId}
                       </Link>
+                      {l.scoreGroup === "hot" && l.scoreTotal !== null && <HotLeadMark score={l.scoreTotal} />}
                     </span>
                   </Td>
                   <Td>

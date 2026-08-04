@@ -69,6 +69,14 @@ describe("LeadsQuerySchema", () => {
     expect(parse({ sort: "modified", dir: "asc" })).toMatchObject({ sort: "modified", dir: "asc" });
     expect(parse({ sort: "nonsense", dir: "sideways" })).toMatchObject({ sort: "received", dir: "desc" });
   });
+
+  it("allows sorting by lead reference; partner and status are no longer sortable (owner)", () => {
+    expect(parse({ sort: "lead" }).sort).toBe("lead");
+    expect(parse({ sort: "seller" }).sort).toBe("seller");
+    // Partner/Status sort was removed — those degrade to the default.
+    expect(parse({ sort: "partner" }).sort).toBe("received");
+    expect(parse({ sort: "status" }).sort).toBe("received");
+  });
 });
 
 describe("SCR: default leads status filter (all workflow statuses, no Removed MLS)", () => {

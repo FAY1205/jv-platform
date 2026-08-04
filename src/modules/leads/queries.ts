@@ -70,10 +70,6 @@ function statusExpr(scope: ScopeContext) {
 function modifiedExpr(scope: ScopeContext) {
   return sql<Date | null>`coalesce(${latestAt(scope)}, ${schema.leads.manualAssignedAt})`;
 }
-function statusOrder(scope: ScopeContext) {
-  return sql`case ${statusExpr(scope)} when 'New' then 0 when 'Contacted' then 1 when 'Appointment' then 2 when 'Under contract' then 3 when 'Closed' then 4 when 'Dead' then 5 else 6 end`;
-}
-
 export async function listLeads(scope: ScopeContext, query: LeadsQuery): Promise<GlobalLeadsPage> {
   const db = getDb();
   const offset = (query.page - 1) * query.pageSize;
@@ -94,7 +90,6 @@ export async function listLeads(scope: ScopeContext, query: LeadsQuery): Promise
   // all share the identical scope-aware subqueries (ADR-0013 defence-in-depth, WP-F1).
   const sExpr = statusExpr(scope);
   const mExpr = modifiedExpr(scope);
-  const sOrder = statusOrder(scope);
 
   if (query.statuses.length > 0) {
     conds.push(or(...query.statuses.map((s) => sql`${sExpr} = ${s}`))!);
@@ -111,9 +106,8 @@ export async function listLeads(scope: ScopeContext, query: LeadsQuery): Promise
   const where = and(...conds);
 
   const sortCol =
+    query.sort === "lead" ? schema.leads.refId :
     query.sort === "modified" ? mExpr :
-    query.sort === "status" ? sOrder :
-    query.sort === "partner" ? sql`${schema.partners.name}` :
     query.sort === "seller" ? sql`lower(${schema.leads.sellerLast})` :
     schema.leads.createdAt;
   const dirFn = query.dir === "asc" ? asc : desc;

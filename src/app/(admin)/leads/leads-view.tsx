@@ -36,7 +36,7 @@ export interface Filters {
 // Opens with all workflow statuses selected but Removed MLS off (owner decision).
 const EMPTY: Filters = { q: "", partnerId: "", state: "", source: "", statuses: [...DEFAULT_STATUS_FILTERS], hot: false, dateFrom: "", dateTo: "" };
 
-const DEFAULT_DIR: Record<LeadSortField, "asc" | "desc"> = { received: "desc", modified: "desc", status: "desc", partner: "asc", seller: "asc" };
+const DEFAULT_DIR: Record<LeadSortField, "asc" | "desc"> = { lead: "desc", received: "desc", modified: "desc", seller: "asc" };
 const PARTNER_ALL = "__all__";
 const PARTNER_UNMATCHED = "unmatched";
 const SOURCE_ALL = "__all__";
@@ -248,25 +248,25 @@ function LeadsTable({
           <Table>
             <THead>
               <Tr>
-                <Th>Lead</Th>
+                <Th sortable sortDir={sortDir("lead")} onSort={() => onSort("lead")}>Lead</Th>
                 <Th sortable sortDir={sortDir("seller")} onSort={() => onSort("seller")}>Seller</Th>
                 <Th>Property</Th>
-                <Th sortable sortDir={sortDir("partner")} onSort={() => onSort("partner")}>Partner</Th>
+                <Th>Partner</Th>
                 <Th sortable sortDir={sortDir("received")} onSort={() => onSort("received")} align="right">Received</Th>
                 <Th sortable sortDir={sortDir("modified")} onSort={() => onSort("modified")} align="right">Modified</Th>
-                <Th sortable sortDir={sortDir("status")} onSort={() => onSort("status")}>Status</Th>
+                <Th>Status</Th>
               </Tr>
             </THead>
             <TBody>
               {data!.leads.map((l) => (
                 <Tr key={l.refId} className="hover:bg-surface-2">
                   <Td>
-                    <span className="inline-flex items-center gap-1.5">
-                      {/* Hot mark only for KEPT hot leads — a removed (MLS-listed) lead shows none. */}
+                    <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
+                      <RowOpenButton className="text-xs" onClick={() => onOpen(l.refId)}>{l.refId}</RowOpenButton>
+                      {/* Hot mark AFTER the ref, only for KEPT hot leads (removed/MLS-listed shows none). */}
                       {l.mlsStatus === "kept" && l.scoreGroup === "hot" && l.scoreTotal !== null && (
                         <HotLeadMark score={l.scoreTotal} />
                       )}
-                      <RowOpenButton className="text-xs" onClick={() => onOpen(l.refId)}>{l.refId}</RowOpenButton>
                     </span>
                   </Td>
                   <Td><span className="text-sm text-text">{l.seller}</span></Td>
