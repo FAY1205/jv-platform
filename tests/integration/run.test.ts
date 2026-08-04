@@ -124,16 +124,17 @@ suite("WP-017b: run persistence (DrizzleRunStore)", () => {
     expect(result.exportBytes.byteLength).toBeGreaterThan(0);
   });
 
-  it("PRN-05: re-running an overlapping lead never duplicates it and leaves the original untouched", async () => {
+  it("ADR-0038: re-running an overlapping row creates a SECOND lead (dedup collapse retired); the original row is untouched", async () => {
     const before = await db
       .select()
       .from(schema.leads)
       .where(and(eq(schema.leads.tenantId, tenantId), eq(schema.leads.dedupeKey, "1 a st|08034")));
+    expect(before).toHaveLength(1);
     const originalRef = before[0].refId;
     const originalFirstMatched = before[0].firstMatchedAt?.toISOString();
 
     const rows = [
-      row({ Address: "1 A St", State: "NJ", Zip: "08034" }), // repeat → must not duplicate
+      row({ Address: "1 A St", State: "NJ", Zip: "08034" }), // repeat → now its OWN lead (no collapse)
       row({ Address: "9 New St", State: "NJ", Zip: "08034" }), // genuinely new
     ];
     const result = await processRun(
@@ -145,9 +146,17 @@ suite("WP-017b: run persistence (DrizzleRunStore)", () => {
       .select()
       .from(schema.leads)
       .where(and(eq(schema.leads.tenantId, tenantId), eq(schema.leads.dedupeKey, "1 a st|08034")));
-    expect(after).toHaveLength(1); // not duplicated (unique dedupe_key honored)
-    expect(after[0].refId).toBe(originalRef); // original row untouched
-    expect(after[0].firstMatchedAt?.toISOString()).toBe(originalFirstMatched); // first_matched_at preserved
+    expect(after).toHaveLength(2); // ADR-0038: the repeat is a new lead, not collapsed onto the first
+
+    // The ORIGINAL row is never rewritten — its ref-id and first_matched_at are preserved.
+    const original = after.find((l) => l.refId === originalRef);
+    expect(original).toBeDefined();
+    expect(original!.firstMatchedAt?.toISOString()).toBe(originalFirstMatched);
+
+    // The new copy is a fresh lead: a new ref, stamped at THIS run, routed by current coverage.
+    const copy = after.find((l) => l.refId !== originalRef)!;
+    expect(copy.firstMatchedAt?.toISOString()).toBe("2026-07-15T00:00:00.000Z");
+    expect(copy.partnerId).toBe(partnerNJ);
 
     const fresh = await db
       .select()
