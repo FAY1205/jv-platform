@@ -5,6 +5,7 @@ import { and, eq, inArray } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import * as schema from "@/db/schema";
 import { enqueueRunDigests, drainOutbox, releaseDueImports } from "@/modules/notify/outbox";
+import { DEFAULT_NOTIFICATION_PREFS } from "@/modules/notify/prefs";
 import type { EmailTransport, OutboundEmail } from "@/modules/notify/email";
 import type { ScopeContext } from "@/lib/scope";
 import type { RunSummary } from "@/modules/analytics/run-summary";
@@ -199,7 +200,8 @@ suite("SCR-12: hot-lead fan-out", () => {
   });
 
   it("SCR-12: at import (audience admin) the admin alert covers every hot kept lead incl. house + unmatched, and no partner hot alert fires", async () => {
-    await enqueueRunDigests(db, scope, { uploadRef, summary, portalBaseUrl: "https://app.test", adminEmails: ["admin@hot.test"], adminUserId: scope.userId, audience: "admin" });
+    // prefs must be passed for the in-app channel (email fires without it; in-app is gated on prefs).
+    await enqueueRunDigests(db, scope, { uploadRef, summary, portalBaseUrl: "https://app.test", adminEmails: ["admin@hot.test"], adminUserId: scope.userId, prefs: DEFAULT_NOTIFICATION_PREFS, audience: "admin" });
     const rows = await db.select().from(schema.emailOutbox).where(and(eq(schema.emailOutbox.tenantId, scope.tenantId), eq(schema.emailOutbox.kind, "hot_leads")));
     // Exactly one admin hot email (to the admin), none to the partner.
     expect(rows).toHaveLength(1);
@@ -220,7 +222,7 @@ suite("SCR-12: hot-lead fan-out", () => {
   it("SCR-12: at release (audience partner) only the non-house assigned partner is alerted, with only their own hot lead", async () => {
     // Clear the admin hot rows from the previous case so this asserts the partner path alone.
     await db.delete(schema.emailOutbox).where(and(eq(schema.emailOutbox.tenantId, scope.tenantId), eq(schema.emailOutbox.kind, "hot_leads")));
-    await enqueueRunDigests(db, scope, { uploadRef, portalBaseUrl: "https://app.test", audience: "partner" });
+    await enqueueRunDigests(db, scope, { uploadRef, portalBaseUrl: "https://app.test", prefs: DEFAULT_NOTIFICATION_PREFS, audience: "partner" });
     const rows = await db.select().from(schema.emailOutbox).where(and(eq(schema.emailOutbox.tenantId, scope.tenantId), eq(schema.emailOutbox.kind, "hot_leads")));
     // Exactly one partner hot email, to the normal partner (house has no email + is excluded).
     expect(rows).toHaveLength(1);
