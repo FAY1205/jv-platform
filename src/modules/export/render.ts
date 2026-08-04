@@ -32,7 +32,6 @@ export const EXPORT_COLUMNS = [
   "Motivation",
   "Time to Sell",
   "JV Partner Name",
-  "Previously Matched",
   "Possible MLS Listing",
 ] as const;
 
@@ -53,7 +52,6 @@ export interface ExportLead {
   motivation: string;
   timeToSell: string;
   partnerId: string | null;
-  previouslyMatched: boolean;
   possibleMlsListing: "yes" | "no" | "unknown" | "pending";
 }
 
@@ -118,7 +116,6 @@ function leadRowValues(lead: ExportLead, partners: ReadonlyMap<string, PartnerIn
     lead.motivation,
     lead.timeToSell,
     partnerLabel(lead.partnerId, partners),
-    lead.previouslyMatched ? "Yes" : "No",
     lead.possibleMlsListing,
   ].map((v) => sanitizeCell(String(v ?? "")));
 }
@@ -207,7 +204,6 @@ export async function renderExport(
   sum.addRow(["Kept", summary.kept]);
   sum.addRow(["Removed (MLS)", summary.removed]);
   sum.addRow(["Unmatched", summary.unmatched]);
-  sum.addRow(["Previously matched", summary.previouslyMatched]);
   sum.addRow([]);
   sum.addRow(["Partner", "Distributed"]).eachCell((c) => (c.font = { bold: true }));
   for (const pp of summary.perPartner) {

@@ -117,7 +117,6 @@ function adminSummaryHtml(input: AdminSummaryInput): string {
     stat("Assigned to partners", delivered) +
     stat("Removed (MLS-listed)", s.removed) +
     stat("Unmatched", s.unmatched) +
-    stat("Previously matched", s.previouslyMatched) +
     `</table>${cta}`;
   return renderEmailDocument({
     title: `Run summary — ${input.uploadRef}`,
@@ -230,8 +229,7 @@ export function buildAdminRunSummary(input: AdminSummaryInput): DigestContent {
     `  Distributed (kept):  ${s.kept}\n` +
     `  Assigned to partners: ${delivered}\n` +
     `  Removed (MLS-listed): ${s.removed}\n` +
-    `  Unmatched:           ${s.unmatched}\n` +
-    `  Previously matched:  ${s.previouslyMatched}\n\n` +
+    `  Unmatched:           ${s.unmatched}\n\n` +
     `Partners with new leads: ${s.perPartner.length}\n\n` +
     `— ${input.appName}`;
   return { subject: `Run summary — ${input.uploadRef}`, body, html: adminSummaryHtml(input) };

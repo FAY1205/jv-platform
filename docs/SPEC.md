@@ -84,9 +84,9 @@ Tables: `tenants, users, partners, coverage_zips, state_rules, mls_patterns, cam
 
 | ID | Rule |
 | -- | ---- |
-| DM-01 | `leads.dedupe_key` = normalized(address)+zip5, unique index per tenant; phone (last 10 digits) is a secondary confirm key, never primary. |
+| DM-01 | `leads.dedupe_key` = normalized(address)+zip5, stored per lead for grouping/reporting (plain index per tenant). _Amended by ADR-0038:_ no longer unique and no longer collapses imports; phone confirm retired with the collapse. |
 | DM-02 | `leads.raw_json` stores the full source row forever — reprocessing and disputes are always possible. |
-| DM-03 | Lead columns: `partner_id, match_method(zip|state_fallback|none), mls_status(kept|removed), mls_reason, previously_matched, original_partner_id, first_matched_at, possible_mls_listing(yes|no|unknown|pending), upload_id`. |
+| DM-03 | Lead columns: `partner_id, match_method(zip|state_fallback|none), matched_on, mls_status(kept|removed), mls_reason, first_matched_at, possible_mls_listing(yes|no|unknown|pending), upload_id`. _Amended by ADR-0038:_ `previously_matched` / `original_partner_id` remain in the schema but are inert (never written). |
 | DM-04 | `audit_log` append-only: every pipeline decision, admin mutation, partner status/note change — actor, before/after, timestamp, trace ID. |
 | DM-05 | Timestamps UTC; tenant timezone (SET-08) applied at render. |
 | DM-06 | Coverage versioned (`effective_from/to`); history queryable; versions revertible (CVG-03). |
@@ -163,9 +163,9 @@ into every run's rules snapshot (DM-08).
 
 | ID | Requirement |
 | -- | ----------- |
-| DED-01 | Match on `dedupe_key`; phone as secondary confirm. On hit: `previously_matched = true`, assignment = original partner, `first_matched_at` carried (PRN-05). |
-| DED-02 | Previously-matched leads remain in output, flagged. |
-| DED-03 | Every processed lead (kept / removed / unmatched) written to history. |
+| DED-01 | **Retired (ADR-0038).** Dedup collapse removed — repeats are ordinary leads; no history revert. |
+| DED-02 | **Retired (ADR-0038).** No previously-matched flagging; an identical FILE re-upload warns via `uploads.content_hash` (warn-and-allow). |
+| DED-03 | Every processed row (kept / removed / unmatched) is persisted as a lead — one row in, one lead out (ADR-0038). |
 
 ### 6.6 Recode & export (EXP)
 

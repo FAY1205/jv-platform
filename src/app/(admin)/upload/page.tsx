@@ -6,6 +6,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { parseWorkbookInWorker } from "@/lib/xlsx-client";
 import { Card, CardBody, Button, AppShell, Tooltip, Spinner } from "@/components";
 import { csrfHeaders } from "@/lib/csrf-client";
+import { sha256Hex } from "@/lib/hash-client";
 import { validateUploadFile } from "@/lib/upload-guard";
 // Client-safe: seed-profiles is pure data (its only import is a type, erased at build) —
 // no DB/server chain reaches the bundle through it.
@@ -15,6 +16,8 @@ interface Parsed {
   filename: string;
   headers: string[];
   rows: Record<string, string>[];
+  /** SHA-256 of the raw file bytes (ADR-0038 duplicate-file warn); null if hashing failed. */
+  contentHash: string | null;
 }
 
 // WP-LS1: the only ingestable format. The retired investorfuse/generic ids left the
@@ -41,15 +44,29 @@ export default function UploadPage() {
   // NEVER shown a column-mapping/confirm screen — a new format is added in code by the
   // developer. So an unrecognized file just reports back, it does not offer self-serve mapping.
   const [unrecognized, setUnrecognized] = React.useState(false);
+  // ADR-0038: the server saw this exact file before — warn, let the admin push through.
+  const [dupWarn, setDupWarn] = React.useState<{ priorRef: string; priorDate: string } | null>(null);
 
   const idemKey = React.useRef<string>(crypto.randomUUID());
 
   const process = useMutation({
-    mutationFn: (p: Parsed) => post("/api/uploads", { filename: p.filename, headers: p.headers, rows: p.rows, idempotencyKey: idemKey.current }),
-    onSuccess: (data: { result: string; uploadRef?: string }) => {
+    mutationFn: ({ p, confirmDuplicate }: { p: Parsed; confirmDuplicate?: boolean }) =>
+      post("/api/uploads", {
+        filename: p.filename,
+        headers: p.headers,
+        rows: p.rows,
+        idempotencyKey: idemKey.current,
+        ...(p.contentHash ? { contentHash: p.contentHash } : {}),
+        ...(confirmDuplicate ? { confirmDuplicate: true } : {}),
+      }),
+    onSuccess: (data: { result: string; uploadRef?: string; priorRef?: string; priorDate?: string }) => {
       if (data.result === "processed" && data.uploadRef) {
         qc.invalidateQueries({ queryKey: ["runs"] });
         router.push(`/imports/${data.uploadRef}`);
+      } else if (data.result === "duplicate_file" && data.priorRef) {
+        // Same bytes already imported — every lead would be duplicated and redistributed.
+        setDupWarn({ priorRef: data.priorRef, priorDate: data.priorDate ?? "" });
+        setErr(null);
       } else {
         // "needs_mapping" (drift/unknown) or anything non-processed → unsupported format.
         setUnrecognized(true);
@@ -59,15 +76,34 @@ export default function UploadPage() {
     onError: (e: Error) => setErr(e.message),
   });
 
+  // The import runs server-side in one atomic transaction, so leaving can't half-import —
+  // but it discards the in-flight upload and the result redirect. Warn before an accidental
+  // tab-close/navigation, and only while the POST is actually in flight so it never nags.
+  React.useEffect(() => {
+    if (!process.isPending) return;
+    const warn = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = "";
+    };
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [process.isPending]);
+
   async function handleFile(file: File) {
-    setErr(null); setParsed(null); setUnrecognized(false);
+    setErr(null); setParsed(null); setUnrecognized(false); setDupWarn(null);
     const check = validateUploadFile({ name: file.name, size: file.size });
     if (!check.ok) { setErr(check.error ?? "That file can't be used."); setPhase("error"); return; }
     setPhase("parsing");
     idemKey.current = crypto.randomUUID();
     try {
+      // Fingerprint the raw bytes for the duplicate-file warn (best-effort — a hash
+      // failure must never block the import itself).
+      const contentHash = await file
+        .arrayBuffer()
+        .then(sha256Hex)
+        .catch(() => null);
       const { headers, rows } = await parseWorkbookInWorker(file);
-      setParsed({ filename: file.name, headers, rows });
+      setParsed({ filename: file.name, headers, rows, contentHash });
       setPhase("ready");
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Could not read the file.");
@@ -76,7 +112,7 @@ export default function UploadPage() {
   }
 
   function reset() {
-    setPhase("idle"); setParsed(null); setErr(null); setUnrecognized(false);
+    setPhase("idle"); setParsed(null); setErr(null); setUnrecognized(false); setDupWarn(null);
   }
 
   return (
@@ -100,7 +136,26 @@ export default function UploadPage() {
           <CardBody>
             <input ref={inputRef} type="file" accept=".xlsx,.csv" className="hidden" onChange={(e) => e.target.files?.[0] && handleFile(e.target.files[0])} />
 
-            {unrecognized ? (
+            {dupWarn && parsed ? (
+              // ── Identical file already imported (ADR-0038) — warn, allow push-through ──
+              <div className="flex flex-col items-center gap-3 rounded-lg border border-border-soft bg-surface-2 px-6 py-10 text-center">
+                <span className="grid h-11 w-11 place-items-center rounded-full bg-warn-soft text-lg text-warn">!</span>
+                <h2 className="font-display text-base font-semibold text-text">This exact file was already imported</h2>
+                <p className="max-w-[52ch] text-sm text-text-2">
+                  <span className="font-medium text-text">{parsed.filename}</span> matches import{" "}
+                  <span className="num font-medium text-text">{dupWarn.priorRef}</span>
+                  {dupWarn.priorDate ? <> from {new Date(dupWarn.priorDate).toLocaleDateString(undefined, { dateStyle: "medium" })}</> : null}.
+                  Importing it again will create a <span className="font-medium text-text">second copy of every lead</span> and
+                  distribute them to partners again.
+                </p>
+                <div className="flex items-center gap-3">
+                  <Button variant="ghost" onClick={() => parsed && process.mutate({ p: parsed, confirmDuplicate: true })} disabled={process.isPending} loading={process.isPending}>
+                    Import anyway
+                  </Button>
+                  <Button variant="primary" onClick={reset} disabled={process.isPending}>Choose another file</Button>
+                </div>
+              </div>
+            ) : unrecognized ? (
               // ── Unsupported format (no self-serve mapping — owner decision) ──
               <div className="flex flex-col items-center gap-3 rounded-lg border border-border-soft bg-surface-2 px-6 py-10 text-center">
                 <span className="grid h-11 w-11 place-items-center rounded-full bg-warn-soft text-lg text-warn">!</span>
@@ -151,11 +206,17 @@ export default function UploadPage() {
                 {err && <p className="text-sm text-danger">{err}</p>}
 
                 <div className="flex items-center gap-3">
-                  <Button variant="primary" onClick={() => parsed && process.mutate(parsed)} disabled={!parsed || process.isPending} loading={process.isPending}>
+                  <Button variant="primary" onClick={() => parsed && process.mutate({ p: parsed })} disabled={!parsed || process.isPending} loading={process.isPending}>
                     Process file
                   </Button>
                   <Button variant="ghost" onClick={reset} disabled={process.isPending}>Choose another file</Button>
                 </div>
+
+                {process.isPending && (
+                  <p className="flex items-center gap-2 text-xs text-text-3">
+                    <Spinner size={14} /> Importing and distributing — please keep this tab open until it finishes.
+                  </p>
+                )}
               </div>
             )}
           </CardBody>

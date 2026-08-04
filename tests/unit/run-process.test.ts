@@ -9,7 +9,6 @@ import {
 import { GENERIC_PROFILE } from "@/modules/sources";
 import { DEFAULT_MLS_PATTERNS } from "@/modules/pipeline/mls-patterns";
 import { buildCoverage } from "@/modules/pipeline/assign";
-import type { HistoryEntry } from "@/modules/pipeline/dedupe";
 import type { PartnerInfo } from "@/modules/export/render";
 
 const CLOCK = "2026-07-08T12:00:00.000Z";
@@ -51,25 +50,18 @@ function row(over: Record<string, string>): Record<string, string> {
   };
 }
 const ROWS = [
-  row({ Address: "1 A St", State: "NJ", Zip: "08034" }), // new → stamped now
-  row({ Address: "2 B St", State: "SC", Zip: "29601" }), // in history → prev-matched
+  row({ Address: "1 A St", State: "NJ", Zip: "08034" }),
+  row({ Address: "2 B St", State: "SC", Zip: "29601" }),
 ];
 
 const PARTNERS = new Map<string, PartnerInfo>([
   ["p-josh", { id: "p-josh", name: "Josh Ax", refId: "JV-003", color: "#8fbfe8" }],
   ["p-randy", { id: "p-randy", name: "Randy Wolfe", refId: "JV-006", color: "#e8927c" }],
-  ["p-original", { id: "p-original", name: "First Partner", refId: "JV-001", color: "#f4c95d" }],
 ]);
 
 class FakeStore implements RunStore {
   persisted: PersistRunInput | null = null;
-  constructor(
-    private history: Map<string, HistoryEntry>,
-    private partners: Map<string, PartnerInfo>,
-  ) {}
-  async loadHistory() {
-    return this.history;
-  }
+  constructor(private partners: Map<string, PartnerInfo>) {}
   async loadPartners() {
     return this.partners;
   }
@@ -85,9 +77,9 @@ class FakeStore implements RunStore {
 
 const deps = (store: RunStore) => ({ store, clock: () => CLOCK });
 
-describe("WP-017: processRun orchestrates history → plan → stamp → persist → export", () => {
-  it("persists every lead (DED-03) and returns the upload ref + summary", async () => {
-    const store = new FakeStore(new Map(), PARTNERS);
+describe("WP-017: processRun orchestrates plan → stamp → persist → export", () => {
+  it("persists every lead and returns the upload ref + summary", async () => {
+    const store = new FakeStore(PARTNERS);
     const result = await processRun(
       { tenantId: "t1", filename: "week.xlsx", rows: ROWS, profile: GENERIC_PROFILE, rules: RULES, snapshotInput: SNAPSHOT_INPUT, year: 2026, colorCoding: true },
       deps(store),
@@ -97,17 +89,31 @@ describe("WP-017: processRun orchestrates history → plan → stamp → persist
     expect(result.summary.total).toBe(2);
   });
 
-  it("stamps first_matched_at with the injected clock for new leads (PRN-01)", async () => {
-    const store = new FakeStore(new Map(), PARTNERS);
+  it("stamps first_matched_at with the injected clock for every lead (PRN-01)", async () => {
+    const store = new FakeStore(PARTNERS);
     await processRun(
       { tenantId: "t1", filename: "w.xlsx", rows: ROWS, profile: GENERIC_PROFILE, rules: RULES, snapshotInput: SNAPSHOT_INPUT, year: 2026, colorCoding: true },
       deps(store),
     );
     expect(store.persisted!.leads[0].firstMatchedAt).toBe(CLOCK);
+    expect(store.persisted!.leads[1].firstMatchedAt).toBe(CLOCK);
+  });
+
+  it("ADR-0038: duplicate rows all persist — repeats are not collapsed against history or within the run", async () => {
+    const store = new FakeStore(PARTNERS);
+    const result = await processRun(
+      { tenantId: "t1", filename: "w.xlsx", rows: [ROWS[0], ROWS[0], ROWS[1]], profile: GENERIC_PROFILE, rules: RULES, snapshotInput: SNAPSHOT_INPUT, year: 2026, colorCoding: true },
+      deps(store),
+    );
+    expect(store.persisted!.leads).toHaveLength(3);
+    // Both copies of the repeated house route by the CURRENT coverage and are stamped now.
+    expect(store.persisted!.leads[0].partnerId).toBe("p-josh");
+    expect(store.persisted!.leads[1].partnerId).toBe("p-josh");
+    expect(result.summary.total).toBe(3);
   });
 
   it("ING-07: a saved profile's uuid id and version are passed to the store for the upload row", async () => {
-    const store = new FakeStore(new Map(), PARTNERS);
+    const store = new FakeStore(PARTNERS);
     const saved = { ...GENERIC_PROFILE, id: "3f2504e0-4f89-11d3-9a0c-0305e82c3301", version: 4 };
     await processRun(
       { tenantId: "t1", filename: "w.xlsx", rows: ROWS, profile: saved, rules: RULES, snapshotInput: SNAPSHOT_INPUT, year: 2026, colorCoding: true },
@@ -118,7 +124,7 @@ describe("WP-017: processRun orchestrates history → plan → stamp → persist
   });
 
   it("ING-07: a seed profile's slug id is nulled so it never reaches the uuid column", async () => {
-    const store = new FakeStore(new Map(), PARTNERS);
+    const store = new FakeStore(PARTNERS);
     await processRun(
       { tenantId: "t1", filename: "w.xlsx", rows: ROWS, profile: GENERIC_PROFILE, rules: RULES, snapshotInput: SNAPSHOT_INPUT, year: 2026, colorCoding: true },
       deps(store),
@@ -129,24 +135,26 @@ describe("WP-017: processRun orchestrates history → plan → stamp → persist
     expect(store.persisted!.sourceProfileVersion).toBe(GENERIC_PROFILE.version);
   });
 
-  it("PRN-05: a previously-matched lead keeps the historical first_matched_at + original partner", async () => {
-    const history = new Map<string, HistoryEntry>([
-      ["2 b st|29601", { partnerId: "p-original", matchMethod: "zip", firstMatchedAt: "2026-05-01T00:00:00.000Z", phoneNorm: "8565550100" }],
-    ]);
-    const store = new FakeStore(history, PARTNERS);
+  it("ADR-0038: the file's content hash reaches the persisted upload row (duplicate-file warn)", async () => {
+    const store = new FakeStore(PARTNERS);
+    await processRun(
+      { tenantId: "t1", filename: "w.xlsx", rows: ROWS, profile: GENERIC_PROFILE, rules: RULES, snapshotInput: SNAPSHOT_INPUT, year: 2026, colorCoding: true, contentHash: "a".repeat(64) },
+      deps(store),
+    );
+    expect(store.persisted!.contentHash).toBe("a".repeat(64));
+  });
+
+  it("ADR-0038: a missing content hash persists as null (older clients)", async () => {
+    const store = new FakeStore(PARTNERS);
     await processRun(
       { tenantId: "t1", filename: "w.xlsx", rows: ROWS, profile: GENERIC_PROFILE, rules: RULES, snapshotInput: SNAPSHOT_INPUT, year: 2026, colorCoding: true },
       deps(store),
     );
-    expect(store.persisted!.leads[1]).toMatchObject({
-      previouslyMatched: true,
-      partnerId: "p-original",
-      firstMatchedAt: "2026-05-01T00:00:00.000Z",
-    });
+    expect(store.persisted!.contentHash).toBeNull();
   });
 
   it("DM-08: attaches a rules hash to the persisted upload", async () => {
-    const store = new FakeStore(new Map(), PARTNERS);
+    const store = new FakeStore(PARTNERS);
     await processRun(
       { tenantId: "t1", filename: "w.xlsx", rows: ROWS, profile: GENERIC_PROFILE, rules: RULES, snapshotInput: SNAPSHOT_INPUT, year: 2026, colorCoding: true },
       deps(store),
@@ -155,7 +163,7 @@ describe("WP-017: processRun orchestrates history → plan → stamp → persist
   });
 
   it("renders an export of the DELIVERED (kept) leads with the assigned partner", async () => {
-    const store = new FakeStore(new Map(), PARTNERS);
+    const store = new FakeStore(PARTNERS);
     const result = await processRun(
       { tenantId: "t1", filename: "w.xlsx", rows: ROWS, profile: GENERIC_PROFILE, rules: RULES, snapshotInput: SNAPSHOT_INPUT, year: 2026, colorCoding: true },
       deps(store),

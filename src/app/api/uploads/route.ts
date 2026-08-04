@@ -6,6 +6,7 @@ import { loadProfilesForDetection } from "@/modules/sources/profile-store";
 import { suggestMapping } from "@/modules/sources/mapping";
 import { CANONICAL_FIELDS } from "@/modules/sources/types";
 import { runUpload } from "@/modules/run/run-upload";
+import { findDuplicateUpload } from "@/modules/run/queries";
 import { RequestInProgressError } from "@/lib/idempotency-db";
 import { assertCsrf, authErrorResponse, requireAdminResponse } from "@/lib/auth/guard";
 import { MAX_UPLOAD_ROWS, exceedsBodyLimit, parseContentLength } from "@/lib/upload-guard";
@@ -23,6 +24,13 @@ const BodySchema = z.object({
   headers: z.array(z.string()).min(1),
   rows: z.array(z.record(z.string(), z.unknown())).min(1).max(MAX_UPLOAD_ROWS), // SEC-03 row cap
   idempotencyKey: z.string().min(8).max(200).optional(),
+  // ADR-0038: SHA-256 fingerprint of the raw file bytes, for the duplicate-file warn.
+  contentHash: z
+    .string()
+    .regex(/^[0-9a-f]{64}$/)
+    .optional(),
+  // Set when the admin explicitly chose "Import anyway" on the duplicate-file warning.
+  confirmDuplicate: z.boolean().optional(),
 });
 
 export async function POST(req: Request) {
@@ -51,12 +59,22 @@ export async function POST(req: Request) {
     const origin = new URL(req.url).origin;
 
     if (detected.status === "exact" && detected.profile) {
+      // ADR-0038: with dedup retired, re-importing the same file would duplicate and
+      // redistribute every lead — so an identical file (same content hash) warns first.
+      // Warn-and-allow, never block: `confirmDuplicate` pushes through deliberately.
+      if (body.contentHash && !body.confirmDuplicate) {
+        const prior = await findDuplicateUpload(scope, body.contentHash);
+        if (prior) {
+          return jsonOk({ result: "duplicate_file", priorRef: prior.refId, priorDate: prior.createdAt });
+        }
+      }
       const res = await runUpload(scope, {
         profile: detected.profile,
         filename: body.filename,
         rows: body.rows,
         origin,
         idempotencyKey: body.idempotencyKey,
+        contentHash: body.contentHash ?? null,
       });
       return jsonOk({ result: "processed", ...res });
     }

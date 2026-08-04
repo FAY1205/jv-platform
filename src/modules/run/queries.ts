@@ -1,4 +1,4 @@
-import { and, eq, gte, isNull, lte, desc, sql, type SQL } from "drizzle-orm";
+import { and, eq, ne, gte, isNull, lte, desc, sql, type SQL } from "drizzle-orm";
 import { getDb } from "@/db";
 import * as schema from "@/db/schema";
 import { tenantWhere, leadWhere, type ScopeContext } from "@/lib/scope";
@@ -83,6 +83,28 @@ export async function listRunsPage(scope: ScopeContext, opts: ListRunsPageOpts =
   };
 }
 
+/** ADR-0038: the most recent non-voided upload with the same file fingerprint, if any —
+ *  powers the identical-file re-upload warn-and-confirm. Tenant-scoped (PRN-08). */
+export async function findDuplicateUpload(
+  scope: ScopeContext,
+  contentHash: string,
+): Promise<{ refId: string; createdAt: string } | null> {
+  const db = getDb();
+  const [row] = await db
+    .select({ refId: schema.uploads.refId, createdAt: schema.uploads.createdAt })
+    .from(schema.uploads)
+    .where(
+      and(
+        tenantWhere(schema.uploads, scope),
+        eq(schema.uploads.contentHash, contentHash),
+        ne(schema.uploads.status, "voided"), // a voided run was recalled — re-upload is expected
+      ),
+    )
+    .orderBy(desc(schema.uploads.createdAt))
+    .limit(1);
+  return row ? { refId: row.refId, createdAt: row.createdAt.toISOString() } : null;
+}
+
 export async function getRunDetail(scope: ScopeContext, ref: string): Promise<RunDetail | null> {
   const db = getDb();
 
@@ -107,7 +129,6 @@ export async function getRunDetail(scope: ScopeContext, ref: string): Promise<Ru
         matchMethod: schema.leads.matchMethod,
         mlsStatus: schema.leads.mlsStatus,
         mlsPatternKey: schema.leads.mlsPatternKey,
-        previouslyMatched: schema.leads.previouslyMatched,
         possibleMlsListing: schema.leads.possibleMlsListing,
       })
       .from(schema.leads)
@@ -126,7 +147,6 @@ export async function getRunDetail(scope: ScopeContext, ref: string): Promise<Ru
       mlsStatus: l.mlsStatus,
       matchMethod: l.matchMethod,
       partnerId: l.partnerId,
-      previouslyMatched: l.previouslyMatched,
     })),
   );
 
@@ -150,7 +170,6 @@ export async function getRunDetail(scope: ScopeContext, ref: string): Promise<Ru
     matchMethod: l.matchMethod,
     mlsStatus: l.mlsStatus,
     mlsPatternKey: l.mlsPatternKey,
-    previouslyMatched: l.previouslyMatched,
     possibleMlsListing: l.possibleMlsListing,
   }));
 

@@ -36,6 +36,8 @@ export interface RunUploadInput {
   rows: readonly Record<string, unknown>[];
   origin: string;
   idempotencyKey?: string;
+  /** SHA-256 of the raw uploaded file (ADR-0038 duplicate-file warn); omitted = unknown. */
+  contentHash?: string | null;
 }
 
 export async function runUpload(scope: ScopeContext, input: RunUploadInput): Promise<{ uploadRef: string; summary: RunSummary }> {
@@ -57,6 +59,7 @@ export async function runUpload(scope: ScopeContext, input: RunUploadInput): Pro
         snapshotInput: { sourceProfile: { id: input.profile.id, version: input.profile.version }, ...snapshotParts },
         year,
         colorCoding,
+        contentHash: input.contentHash ?? null,
       },
       { store, clock: () => new Date().toISOString() },
     );

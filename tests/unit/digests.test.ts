@@ -47,7 +47,7 @@ describe("buildAdminRunSummary", () => {
     const out = buildAdminRunSummary({
       appName: "JV Platform",
       uploadRef: "IM-26-014",
-      summary: { total: 50, kept: 24, removed: 26, unmatched: 1, previouslyMatched: 3, perPartner: [{ partnerId: "p1", count: 24 }] },
+      summary: { total: 50, kept: 24, removed: 26, unmatched: 1, perPartner: [{ partnerId: "p1", count: 24 }] },
     });
     expect(out.subject).toContain("IM-26-014");
     expect(out.body).toMatch(/24/); // distributed/kept
@@ -116,7 +116,7 @@ describe("buildAdminRunSummary — HTML (WP-G)", () => {
       appName: "JV Platform",
       uploadRef: "IM-26-014",
       importUrl: "https://app.test/imports/IM-26-014",
-      summary: { total: 50, kept: 24, removed: 26, unmatched: 1, previouslyMatched: 3, perPartner: [{ partnerId: "p1", count: 24 }] },
+      summary: { total: 50, kept: 24, removed: 26, unmatched: 1, perPartner: [{ partnerId: "p1", count: 24 }] },
     });
     expect(html).toMatch(/^<!DOCTYPE html>/i);
     expect(html).toContain("24");

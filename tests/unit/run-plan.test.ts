@@ -3,7 +3,6 @@ import { planRun, type RunRules } from "@/modules/run/plan";
 import { GENERIC_PROFILE } from "@/modules/sources";
 import { DEFAULT_MLS_PATTERNS } from "@/modules/pipeline/mls-patterns";
 import { buildCoverage } from "@/modules/pipeline/assign";
-import type { HistoryEntry } from "@/modules/pipeline/dedupe";
 
 const RULES: RunRules = {
   mlsPatterns: DEFAULT_MLS_PATTERNS,
@@ -41,7 +40,7 @@ const ROWS = [
 ];
 
 describe("WP-017: planRun composes the pure pipeline into a persisted-run plan", () => {
-  const plan = planRun(ROWS, GENERIC_PROFILE, RULES, new Map());
+  const plan = planRun(ROWS, GENERIC_PROFILE, RULES);
 
   it("normalizes, MLS-filters and assigns each lead; campaign passes through as-imported", () => {
     expect(plan.leads[0]).toMatchObject({
@@ -63,9 +62,8 @@ describe("WP-017: planRun composes the pure pipeline into a persisted-run plan",
     expect(plan.leads[0].rowErrors).toEqual([]);
   });
 
-  it("new leads carry firstMatchedAt=null for the caller to stamp (PRN-01 purity)", () => {
+  it("every lead carries firstMatchedAt=null for the caller to stamp (PRN-01 purity)", () => {
     expect(plan.leads[0].firstMatchedAt).toBeNull();
-    expect(plan.leads[0].previouslyMatched).toBe(false);
   });
 
   it("summary comes from the single analytics source (PRN-15)", () => {
@@ -73,24 +71,19 @@ describe("WP-017: planRun composes the pure pipeline into a persisted-run plan",
     expect(plan.summary.perPartner).toEqual([{ partnerId: "p-josh", count: 1 }]);
   });
 
-  it("DED/PRN-05: a lead already in history is flagged and reverts to the original partner", () => {
-    const history = new Map<string, HistoryEntry>([
-      [
-        plan.leads[0].dedupeKey,
-        { partnerId: "p-original", matchMethod: "zip", firstMatchedAt: "2026-06-01T00:00:00Z", phoneNorm: "8565550100" },
-      ],
-    ]);
-    const p2 = planRun(ROWS, GENERIC_PROFILE, RULES, history);
-    expect(p2.leads[0]).toMatchObject({
-      previouslyMatched: true,
-      partnerId: "p-original",
-      firstMatchedAt: "2026-06-01T00:00:00Z",
-    });
+  it("ADR-0038: duplicate rows are NOT collapsed — every row becomes its own lead", () => {
+    // Two rows for the same house (same address + ZIP) in one file: both survive,
+    // both are routed by the current coverage. Dedup was retired (event-model leads);
+    // the dedupe key is still computed and stored for later grouping/reporting.
+    const dup = planRun([ROWS[0], ROWS[0]], GENERIC_PROFILE, RULES);
+    expect(dup.leads).toHaveLength(2);
+    expect(dup.leads[0].dedupeKey).toBe(dup.leads[1].dedupeKey);
+    expect(dup.leads[1]).toMatchObject({ partnerId: "p-josh", matchMethod: "state_fallback" });
+    expect(dup.summary.total).toBe(2);
+    expect(dup.summary.perPartner).toEqual([{ partnerId: "p-josh", count: 2 }]);
   });
 
   it("PRN-01: deterministic for identical inputs", () => {
-    expect(planRun(ROWS, GENERIC_PROFILE, RULES, new Map())).toEqual(
-      planRun(ROWS, GENERIC_PROFILE, RULES, new Map()),
-    );
+    expect(planRun(ROWS, GENERIC_PROFILE, RULES)).toEqual(planRun(ROWS, GENERIC_PROFILE, RULES));
   });
 });

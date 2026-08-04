@@ -30,7 +30,6 @@ function mk(over: Partial<ExportLead> & { leadRefId: string }): ExportLead {
     motivation: "High",
     timeToSell: "30 days",
     partnerId: "p1",
-    previouslyMatched: false,
     possibleMlsListing: "unknown",
     ...over,
   };
@@ -38,7 +37,7 @@ function mk(over: Partial<ExportLead> & { leadRefId: string }): ExportLead {
 
 const LEADS: ExportLead[] = [
   mk({ leadRefId: "LD-1", partnerId: "p1", notes: "=SUM(A1)" }), // SEC-06 formula injection
-  mk({ leadRefId: "LD-2", partnerId: "p1", previouslyMatched: true }),
+  mk({ leadRefId: "LD-2", partnerId: "p1" }),
   mk({ leadRefId: "LD-3", partnerId: "p2", state: "NJ" }),
   mk({ leadRefId: "LD-4", partnerId: null, state: "CA", city: "Long Beach", zip: "90815" }), // unmatched
 ];
@@ -48,7 +47,6 @@ const SUMMARY: RunSummary = {
   kept: 4,
   removed: 0,
   unmatched: 1,
-  previouslyMatched: 1,
   perPartner: [
     { partnerId: "p1", count: 2 },
     { partnerId: "p2", count: 1 },
@@ -118,14 +116,14 @@ describe("EXP-02/03: export structure", () => {
     ws.eachRow((row) => byLabel.set(String(row.getCell(1).value ?? ""), row.getCell(2).value));
     expect(byLabel.get("Total leads")).toBe(4);
     expect(byLabel.get("Unmatched")).toBe(1);
-    expect(byLabel.get("Previously matched")).toBe(1);
+    expect(byLabel.has("Previously matched")).toBe(false); // ADR-0038: row retired
   });
 });
 
 describe("F-26: partner-name cells are formula-sanitized on every path", () => {
   const EVIL = new Map<string, PartnerInfo>([["evil", { id: "evil", name: "=cmd()|Acme", refId: "JV-009", color: "#2E7D6F" }]]);
   const EVIL_LEADS: ExportLead[] = [mk({ leadRefId: "LD-9", partnerId: "evil" })];
-  const EVIL_SUMMARY: RunSummary = { total: 1, kept: 1, removed: 0, unmatched: 0, previouslyMatched: 0, perPartner: [{ partnerId: "evil", count: 1 }] };
+  const EVIL_SUMMARY: RunSummary = { total: 1, kept: 1, removed: 0, unmatched: 0, perPartner: [{ partnerId: "evil", count: 1 }] };
 
   it("F-26: the legend + summary partner-name cells are neutralised", async () => {
     const wb = await load(await renderExport(EVIL_LEADS, EVIL, EVIL_SUMMARY, { colorCoding: true }));

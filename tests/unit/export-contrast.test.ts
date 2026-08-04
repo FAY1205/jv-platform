@@ -39,11 +39,10 @@ describe("EXP-06/PRN-14: export text meets WCAG AA on every partner tint", () =>
         motivation: "",
         timeToSell: "",
         partnerId: "p1",
-        previouslyMatched: false,
         possibleMlsListing: "unknown",
       },
     ];
-    const summary: RunSummary = { total: 1, kept: 1, removed: 0, unmatched: 0, previouslyMatched: 0, perPartner: [{ partnerId: "p1", count: 1 }] };
+    const summary: RunSummary = { total: 1, kept: 1, removed: 0, unmatched: 0, perPartner: [{ partnerId: "p1", count: 1 }] };
     const wb = new ExcelJS.Workbook();
     await wb.xlsx.load((await renderExport(leads, partners, summary, { colorCoding: true })) as unknown as ArrayBuffer);
 

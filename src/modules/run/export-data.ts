@@ -37,7 +37,7 @@ export async function getRunExportData(scope: ScopeContext, ref: string): Promis
   const partners = new Map<string, PartnerInfo>(partnerRows.map((p) => [p.id, { id: p.id, name: p.name, refId: p.refId, color: p.color }]));
 
   const summary = computeRunSummary(
-    leadRows.map((l) => ({ mlsStatus: l.mlsStatus, matchMethod: l.matchMethod, partnerId: l.partnerId, previouslyMatched: l.previouslyMatched })),
+    leadRows.map((l) => ({ mlsStatus: l.mlsStatus, matchMethod: l.matchMethod, partnerId: l.partnerId })),
   );
 
   // The partner deliverable is the kept leads; removed (MLS) are summarised only.
@@ -60,7 +60,6 @@ export async function getRunExportData(scope: ScopeContext, ref: string): Promis
       motivation: l.motivation ?? "",
       timeToSell: l.timeToSell ?? "",
       partnerId: l.partnerId,
-      previouslyMatched: l.previouslyMatched,
       possibleMlsListing: l.possibleMlsListing,
     }));
 

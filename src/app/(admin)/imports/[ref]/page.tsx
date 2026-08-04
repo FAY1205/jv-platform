@@ -9,6 +9,7 @@ import { apiGet } from "@/lib/api";
 import { csrfHeaders } from "@/lib/csrf-client";
 import type { RunDetail, RunLeadView, PartnerView } from "@/modules/run/view-types";
 import { buildAnalytics } from "@/modules/analytics/overview";
+import { matchMethodLabel } from "@/lib/match-method";
 import { Badge, Button, Dialog, Textarea, Card, CardHeader, CardTitle, CardBody, PartnerTag, Table, THead, TBody, Th, Tr, Td, RowOpenButton, EmptyState, Skeleton, AppShell, useToast } from "@/components";
 import { fmtDate } from "../_shell";
 import { isWithinVoidWindow } from "@/modules/run/void-window";
@@ -50,7 +51,7 @@ function ErrorState({ message }: { message: string }) {
 }
 
 // Import pipeline funnel (mockup 14): Imported → Removed → Distributed → Unmatched.
-// A stage view (not strict arithmetic — dedupe drops + previously-matched overlap).
+// Strict arithmetic since ADR-0038 (no dedup): Imported = Removed + Distributed + Unmatched.
 function Funnel({ steps }: { steps: { v: number; label: string; desc: string; tone: "neutral" | "warn" | "brand" }[] }) {
   const toneCls = { neutral: "text-text", warn: "text-warn", brand: "text-brand-ink" } as const;
   return (
@@ -126,7 +127,6 @@ function RunView({ detail }: { detail: RunDetail }) {
         matchMethod: l.matchMethod,
         partnerId: l.partnerId,
         mlsReason: null,
-        previouslyMatched: l.previouslyMatched,
       })),
       [],
     ).matchBreakdown;
@@ -197,11 +197,6 @@ function RunView({ detail }: { detail: RunDetail }) {
           { v: summary.unmatched, label: "Unmatched", desc: "no coverage", tone: "warn" },
         ]}
       />
-      {summary.previouslyMatched > 0 && (
-        <p className="-mt-3 mb-6 text-step-1 text-text-3">
-          <span className="num font-semibold text-text-2">{summary.previouslyMatched}</span> previously matched (excluded from distribution).
-        </p>
-      )}
 
       {(distribution.length > 0 || keptTotal > 0) && (
       <Card className="mb-6">
@@ -261,7 +256,6 @@ function RunView({ detail }: { detail: RunDetail }) {
                 <Th>ZIP</Th>
                 <Th>Match</Th>
                 <Th>Partner</Th>
-                <Th align="right">Flags</Th>
               </Tr>
             </THead>
             <TBody>
@@ -378,7 +372,7 @@ function GroupRows({ info, rows, onOpen }: { info: PartnerView | undefined; rows
   return (
     <>
       <tr>
-        <td colSpan={7} className="border-b border-border-soft bg-surface-2/60 px-3.5 py-2">
+        <td colSpan={6} className="border-b border-border-soft bg-surface-2/60 px-3.5 py-2">
           <span className="inline-flex items-center gap-2">
             <PartnerTag size="sm" name={name} color={color} refId={refId} />
             <span className="num text-xs text-text-3">{rows.length} {rows.length === 1 ? "lead" : "leads"}</span>
@@ -391,15 +385,8 @@ function GroupRows({ info, rows, onOpen }: { info: PartnerView | undefined; rows
           <Td><Badge variant="neutral">{l.campaign}</Badge></Td>
           <Td>{l.address}, {l.city}</Td>
           <Td><span className="num">{l.zip}</span></Td>
-          <Td>{l.matchMethod === "zip" ? <span className="text-xs font-medium text-brand-ink">ZIP</span> : <span className="text-xs text-text-3">state</span>}</Td>
+          <Td><span className={`text-xs ${l.matchMethod === "zip" ? "font-medium text-brand-ink" : "text-text-3"}`}>{matchMethodLabel(l.matchMethod).label}</span></Td>
           <Td><PartnerTag size="sm" name={name} color={color} refId={refId} /></Td>
-          <Td align="right">
-            {l.previouslyMatched && (
-              <span className="inline-flex items-center gap-1 rounded-full bg-prev-soft px-2 py-0.5 text-step-1 font-semibold text-prev">
-                prev. matched
-              </span>
-            )}
-          </Td>
         </Tr>
       ))}
     </>

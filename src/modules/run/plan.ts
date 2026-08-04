@@ -7,7 +7,6 @@ import {
 } from "../pipeline/normalize";
 import { evaluate, type MlsPattern } from "../pipeline/mls";
 import { assign, type Coverage, type MatchMethod } from "../pipeline/assign";
-import { dedupeRun, type HistoryEntry } from "../pipeline/dedupe";
 import {
   scoreLead,
   extractScoringInput,
@@ -19,9 +18,11 @@ import { computeRunSummary, type RunSummary } from "../analytics/run-summary";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Run plan (WP-017). PURE — composes the tested engines (apply → normalize → MLS →
-// recode → assign → dedupe) plus the summary into the full set of lead decisions
-// for one run. No I/O, no Date.now() (PRN-01): new leads carry firstMatchedAt=null
-// for the impure orchestrator to stamp; ref-ids are allocated at persist time.
+// assign) plus the summary into the full set of lead decisions for one run. No I/O,
+// no Date.now() (PRN-01): leads carry firstMatchedAt=null for the impure orchestrator
+// to stamp; ref-ids are allocated at persist time. Dedup collapse was retired
+// (ADR-0038: every row becomes a lead); the dedupe key is still computed and stored
+// so same-house submissions stay groupable/reportable.
 // ─────────────────────────────────────────────────────────────────────────────
 
 export interface RunRules {
@@ -61,10 +62,7 @@ export interface PlannedLead {
   partnerId: string | null;
   matchMethod: MatchMethod;
   matchedOn: string | null;
-  previouslyMatched: boolean;
-  originalPartnerId: string | null;
   firstMatchedAt: string | null;
-  phoneConfirmed: boolean;
   possibleMlsListing: "pending";
   // Scoring (SCR-01..10). Computed for every lead; the "hot" treatment (icon,
   // alert) is gated on mlsStatus === "kept" downstream, never here.
@@ -84,7 +82,6 @@ export function planRun(
   rows: readonly Record<string, unknown>[],
   profile: SourceProfile,
   rules: RunRules,
-  history: ReadonlyMap<string, HistoryEntry>,
 ): RunPlan {
   const pre = rows.map((row) => {
     const applied = applyProfile(row, profile);
@@ -101,18 +98,8 @@ export function planRun(
   });
 
   const assignments = pre.map((p) => assign(p.zip5, p.stateCode, rules.coverage));
-  const deduped = dedupeRun(
-    pre.map((p, i) => ({
-      dedupeKey: p.dedupeKey,
-      phoneNorm: p.phoneNorm,
-      partnerId: assignments[i].partnerId,
-      matchMethod: assignments[i].matchMethod,
-    })),
-    history,
-  );
 
   const leads: PlannedLead[] = pre.map((p, i) => {
-    const d = deduped[i];
     // SCR-10: motivation = reason-for-selling, timeline = time-to-sell for this data;
     // equity + loan type are dug out of the (skip-trace-stripped) canonical notes.
     const score = scoreLead(
@@ -147,15 +134,10 @@ export function planRun(
       mlsReason: p.mls.reason,
       mlsPatternKey: p.mls.pattern?.id ?? null,
       mlsMatchSpan: p.mls.match ?? null,
-      partnerId: d.partnerId,
-      matchMethod: d.matchMethod,
-      // For a previously-matched lead the partner came from history, not this run's
-      // coverage, so there is no current matchedOn key.
-      matchedOn: d.previouslyMatched ? null : assignments[i].matchedOn,
-      previouslyMatched: d.previouslyMatched,
-      originalPartnerId: d.originalPartnerId,
-      firstMatchedAt: d.firstMatchedAt,
-      phoneConfirmed: d.phoneConfirmed,
+      partnerId: assignments[i].partnerId,
+      matchMethod: assignments[i].matchMethod,
+      matchedOn: assignments[i].matchedOn,
+      firstMatchedAt: null,
       possibleMlsListing: "pending",
       scoreTotal: score.total,
       scoreGroup: score.group,
@@ -170,7 +152,6 @@ export function planRun(
       mlsStatus: l.mlsStatus,
       matchMethod: l.matchMethod,
       partnerId: l.partnerId,
-      previouslyMatched: l.previouslyMatched,
     })),
   );
 

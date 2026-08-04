@@ -225,6 +225,8 @@ export interface AdminLeadDetail {
     manual: boolean;
     assignedAt: string | null;
     matchMethod: string;
+    /** The exact ZIP5 or state the router matched on (leads.matched_on); null when unknown. */
+    matchedOn: string | null;
     /** The pipeline-routed partner, shown when a manual assignment overrode it. */
     original: AdminLeadPartner | null;
   };
@@ -332,6 +334,7 @@ export async function getAdminLeadDetail(scope: ScopeContext, refId: string): Pr
       manual: Boolean(lead.manualPartnerId),
       assignedAt: lead.manualAssignedAt ? lead.manualAssignedAt.toISOString() : null,
       matchMethod: lead.matchMethod,
+      matchedOn: lead.matchedOn ?? null,
       original: lead.manualPartnerId ? origPartner : null,
     },
     availableStatuses: [...SEED_LEAD_STATUSES],
