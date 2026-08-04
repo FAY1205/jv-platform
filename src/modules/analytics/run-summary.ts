@@ -33,7 +33,10 @@ export function computeRunSummary(leads: readonly RunSummaryLead[]): RunSummary 
   for (const lead of leads) {
     if (lead.mlsStatus === "kept") kept++;
     else removed++;
-    if (lead.matchMethod === "none") unmatched++;
+    // Unmatched counts KEPT leads only: a removed lead is out of the funnel, not
+    // a routing gap. Total then partitions cleanly into delivered + unmatched +
+    // removed — the same numbers the run tables and buildAnalytics show.
+    if (lead.mlsStatus === "kept" && lead.matchMethod === "none") unmatched++;
     if (lead.previouslyMatched) previouslyMatched++;
 
     // Per-partner counts only the delivered leads: kept AND assigned to a partner.

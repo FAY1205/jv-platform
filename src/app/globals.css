@@ -9,35 +9,42 @@
    forced light; an explicit [data-theme] on <html> always wins (theme toggle).
    ───────────────────────────────────────────────────────────────────────────── */
 :root {
-  /* surfaces */
-  --bg: #f6f7f7;
+  /* surfaces — Survey: cool petrol survey-paper */
+  --bg: #f1f4f3;
   --surface: #ffffff;
-  --surface-2: #fafbfb;
-  --surface-3: #f2f4f4;
-  --border: #e4e8e7;
-  --border-soft: #edf0ef;
-  /* text tiers */
-  --text: #0f1722;
-  --text-2: #445062;
-  --text-3: #8b95a5;
-  /* brand */
-  --brand: #0d7a6a;
-  --brand-strong: #0a5f53;
-  --brand-soft: #e8f3f0;
-  --brand-line: #cfe6e0;
-  /* status: info / danger / warn / success + previously-matched accent */
-  --info: #4f5bd5;
-  --info-soft: #edeffc;
-  --danger: #c2333b;
-  --danger-soft: #fbebec;
-  --warn: #b25107;
-  --warn-soft: #fdf2e2;
-  --success: #0d7a6a;
-  --success-soft: #e8f3f0;
-  --prev: #6d4a9e;
-  --prev-soft: #f2ecfa;
-  --scrim: rgba(15, 23, 34, 0.4);
-  /* radii */
+  --surface-2: #e9eeec;
+  --surface-3: #dde5e2;
+  --border: #d3dcd9;
+  --border-soft: #e4e9e7;
+  --border-strong: #b8c4c0;
+  /* text tiers — petrol ink (ink-3 is AA on surface + paper) */
+  --text: #16242b;
+  --text-2: #46565d;
+  --text-3: #566268;
+  /* brand — marigold FILL (route); --brand-ink is the amber TEXT/link tone (AA on paper) */
+  --brand: #e0912b;
+  --brand-strong: #c67d1e;
+  --brand-soft: #faefda;
+  --brand-line: #ead8ae;
+  --brand-ink: #8f5416;
+  --brand-contrast: #20160a;
+  /* text on a solid status fill (danger/success) — flips near-white↔near-black per theme */
+  --on-status: #ffffff;
+  /* status: info / danger / warn (darkened) / success (matched) + prev (taupe) */
+  --info: #2e6e93;
+  --info-soft: #e7eff4;
+  --danger: #b23a2e;
+  --danger-soft: #f7e4e1;
+  --warn: #985e15;
+  --warn-soft: #f7eeda;
+  --success: #2c7a57;
+  --success-soft: #e8f2ec;
+  --prev: #6e5c46;
+  --prev-soft: #efe8de;
+  --swatch-border: rgba(0, 0, 0, 0.18);
+  --scrim: rgba(22, 36, 43, 0.4);
+  /* radii (Survey: modest, slightly engineered 4–16px) */
+  --r-xs: 4px;
   --r-sm: 8px;
   --r-md: 12px;
   --r-lg: 16px;
@@ -46,81 +53,103 @@
   --sh-sm: 0 1px 2px rgba(15, 23, 34, 0.05), 0 1px 3px rgba(15, 23, 34, 0.04);
   --sh-md: 0 4px 12px rgba(15, 23, 34, 0.07), 0 1px 3px rgba(15, 23, 34, 0.05);
   --sh-lg: 0 16px 40px rgba(15, 23, 34, 0.14), 0 4px 12px rgba(15, 23, 34, 0.08);
+  /* assistant widget (WP-AI-2): orb glow + ambient/upward shadows */
+  --halo: rgba(224, 145, 43, 0.35);
+  --sh-amb: 0 8px 20px rgba(22, 36, 43, 0.2);
+  --sh-up: 0 -2px 10px rgba(22, 36, 43, 0.05);
   /* motion */
   --t-fast: 120ms cubic-bezier(0.2, 0.8, 0.2, 1);
   --t-base: 200ms cubic-bezier(0.2, 0.8, 0.2, 1);
   --t-slow: 300ms cubic-bezier(0.2, 0.8, 0.2, 1);
-  /* type roles (families wired via next/font in layout.tsx) */
-  --font-display: var(--font-space-grotesk), "Space Grotesk", sans-serif;
-  --font-sans: var(--font-inter), "Inter", system-ui, sans-serif;
-  --font-mono: var(--font-ibm-plex-mono), "IBM Plex Mono", monospace;
+  /* Type roles (DSN-02, ADR-0022) — three real faces loaded via next/font
+     (layout.tsx), each with a robust fallback stack. Fraunces=display,
+     Hanken Grotesk=body/UI, IBM Plex Mono=data/numerics. */
+  --font-display: var(--font-fraunces), ui-serif, "Iowan Old Style", "Palatino Linotype", Georgia, serif;
+  --font-sans: var(--font-hanken), system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: var(--font-plex-mono), "SF Mono", "Cascadia Code", ui-monospace, "Roboto Mono", monospace;
 }
 
 /* Dark palette applies via system preference (unless the user forced light)
    and via an explicit [data-theme="dark"] override, which always wins. */
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --bg: #0e1214;
-    --surface: #151a1d;
-    --surface-2: #181e21;
-    --surface-3: #1d2427;
-    --border: #242c30;
-    --border-soft: #1d2528;
-    --text: #eef2f1;
-    --text-2: #a9b4ba;
-    --text-3: #6c787f;
-    --brand: #2aa38e;
-    --brand-strong: #3cb9a2;
-    --brand-soft: #12312b;
-    --brand-line: #1c4a41;
-    --info: #8b95ec;
-    --info-soft: #20244a;
-    --danger: #e06d74;
-    --danger-soft: #3a1d20;
-    --warn: #e0964c;
-    --warn-soft: #3a2a15;
-    --success: #2aa38e;
-    --success-soft: #12312b;
-    --prev: #ab8ad6;
-    --prev-soft: #2c2140;
+    --bg: #10181c;
+    --surface: #17232a;
+    --surface-2: #1e2c33;
+    --surface-3: #26363e;
+    --border: #2a3a41;
+    --border-soft: #223038;
+    --border-strong: #3a4d55;
+    --text: #eaf0ee;
+    --text-2: #a9b8bc;
+    --text-3: #85969b;
+    --brand: #f0a63e;
+    --brand-strong: #f6b856;
+    --brand-soft: #2a2417;
+    --brand-line: #4a3a1e;
+    --brand-ink: #f0a63e;
+    --brand-contrast: #20160a;
+    --on-status: #20160a;
+    --info: #5fa0c8;
+    --info-soft: #1a2a33;
+    --danger: #e06555;
+    --danger-soft: #301e1b;
+    --warn: #e0973a;
+    --warn-soft: #33291a;
+    --success: #4fb183;
+    --success-soft: #173529;
+    --prev: #cbb89c;
+    --prev-soft: #2a251e;
+    --swatch-border: rgba(255, 255, 255, 0.22);
     --scrim: rgba(0, 0, 0, 0.55);
     --sh-xs: 0 1px 2px rgba(0, 0, 0, 0.3);
     --sh-sm: 0 1px 3px rgba(0, 0, 0, 0.35);
     --sh-md: 0 4px 14px rgba(0, 0, 0, 0.4);
     --sh-lg: 0 16px 44px rgba(0, 0, 0, 0.55);
+    --halo: rgba(240, 166, 62, 0.28);
+    --sh-amb: 0 8px 22px rgba(0, 0, 0, 0.55);
+    --sh-up: 0 -2px 10px rgba(0, 0, 0, 0.35);
   }
 }
 
 /* Explicit user override always wins over system preference. */
 :root[data-theme="dark"] {
-  --bg: #0e1214;
-  --surface: #151a1d;
-  --surface-2: #181e21;
-  --surface-3: #1d2427;
-  --border: #242c30;
-  --border-soft: #1d2528;
-  --text: #eef2f1;
-  --text-2: #a9b4ba;
-  --text-3: #6c787f;
-  --brand: #2aa38e;
-  --brand-strong: #3cb9a2;
-  --brand-soft: #12312b;
-  --brand-line: #1c4a41;
-  --info: #8b95ec;
-  --info-soft: #20244a;
-  --danger: #e06d74;
-  --danger-soft: #3a1d20;
-  --warn: #e0964c;
-  --warn-soft: #3a2a15;
-  --success: #2aa38e;
-  --success-soft: #12312b;
-  --prev: #ab8ad6;
-  --prev-soft: #2c2140;
+  --bg: #10181c;
+  --surface: #17232a;
+  --surface-2: #1e2c33;
+  --surface-3: #26363e;
+  --border: #2a3a41;
+  --border-soft: #223038;
+  --border-strong: #3a4d55;
+  --text: #eaf0ee;
+  --text-2: #a9b8bc;
+  --text-3: #85969b;
+  --brand: #f0a63e;
+  --brand-strong: #f6b856;
+  --brand-soft: #2a2417;
+  --brand-line: #4a3a1e;
+  --brand-ink: #f0a63e;
+  --brand-contrast: #20160a;
+  --on-status: #20160a;
+  --info: #5fa0c8;
+  --info-soft: #1a2a33;
+  --danger: #e06555;
+  --danger-soft: #301e1b;
+  --warn: #e0973a;
+  --warn-soft: #33291a;
+  --success: #4fb183;
+  --success-soft: #173529;
+  --prev: #cbb89c;
+  --prev-soft: #2a251e;
+  --swatch-border: rgba(255, 255, 255, 0.22);
   --scrim: rgba(0, 0, 0, 0.55);
   --sh-xs: 0 1px 2px rgba(0, 0, 0, 0.3);
   --sh-sm: 0 1px 3px rgba(0, 0, 0, 0.35);
   --sh-md: 0 4px 14px rgba(0, 0, 0, 0.4);
   --sh-lg: 0 16px 44px rgba(0, 0, 0, 0.55);
+  --halo: rgba(240, 166, 62, 0.28);
+  --sh-amb: 0 8px 22px rgba(0, 0, 0, 0.55);
+  --sh-up: 0 -2px 10px rgba(0, 0, 0, 0.35);
 }
 
 /* Map semantic tokens to Tailwind utilities (bg-surface, text-text-2, …).
@@ -133,6 +162,7 @@
   --color-surface-3: var(--surface-3);
   --color-border: var(--border);
   --color-border-soft: var(--border-soft);
+  --color-border-strong: var(--border-strong);
   --color-text: var(--text);
   --color-text-2: var(--text-2);
   --color-text-3: var(--text-3);
@@ -140,6 +170,9 @@
   --color-brand-strong: var(--brand-strong);
   --color-brand-soft: var(--brand-soft);
   --color-brand-line: var(--brand-line);
+  --color-brand-ink: var(--brand-ink);
+  --color-brand-contrast: var(--brand-contrast);
+  --color-on-status: var(--on-status);
   --color-info: var(--info);
   --color-info-soft: var(--info-soft);
   --color-danger: var(--danger);
@@ -151,6 +184,7 @@
   --color-prev: var(--prev);
   --color-prev-soft: var(--prev-soft);
 
+  --radius-xs: var(--r-xs);
   --radius-sm: var(--r-sm);
   --radius-md: var(--r-md);
   --radius-lg: var(--r-lg);
@@ -159,10 +193,33 @@
   --shadow-sm: var(--sh-sm);
   --shadow-md: var(--sh-md);
   --shadow-lg: var(--sh-lg);
+  --shadow-amb: var(--sh-amb);
+  --shadow-up: var(--sh-up);
 
   --font-display: var(--font-display);
   --font-sans: var(--font-sans);
   --font-mono: var(--font-mono);
+}
+
+/* Type scale (DSN-11, WP-K) — one named ladder consumed via Tailwind
+   `text-step-*` utilities (Tailwind v4 `--text-*` namespace). Font-size ONLY:
+   no `--text-step-N--line-height` companion, so a swept element keeps its
+   element/`leading-*` line-height and the rename stays visually inert.
+   Steps 2/4/5/6 mirror today's Tailwind-default sizes (text-sm/lg/2xl/3xl)
+   as documented vocabulary for the later default-scale migration — not yet
+   adopted in app code (they appear only in the /gallery doc card, which is what
+   generates them; a step referenced nowhere would emit no CSS). Step-0 (12px) IS
+   adopted (WP-P) for sub-13px meta. Not mirrored to tokens.ts — sizes have no
+   off-CSS consumer (WP-K design §5). */
+@theme {
+  --text-step-0: 0.75rem;   /* 12px — micro (= text-xs); adopted for sub-13px meta (WP-P) */
+  --text-step-1: 0.8125rem; /* 13px — chrome floor: labels, meta, dense text */
+  --text-step-2: 0.875rem;  /* 14px — body-sm (= text-sm); vocab, not swept */
+  --text-step-3: 1rem;      /* 16px — base/body; small card headings */
+  --text-step-4: 1.125rem;  /* 18px — (= text-lg); vocab, not swept */
+  --text-step-5: 1.5rem;    /* 24px — (= text-2xl); vocab, not swept */
+  --text-step-6: 1.875rem;  /* 30px — (= text-3xl); vocab, not swept */
+  --text-step-7: 2rem;      /* 32px — hero/display */
 }
 
 /* ── Base ── */
@@ -171,18 +228,33 @@
 }
 
 html {
-  font-size: 14px;
+  /* 100% (not a fixed 16px) so a user's browser/OS text-size preference flows through
+     the rem-based type scale — WCAG 1.4.4 (Resize text). The browser default is 16px, so
+     this is render-neutral for default settings and only differs when a user has changed
+     their base font size. */
+  font-size: 100%;
 }
 
 body {
   background: var(--bg);
   color: var(--text);
   font-family: var(--font-sans);
-  line-height: 1.5;
+  line-height: 1.55;
   -webkit-font-smoothing: antialiased;
   transition:
     background var(--t-base),
     color var(--t-base);
+}
+
+/* Heading base: tight leading + balanced wrap (DSN-02). The Fraunces display
+   face is loaded and available as var(--font-display) / the `font-display`
+   utility; pages promote specific titles/headline numbers to it in WP-E. */
+h1,
+h2,
+h3,
+h4 {
+  line-height: 1.15;
+  text-wrap: balance;
 }
 
 /* Ledger identity: every number is tabular monospace (DSN-02). */
@@ -191,11 +263,111 @@ body {
   font-variant-numeric: tabular-nums;
 }
 
-/* Visible keyboard focus on every interactive element (DSN-10, FRM-04). */
-:focus-visible {
-  outline: 2px solid var(--brand);
-  outline-offset: 2px;
-  border-radius: 4px;
+/* Slimmer, theme-aware scrollbars so scroll containers read as designed, not OS-default. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+*::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border: 3px solid transparent;
+  background-clip: padding-box;
+  border-radius: 999px;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--text-3);
+  background-clip: padding-box;
+}
+
+/* ── Motion primitives ─────────────────────────────────────────────────────────
+   Purposeful entrance + interaction motion. Every animation is `both`-filled so
+   it holds its final frame; reduced-motion (below) collapses them to instant. */
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes fade-in-up {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes pop-in {
+  from { opacity: 0; transform: translateY(8px) scale(0.985); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes scrim-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes drawer-in {
+  from { transform: translateX(-100%); }
+  to { transform: none; }
+}
+
+.anim-fade { animation: fade-in var(--t-base) both; }
+.anim-fade-up { animation: fade-in-up var(--t-slow) both; }
+.anim-pop { animation: pop-in 180ms cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+.anim-scrim { animation: scrim-in var(--t-fast) both; }
+.anim-drawer { animation: drawer-in var(--t-base) both; }
+
+/* Assistant launcher: a slow ambient pulse (halo grows/shrinks). The global
+   reduced-motion rule below collapses this to a static shadow. */
+@keyframes assistant-breathe {
+  0%, 100% { box-shadow: var(--sh-amb), 0 4px 18px var(--halo); }
+  50%      { box-shadow: var(--sh-amb), 0 6px 32px var(--halo); }
+}
+.assistant-breathe { animation: assistant-breathe 4.5s ease-in-out infinite; }
+
+/* CSS mini-orb (WP-AI-2): a filled brand disc for small header slots where the WebGL
+   ring vanishes. Token-driven base + fixed white sheen + a slow rotating glint. */
+.assistant-miniorb {
+  background:
+    radial-gradient(circle at 32% 28%, rgba(255, 255, 255, 0.6), transparent 44%),
+    radial-gradient(circle at 68% 76%, var(--brand-ink), transparent 60%),
+    radial-gradient(circle at 50% 46%, var(--brand-strong), var(--brand));
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.22), 0 2px 9px var(--halo);
+  overflow: hidden;
+}
+.assistant-miniorb::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: conic-gradient(from 0deg, transparent, rgba(255, 255, 255, 0.32), transparent 55%);
+  animation: miniorb-glint 6s linear infinite;
+}
+@keyframes miniorb-glint { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .assistant-miniorb::after { animation: none; } }
+
+/* Assistant typing indicator: three dots blink in sequence (staggered via
+   animation-delay at the call site). */
+@keyframes blink { 0%, 70%, 100% { opacity: 0.25; } 35% { opacity: 1; } }
+
+/* Staggered reveal for lists/grids: children fade-up in sequence. Cheap (six
+   steps) and capped so long lists don't cascade forever. */
+.stagger > * { animation: fade-in-up var(--t-slow) both; }
+.stagger > *:nth-child(1) { animation-delay: 0ms; }
+.stagger > *:nth-child(2) { animation-delay: 40ms; }
+.stagger > *:nth-child(3) { animation-delay: 80ms; }
+.stagger > *:nth-child(4) { animation-delay: 120ms; }
+.stagger > *:nth-child(5) { animation-delay: 160ms; }
+.stagger > *:nth-child(n + 6) { animation-delay: 200ms; }
+
+/* Keyboard-focus ring for interactive elements that don't define their own
+   (buttons, links, menu items, cards). Lives in @layer base so a component can opt
+   out with `outline-none` and supply its own focus treatment — form fields do this
+   to avoid stacking a detached outline on top of their border+ring. Before this was
+   layered, `outline-none` was silently defeated and every field showed a second,
+   offset border on focus. (DSN-10, FRM-04)
+   The outline follows each element's own border-radius, so no radius is set here. */
+@layer base {
+  :focus-visible {
+    outline: 2px solid var(--brand-ink);
+    outline-offset: 2px;
+  }
 }
 
 ::selection {

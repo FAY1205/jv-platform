@@ -44,6 +44,18 @@ export const CANONICAL_FIELDS: readonly CanonicalField[] = [
  */
 export type Strictness = "flexible" | "strict";
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Saved profiles are source_profiles rows and carry a uuid id; built-in seeds carry
+ * slug ids ("generic"). Only a saved id may go into a uuid FK column — a slug there
+ * is a type error at the DB, so callers writing uploads.source_profile_id must gate
+ * on this and store NULL for seeds.
+ */
+export function isSavedProfileId(id: string): boolean {
+  return UUID_RE.test(id);
+}
+
 export interface SourceProfile {
   id: string;
   name: string;
@@ -56,4 +68,12 @@ export interface SourceProfile {
   /** Canonical fields whose source column MUST be present (else hard block). */
   requiredColumns: CanonicalField[];
   strictness: Strictness;
+  /**
+   * Optional derived-extraction seam (SEAM): the NAME of a transform registered in
+   * ./transforms.ts, run after column mapping. Data names it, code implements it —
+   * the same split as MLS patterns. Needed when canonical fields cannot be reached
+   * by column mapping alone (a name to split, an address to decompose, fields buried
+   * in a notes blob). Unknown name ⇒ applyProfile throws (never a silent skip).
+   */
+  transform?: string;
 }

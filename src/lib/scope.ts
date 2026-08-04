@@ -1,4 +1,4 @@
-import { and, eq, inArray, type SQL } from "drizzle-orm";
+import { and, eq, inArray, isNull, or, type SQL } from "drizzle-orm";
 import type { PgColumn } from "drizzle-orm/pg-core";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import * as schema from "@/db/schema";
@@ -34,11 +34,21 @@ export function tenantWhere<T extends { tenantId: PgColumn }>(table: T, scope: S
   return eq(table.tenantId, scope.tenantId);
 }
 
+/** A partner "owns" a lead if it is their EFFECTIVE owner: the manual overlay when
+ *  present, else the pipeline snapshot — i.e. coalesce(manualPartnerId, partnerId) = me.
+ *  Re-routing a MATCHED lead to another partner (editLead "set") REVOKES the original
+ *  pipeline partner's access, so the two predicates DO overlap once a matched lead is
+ *  re-routed; this is not a plain union (audit F-01 / ASN-04). The one place partner
+ *  lead-ownership is defined; every partner-scoped read uses it. */
+export function partnerOwnsLead(me: string): SQL {
+  return or(eq(leads.manualPartnerId, me), and(isNull(leads.manualPartnerId), eq(leads.partnerId, me)))!;
+}
+
 /** Leads visibility: tenant + (admin sees all · partner sees only their own). */
 export function leadWhere(scope: ScopeContext): SQL {
   const base = eq(leads.tenantId, scope.tenantId);
   if (scope.role === "admin") return base;
-  return and(base, eq(leads.partnerId, requirePartner(scope)))!;
+  return and(base, partnerOwnsLead(requirePartner(scope)))!;
 }
 
 /**
@@ -53,7 +63,9 @@ export function noteWhere(scope: ScopeContext, db: DB): SQL {
   const ownLeads = db
     .select({ id: leads.id })
     .from(leads)
-    .where(and(eq(leads.tenantId, scope.tenantId), eq(leads.partnerId, requirePartner(scope))));
+    // WP-J2 / DM-09b: a partner's owned-lead set excludes recalled (soft-deleted) leads, so the
+    // guard is self-sufficient — child-table reads never rely on a parent join to filter deletes.
+    .where(and(eq(leads.tenantId, scope.tenantId), partnerOwnsLead(requirePartner(scope)), isNull(leads.deletedAt)));
   return and(base, eq(leadNotes.authorRole, "partner"), inArray(leadNotes.leadId, ownLeads))!;
 }
 
@@ -68,6 +80,8 @@ export function leadChildWhere(
   const ownLeads = db
     .select({ id: leads.id })
     .from(leads)
-    .where(and(eq(leads.tenantId, scope.tenantId), eq(leads.partnerId, requirePartner(scope))));
+    // WP-J2 / DM-09b: a partner's owned-lead set excludes recalled (soft-deleted) leads, so the
+    // guard is self-sufficient — child-table reads never rely on a parent join to filter deletes.
+    .where(and(eq(leads.tenantId, scope.tenantId), partnerOwnsLead(requirePartner(scope)), isNull(leads.deletedAt)));
   return and(base, inArray(table.leadId, ownLeads))!;
 }

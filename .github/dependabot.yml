@@ -1,0 +1,19 @@
+# F-43 (OpenSSF): automated dependency updates. The github-actions ecosystem also
+# keeps the SHA-pinned actions (F-47) fresh — Dependabot bumps the pin + the version
+# comment together. The npm updates surface transitive advisories (e.g. the dev-only
+# esbuild<0.24.3 under drizzle-kit, F-46) as reviewable PRs rather than a blind override.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: "/"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 10
+    groups:
+      dev-dependencies:
+        dependency-type: development
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 10

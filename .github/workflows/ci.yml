@@ -9,21 +9,29 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+# F-47 (OpenSSF Token-Permissions): least-privilege default for GITHUB_TOKEN across
+# all jobs — these only read the checkout. Jobs that need more grant it explicitly.
+permissions:
+  contents: read
+
 jobs:
-  # Fast gate on every PR and push: typecheck, lint, unit + integration tests.
+  # Fast gate on every PR and push: typecheck, lint, unit tests. Integration tests need a
+  # Postgres service and run in the `integration` job below — running the full suite here
+  # (no DATABASE_URL) fails at collection for the integration files that open a connection
+  # eagerly, so this job runs the unit suite only.
   verify:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm run typecheck
       - run: pnpm run lint
-      - run: pnpm run test
+      - run: pnpm run test:unit
 
   # Integration tests (TST-01 isolation, and future TST-05/08/11/12) run on every
   # merge against an ephemeral Postgres — never the cloud dev/prod project.
@@ -44,9 +52,9 @@ jobs:
     env:
       DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres
     steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 22
           cache: pnpm
@@ -54,18 +62,38 @@ jobs:
       - run: pnpm run db:migrate
       - run: pnpm run test:integration
 
-  # Heavier checks run on main only: end-to-end and performance.
+  # Heavier checks run on main only: end-to-end and performance. The app is built +
+  # served against an ephemeral Postgres (migrated), so the smoke journey exercises a
+  # real DB. The full authenticated TST-07 journey self-skips until a dev Supabase Auth
+  # project + its dev-mailbox OTP are wired here (owner reality-gate) — set the
+  # NEXT_PUBLIC_SUPABASE_* + SUPABASE_SERVICE_ROLE_KEY secrets to activate it.
   e2e:
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres
+      APP_ENV: development
     steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - run: pnpm run db:migrate
       - run: pnpm exec playwright install --with-deps chromium
       - run: pnpm run e2e
 

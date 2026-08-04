@@ -1,0 +1,131 @@
+{
+  "rulesHash": "20b0fa17801c518d061b321b2e673d629ef5759a82245b53d9116f1ced6ec94d",
+  "outcomes": [
+    {
+      "key": "100 fake row|48205",
+      "campaign": "Campaign Beta",
+      "mls": "kept",
+      "match": "none",
+      "partner": null,
+      "prev": false,
+      "patternKey": null,
+      "span": null
+    },
+    {
+      "key": "12 invented st|77021",
+      "campaign": "Campaign Alpha",
+      "mls": "removed",
+      "match": "zip",
+      "partner": "Joe Lieber",
+      "prev": false,
+      "patternKey": "dq_ls1_listed_yes",
+      "span": {
+        "start": 0,
+        "end": 11,
+        "text": "Listed? Yes"
+      }
+    },
+    {
+      "key": "12 invented st|77021",
+      "campaign": "Campaign Alpha",
+      "mls": "removed",
+      "match": "zip",
+      "partner": "Joe Lieber",
+      "prev": true,
+      "patternKey": "dq_ls1_listed_yes",
+      "span": {
+        "start": 0,
+        "end": 11,
+        "text": "Listed? Yes"
+      }
+    },
+    {
+      "key": "22 nonexistent rd|98101",
+      "campaign": "Campaign Gamma",
+      "mls": "removed",
+      "match": "state_fallback",
+      "partner": "Dylan Tanaka",
+      "prev": false,
+      "patternKey": "dq_ls1_listed_mls_yes",
+      "span": {
+        "start": 49,
+        "end": 68,
+        "text": "Listed on MLS?: Yes"
+      }
+    },
+    {
+      "key": "310 fictional ave|90815",
+      "campaign": "Campaign Beta",
+      "mls": "kept",
+      "match": "zip",
+      "partner": "Jason Beery",
+      "prev": false,
+      "patternKey": null,
+      "span": null
+    },
+    {
+      "key": "48 pretend blvd|77021",
+      "campaign": "Campaign Alpha",
+      "mls": "kept",
+      "match": "zip",
+      "partner": "Joe Lieber",
+      "prev": false,
+      "patternKey": null,
+      "span": null
+    },
+    {
+      "key": "5 unreal ct|80202",
+      "campaign": "Campaign Alpha",
+      "mls": "removed",
+      "match": "state_fallback",
+      "partner": "Blake McCreight",
+      "prev": false,
+      "patternKey": "dq_ls1_is_it_listed_yes",
+      "span": {
+        "start": 0,
+        "end": 20,
+        "text": "Is it Listed? : True"
+      }
+    },
+    {
+      "key": "7 imaginary way|95814",
+      "campaign": "Campaign Beta",
+      "mls": "kept",
+      "match": "state_fallback",
+      "partner": "Blake McCreight",
+      "prev": false,
+      "patternKey": null,
+      "span": null
+    },
+    {
+      "key": "88 recovered st|97205",
+      "campaign": "Campaign Alpha",
+      "mls": "kept",
+      "match": "state_fallback",
+      "partner": "Jason Beery",
+      "prev": false,
+      "patternKey": null,
+      "span": null
+    },
+    {
+      "key": "9 pretend ave|85004",
+      "campaign": "Campaign Gamma",
+      "mls": "kept",
+      "match": "state_fallback",
+      "partner": "Jeff Lister",
+      "prev": false,
+      "patternKey": null,
+      "span": null
+    },
+    {
+      "key": "|",
+      "campaign": "Campaign Beta",
+      "mls": "kept",
+      "match": "none",
+      "partner": null,
+      "prev": false,
+      "patternKey": null,
+      "span": null
+    }
+  ]
+}

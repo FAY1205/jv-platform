@@ -68,3 +68,10 @@ Companion process doc: docs/PLAYBOOK.md. Backlog: docs/backlog/. Decisions: docs
 - After implementing, run the self-audit in docs/PLAYBOOK.md §6 and print the
   filled checklist in your summary.
 - Prefer boring code. No new dependencies without an ADR.
+
+## Audit system (ADR-0015)
+- Read-only audit agents live in .claude/agents (audit-*, pr-reviewer); orchestrate
+  with /audit (diff | <area> | full | gate). Output contract: docs/audit/PROTOCOL.md;
+  reports in docs/audit/; standards: docs/ENGINEERING_STANDARDS.md +
+  docs/FRONTEND_STANDARDS.md. Agents propose fixes as diffs — they never edit.
+  See docs/audit/README.md.

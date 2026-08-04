@@ -12,6 +12,10 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Local Claude Code state — git worktree checkouts under
+    // .claude/worktrees are full copies of this repo and would otherwise be
+    // linted again (tens of thousands of duplicate problems).
+    ".claude/**",
   ]),
 ]);
 

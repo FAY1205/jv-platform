@@ -1,0 +1,157 @@
+<title>TerritoryDesk — Settings</title>
+<style>
+  :root{--paper:#F1F4F3;--surface:#FFFFFF;--surface-2:#E9EEEC;--surface-3:#DDE5E2;--ink:#16242B;--ink-2:#46565D;--ink-3:#566268;--line:#D3DCD9;--line-strong:#B8C4C0;--route:#E0912B;--route-strong:#C67D1E;--route-tint:#FAEFDA;--route-ink:#8F5416;--matched:#2C7A57;--info:#2E6E93;--warn:#B9741C;--danger:#B23A2E;--shadow:0 1px 2px rgba(22,36,43,.06),0 14px 40px -18px rgba(22,36,43,.28);--shadow-sm:0 1px 2px rgba(22,36,43,.08);--r-xs:4px;--r-sm:8px;--r-md:12px;--r-lg:16px;--r-pill:999px;--t:200ms;--ease:cubic-bezier(.2,.7,.2,1);--font-display:ui-serif,"Iowan Old Style","Palatino Linotype",Georgia,serif;--font-sans:system-ui,-apple-system,"Segoe UI",sans-serif;--font-mono:"SF Mono","Cascadia Code",ui-monospace,"Roboto Mono",monospace;}
+  @media (prefers-color-scheme:dark){:root:not([data-theme]){--paper:#10181C;--surface:#17232A;--surface-2:#1E2C33;--surface-3:#26363E;--ink:#EAF0EE;--ink-2:#A9B8BC;--ink-3:#85969B;--line:#2A3A41;--line-strong:#3A4D55;--route:#F0A63E;--route-strong:#F6B856;--route-tint:#2A2417;--route-ink:#F0A63E;--matched:#4FB183;--info:#5FA0C8;--warn:#E0973A;--danger:#E06555;--shadow:0 1px 2px rgba(0,0,0,.3),0 16px 44px -18px rgba(0,0,0,.7);--shadow-sm:0 1px 2px rgba(0,0,0,.35);}}
+  :root[data-theme="dark"]{--paper:#10181C;--surface:#17232A;--surface-2:#1E2C33;--surface-3:#26363E;--ink:#EAF0EE;--ink-2:#A9B8BC;--ink-3:#85969B;--line:#2A3A41;--line-strong:#3A4D55;--route:#F0A63E;--route-strong:#F6B856;--route-tint:#2A2417;--route-ink:#F0A63E;--matched:#4FB183;--info:#5FA0C8;--warn:#E0973A;--danger:#E06555;--shadow:0 1px 2px rgba(0,0,0,.3),0 16px 44px -18px rgba(0,0,0,.7);--shadow-sm:0 1px 2px rgba(0,0,0,.35);}
+  :root[data-theme="light"]{--paper:#F1F4F3;--surface:#FFFFFF;--surface-2:#E9EEEC;--surface-3:#DDE5E2;--ink:#16242B;--ink-2:#46565D;--ink-3:#566268;--line:#D3DCD9;--line-strong:#B8C4C0;--route:#E0912B;--route-strong:#C67D1E;--route-tint:#FAEFDA;--route-ink:#8F5416;--matched:#2C7A57;--info:#2E6E93;--warn:#B9741C;--danger:#B23A2E;--shadow:0 1px 2px rgba(22,36,43,.06),0 14px 40px -18px rgba(22,36,43,.28);--shadow-sm:0 1px 2px rgba(22,36,43,.08);}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--font-sans);font-size:15px;line-height:1.5;-webkit-font-smoothing:antialiased}
+  .num{font-family:var(--font-mono);font-variant-numeric:tabular-nums}
+  h1,h2,h3{font-family:var(--font-display);font-weight:500;line-height:1.15;margin:0;text-wrap:balance}
+  :focus-visible{outline:2px solid var(--route-strong);outline-offset:2px;border-radius:var(--r-xs)}
+  button{font:inherit;cursor:pointer}
+  @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+  .app{display:grid;grid-template-columns:250px 1fr;min-height:100vh}
+  .side{background:var(--surface);border-right:1px solid var(--line);display:flex;flex-direction:column;position:sticky;top:0;height:100vh}
+  .side .brand{display:flex;align-items:center;gap:10px;padding:18px 18px 14px}.side .brand strong{font-size:1rem}
+  .side .brand .sub{font-family:var(--font-mono);font-size:.62rem;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3)}
+  .nav{flex:1;overflow:auto;padding:6px 12px}.nav .grp{font-family:var(--font-mono);font-size:.6rem;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3);padding:16px 10px 6px}
+  .nav a{display:flex;align-items:center;gap:11px;padding:8px 10px;border-radius:var(--r-sm);color:var(--ink-2);text-decoration:none;font-size:.9rem;font-weight:500}
+  .nav a:hover{background:var(--surface-2);color:var(--ink)}.nav a.on{background:var(--route-tint);color:var(--route-ink)}.nav a.on svg{color:var(--route)}
+  .nav a .ic{width:17px;height:17px;flex:none;color:var(--ink-3)}
+  .side .me{display:flex;align-items:center;gap:10px;padding:12px 16px;border-top:1px solid var(--line)}
+  .avatar{width:30px;height:30px;border-radius:50%;background:var(--info);color:#fff;display:grid;place-items:center;font-size:.78rem;font-weight:600;flex:none}
+  .me .nm{font-size:.82rem;font-weight:600;line-height:1.2}.me .em{font-size:.7rem;color:var(--ink-3)}
+  .main{min-width:0;display:flex;flex-direction:column}
+  .topbar{display:flex;align-items:center;gap:12px;padding:16px 28px;border-bottom:1px solid var(--line);position:relative}.topbar h1{font-size:1.3rem}.spacer{margin-left:auto}
+  .iconbtn{width:36px;height:36px;border-radius:var(--r-sm);border:1px solid var(--line-strong);background:var(--surface);color:var(--ink-2);display:grid;place-items:center;position:relative}.iconbtn:hover{border-color:var(--route)}
+  .iconbtn .n{position:absolute;top:-4px;right:-4px;background:var(--route);color:#20160A;font-family:var(--font-mono);font-size:.6rem;font-weight:700;border-radius:var(--r-pill);padding:0 5px;line-height:15px}
+  /* notification center dropdown */
+  .pop{position:absolute;top:60px;right:64px;width:340px;background:var(--surface);border:1px solid var(--line);border-radius:var(--r-md);box-shadow:var(--shadow);overflow:hidden;z-index:30}
+  .pop .ph{display:flex;align-items:center;justify-content:space-between;padding:12px 14px;border-bottom:1px solid var(--line)}.pop .ph h3{font-size:.98rem}.pop .ph button{border:0;background:none;color:var(--route-ink);font-weight:600;font-size:.78rem}
+  .pop .day{font-family:var(--font-mono);font-size:.62rem;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-3);padding:10px 14px 4px}
+  .ni{display:flex;gap:10px;padding:10px 14px;border-bottom:1px solid var(--line);font-size:.85rem}
+  .ni .ic{width:28px;height:28px;border-radius:var(--r-sm);background:var(--route-tint);color:var(--route-ink);display:grid;place-items:center;flex:none}
+  .ni.unread{background:color-mix(in srgb,var(--route) 5%,transparent)}
+  .ni .t2{font-size:.7rem;color:var(--ink-3);margin-top:2px}
+  /* profile menu */
+  .pmenu{position:absolute;top:60px;right:20px;width:230px;background:var(--surface);border:1px solid var(--line);border-radius:var(--r-md);box-shadow:var(--shadow);overflow:hidden;z-index:30}
+  .pmenu .h{display:flex;gap:10px;align-items:center;padding:12px 14px;border-bottom:1px solid var(--line)}
+  .pmenu .h .nm{font-weight:600;font-size:.88rem}.pmenu .h .em{font-size:.72rem;color:var(--ink-3)}
+  .pmenu a{display:flex;align-items:center;gap:10px;padding:9px 14px;color:var(--ink-2);text-decoration:none;font-size:.86rem}.pmenu a:hover{background:var(--surface-2);color:var(--ink)}
+  .pmenu a.dngr{color:var(--danger);border-top:1px solid var(--line)}
+
+  .settings{display:grid;grid-template-columns:212px 1fr;gap:0;flex:1;min-height:0}
+  .snav{border-right:1px solid var(--line);padding:18px 12px;background:var(--surface)}
+  .snav .g{font-family:var(--font-mono);font-size:.6rem;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3);padding:12px 10px 4px}
+  .snav a{display:block;padding:8px 10px;border-radius:var(--r-sm);color:var(--ink-2);text-decoration:none;font-size:.88rem;font-weight:500}
+  .snav a:hover{background:var(--surface-2);color:var(--ink)}.snav a.on{background:var(--route-tint);color:var(--route-ink)}
+  .spanel{padding:26px 30px 48px;max-width:720px}
+  .spanel .lede{color:var(--ink-2);margin:4px 0 22px}
+  .sect{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-md);box-shadow:var(--shadow-sm);margin-bottom:16px;overflow:hidden}
+  .sect .st{padding:16px 18px 4px}.sect .st h3{font-size:1.05rem}.sect .st p{color:var(--ink-3);font-size:.84rem;margin:2px 0 0}
+  .opt{display:flex;align-items:center;gap:14px;padding:16px 18px;border-top:1px solid var(--line)}
+  .opt:first-of-type{border-top:1px solid var(--line);margin-top:12px}
+  .opt .txt{flex:1}.opt .txt .l{font-weight:600;font-size:.92rem}.opt .txt .d{color:var(--ink-3);font-size:.82rem}
+  .toggle{width:44px;height:26px;border-radius:var(--r-pill);border:1px solid var(--line-strong);background:var(--surface-3);position:relative;flex:none;cursor:pointer}
+  .toggle::after{content:"";position:absolute;top:2px;left:2px;width:20px;height:20px;border-radius:50%;background:var(--surface);box-shadow:var(--shadow-sm);transition:transform var(--t) var(--ease)}
+  .toggle[aria-checked="true"]{background:var(--route);border-color:var(--route-strong)}
+  .toggle[aria-checked="true"]::after{transform:translateX(18px)}
+  .preview{display:flex;gap:6px;margin:0 18px 16px;padding:12px;border:1px solid var(--line);border-radius:var(--r-sm);background:var(--surface-2)}
+  .pr{display:flex;align-items:center;gap:7px;font-size:.78rem;padding:5px 9px;border-radius:var(--r-xs);background:var(--surface);border:1px solid var(--line)}
+  .pr .sw{width:10px;height:10px;border-radius:3px}.pr .rf{font-family:var(--font-mono);font-size:.66rem;color:var(--ink-3)}
+  .btn{font:inherit;font-size:.86rem;font-weight:600;border-radius:var(--r-sm);padding:9px 15px;border:1px solid transparent}
+  .btn-primary{background:var(--route);color:#20160A;border-color:var(--route-strong)}
+  .btn-secondary{background:var(--surface);color:var(--ink);border-color:var(--line-strong)}
+  .fbar{padding:14px 18px;border-top:1px solid var(--line);background:var(--surface-2);display:flex;justify-content:flex-end;gap:10px}
+  @media (max-width:900px){.settings{grid-template-columns:1fr}.snav{display:none}.app{grid-template-columns:1fr}.side{display:none}}
+
+  .menubtn{display:none}
+  @media (max-width:900px){.menubtn{display:grid}}
+</style>
+<div class="app">
+  <aside class="side">
+    <div class="brand"><svg width="30" height="30" viewBox="0 0 34 34" fill="none" aria-hidden="true"><rect x="1.5" y="1.5" width="31" height="31" rx="7" stroke="var(--ink)" stroke-width="1.5"/><path d="M7 24 L14 12 L21 19 L27 9" stroke="var(--route)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/><circle cx="7" cy="24" r="2.4" fill="var(--ink)"/><circle cx="27" cy="9" r="2.8" fill="var(--route)"/></svg><div><strong>TerritoryDesk</strong><div class="sub">Operations</div></div></div>
+    <nav class="nav" aria-label="Primary">
+      <div class="grp">Route</div>
+      <a href="#"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 12h4l3 8 4-16 3 8h4"/></svg>Dashboard</a>
+      <a href="#"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18M8 4v16"/></svg>Leads</a>
+      <div class="grp">Review</div>
+      <a href="#"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 3v18M3 8l9-5 9 5"/><circle cx="12" cy="14" r="3"/></svg>Unmatched</a>
+      <a href="#"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 3v12m0 0l-4-4m4 4l4-4M4 21h16"/></svg>Imports</a>
+      <div class="grp">Network</div>
+      <a href="#"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="9" cy="8" r="3"/><path d="M3 20c0-3 3-5 6-5s6 2 6 5"/><circle cx="18" cy="9" r="2.4"/><path d="M16 20c.3-2 1-3 5-3"/></svg>Partners</a>
+      <a href="#"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M9 3l-6 3v15l6-3 6 3 6-3V3l-6 3-6-3zM9 3v15M15 6v15"/></svg>Coverage</a>
+      <div class="grp">Admin</div>
+      <a href="#"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 7h16M4 12h16M4 17h10"/></svg>Rules</a>
+      <a href="#"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>Activity</a>
+      <a class="on" href="#" aria-current="page"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3"/><path d="M12 3v3m0 12v3M3 12h3m12 0h3"/></svg>Settings</a>
+    </nav>
+    <div class="me"><div class="avatar">FT</div><div><div class="nm">Faisal Tellawi</div><div class="em">Operations</div></div></div>
+  </aside>
+
+  <div class="main">
+    <div class="topbar">
+      <button class="iconbtn menubtn" aria-label="Open menu"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button>
+      <h1>Settings</h1><div class="spacer"></div>
+      <button class="iconbtn" id="bell" aria-label="Notifications"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M6 8a6 6 0 1112 0c0 7 3 7 3 9H3c0-2 3-2 3-9"/><path d="M10 21a2 2 0 004 0"/></svg><span class="n">3</span></button>
+      <button class="iconbtn" id="tg" aria-label="Toggle theme">◐</button>
+      <button class="avatar" id="pf" style="width:36px;height:36px;border:1px solid var(--line-strong)" aria-label="Account menu">FT</button>
+
+      <!-- notification center -->
+      <div class="pop" id="notif">
+        <div class="ph"><h3>Notifications</h3><button>Mark all read</button></div>
+        <div class="day">Today</div>
+        <div class="ni unread"><div class="ic"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3l9 16H3z"/></svg></div><div><div><b>36 leads unmatched</b> after this morning's import.</div><div class="t2 num">9:12 AM · IM-26-044</div></div></div>
+        <div class="ni unread"><div class="ic" style="background:color-mix(in srgb,var(--matched) 14%,transparent);color:var(--matched)"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 6L9 17l-5-5"/></svg></div><div><div>Import <b class="num">IM-26-044</b> distributed 412 leads.</div><div class="t2 num">9:08 AM</div></div></div>
+        <div class="day">Yesterday</div>
+        <div class="ni"><div class="ic" style="background:color-mix(in srgb,var(--info) 14%,transparent);color:var(--info)"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="8" r="3"/><path d="M3 19c0-3 3-4 6-4"/></svg></div><div><div>Rivergate Realty <b class="num">JV-311</b> accepted their invite.</div><div class="t2 num">Jul 9, 4:41 PM</div></div></div>
+      </div>
+      <!-- profile menu -->
+      <div class="pmenu" id="prof">
+        <div class="h"><div class="avatar">FT</div><div><div class="nm">Faisal Tellawi</div><div class="em">faisal@territorydesk.co</div></div></div>
+        <a href="#"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3"/><path d="M12 3v3m0 12v3M3 12h3m12 0h3"/></svg>Settings</a>
+        <a href="#"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 3a9 9 0 100 18 7 7 0 010-14"/></svg>Appearance: Auto</a>
+        <a href="#" class="dngr"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M15 3H5v18h10M10 12h11m-4-4l4 4-4 4"/></svg>Sign out</a>
+      </div>
+    </div>
+
+    <div class="settings">
+      <nav class="snav" aria-label="Settings">
+        <div class="g">Account</div>
+        <a href="#">Profile</a><a href="#">Workspace</a><a href="#">Notifications</a><a href="#">Security</a><a href="#">Appearance</a>
+        <div class="g">Organization</div>
+        <a class="on" href="#" aria-current="page">Data &amp; Export</a><a href="#">Billing</a><a href="#">Team</a>
+      </nav>
+      <div class="spanel">
+        <h2 style="font-size:1.5rem">Data &amp; Export</h2>
+        <p class="lede">Control how leads are exported and how long data is kept.</p>
+
+        <div class="sect">
+          <div class="st"><h3>Color-coded exports</h3><p>Group each partner's leads on their own colored sheet in the Excel export.</p></div>
+          <div class="opt"><div class="txt"><div class="l">Color the export by partner</div><div class="d">Every partner also shows their name and JV-ref, so color is never the only signal.</div></div><button class="toggle" role="switch" aria-checked="true" aria-label="Color the export by partner"></button></div>
+          <div class="preview" aria-hidden="true">
+            <span class="pr"><span class="sw" style="background:#C79A3E"></span>Summit <span class="rf">JV-091</span></span>
+            <span class="pr"><span class="sw" style="background:#5B7A9E"></span>Northshore <span class="rf">JV-204</span></span>
+            <span class="pr"><span class="sw" style="background:#6E8B5E"></span>Cascade <span class="rf">JV-118</span></span>
+          </div>
+        </div>
+
+        <div class="sect">
+          <div class="st"><h3>Data retention</h3><p>Leads and imports are kept until you remove them.</p></div>
+          <div class="opt"><div class="txt"><div class="l">Keep distributed leads</div><div class="d">Indefinitely — retention sweeps are coming soon.</div></div><span class="num" style="color:var(--ink-3);font-size:.85rem">No limit</span></div>
+          <div class="fbar"><button class="btn btn-secondary">Reset</button><button class="btn btn-primary">Save changes</button></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+<script>(function(){var r=document.documentElement;function c(){return r.getAttribute('data-theme')||(matchMedia('(prefers-color-scheme:dark)').matches?'dark':'light');}
+  document.getElementById('tg').addEventListener('click',function(){r.setAttribute('data-theme',c()==='dark'?'light':'dark');});
+  var notif=document.getElementById('notif'),prof=document.getElementById('prof');
+  notif.style.display='none';prof.style.display='none';
+  document.getElementById('bell').addEventListener('click',function(e){e.stopPropagation();prof.style.display='none';notif.style.display=notif.style.display==='none'?'block':'none';});
+  document.getElementById('pf').addEventListener('click',function(e){e.stopPropagation();notif.style.display='none';prof.style.display=prof.style.display==='none'?'block':'none';});
+  document.addEventListener('click',function(){notif.style.display='none';prof.style.display='none';});
+  document.querySelectorAll('.toggle').forEach(function(t){t.addEventListener('click',function(){t.setAttribute('aria-checked',t.getAttribute('aria-checked')==='true'?'false':'true');});});
+})();</script>

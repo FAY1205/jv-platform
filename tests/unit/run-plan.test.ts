@@ -7,7 +7,6 @@ import type { HistoryEntry } from "@/modules/pipeline/dedupe";
 
 const RULES: RunRules = {
   mlsPatterns: DEFAULT_MLS_PATTERNS,
-  recodes: [{ matchPattern: "Lead Zolo*", code: "Z" }],
   coverage: buildCoverage([], [
     { state: "NJ", partnerId: "p-josh" },
     { state: "SC", partnerId: "p-randy" },
@@ -44,19 +43,19 @@ const ROWS = [
 describe("WP-017: planRun composes the pure pipeline into a persisted-run plan", () => {
   const plan = planRun(ROWS, GENERIC_PROFILE, RULES, new Map());
 
-  it("normalizes, MLS-filters, recodes and assigns each lead", () => {
+  it("normalizes, MLS-filters and assigns each lead; campaign passes through as-imported", () => {
     expect(plan.leads[0]).toMatchObject({
       zip5: "08034",
       stateCode: "NJ",
       mlsStatus: "kept",
-      campaignCode: "Z",
+      campaign: "Lead Zolo 1.0",
       partnerId: "p-josh",
       matchMethod: "state_fallback",
     });
     // Removed lead is still assigned (routing is independent of the MLS verdict).
     expect(plan.leads[1]).toMatchObject({ mlsStatus: "removed", partnerId: "p-randy" });
-    // Out-of-territory → unmatched; unmatched campaign passes through.
-    expect(plan.leads[2]).toMatchObject({ matchMethod: "none", partnerId: null, campaignCode: "Other Source" });
+    // Out-of-territory → unmatched; campaign is the as-imported value (ADR-0018).
+    expect(plan.leads[2]).toMatchObject({ matchMethod: "none", partnerId: null, campaign: "Other Source" });
   });
 
   it("preserves the full source row in rawJson (DM-02) and reports row errors (ING-04)", () => {

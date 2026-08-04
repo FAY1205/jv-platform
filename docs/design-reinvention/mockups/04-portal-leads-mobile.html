@@ -1,0 +1,176 @@
+<title>TerritoryDesk — Partner Portal (My leads)</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root{
+    --paper:#F1F4F3;--surface:#FFFFFF;--surface-2:#E9EEEC;--surface-3:#DDE5E2;
+    --ink:#16242B;--ink-2:#46565D;--ink-3:#566268;--line:#D3DCD9;--line-strong:#B8C4C0;
+    --route:#E0912B;--route-strong:#C67D1E;--route-tint:#FAEFDA;--route-ink:#8F5416;
+    --matched:#2C7A57;--info:#2E6E93;--warn:#B9741C;--danger:#B23A2E;
+    --shadow:0 1px 2px rgba(22,36,43,.06),0 10px 28px -14px rgba(22,36,43,.20);
+    --shadow-sm:0 1px 2px rgba(22,36,43,.08);
+    --r-sm:8px;--r-md:12px;--r-lg:16px;--r-pill:999px;
+    --t:200ms;--ease:cubic-bezier(.2,.7,.2,1);
+    --font-display:ui-serif,"Iowan Old Style","Palatino Linotype",Georgia,serif;
+    --font-sans:system-ui,-apple-system,"Segoe UI",sans-serif;
+    --font-mono:"SF Mono","Cascadia Code",ui-monospace,"Roboto Mono",monospace;
+  }
+  @media (prefers-color-scheme:dark){:root:not([data-theme]){
+    --paper:#10181C;--surface:#17232A;--surface-2:#1E2C33;--surface-3:#26363E;
+    --ink:#EAF0EE;--ink-2:#A9B8BC;--ink-3:#85969B;--line:#2A3A41;--line-strong:#3A4D55;
+    --route:#F0A63E;--route-strong:#F6B856;--route-tint:#2A2417;--route-ink:#F0A63E;
+    --matched:#4FB183;--info:#5FA0C8;--warn:#E0973A;--danger:#E06555;
+    --shadow:0 1px 2px rgba(0,0,0,.3),0 12px 32px -14px rgba(0,0,0,.6);--shadow-sm:0 1px 2px rgba(0,0,0,.35);}}
+  :root[data-theme="dark"]{--paper:#10181C;--surface:#17232A;--surface-2:#1E2C33;--surface-3:#26363E;
+    --ink:#EAF0EE;--ink-2:#A9B8BC;--ink-3:#85969B;--line:#2A3A41;--line-strong:#3A4D55;
+    --route:#F0A63E;--route-strong:#F6B856;--route-tint:#2A2417;--route-ink:#F0A63E;
+    --matched:#4FB183;--info:#5FA0C8;--warn:#E0973A;--danger:#E06555;
+    --shadow:0 1px 2px rgba(0,0,0,.3),0 12px 32px -14px rgba(0,0,0,.6);--shadow-sm:0 1px 2px rgba(0,0,0,.35);}
+  :root[data-theme="light"]{--paper:#F1F4F3;--surface:#FFFFFF;--surface-2:#E9EEEC;--surface-3:#DDE5E2;
+    --ink:#16242B;--ink-2:#46565D;--ink-3:#566268;--line:#D3DCD9;--line-strong:#B8C4C0;
+    --route:#E0912B;--route-strong:#C67D1E;--route-tint:#FAEFDA;--route-ink:#8F5416;
+    --matched:#2C7A57;--info:#2E6E93;--warn:#B9741C;--danger:#B23A2E;
+    --shadow:0 1px 2px rgba(22,36,43,.06),0 10px 28px -14px rgba(22,36,43,.20);--shadow-sm:0 1px 2px rgba(22,36,43,.08);}
+
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--surface-2);color:var(--ink);font-family:var(--font-sans);font-size:16px;line-height:1.5;-webkit-font-smoothing:antialiased;
+    display:flex;justify-content:center;min-height:100vh;padding:0}
+  .num{font-family:var(--font-mono);font-variant-numeric:tabular-nums}
+  h1,h2,h3{font-family:var(--font-display);font-weight:500;line-height:1.2;margin:0;text-wrap:balance}
+  :focus-visible{outline:2px solid var(--route-strong);outline-offset:2px;border-radius:6px}
+  button{font:inherit;cursor:pointer}
+  @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+
+  /* phone frame on wide screens, full-bleed on mobile */
+  .phone{width:100%;max-width:412px;background:var(--paper);min-height:100vh;display:flex;flex-direction:column;position:relative;box-shadow:var(--shadow)}
+  @media (min-width:520px){.phone{margin:28px 0;min-height:auto;height:844px;border-radius:34px;border:1px solid var(--line-strong);overflow:hidden}}
+
+  /* PortalShell top bar */
+  .pshell{position:sticky;top:0;z-index:5;background:color-mix(in srgb,var(--paper) 86%,transparent);backdrop-filter:blur(10px);border-bottom:1px solid var(--line);
+    display:flex;align-items:center;gap:10px;padding:14px 16px}
+  .pshell .brand{display:flex;align-items:center;gap:8px;font-weight:600;font-size:.95rem}
+  .pshell .grow{margin-left:auto}
+  .ibtn{width:42px;height:42px;border-radius:var(--r-pill);border:1px solid var(--line-strong);background:var(--surface);color:var(--ink-2);display:grid;place-items:center;position:relative}
+  .ibtn .n{position:absolute;top:-3px;right:-3px;background:var(--route);color:#20160A;font-family:var(--font-mono);font-size:.6rem;font-weight:700;border-radius:var(--r-pill);padding:0 5px;line-height:15px}
+
+  .scroll{flex:1;overflow:auto;padding:18px 16px 96px;display:flex;flex-direction:column;gap:14px}
+  .hello{display:flex;align-items:flex-end;justify-content:space-between;gap:12px}
+  .hello .eyebrow{font-family:var(--font-mono);font-size:.66rem;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-3)}
+  .hello h1{font-size:1.6rem;margin-top:2px}
+  .hello .cnt{text-align:right}
+  .hello .cnt .v{font-family:var(--font-display);font-size:1.9rem;color:var(--route-ink);line-height:1}
+  .hello .cnt .l{font-size:.68rem;color:var(--ink-3);text-transform:uppercase;letter-spacing:.05em}
+
+  .territory{display:flex;align-items:center;gap:10px;background:var(--surface);border:1px solid var(--line);border-radius:var(--r-md);padding:10px 12px;box-shadow:var(--shadow-sm)}
+  .territory .sw{width:12px;height:12px;border-radius:3px;background:#C79A3E;border:1px solid rgba(0,0,0,.18);flex:none}
+  .territory .t{font-size:.86rem;font-weight:600}.territory .s{font-family:var(--font-mono);font-size:.7rem;color:var(--ink-3)}
+
+  .seclbl{font-family:var(--font-mono);font-size:.66rem;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3);margin:4px 2px -2px}
+
+  .lead{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-md);box-shadow:var(--shadow-sm);overflow:hidden}
+  .lead .body{padding:14px 15px 12px}
+  .lead .hd{display:flex;align-items:center;gap:8px;margin-bottom:8px}
+  .lead .ref{font-family:var(--font-mono);font-size:.72rem;color:var(--ink-3)}
+  .badge{margin-left:auto;display:inline-flex;align-items:center;gap:5px;font-size:.7rem;font-weight:600;padding:3px 8px;border-radius:var(--r-pill);border:1px solid transparent}
+  .b-new{background:color-mix(in srgb,var(--info) 14%,transparent);color:var(--info);border-color:color-mix(in srgb,var(--info) 30%,transparent)}
+  .b-cont{background:color-mix(in srgb,var(--matched) 14%,transparent);color:var(--matched);border-color:color-mix(in srgb,var(--matched) 30%,transparent)}
+  .dot{width:6px;height:6px;border-radius:50%;background:currentColor}
+  .lead .addr{font-size:1.05rem;font-weight:600;line-height:1.25}
+  .lead .meta{font-size:.82rem;color:var(--ink-2);margin-top:3px;display:flex;flex-wrap:wrap;gap:4px 10px}
+  .lead .meta .num{color:var(--ink-3)}
+  .actions{display:grid;grid-template-columns:1fr 1fr;gap:1px;background:var(--line);border-top:1px solid var(--line)}
+  .actions a{min-height:48px;display:flex;align-items:center;justify-content:center;gap:8px;background:var(--surface);color:var(--ink);text-decoration:none;font-weight:600;font-size:.9rem}
+  .actions a:hover{background:var(--surface-2)}
+  .actions a.primary{background:var(--route);color:#20160A}
+  .actions a.primary:hover{background:var(--route-strong)}
+  .actions a svg{width:17px;height:17px}
+
+  /* bottom tab bar */
+  .tabs{position:absolute;left:0;right:0;bottom:0;display:flex;background:color-mix(in srgb,var(--paper) 92%,transparent);backdrop-filter:blur(10px);border-top:1px solid var(--line);padding:6px 8px 10px}
+  .tabs a{flex:1;min-height:48px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;color:var(--ink-3);text-decoration:none;font-size:.66rem;font-weight:600}
+  .tabs a.on{color:var(--route-ink)}
+  .tabs a svg{width:21px;height:21px}
+</style>
+
+<div class="phone">
+  <header class="pshell">
+    <div class="brand">
+      <svg width="24" height="24" viewBox="0 0 34 34" fill="none" aria-hidden="true">
+        <rect x="1.5" y="1.5" width="31" height="31" rx="7" stroke="var(--ink)" stroke-width="1.6"/>
+        <path d="M7 24 L14 12 L21 19 L27 9" stroke="var(--route)" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>
+        <circle cx="7" cy="24" r="2.4" fill="var(--ink)"/><circle cx="27" cy="9" r="2.8" fill="var(--route)"/>
+      </svg>
+      TerritoryDesk
+    </div>
+    <div class="grow"></div>
+    <button class="ibtn" aria-label="Notifications"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M6 8a6 6 0 1112 0c0 7 3 7 3 9H3c0-2 3-2 3-9"/><path d="M10 21a2 2 0 004 0"/></svg><span class="n">2</span></button>
+    <button class="ibtn" id="tg" aria-label="Toggle theme">◐</button>
+  </header>
+
+  <div class="scroll">
+    <div class="hello">
+      <div>
+        <div class="eyebrow">Summit Partners · JV-091</div>
+        <h1>Your leads</h1>
+      </div>
+      <div class="cnt"><div class="v num">6</div><div class="l">New</div></div>
+    </div>
+
+    <div class="territory">
+      <span class="sw"></span>
+      <div><div class="t">Your territory — WA · OR · ID</div><div class="s num">62 ZIPs refined within</div></div>
+    </div>
+
+    <div class="seclbl">New — reach within a day</div>
+
+    <article class="lead">
+      <div class="body">
+        <div class="hd"><span class="ref num">LD-26-04127</span><span class="badge b-new"><span class="dot"></span>New</span></div>
+        <div class="addr">18420 SE 42nd St</div>
+        <div class="meta"><span>Sammamish, WA</span><span class="num">98075</span><span>· Seller inquiry</span><span class="num">· 2h ago</span></div>
+      </div>
+      <div class="actions">
+        <a class="primary" href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><path d="M5 4h4l2 5-3 2a12 12 0 005 5l2-3 5 2v4a2 2 0 01-2 2A16 16 0 013 6a2 2 0 012-2z"/></svg>Call seller</a>
+        <a href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/></svg>Email</a>
+      </div>
+    </article>
+
+    <article class="lead">
+      <div class="body">
+        <div class="hd"><span class="ref num">LD-26-04119</span><span class="badge b-new"><span class="dot"></span>New</span></div>
+        <div class="addr">2207 NE Park Dr</div>
+        <div class="meta"><span>Issaquah, WA</span><span class="num">98029</span><span>· MLS listing</span><span class="num">· 5h ago</span></div>
+      </div>
+      <div class="actions">
+        <a class="primary" href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><path d="M5 4h4l2 5-3 2a12 12 0 005 5l2-3 5 2v4a2 2 0 01-2 2A16 16 0 013 6a2 2 0 012-2z"/></svg>Call seller</a>
+        <a href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/></svg>Email</a>
+      </div>
+    </article>
+
+    <div class="seclbl">Contacted</div>
+
+    <article class="lead">
+      <div class="body">
+        <div class="hd"><span class="ref num">LD-26-04098</span><span class="badge b-cont"><span class="dot"></span>Contacted</span></div>
+        <div class="addr">515 Front St N</div>
+        <div class="meta"><span>Issaquah, WA</span><span class="num">98027</span><span>· Reached 1.4h after handoff</span></div>
+      </div>
+      <div class="actions">
+        <a href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><path d="M5 4h4l2 5-3 2a12 12 0 005 5l2-3 5 2v4a2 2 0 01-2 2A16 16 0 013 6a2 2 0 012-2z"/></svg>Call again</a>
+        <a href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><path d="M20 6L9 17l-5-5"/></svg>Mark closed</a>
+      </div>
+    </article>
+  </div>
+
+  <nav class="tabs" aria-label="Portal">
+    <a class="on" href="#" aria-current="page"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18"/></svg>Leads</a>
+    <a href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>Activity</a>
+    <a href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 4-6 8-6s8 2 8 6"/></svg>Account</a>
+  </nav>
+</div>
+
+<script>
+  (function(){var root=document.documentElement;
+    function cur(){var t=root.getAttribute('data-theme');return t||(matchMedia('(prefers-color-scheme:dark)').matches?'dark':'light');}
+    document.getElementById('tg').addEventListener('click',function(){root.setAttribute('data-theme',cur()==='dark'?'light':'dark');});
+  })();
+</script>

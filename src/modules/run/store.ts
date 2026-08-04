@@ -1,7 +1,7 @@
 import { and, eq, ne, isNull, inArray, sql } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import * as schema from "@/db/schema";
-import { allocateRef } from "@/db/ref-ids";
+import { allocateRef, allocateRefBlock } from "@/db/ref-ids";
 import { tenantWhere, type ScopeContext } from "@/lib/scope";
 import type { RunStore, PersistRunInput, PersistRunResult } from "./process";
 import type { HistoryEntry } from "../pipeline/dedupe";
@@ -50,7 +50,8 @@ export class DrizzleRunStore implements RunStore {
 
     const map = new Map<string, HistoryEntry>();
     for (const r of rows) {
-      // The unique (tenant, dedupe_key) index means one row per key; keep the first seen.
+      // The PARTIAL unique index guarantees one LIVE row per key (WP-J2), and this read filters
+      // deleted_at IS NULL, so at most one row per key reaches here; keep the first seen.
       if (map.has(r.dedupeKey)) continue;
       map.set(r.dedupeKey, {
         partnerId: r.partnerId,
@@ -94,20 +95,33 @@ export class DrizzleRunStore implements RunStore {
           rowCount: input.leads.length,
           rulesHash: input.rulesHash,
           rulesSnapshot: input.rulesSnapshot as object,
+          sourceProfileId: input.sourceProfileId,
+          sourceProfileVersion: input.sourceProfileVersion,
         })
         .returning({ id: schema.uploads.id });
 
-      // Insert only NEW leads; repeats (previously matched / within-run dup) already exist.
+      // F-08: reserve every lead ref-id in ONE counter bump and insert the NEW leads
+      // in ONE multi-row statement (was N allocate + N insert round-trips under the
+      // advisory lock). "New" = not previously matched and the first occurrence of its
+      // dedupe key in this run — exactly the rows the old per-lead loop inserted, in the
+      // same input order, so ref numbers and firstMatchedAt are assigned identically
+      // (determinism preserved). An ON CONFLICT skip burns its pre-allocated number as a
+      // gap, just as the single allocator did; its ref is resolved below from the row.
+      const seen = new Set<string>();
+      const newLeads = input.leads.filter((lead) => {
+        if (lead.previouslyMatched || seen.has(lead.dedupeKey)) return false;
+        seen.add(lead.dedupeKey);
+        return true;
+      });
+
       const refByKey = new Map<string, string>();
-      for (const lead of input.leads) {
-        if (lead.previouslyMatched || refByKey.has(lead.dedupeKey)) continue;
-        const leadRefId = await allocateRef(txDb, input.tenantId, "lead", input.year);
-        const sep = lead.dedupeKey.lastIndexOf("|");
-        const inserted = await tx
-          .insert(schema.leads)
-          .values({
+      if (newLeads.length > 0) {
+        const refs = await allocateRefBlock(txDb, input.tenantId, "lead", input.year, newLeads.length);
+        const values = newLeads.map((lead, i) => {
+          const sep = lead.dedupeKey.lastIndexOf("|");
+          return {
             tenantId: input.tenantId,
-            refId: leadRefId,
+            refId: refs[i],
             uploadId: upload.id,
             dedupeKey: lead.dedupeKey,
             rawJson: lead.rawJson,
@@ -136,10 +150,24 @@ export class DrizzleRunStore implements RunStore {
             previouslyMatched: false,
             firstMatchedAt: new Date(lead.firstMatchedAt),
             possibleMlsListing: lead.possibleMlsListing,
+            scoreTotal: lead.scoreTotal,
+            scoreGroup: lead.scoreGroup,
+            scoreStatus: lead.scoreStatus,
+            scoreBreakdown: lead.scoreBreakdown,
+          };
+        });
+        const inserted = await tx
+          .insert(schema.leads)
+          .values(values)
+          // The (tenant, dedupe_key) unique index is PARTIAL (WHERE deleted_at IS NULL, WP-J2 /
+          // DM-09) so a voided run's soft-deleted key can be re-uploaded; the ON CONFLICT arbiter
+          // must name the same predicate to match that partial index.
+          .onConflictDoNothing({
+            target: [schema.leads.tenantId, schema.leads.dedupeKey],
+            where: sql`${schema.leads.deletedAt} is null`,
           })
-          .onConflictDoNothing({ target: [schema.leads.tenantId, schema.leads.dedupeKey] })
-          .returning({ refId: schema.leads.refId });
-        if (inserted[0]) refByKey.set(lead.dedupeKey, inserted[0].refId);
+          .returning({ refId: schema.leads.refId, dedupeKey: schema.leads.dedupeKey });
+        for (const r of inserted) refByKey.set(r.dedupeKey, r.refId);
       }
 
       // Resolve ref-ids for previously-matched (and any conflicted) keys from existing rows.
@@ -148,7 +176,8 @@ export class DrizzleRunStore implements RunStore {
         const existing = await tx
           .select({ dedupeKey: schema.leads.dedupeKey, refId: schema.leads.refId })
           .from(schema.leads)
-          .where(and(eq(schema.leads.tenantId, input.tenantId), inArray(schema.leads.dedupeKey, unresolved)));
+          // Resolve to the LIVE row (a soft-deleted voided-run row may share the key, WP-J2).
+          .where(and(eq(schema.leads.tenantId, input.tenantId), inArray(schema.leads.dedupeKey, unresolved), isNull(schema.leads.deletedAt)));
         for (const e of existing) refByKey.set(e.dedupeKey, e.refId);
       }
 

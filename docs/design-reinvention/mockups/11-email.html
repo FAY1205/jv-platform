@@ -1,0 +1,59 @@
+<title>TerritoryDesk — Email</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root{--paper:#F1F4F3;--surface:#FFFFFF;--surface-2:#E9EEEC;--surface-3:#DDE5E2;--ink:#16242B;--ink-2:#46565D;--ink-3:#566268;--line:#D3DCD9;--line-strong:#B8C4C0;--route:#E0912B;--route-strong:#C67D1E;--route-tint:#FAEFDA;--route-ink:#8F5416;--matched:#2C7A57;--info:#2E6E93;--warn:#B9741C;--danger:#B23A2E;--shadow:0 1px 2px rgba(22,36,43,.06),0 16px 44px -20px rgba(22,36,43,.34);--r-sm:8px;--r-md:12px;--r-lg:16px;--r-pill:999px;--font-display:ui-serif,"Iowan Old Style","Palatino Linotype",Georgia,serif;--font-sans:system-ui,-apple-system,"Segoe UI",sans-serif;--font-mono:"SF Mono","Cascadia Code",ui-monospace,"Roboto Mono",monospace;}
+  @media (prefers-color-scheme:dark){:root:not([data-theme]){--paper:#0C1216;--surface:#17232A;--surface-2:#1E2C33;--surface-3:#26363E;--ink:#EAF0EE;--ink-2:#A9B8BC;--ink-3:#85969B;--line:#2A3A41;--line-strong:#3A4D55;--route:#F0A63E;--route-strong:#F6B856;--route-tint:#2A2417;--route-ink:#F0A63E;--matched:#4FB183;--info:#5FA0C8;}}
+  :root[data-theme="dark"]{--paper:#0C1216;--surface:#17232A;--surface-2:#1E2C33;--surface-3:#26363E;--ink:#EAF0EE;--ink-2:#A9B8BC;--ink-3:#85969B;--line:#2A3A41;--line-strong:#3A4D55;--route:#F0A63E;--route-strong:#F6B856;--route-tint:#2A2417;--route-ink:#F0A63E;--matched:#4FB183;--info:#5FA0C8;}
+  :root[data-theme="light"]{--paper:#F1F4F3;--surface:#FFFFFF;--surface-2:#E9EEEC;--surface-3:#DDE5E2;--ink:#16242B;--ink-2:#46565D;--ink-3:#566268;--line:#D3DCD9;--line-strong:#B8C4C0;--route:#E0912B;--route-strong:#C67D1E;--route-tint:#FAEFDA;--route-ink:#8F5416;--matched:#2C7A57;--info:#2E6E93;}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--surface-2);color:var(--ink);font-family:var(--font-sans);font-size:16px;line-height:1.55;-webkit-font-smoothing:antialiased;padding:28px 16px 70px}
+  .num{font-family:var(--font-mono);font-variant-numeric:tabular-nums}
+  h1,h2,h3{font-family:var(--font-display);font-weight:500;margin:0;line-height:1.2;text-wrap:balance}
+  :focus-visible{outline:2px solid var(--route-strong);outline-offset:2px}
+  .bar{max-width:600px;margin:0 auto 12px;display:flex;align-items:center;gap:10px}
+  .bar .tg{margin-left:auto;width:34px;height:34px;border-radius:var(--r-pill);border:1px solid var(--line-strong);background:var(--surface);color:var(--ink-2);cursor:pointer}
+  .client{max-width:600px;margin:0 auto;background:var(--surface);border:1px solid var(--line);border-radius:var(--r-lg);overflow:hidden;box-shadow:var(--shadow)}
+  .subject{padding:16px 22px;border-bottom:1px solid var(--line)}
+  .subject .s{font-size:.72rem;color:var(--ink-3);font-family:var(--font-mono)}
+  .subject h2{font-size:1.15rem;margin-top:3px}
+  .from{display:flex;align-items:center;gap:10px;padding:12px 22px;border-bottom:1px solid var(--line);font-size:.84rem;color:var(--ink-3)}
+  .from .av{width:30px;height:30px;border-radius:50%;background:var(--ink);display:grid;place-items:center}
+  .body{padding:6px 22px 24px}
+  .banner{margin:20px -22px 0;padding:26px 22px;background:var(--route-tint);border-bottom:1px solid color-mix(in srgb,var(--route) 26%,transparent);text-align:center}
+  .banner .n{font-family:var(--font-display);font-size:2.6rem;color:var(--route-ink);line-height:1}
+  .banner .l{font-size:.9rem;color:var(--ink-2)}
+  .body p{color:var(--ink-2)}
+  .lead{display:flex;align-items:center;gap:12px;padding:12px 0;border-bottom:1px solid var(--line)}
+  .lead .sw{width:12px;height:12px;border-radius:3px;background:#C79A3E;border:1px solid rgba(0,0,0,.18);flex:none}
+  .lead .a{font-weight:600;font-size:.95rem}.lead .m{font-size:.8rem;color:var(--ink-3)}
+  .lead .z{margin-left:auto;font-family:var(--font-mono);font-size:.82rem;color:var(--ink-2)}
+  .cta{display:inline-block;margin:20px 0 6px;background:var(--route);color:#20160A;font-weight:700;text-decoration:none;padding:13px 26px;border-radius:var(--r-sm);border:1px solid var(--route-strong)}
+  .foot{padding:18px 22px;border-top:1px solid var(--line);background:var(--surface-2);font-size:.76rem;color:var(--ink-3)}
+  .foot a{color:var(--route-ink)}
+  .logo{display:flex;align-items:center;gap:8px;font-weight:600;margin-bottom:8px}
+</style>
+<div class="bar">
+  <span style="font-family:var(--font-mono);font-size:.7rem;color:var(--ink-3)">Partner daily digest · rendered from the same tokens as the app</span>
+  <button class="tg" id="tg" aria-label="Toggle theme">◐</button>
+</div>
+<div class="client">
+  <div class="subject"><div class="s">to sarah@summitpartners.co</div><h2>6 new leads for Summit today</h2></div>
+  <div class="from"><span class="av"><svg width="16" height="16" viewBox="0 0 34 34" fill="none"><path d="M7 24 L14 12 L21 19 L27 9" stroke="var(--route)" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg></span>TerritoryDesk · notifications@territorydesk.co</div>
+  <div class="body">
+    <div class="logo" style="margin-top:16px"><svg width="24" height="24" viewBox="0 0 34 34" fill="none" aria-hidden="true"><rect x="1.5" y="1.5" width="31" height="31" rx="7" stroke="var(--ink)" stroke-width="1.6"/><path d="M7 24 L14 12 L21 19 L27 9" stroke="var(--route)" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/><circle cx="27" cy="9" r="2.8" fill="var(--route)"/></svg>TerritoryDesk</div>
+    <div class="banner"><div class="n num">6</div><div class="l">new leads in your territory</div></div>
+    <p>Morning Sarah — here's what routed to <b>Summit Partners (JV-091)</b> today. Reach new sellers within a day for the best response.</p>
+
+    <div class="lead"><span class="sw"></span><div><div class="a">18420 SE 42nd St</div><div class="m">Sammamish · Seller inquiry</div></div><span class="z">98075</span></div>
+    <div class="lead"><span class="sw"></span><div><div class="a">2207 NE Park Dr</div><div class="m">Issaquah · MLS listing</div></div><span class="z">98029</span></div>
+    <div class="lead"><span class="sw"></span><div><div class="a">340 Front St S</div><div class="m">Issaquah · Seller inquiry</div></div><span class="z">98027</span></div>
+
+    <a class="cta" href="#">Open your leads →</a>
+    <p style="font-size:.82rem;margin-top:14px">…and 3 more waiting in the portal.</p>
+  </div>
+  <div class="foot">
+    You get this because you're a TerritoryDesk partner. <a href="#">Manage notifications</a> · <a href="#">Sign in</a><br>
+    TerritoryDesk · Lead routing
+  </div>
+</div>
+<script>(function(){var r=document.documentElement;function c(){return r.getAttribute('data-theme')||(matchMedia('(prefers-color-scheme:dark)').matches?'dark':'light');}document.getElementById('tg').addEventListener('click',function(){r.setAttribute('data-theme',c()==='dark'?'light':'dark');});})();</script>

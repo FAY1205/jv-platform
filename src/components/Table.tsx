@@ -1,16 +1,34 @@
 import * as React from "react";
 import { cn } from "@/lib/cn";
 
-/** Table — scroll container + table element with sticky-capable headers (DSN-07). */
+/** Table — scroll container + table element with sticky-capable headers (DSN-07).
+ *  The scroll container is keyboard-focusable (D2, SC 2.1.1): a wide table's
+ *  horizontal overflow must be scrollable without a pointer, and browsers don't
+ *  auto-focus scrollers that contain focusable children (the sortable Th buttons).
+ *  tabIndex + role="region" + an accessible name is the canonical pattern; the
+ *  global :focus-visible outline provides the visible focus state. Pass `ariaLabel`
+ *  to name the region for pages with several tables (defaults to "Table"). */
 export function Table({
   className,
   children,
   maxHeight,
+  ariaLabel,
+  "aria-labelledby": ariaLabelledBy,
   ...rest
-}: React.HTMLAttributes<HTMLTableElement> & { maxHeight?: number }) {
+}: React.HTMLAttributes<HTMLTableElement> & { maxHeight?: number; ariaLabel?: string }) {
   return (
-    <div className="overflow-auto" style={maxHeight ? { maxHeight } : undefined}>
-      <table className={cn("w-full border-collapse text-sm", className)} {...rest}>
+    <div
+      className="overflow-auto"
+      style={maxHeight ? { maxHeight } : undefined}
+      tabIndex={0}
+      role="region"
+      // A caller's aria-labelledby names the REGION too (it would otherwise be shadowed
+      // by the generic default — the mls-phrases WCAG 1.3.1 pattern); ariaLabel is the
+      // explicit name for pages with several tables. Default keeps single-table pages cheap.
+      aria-labelledby={ariaLabelledBy}
+      aria-label={ariaLabelledBy ? undefined : ariaLabel ?? "Table"}
+    >
+      <table className={cn("w-full border-collapse text-sm", className)} aria-labelledby={ariaLabelledBy} {...rest}>
         {children}
       </table>
     </div>
@@ -36,14 +54,15 @@ export interface ThProps extends React.ThHTMLAttributes<HTMLTableCellElement> {
 
 export function Th({ sortable, sortDir = null, onSort, align = "left", className, children, ...rest }: ThProps) {
   const base = cn(
-    "text-[.65rem] uppercase tracking-wider text-text-3 font-semibold px-3.5 py-2.5",
-    "border-b border-border bg-surface-2 whitespace-nowrap sticky top-0 z-[2]",
+    "text-step-1 uppercase tracking-wider text-text-3 font-semibold px-3.5 py-2.5",
+    "border-b border-border-strong bg-surface-2 whitespace-nowrap sticky top-0 z-[2]",
     align === "right" ? "text-right" : "text-left",
     sortable && "cursor-pointer select-none hover:text-text",
     className,
   );
   return (
     <th
+      scope="col"
       className={base}
       aria-sort={sortDir === "asc" ? "ascending" : sortDir === "desc" ? "descending" : undefined}
       {...rest}

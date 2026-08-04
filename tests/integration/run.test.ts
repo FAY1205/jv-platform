@@ -29,6 +29,8 @@ suite("WP-017b: run persistence (DrizzleRunStore)", () => {
     if (tids.length === 0) return;
     await db.delete(schema.leads).where(inArray(schema.leads.tenantId, tids));
     await db.delete(schema.uploads).where(inArray(schema.uploads.tenantId, tids));
+    // After uploads: source_profile_id is an FK from uploads (no cascade).
+    await db.delete(schema.sourceProfiles).where(inArray(schema.sourceProfiles.tenantId, tids));
     await db.delete(schema.refCounters).where(inArray(schema.refCounters.tenantId, tids));
     await db.delete(schema.partners).where(inArray(schema.partners.tenantId, tids));
     await db.delete(schema.tenants).where(inArray(schema.tenants.id, tids));
@@ -54,7 +56,6 @@ suite("WP-017b: run persistence (DrizzleRunStore)", () => {
 
   const rules = () => ({
     mlsPatterns: DEFAULT_MLS_PATTERNS,
-    recodes: [{ matchPattern: "Lead Zolo*", code: "Z" }],
     coverage: buildCoverage([], [
       { state: "NJ", partnerId: partnerNJ },
       { state: "SC", partnerId: partnerSC },
@@ -63,7 +64,6 @@ suite("WP-017b: run persistence (DrizzleRunStore)", () => {
   const snapshotInput = () => ({
     sourceProfile: { id: GENERIC_PROFILE.id, version: GENERIC_PROFILE.version },
     mlsPatterns: DEFAULT_MLS_PATTERNS,
-    recodes: [{ matchPattern: "Lead Zolo*", code: "Z" }],
     stateRules: [
       { state: "NJ", partnerId: partnerNJ },
       { state: "SC", partnerId: partnerSC },
@@ -104,14 +104,14 @@ suite("WP-017b: run persistence (DrizzleRunStore)", () => {
       { store, clock },
     );
 
-    expect(result.uploadRefId).toMatch(/^UP-2026-\d{3}$/);
+    expect(result.uploadRefId).toMatch(/^IM-26-\d{3}$/);
     const leads = await db.select().from(schema.leads).where(eq(schema.leads.tenantId, tenantId));
     expect(leads).toHaveLength(3); // DED-03: every processed lead is stored
 
     const nj = leads.find((l) => l.dedupeKey === "1 a st|08034")!;
     expect(nj.partnerId).toBe(partnerNJ);
     expect(nj.matchMethod).toBe("state_fallback");
-    expect(nj.refId).toMatch(/^LD-2026-\d{5}$/);
+    expect(nj.refId).toMatch(/^LD-26-\d{5}$/);
     expect(nj.firstMatchedAt?.toISOString()).toBe("2026-07-08T12:00:00.000Z");
 
     const ca = leads.find((l) => l.dedupeKey === "3 c st|90001")!;
@@ -154,6 +154,92 @@ suite("WP-017b: run persistence (DrizzleRunStore)", () => {
       .from(schema.leads)
       .where(and(eq(schema.leads.tenantId, tenantId), eq(schema.leads.dedupeKey, "9 new st|08034")));
     expect(fresh).toHaveLength(1);
-    expect(result.uploadRefId).toBe("UP-2026-002");
+    expect(result.uploadRefId).toBe("IM-26-002");
+  });
+
+  it("F-08a: multiple new leads in one batched run get ref-ids in input order", async () => {
+    // Three genuinely-new leads processed in one run. The batched persistRun reserves
+    // a contiguous ref block and zips it to the new leads in input order, so their ref
+    // numbers must strictly increase in the order the rows were submitted.
+    const keys = ["20 alpha st|08034", "21 bravo st|08034", "22 charlie st|08034"];
+    const rows = [
+      row({ Address: "20 Alpha St", State: "NJ", Zip: "08034" }),
+      row({ Address: "21 Bravo St", State: "NJ", Zip: "08034" }),
+      row({ Address: "22 Charlie St", State: "NJ", Zip: "08034" }),
+    ];
+    await processRun(
+      { tenantId, filename: "week3.xlsx", rows, profile: GENERIC_PROFILE, rules: rules(), snapshotInput: snapshotInput(), year: 2026, colorCoding: true },
+      { store, clock: () => "2026-07-22T00:00:00.000Z" },
+    );
+
+    const leads = await db.select({ dedupeKey: schema.leads.dedupeKey, refId: schema.leads.refId }).from(schema.leads).where(and(eq(schema.leads.tenantId, tenantId), inArray(schema.leads.dedupeKey, keys)));
+    const num = (ref: string) => Number(ref.split("-")[2]);
+    const byKey = new Map(leads.map((l) => [l.dedupeKey, num(l.refId)]));
+    expect(byKey.size).toBe(3);
+    expect(byKey.get(keys[0])!).toBeLessThan(byKey.get(keys[1])!);
+    expect(byKey.get(keys[1])!).toBeLessThan(byKey.get(keys[2])!);
+  });
+
+  // ── Source Profile provenance on the upload row (ING-07, DM-08) ──
+  // The run's profile is already pinned inside rules_snapshot; these cases prove the
+  // dedicated uploads columns are populated too, so provenance is joinable rather than
+  // recoverable only by parsing the snapshot JSON.
+
+  it("ING-07: a saved profile's id and version are recorded on the upload row", async () => {
+    const [saved] = await db
+      .insert(schema.sourceProfiles)
+      .values({
+        tenantId,
+        name: "Saved Format",
+        version: 3,
+        headerSignature: GENERIC_PROFILE.headerSignature,
+        mapping: GENERIC_PROFILE.mapping,
+        requiredColumns: GENERIC_PROFILE.requiredColumns,
+        strictness: "flexible",
+      })
+      .returning({ id: schema.sourceProfiles.id });
+
+    const profile = { ...GENERIC_PROFILE, id: saved.id, name: "Saved Format", version: 3 };
+    const result = await processRun(
+      {
+        tenantId,
+        filename: "saved-profile.xlsx",
+        rows: [row({ Address: "30 Delta St", State: "NJ", Zip: "08034" })],
+        profile,
+        rules: rules(),
+        snapshotInput: { ...snapshotInput(), sourceProfile: { id: profile.id, version: profile.version } },
+        year: 2026,
+        colorCoding: true,
+      },
+      { store, clock: () => "2026-07-29T00:00:00.000Z" },
+    );
+
+    const [upload] = await db.select().from(schema.uploads).where(eq(schema.uploads.refId, result.uploadRefId));
+    expect(upload.sourceProfileId).toBe(saved.id);
+    expect(upload.sourceProfileVersion).toBe(3);
+  });
+
+  it("ING-07: a built-in seed profile records its version with a null id (slug ids are not uuids)", async () => {
+    // Seeds like GENERIC_PROFILE carry slug ids ("generic") and have no source_profiles
+    // row, so the uuid FK column must stay NULL — the version still pins the format.
+    const result = await processRun(
+      {
+        tenantId,
+        filename: "seed-profile.xlsx",
+        rows: [row({ Address: "31 Echo St", State: "NJ", Zip: "08034" })],
+        profile: GENERIC_PROFILE,
+        rules: rules(),
+        snapshotInput: snapshotInput(),
+        year: 2026,
+        colorCoding: true,
+      },
+      { store, clock: () => "2026-07-30T00:00:00.000Z" },
+    );
+
+    const [upload] = await db.select().from(schema.uploads).where(eq(schema.uploads.refId, result.uploadRefId));
+    expect(upload.sourceProfileId).toBeNull();
+    expect(upload.sourceProfileVersion).toBe(GENERIC_PROFILE.version);
+    // The snapshot keeps the slug id, so the format is still identifiable.
+    expect((upload.rulesSnapshot as { sourceProfile: { id: string } }).sourceProfile.id).toBe("generic");
   });
 });

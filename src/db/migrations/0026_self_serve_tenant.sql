@@ -1,0 +1,1 @@
+ALTER TABLE "tenants" ADD COLUMN "self_serve" boolean DEFAULT false NOT NULL;

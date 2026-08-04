@@ -1,10 +1,14 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { drizzle, type PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
-import { inArray, sql } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import * as schema from "@/db/schema";
+import { purgeAuditLog } from "../helpers/audit";
+import { REDACTED } from "@/modules/audit/redact";
 import { tenantWhere, leadWhere, noteWhere, type ScopeContext } from "@/lib/scope";
+import { listPartnerActivity } from "@/modules/activity/queries";
+import { findProfileById } from "@/modules/sources/profile-store";
 
 // TST-01 runs against a live Postgres (the dev DB locally; a service container in
 // CI). It self-skips when DATABASE_URL is unset so the fast unit suite stays green.
@@ -27,8 +31,12 @@ suite("TST-01: tenant & partner isolation", () => {
     const tids = tenantsToClear.map((t) => t.id);
     if (tids.length === 0) return;
     await db.delete(schema.leadNotes).where(inArray(schema.leadNotes.tenantId, tids));
+    await db.delete(schema.leadStatusHistory).where(inArray(schema.leadStatusHistory.tenantId, tids));
+    // editLead writes an audit_log row (action "lead.edited"); clear it before tenants.
+    await purgeAuditLog(db, inArray(schema.auditLog.tenantId, tids));
     await db.delete(schema.leads).where(inArray(schema.leads.tenantId, tids));
     await db.delete(schema.uploads).where(inArray(schema.uploads.tenantId, tids));
+    await db.delete(schema.sourceProfiles).where(inArray(schema.sourceProfiles.tenantId, tids));
     await db.delete(schema.users).where(inArray(schema.users.tenantId, tids));
     await db.delete(schema.partners).where(inArray(schema.partners.tenantId, tids));
     await db.delete(schema.tenants).where(inArray(schema.tenants.id, tids));
@@ -56,15 +64,29 @@ suite("TST-01: tenant & partner isolation", () => {
     await db.insert(schema.users).values({ id: id.adminUser, tenantId: ta.id, email: "admin@a.test", role: "admin" });
     await db.insert(schema.users).values({ id: id.partnerUser, tenantId: ta.id, email: "px@a.test", role: "partner", partnerId: px.id });
 
-    const [ua] = await db.insert(schema.uploads).values({ tenantId: ta.id, refId: "UP-2026-001", filename: "a.xlsx", status: "processed" }).returning({ id: schema.uploads.id });
-    const [ub] = await db.insert(schema.uploads).values({ tenantId: tb.id, refId: "UP-2026-001", filename: "b.xlsx", status: "processed" }).returning({ id: schema.uploads.id });
+    const [ua] = await db.insert(schema.uploads).values({ tenantId: ta.id, refId: "IM-26-001", filename: "a.xlsx", status: "processed" }).returning({ id: schema.uploads.id });
+    id.uploadA = ua.id;
+    const [ub] = await db.insert(schema.uploads).values({ tenantId: tb.id, refId: "IM-26-001", filename: "b.xlsx", status: "processed" }).returning({ id: schema.uploads.id });
 
-    const [lx] = await db.insert(schema.leads).values({ tenantId: ta.id, refId: "LD-2026-00001", uploadId: ua.id, dedupeKey: "x|00001", rawJson: {}, partnerId: px.id, matchMethod: "zip" }).returning({ id: schema.leads.id });
-    const [ly] = await db.insert(schema.leads).values({ tenantId: ta.id, refId: "LD-2026-00002", uploadId: ua.id, dedupeKey: "y|00002", rawJson: {}, partnerId: py.id, matchMethod: "zip" }).returning({ id: schema.leads.id });
-    const [lz] = await db.insert(schema.leads).values({ tenantId: tb.id, refId: "LD-2026-00001", uploadId: ub.id, dedupeKey: "z|00003", rawJson: {}, partnerId: pz.id, matchMethod: "zip" }).returning({ id: schema.leads.id });
+    const [lx] = await db.insert(schema.leads).values({ tenantId: ta.id, refId: "LD-26-00001", uploadId: ua.id, dedupeKey: "x|00001", rawJson: {}, partnerId: px.id, matchMethod: "zip" }).returning({ id: schema.leads.id });
+    const [ly] = await db.insert(schema.leads).values({ tenantId: ta.id, refId: "LD-26-00002", uploadId: ua.id, dedupeKey: "y|00002", rawJson: {}, partnerId: py.id, matchMethod: "zip" }).returning({ id: schema.leads.id });
+    const [lz] = await db.insert(schema.leads).values({ tenantId: tb.id, refId: "LD-26-00001", uploadId: ub.id, dedupeKey: "z|00003", rawJson: {}, partnerId: pz.id, matchMethod: "zip" }).returning({ id: schema.leads.id });
+    // An unmatched lead in tenant A, manually assigned to partner Y (ASN-03).
+    const [lm] = await db
+      .insert(schema.leads)
+      .values({ tenantId: ta.id, refId: "LD-26-00009", uploadId: ua.id, dedupeKey: "m|00009", rawJson: {}, partnerId: null, matchMethod: "none", manualPartnerId: py.id, manualAssignedAt: new Date(), manualAssignedBy: id.adminUser })
+      .returning({ id: schema.leads.id });
+    // A MATCHED lead (pipeline partner X) later re-routed to Y via the manual overlay.
+    // Effective owner is Y; X must LOSE access (audit F-01 divergence case).
+    const [lr] = await db
+      .insert(schema.leads)
+      .values({ tenantId: ta.id, refId: "LD-26-00010", uploadId: ua.id, dedupeKey: "r|00010", rawJson: {}, partnerId: px.id, matchMethod: "zip", manualPartnerId: py.id, manualAssignedAt: new Date(), manualAssignedBy: id.adminUser })
+      .returning({ id: schema.leads.id });
     id.leadX = lx.id;
     id.leadY = ly.id;
     id.leadZ = lz.id;
+    id.leadManualToY = lm.id;
+    id.leadReroutedXtoY = lr.id;
 
     await db.insert(schema.leadNotes).values({ tenantId: ta.id, leadId: lx.id, authorUserId: id.adminUser, authorRole: "admin", body: "admin-only note" });
     await db.insert(schema.leadNotes).values({ tenantId: ta.id, leadId: lx.id, authorUserId: id.partnerUser, authorRole: "partner", body: "partner-only note" });
@@ -77,6 +99,7 @@ suite("TST-01: tenant & partner isolation", () => {
 
   const adminA = (): ScopeContext => ({ tenantId: id.tenantA, role: "admin", userId: id.adminUser });
   const partnerX = (): ScopeContext => ({ tenantId: id.tenantA, role: "partner", userId: id.partnerUser, partnerId: id.partnerX });
+  const partnerY = (): ScopeContext => ({ tenantId: id.tenantA, role: "partner", userId: id.partnerUser, partnerId: id.partnerY });
 
   it("tenant scope returns only that tenant's leads (never the other tenant's)", async () => {
     const rows = await db.select({ id: schema.leads.id }).from(schema.leads).where(tenantWhere(schema.leads, adminA()));
@@ -97,7 +120,29 @@ suite("TST-01: tenant & partner isolation", () => {
   it("admin sees all of their tenant's leads", async () => {
     const rows = await db.select({ id: schema.leads.id }).from(schema.leads).where(leadWhere(adminA()));
     const got = rows.map((r) => r.id).sort();
-    expect(got).toEqual([id.leadX, id.leadY].sort());
+    expect(got).toEqual([id.leadX, id.leadY, id.leadManualToY, id.leadReroutedXtoY].sort());
+  });
+
+  it("ASN-03: a partner sees leads manually assigned to them", async () => {
+    const rows = await db.select({ id: schema.leads.id }).from(schema.leads).where(leadWhere(partnerY()));
+    const got = rows.map((r) => r.id);
+    expect(got).toContain(id.leadManualToY); // manually assigned to Y
+    expect(got).toContain(id.leadY); // and their pipeline-routed lead
+  });
+
+  it("ASN-03: a manual assignment to Y stays invisible to sibling partner X", async () => {
+    const rows = await db.select({ id: schema.leads.id }).from(schema.leads).where(leadWhere(partnerX()));
+    const got = rows.map((r) => r.id);
+    expect(got).toEqual([id.leadX]);
+    expect(got).not.toContain(id.leadManualToY);
+  });
+
+  it("F-01/TST-01: a re-routed lead (partnerId=X, manualPartnerId=Y) leaves X's scope and enters Y's", async () => {
+    // The effective owner is Y, so re-routing REVOKES the original pipeline partner X.
+    const xRows = await db.select({ id: schema.leads.id }).from(schema.leads).where(leadWhere(partnerX()));
+    expect(xRows.map((r) => r.id)).not.toContain(id.leadReroutedXtoY);
+    const yRows = await db.select({ id: schema.leads.id }).from(schema.leads).where(leadWhere(partnerY()));
+    expect(yRows.map((r) => r.id)).toContain(id.leadReroutedXtoY);
   });
 
   it("PRN-13: admin sees admin notes only", async () => {
@@ -112,6 +157,186 @@ suite("TST-01: tenant & partner isolation", () => {
     const bodies = rows.map((r) => r.body);
     expect(bodies).toContain("partner-only note");
     expect(bodies).not.toContain("admin-only note");
+  });
+
+  it("F-01: editLead recomputes dedupeKey/addressNormalized and never rewrites partnerId/matchMethod (PRN-05)", async () => {
+    const { editLead } = await import("@/modules/leads/commands");
+    const [seed] = await db
+      .insert(schema.leads)
+      .values({ tenantId: id.tenantA, refId: "LD-26-00011", uploadId: id.uploadA, dedupeKey: "orig|00011", rawJson: {}, partnerId: id.partnerX, matchMethod: "zip", mlsStatus: "kept", address: "1 Old St", zip: "00011" })
+      .returning({ id: schema.leads.id });
+    await editLead(adminA(), { ref: "LD-26-00011", fields: { address: "42 New Rd", zip: "75201" }, partner: { action: "set", partnerId: id.partnerY } });
+    const [row] = await db
+      .select({ dedupeKey: schema.leads.dedupeKey, addrNorm: schema.leads.addressNormalized, partnerId: schema.leads.partnerId, matchMethod: schema.leads.matchMethod, manualPartnerId: schema.leads.manualPartnerId })
+      .from(schema.leads)
+      .where(eq(schema.leads.id, seed.id));
+    expect(row.dedupeKey).toBe("42 new rd|75201"); // recomputed from the new address+zip
+    expect(row.addrNorm).toBe("42 new rd");
+    expect(row.partnerId).toBe(id.partnerX); // PRN-05: import snapshot untouched
+    expect(row.matchMethod).toBe("zip"); // PRN-05: import snapshot untouched
+    expect(row.manualPartnerId).toBe(id.partnerY); // overlay moved
+  });
+
+  it("SEC-05 / LGL-02: lead.edited masks seller PII in the append-only trail but keeps routing fields raw (DM-04)", async () => {
+    const { editLead } = await import("@/modules/leads/commands");
+    const [seed] = await db
+      .insert(schema.leads)
+      .values({
+        tenantId: id.tenantA,
+        refId: "LD-26-00012",
+        uploadId: id.uploadA,
+        dedupeKey: "pii|00012",
+        rawJson: {},
+        partnerId: id.partnerX,
+        matchMethod: "zip",
+        mlsStatus: "kept",
+        sellerFirst: "Jane",
+        sellerLast: "Doe",
+        phone: "(856) 555-0100",
+        email: "jane.doe@gmail.com",
+        reasonForSelling: "Relocating for work",
+        address: "848 Caton Ave",
+        city: "Cherry Hill",
+      })
+      .returning({ id: schema.leads.id });
+
+    // Change two PII fields (one edited, one cleared) and one routing field.
+    await editLead(adminA(), {
+      ref: "LD-26-00012",
+      fields: { phone: "(555) 555-9999", email: "", reasonForSelling: "Divorce", address: "12 Elm St", city: "Camden" },
+      partner: { action: "keep" },
+    });
+
+    // The leads row keeps the REAL new values (only the audit payload is masked).
+    const [row] = await db
+      .select({ phone: schema.leads.phone, email: schema.leads.email, address: schema.leads.address, city: schema.leads.city })
+      .from(schema.leads)
+      .where(eq(schema.leads.id, seed.id));
+    expect(row.phone).toBe("(555) 555-9999");
+    expect(row.email).toBeNull(); // cleared
+    expect(row.address).toBe("12 Elm St"); // the real value lives on the lead, not the trail
+    expect(row.city).toBe("Camden");
+
+    const [edit] = await db
+      .select({ before: schema.auditLog.before, after: schema.auditLog.after })
+      .from(schema.auditLog)
+      .where(
+        and(
+          eq(schema.auditLog.tenantId, id.tenantA),
+          eq(schema.auditLog.action, "lead.edited"),
+          eq(schema.auditLog.entityRef, "LD-26-00012"),
+        ),
+      );
+    const before = edit.before as Record<string, unknown>;
+    const after = edit.after as Record<string, unknown>;
+
+    // PII fields: masked to a presence sentinel — changed → REDACTED, cleared → null.
+    expect(before.phone).toBe(REDACTED);
+    expect(after.phone).toBe(REDACTED);
+    expect(before.email).toBe(REDACTED);
+    expect(after.email).toBeNull();
+    expect(before.reasonForSelling).toBe(REDACTED);
+    expect(after.reasonForSelling).toBe(REDACTED);
+    // SEC-05/LGL-02: the STREET ADDRESS is PII (the retention sweep nulls it), so it is
+    // masked too — this is the exact field that shipped unmasked and would otherwise sit
+    // in the append-only trail forever after a void+purge.
+    expect(before.address).toBe(REDACTED);
+    expect(after.address).toBe(REDACTED);
+    // COARSE location: raw old→new preserved (its change is the audit-relevant part).
+    expect(before.city).toBe("Cherry Hill");
+    expect(after.city).toBe("Camden");
+    // SEC-05 / LGL-02: no raw seller PII anywhere in the append-only payload.
+    const payload = JSON.stringify({ before, after });
+    for (const leak of [
+      "(856) 555-0100",
+      "jane.doe@gmail.com",
+      "Relocating for work",
+      "(555) 555-9999",
+      "Divorce",
+      "848 Caton Ave", // the OLD street address — the field that shipped unmasked
+      "12 Elm St", // and the new one
+    ]) {
+      expect(payload, `raw PII leaked into audit_log: ${leak}`).not.toContain(leak);
+    }
+  });
+
+  it("ADM/PRN-05: unassign clears the manual overlay of an unmatched-base lead, leaving no effective owner (snapshot untouched)", async () => {
+    const { editLead } = await import("@/modules/leads/commands");
+    // Unmatched-base lead manually assigned to X (partnerId=null, overlay=X). Effective owner is X.
+    const [seed] = await db
+      .insert(schema.leads)
+      .values({ tenantId: id.tenantA, refId: "LD-26-00013", uploadId: id.uploadA, dedupeKey: "un|00013", rawJson: {}, partnerId: null, matchMethod: "none", mlsStatus: "kept", manualPartnerId: id.partnerX, manualAssignedAt: new Date(), manualAssignedBy: id.adminUser })
+      .returning({ id: schema.leads.id });
+
+    await editLead(adminA(), { ref: "LD-26-00013", fields: {}, partner: { action: "unassign" } });
+
+    const [row] = await db
+      .select({ partnerId: schema.leads.partnerId, matchMethod: schema.leads.matchMethod, manualPartnerId: schema.leads.manualPartnerId, manualAssignedAt: schema.leads.manualAssignedAt })
+      .from(schema.leads)
+      .where(eq(schema.leads.id, seed.id));
+    expect(row.manualPartnerId).toBeNull(); // overlay cleared → no effective owner
+    expect(row.manualAssignedAt).toBeNull();
+    expect(row.partnerId).toBeNull(); // PRN-05: import snapshot untouched (was null)
+    expect(row.matchMethod).toBe("none"); // PRN-05: import snapshot untouched
+
+    // The read model now reports the lead as unowned.
+    const { getAdminLeadDetail } = await import("@/modules/leads/queries");
+    const detail = await getAdminLeadDetail(adminA(), "LD-26-00013");
+    expect(detail?.partner).toBeNull();
+    expect(detail?.assignment.manual).toBe(false);
+  });
+
+  it("ADM/PRN-05: unassign is REJECTED for a pipeline-routed lead — the immutable snapshot is never rewritten", async () => {
+    const { editLead, CannotUnassignRoutedLeadError } = await import("@/modules/leads/commands");
+    // Pure pipeline routing to X (partnerId=X, no overlay). Its owner comes from the immutable
+    // import snapshot, which PRN-05 forbids rewriting — so it cannot be unassigned.
+    const [seed] = await db
+      .insert(schema.leads)
+      .values({ tenantId: id.tenantA, refId: "LD-26-00014", uploadId: id.uploadA, dedupeKey: "pl|00014", rawJson: {}, partnerId: id.partnerX, matchMethod: "zip", mlsStatus: "kept" })
+      .returning({ id: schema.leads.id });
+
+    await expect(
+      editLead(adminA(), { ref: "LD-26-00014", fields: {}, partner: { action: "unassign" } }),
+    ).rejects.toBeInstanceOf(CannotUnassignRoutedLeadError);
+
+    const [row] = await db
+      .select({ partnerId: schema.leads.partnerId, matchMethod: schema.leads.matchMethod, manualPartnerId: schema.leads.manualPartnerId })
+      .from(schema.leads)
+      .where(eq(schema.leads.id, seed.id));
+    expect(row.partnerId).toBe(id.partnerX); // PRN-05: snapshot untouched
+    expect(row.matchMethod).toBe("zip"); // PRN-05: snapshot untouched
+    expect(row.manualPartnerId).toBeNull(); // no overlay written
+  });
+
+  it("F-01: the leads RLS policy uses the effective-owner coalesce form (DB backstop matches scope.ts)", async () => {
+    const rows = (await db.execute<{ qual: string }>(sql`
+      select qual from pg_policies where tablename = 'leads' and policyname = 'leads_scope'
+    `)) as unknown as { qual: string }[];
+    expect(String(rows[0]?.qual)).toContain("COALESCE(manual_partner_id, partner_id)");
+  });
+
+  it("F-31: listPartnerActivity counts a partner's action on a manually-assigned (partnerId=null) lead", async () => {
+    const [ml] = await db
+      .insert(schema.leads)
+      // backdated past the hold window so it's released to the partner (distribution hold)
+      .values({ tenantId: id.tenantA, refId: "LD-26-00012", uploadId: id.uploadA, dedupeKey: "ma|00012", rawJson: {}, partnerId: null, matchMethod: "none", manualPartnerId: id.partnerX, mlsStatus: "kept", createdAt: new Date(Date.now() - 20 * 60 * 1000) })
+      .returning({ id: schema.leads.id });
+    await db.insert(schema.leadStatusHistory).values({ tenantId: id.tenantA, leadId: ml.id, status: "Contacted", changedByUserId: id.partnerUser });
+    // Under the old eq(partnerId) predicate this lead (partnerId=null) was under-reported.
+    const activity = await listPartnerActivity(partnerX());
+    expect(activity.items.some((i) => i.detail.includes("LD-26-00012"))).toBe(true);
+  });
+
+  it("F-32: findProfileById never returns another tenant's saved source profile", async () => {
+    const [prof] = await db
+      .insert(schema.sourceProfiles)
+      .values({ tenantId: id.tenantB, name: "B Profile", headerSignature: [], mapping: {}, requiredColumns: [] })
+      .returning({ id: schema.sourceProfiles.id });
+    // Tenant A must not see tenant B's profile even with a valid uuid…
+    expect(await findProfileById(db, adminA(), prof.id)).toBeNull();
+    // …but tenant B does.
+    const adminB: ScopeContext = { tenantId: id.tenantB, role: "admin", userId: id.adminUser };
+    expect(await findProfileById(db, adminB, prof.id)).not.toBeNull();
   });
 
   it("RLS is enabled on every application table (the database backstop)", async () => {

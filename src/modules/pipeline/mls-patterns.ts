@@ -1,88 +1,64 @@
 import type { MlsPattern } from "./mls";
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Seed MLS patterns (MLS-01 disqualify, MLS-02 keep-override). This is the seed
-// for the mls_patterns table (MLS-04, PRN-07); admins edit the table, not code.
-// Every pattern is anchored to the listing-question context (PRN-04) — negatives
-// like "no"/"n"/"false" only match tied to the question, never as bare substrings.
+// Seed MLS patterns v2 (MLS-01, MLS-04, PRN-04, PRN-07). Seed for the mls_patterns
+// table; admins edit the table, not code.
+//
+// THE RULE (owner decision 2026-07-15, WP-LS1): a lead is removed ONLY when a
+// structured listing question is answered Yes/Y/True. Everything else — No, blank,
+// free-text prose — falls through to the engine's default-keep (MLS-03), which IS
+// the rule. Verified against 182 real rows: 112 removed / 70 kept, zero rows
+// carrying both a Yes and a No, so "any Yes wins" needs no engine change.
+//
+// ── Why there are no keep_override patterns in v2 ──
+// v1 shipped free-text overrides (`not listed`, `off market`, …) and free-text
+// positives (`on market`, `active on mls`, …). Both are retired: the bare
+// `on market` pattern matched the "MLS History / Days on Market:" TEMPLATE LABEL
+// present in every vendor-A row and wrongly removed 57% of leads. The engine still
+// implements keep_override (MLS-02) — the seed simply no longer uses it. Re-adding
+// one is a data-only change to the patterns table, never a code change.
+//
+// ── ⚠️ Regex craft: [ \t]* — NEVER \s* ──
+// The notes are MULTILINE. `\s` matches newlines, so `\s*` lets a question on one
+// line bind to an answer on another ("Listed on MLS?:" + "\nYes I want to sell"
+// ⇒ a false removal). Every gap here is [ \t]* so a pattern can only ever match
+// WITHIN one line. Pinned by the multiline case in tests/fixtures/mls-corpus.ts.
 //
 // Regex sources use String.raw so single backslashes read faithfully.
 // ─────────────────────────────────────────────────────────────────────────────
 
+/** Affirmative answers that disqualify. `\b` stops "y" from matching "yet"/"your". */
+const YES = String.raw`(?:yes|y|true)\b`;
+
 export const DEFAULT_MLS_PATTERNS: readonly MlsPattern[] = [
-  // ── MLS-01: DISQUALIFY (on-market positives) ──
+  // ── MLS-01: DISQUALIFY — a structured listing question answered Yes ──
   {
-    id: "dq_is_listed_yes",
+    id: "dq_ls1_is_it_listed_yes",
     type: "disqualify",
-    regex: String.raw`is\s*it\s*listed\s*\??\s*:?\s*(?:true|yes|y)\b`,
-    label: "is it listed? : yes/true/y",
+    regex: String.raw`is[ \t]+it[ \t]+listed[ \t]*\??[ \t]*:?[ \t]*` + YES,
+    label: "is it listed? : yes/y/true",
   },
   {
-    id: "dq_listed_on_mls_yes",
+    id: "dq_ls1_listed_mls_yes",
     type: "disqualify",
-    regex: String.raw`listed\s*on\s*mls\s*\??\s*:?\s*yes\b`,
+    regex: String.raw`listed[ \t]+on[ \t]+mls[ \t]*\??[ \t]*:?[ \t]*` + YES,
     label: "listed on mls? yes",
   },
   {
-    id: "dq_active_on_mls",
+    id: "dq_ls1_listed_realtor_yes",
     type: "disqualify",
-    regex: String.raw`\bactive\s+on\s+mls\b`,
-    label: "active on mls",
+    regex: String.raw`listed[ \t]+with[ \t]+realtor[ \t]*\??[ \t]*:?[ \t]*` + YES,
+    label: "listed with realtor? yes",
   },
   {
-    id: "dq_currently_on_market",
+    // LINE-ANCHORED (^ + the m flag) on purpose: "listed?" is a substring of
+    // "Listed with realtor?" and "Listed on MLS?". Without the anchor this pattern
+    // would fire on every vendor-B row. The optional `\*?` absorbs the vendor's
+    // "* " bullet prefix.
+    id: "dq_ls1_listed_yes",
     type: "disqualify",
-    regex: String.raw`\bcurrently\s+on\s+market\b`,
-    label: "currently on market",
-  },
-  {
-    id: "dq_mls_status_active",
-    type: "disqualify",
-    regex: String.raw`\bmls\s*status\s*:?\s*active\b`,
-    label: "mls status: active",
-  },
-  {
-    id: "dq_on_market",
-    type: "disqualify",
-    regex: String.raw`\bon\s+market\b`,
-    label: "on market",
-  },
-
-  // ── MLS-02: KEEP-OVERRIDE (off-market negatives; beat any positive) ──
-  {
-    id: "ko_is_listed_no",
-    type: "keep_override",
-    regex: String.raw`is\s*it\s*listed\s*\??\s*:?\s*(?:no|false|n)\b`,
-    label: "is it listed? : no/false/n",
-  },
-  {
-    id: "ko_listed_on_mls_no",
-    type: "keep_override",
-    regex: String.raw`listed\s*on\s*mls\s*\??\s*:?\s*no\b`,
-    label: "listed on mls? no",
-  },
-  {
-    id: "ko_not_listed",
-    type: "keep_override",
-    regex: String.raw`\bnot\s+listed\b`,
-    label: "not listed",
-  },
-  {
-    id: "ko_off_market",
-    type: "keep_override",
-    regex: String.raw`\boff\s+market\b`,
-    label: "off market",
-  },
-  {
-    id: "ko_never_listed",
-    type: "keep_override",
-    regex: String.raw`\bnever\s+listed\b`,
-    label: "never listed",
-  },
-  {
-    id: "ko_no_mls",
-    type: "keep_override",
-    regex: String.raw`\bno\s+mls\b`,
-    label: "no mls",
+    regex: String.raw`^[ \t]*\*?[ \t]*listed[ \t]*\?[ \t]*:?[ \t]*` + YES,
+    flags: "im",
+    label: "listed? yes",
   },
 ];

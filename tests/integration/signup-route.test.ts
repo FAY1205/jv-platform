@@ -1,0 +1,720 @@
+import { describe, it, expect, beforeAll, afterAll, afterEach, beforeEach, vi } from "vitest";
+import { randomUUID } from "node:crypto";
+import { and, eq, inArray, sql } from "drizzle-orm";
+import { getDb } from "@/db";
+import * as schema from "@/db/schema";
+import { AuthAttemptsStore } from "@/lib/auth/attempts-store";
+import {
+  SIGNUP_GLOBAL_CEILING,
+  SIGNUP_SURGE_THRESHOLD,
+  SIGNUP_CEILING_RETRY_SEC,
+  ALREADY_REGISTERED_CAP,
+} from "@/lib/auth/throttle";
+import { recentDevEmails, clearDevMailbox } from "@/modules/notify/dev-mailbox";
+import { issueSignupCode } from "@/lib/auth/signup-code";
+import { jsonRequest } from "./_route-harness";
+
+// AUT-05/WP-SU-1: `after()` does not flush on a direct route invocation in a test — mock it to
+// collect callbacks so the test can flush them explicitly, and prove the work is deferred.
+const afterCallbacks: Array<() => unknown | Promise<unknown>> = [];
+vi.mock("next/server", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("next/server")>();
+  return { ...actual, after: (fn: () => unknown | Promise<unknown>) => { afterCallbacks.push(fn); } };
+});
+async function flushAfter() {
+  const cbs = afterCallbacks.splice(0);
+  for (const cb of cbs) await cb();
+}
+
+// AUT-05/ADR-0034/AUT-03 (live): the public signup endpoint ties turnstile
+// (ADR-0034), rate-limiting (AUT-03), password strength (AUT-02), enumeration-safe
+// timing (AUT-05), and provisioning (SCP-02/ADR-0033) together. Self-skips
+// without DATABASE_URL (must NOT self-skip in this environment).
+const url = process.env.DATABASE_URL;
+const suite = url ? describe : describe.skip;
+
+// verifyTurnstile is mocked so the test controls pass/fail without hitting
+// Cloudflare; toggled per test via turnstileOk.
+let turnstileOk = true;
+vi.mock("@/lib/auth/turnstile", () => ({
+  verifyTurnstile: vi.fn(async () => turnstileOk),
+}));
+
+// getSupabaseAdmin is mocked so no real Supabase auth user is ever created —
+// createUser records its arg and returns a fresh uuid; deleteUser is a no-op
+// recorder (the compensating-saga path in provisionSignup).
+const createUserCalls: unknown[] = [];
+const deleteUserCalls: string[] = [];
+const fakeAdmin = {
+  auth: {
+    admin: {
+      createUser: async (args: unknown) => {
+        createUserCalls.push(args);
+        return { data: { user: { id: randomUUID() } }, error: null };
+      },
+      deleteUser: async (userId: string) => {
+        deleteUserCalls.push(userId);
+        return { data: {}, error: null };
+      },
+    },
+  },
+};
+vi.mock("@/lib/supabase/admin", () => ({ getSupabaseAdmin: () => fakeAdmin }));
+
+// WP-SU-8: capture the surge alert without sending mail. Only notifyAuthAnomaly is
+// replaced — every other notify function stays real so the dev-mailbox assertions in this
+// suite keep exercising the genuine path.
+const anomalyCalls: string[] = [];
+vi.mock("@/lib/auth/notify", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/auth/notify")>();
+  return {
+    ...actual,
+    notifyAuthAnomaly: async (detail: string) => {
+      anomalyCalls.push(detail);
+    },
+  };
+});
+
+// Imported after the mocks are registered (Vitest hoists vi.mock above imports).
+import { POST } from "@/app/api/auth/signup/route";
+
+function strongPassword(): string {
+  // Long, high-entropy passphrase — clears length(12)+zxcvbn(3); the breach
+  // check (real HIBP lookup, fail-open) will not find this random suffix.
+  return `Correct-Horse-${randomUUID()}-Battery-9!`;
+}
+
+suite("POST /api/auth/signup", () => {
+  let db: ReturnType<typeof getDb>;
+  const tenantIds: string[] = [];
+  const userIds: string[] = [];
+  const identifiersToClear: string[] = [];
+
+  beforeAll(() => {
+    db = getDb();
+  });
+
+  // WP-SU-8: identifiers seeded straight into the GLOBAL signup window. Cleared after
+  // EVERY test, not in afterAll — the global count is genuinely global, so 60 leftover
+  // rows would push every later test in this file past the ceiling.
+  const seededGlobal: string[] = [];
+
+  // SCP-03: signup now requires a valid invitation code. Seed a fresh one per test
+  // (single-use; only the happy-path test consumes it) exposed as `validCode`.
+  const CODE_OWNER = "test@signup-route";
+  let validCode = "";
+
+  beforeEach(async () => {
+    turnstileOk = true;
+    createUserCalls.length = 0;
+    deleteUserCalls.length = 0;
+    afterCallbacks.length = 0;
+    anomalyCalls.length = 0;
+    clearDevMailbox();
+    const issued = issueSignupCode(Date.now());
+    await db.insert(schema.signupCodes).values({
+      codeHash: issued.record.codeHash,
+      expiresAt: new Date(issued.record.expiresAt),
+      createdBy: CODE_OWNER,
+    });
+    validCode = issued.code;
+  });
+
+  afterEach(async () => {
+    await db.delete(schema.signupCodes).where(eq(schema.signupCodes.createdBy, CODE_OWNER));
+    if (seededGlobal.length) {
+      await db.delete(schema.authAttempts).where(inArray(schema.authAttempts.identifier, seededGlobal.splice(0)));
+    }
+    // WP-SU-8: the alert cooldown is GLOBAL (1/hour per threshold key), so a test that fires
+    // an alert would otherwise suppress every later test's alert for an hour. Same for the
+    // notice budget across tests that reuse a recipient.
+    await db.delete(schema.authAttempts).where(inArray(schema.authAttempts.kind, ["signup_alert", "signup_notice"]));
+  });
+
+  /**
+   * Seed the global window UP TO an exact total. Going through the route would trip the
+   * per-identifier limit (5/15min) long before the global ceiling (60/hour) — which is
+   * exactly the point of the global dimension: it is the only key an attacker cannot
+   * rotate away from, so it is the only one reachable with fresh emails and rotated IPs.
+   *
+   * Seeding to an exact TOTAL rather than adding a fixed count is load-bearing: both
+   * alerts fire on equality, not >=, so that each threshold crossing produces one email
+   * instead of one per request for the rest of the hour. Earlier tests in this file leave
+   * their own `signup` rows in the same global window, so a fixed +60 would land PAST the
+   * ceiling, where `blocked` is true but `alert` is deliberately null.
+   */
+  async function seedGlobalSignupsTo(target: number) {
+    const existing = await new AuthAttemptsStore(db).kindCount("signup", Date.now(), SIGNUP_GLOBAL_CEILING.windowMs);
+    expect(existing).toBeLessThanOrEqual(target); // else this suite cannot reach the threshold
+    const rows = Array.from({ length: target - existing }, (_, i) => {
+      const identifier = `surge-${i}-${randomUUID()}@example.test`;
+      seededGlobal.push(identifier);
+      return {
+        identifier,
+        ip: `198.51.100.${i % 250}`,
+        kind: "signup",
+        success: true,
+        createdAt: new Date(Date.now() - 60_000),
+      };
+    });
+    if (rows.length) await db.insert(schema.authAttempts).values(rows);
+  }
+
+  afterAll(async () => {
+    if (userIds.length) await db.delete(schema.signupVerifications).where(inArray(schema.signupVerifications.userId, userIds));
+    if (userIds.length) await db.delete(schema.tosAcceptances).where(inArray(schema.tosAcceptances.userId, userIds));
+    if (userIds.length) await db.delete(schema.users).where(inArray(schema.users.id, userIds));
+    // tenants provisioned via the happy-path test carry an append-only audit_log row
+    // (ADR-0031: the trigger rejects DELETE) whose FK (ON DELETE no action) blocks deleting
+    // the tenant itself too — both are intentionally left in place, as in production. The
+    // "already-registered" test's PRE-INSERTED tenant (no audit_log row) has no such row and
+    // could be deleted, but is left alongside the others for a single, simple cleanup story.
+    if (identifiersToClear.length) {
+      await db.delete(schema.authAttempts).where(inArray(schema.authAttempts.identifier, identifiersToClear));
+    }
+  });
+
+  it("AUT-05: a new email returns 200 {code:signup_check_email} and provisions a tenant+admin + sends a verify email", async () => {
+    const email = `signup-${randomUUID()}@example.test`;
+    identifiersToClear.push(email.toLowerCase());
+    const workspaceName = `Acme ${randomUUID().slice(0, 8)}`;
+
+    const req = jsonRequest("POST", "/api/auth/signup", {
+      email,
+      password: strongPassword(),
+      workspaceName,
+      captchaToken: "captcha-token",
+      inviteCode: validCode,
+      tosAccepted: true,
+    });
+    const res = await POST(req);
+    await flushAfter();
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body).toEqual({
+      code: "signup_check_email",
+      message: "If that email can be used, we've sent a link to finish signing up.",
+    });
+
+    const userRows = await db
+      .select()
+      .from(schema.users)
+      .where(sql`lower(${schema.users.email}) = ${email.toLowerCase()}`);
+    expect(userRows).toHaveLength(1);
+    expect(userRows[0].role).toBe("admin");
+    userIds.push(userRows[0].id);
+    tenantIds.push(userRows[0].tenantId);
+
+    const tenantRows = await db.select().from(schema.tenants).where(eq(schema.tenants.id, userRows[0].tenantId));
+    expect(tenantRows).toHaveLength(1);
+    expect(tenantRows[0].name).toBe(workspaceName);
+
+    expect(createUserCalls).toHaveLength(1);
+
+    const emails = recentDevEmails();
+    const verifyEmail = emails.find((e) => e.kind === "signup_verify" && e.intendedTo.includes(email.toLowerCase()));
+    expect(verifyEmail).toBeTruthy();
+    expect(verifyEmail!.links.some((l) => l.includes("/signup/verify?token="))).toBe(true);
+
+    // SCP-03: the code was consumed (single-use) and no longer redeems.
+    const codes = await db.select().from(schema.signupCodes).where(eq(schema.signupCodes.createdBy, CODE_OWNER));
+    expect(codes).toHaveLength(1);
+    expect(codes[0].usedAt).not.toBeNull();
+    expect(codes[0].usedByTenantId).toBe(userRows[0].tenantId);
+  });
+
+  it("SCP-03: an invalid invitation code is rejected (400) and never provisions", async () => {
+    const email = `signup-${randomUUID()}@example.test`;
+    const req = jsonRequest("POST", "/api/auth/signup", {
+      email,
+      password: strongPassword(),
+      workspaceName: "No Code Co",
+      captchaToken: "captcha-token",
+      inviteCode: "ZZZZ-ZZZZ-ZZZZ", // not a real code
+      tosAccepted: true,
+    });
+    const res = await POST(req);
+    await flushAfter();
+    expect(res.status).toBe(400);
+    expect((await res.json()).code).toBe("invalid_code");
+    expect(createUserCalls).toHaveLength(0); // never reached provisioning
+    // The seeded valid code stays unused.
+    const codes = await db.select().from(schema.signupCodes).where(eq(schema.signupCodes.createdBy, CODE_OWNER));
+    expect(codes[0].usedAt).toBeNull();
+  });
+
+  it("AUT-05: the heavy provisioning work is DEFERRED (not on the response path)", async () => {
+    const email = `signup-${randomUUID()}@example.test`;
+    identifiersToClear.push(email.toLowerCase());
+    const workspaceName = `Acme ${randomUUID().slice(0, 8)}`;
+
+    const req = jsonRequest("POST", "/api/auth/signup", {
+      email,
+      password: strongPassword(),
+      workspaceName,
+      captchaToken: "captcha-token",
+      inviteCode: validCode,
+      tosAccepted: true,
+    });
+    const res = await POST(req);
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body).toEqual({
+      code: "signup_check_email",
+      message: "If that email can be used, we've sent a link to finish signing up.",
+    });
+
+    // BEFORE flushing: no tenant/user row exists yet and no verify email has been sent —
+    // proves the heavy provisioning work never ran on the response path.
+    const userRowsBefore = await db
+      .select()
+      .from(schema.users)
+      .where(sql`lower(${schema.users.email}) = ${email.toLowerCase()}`);
+    expect(userRowsBefore).toHaveLength(0);
+    expect(
+      recentDevEmails().find((e) => e.kind === "signup_verify" && e.intendedTo.includes(email.toLowerCase())),
+    ).toBeUndefined();
+
+    await flushAfter();
+
+    const userRowsAfter = await db
+      .select()
+      .from(schema.users)
+      .where(sql`lower(${schema.users.email}) = ${email.toLowerCase()}`);
+    expect(userRowsAfter).toHaveLength(1);
+    userIds.push(userRowsAfter[0].id);
+    tenantIds.push(userRowsAfter[0].tenantId);
+
+    const tenantRows = await db.select().from(schema.tenants).where(eq(schema.tenants.id, userRowsAfter[0].tenantId));
+    expect(tenantRows).toHaveLength(1);
+
+    const verifyEmail = recentDevEmails().find(
+      (e) => e.kind === "signup_verify" && e.intendedTo.includes(email.toLowerCase()),
+    );
+    expect(verifyEmail).toBeTruthy();
+  });
+
+  it("AUT-05: an already-registered email returns the IDENTICAL 200 envelope, creates NO new tenant, and sends an already_registered email", async () => {
+    const email = `signup-${randomUUID()}@example.test`;
+    identifiersToClear.push(email.toLowerCase());
+
+    // Pre-insert an existing tenant + admin user with this email.
+    const [t] = await db
+      .insert(schema.tenants)
+      .values({ name: `Existing ${randomUUID().slice(0, 8)}`, slug: `existing-${randomUUID()}` })
+      .returning({ id: schema.tenants.id });
+    tenantIds.push(t.id);
+    const existingUserId = randomUUID();
+    await db.insert(schema.users).values({ id: existingUserId, tenantId: t.id, email, role: "admin" });
+    userIds.push(existingUserId);
+
+    const tenantCountBefore = (await db.select({ id: schema.tenants.id }).from(schema.tenants)).length;
+
+    const req = jsonRequest("POST", "/api/auth/signup", {
+      email,
+      password: strongPassword(),
+      workspaceName: "Someone Else's Workspace",
+      captchaToken: "captcha-token",
+      inviteCode: validCode,
+      tosAccepted: true,
+    });
+    const res = await POST(req);
+    await flushAfter();
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body).toEqual({
+      code: "signup_check_email",
+      message: "If that email can be used, we've sent a link to finish signing up.",
+    });
+
+    const tenantCountAfter = (await db.select({ id: schema.tenants.id }).from(schema.tenants)).length;
+    expect(tenantCountAfter).toBe(tenantCountBefore);
+    expect(createUserCalls).toHaveLength(0); // no provisioning attempted
+
+    const emails = recentDevEmails();
+    const alreadyEmail = emails.find((e) => e.kind === "already_registered" && e.intendedTo.includes(email.toLowerCase()));
+    expect(alreadyEmail).toBeTruthy();
+  });
+
+  it("ADR-0034: a failed CAPTCHA returns 400 and does no provisioning", async () => {
+    turnstileOk = false;
+    const email = `signup-${randomUUID()}@example.test`;
+    identifiersToClear.push(email.toLowerCase());
+
+    const req = jsonRequest("POST", "/api/auth/signup", {
+      email,
+      password: strongPassword(),
+      workspaceName: "Never Provisioned Co",
+      captchaToken: "bad-token",
+      inviteCode: validCode,
+      tosAccepted: true,
+    });
+    const res = await POST(req);
+
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.code).toBe("captcha_failed");
+
+    const userRows = await db
+      .select()
+      .from(schema.users)
+      .where(sql`lower(${schema.users.email}) = ${email.toLowerCase()}`);
+    expect(userRows).toHaveLength(0);
+    expect(createUserCalls).toHaveLength(0);
+    expect(recentDevEmails()).toHaveLength(0);
+
+    // WP-SU-9 review (audit-security F-1): CAPTCHA is now verified BEFORE the attempt is
+    // reserved, so a request that fails CAPTCHA writes NO signup row. This is the property
+    // that stops an uncaptcha'd flood from exhausting the global hourly ceiling (which counts
+    // `signup` rows) with free requests. If the reservation ever moves back ahead of CAPTCHA,
+    // this row count becomes 1 and the ceiling becomes a CAPTCHA-free DoS lever again.
+    const attemptRows = await db
+      .select()
+      .from(schema.authAttempts)
+      .where(and(eq(schema.authAttempts.identifier, email.toLowerCase()), eq(schema.authAttempts.kind, "signup")));
+    expect(attemptRows).toHaveLength(0);
+  });
+
+  it("AUT-03: signup is rate-limited", async () => {
+    const email = `signup-${randomUUID()}@example.test`;
+    identifiersToClear.push(email.toLowerCase());
+    const attempts = new AuthAttemptsStore(db);
+    // Drive the identifier past the lockout threshold (>4 failures locks — AUT-04).
+    for (let i = 0; i < 5; i++) await attempts.record(email, null, "signup", false);
+
+    const req = jsonRequest("POST", "/api/auth/signup", {
+      email,
+      password: strongPassword(),
+      workspaceName: "Rate Limited Co",
+      captchaToken: "captcha-token",
+      inviteCode: validCode,
+      tosAccepted: true,
+    });
+    const res = await POST(req);
+
+    expect(res.status).toBe(429);
+    expect(res.headers.get("Retry-After")).toBeTruthy();
+    const body = await res.json();
+    expect(body.code).toBe("signup_check_email"); // uniform body even when throttled
+
+    const userRows = await db
+      .select()
+      .from(schema.users)
+      .where(sql`lower(${schema.users.email}) = ${email.toLowerCase()}`);
+    expect(userRows).toHaveLength(0);
+    expect(createUserCalls).toHaveLength(0);
+  });
+
+  it("AUT-03 (WP-SU-8): refuses past the global hourly ceiling, with the UNIFORM body", async () => {
+    await seedGlobalSignupsTo(SIGNUP_GLOBAL_CEILING.limit);
+    const email = `fresh-${randomUUID()}@example.test`;
+    identifiersToClear.push(email.toLowerCase());
+
+    const res = await POST(
+      jsonRequest("POST", "/api/auth/signup", {
+        email,
+        password: strongPassword(),
+        workspaceName: "Surge Co",
+        captchaToken: "captcha-token",
+        inviteCode: validCode,
+        tosAccepted: true,
+      }),
+    );
+
+    expect(res.status).toBe(429);
+    expect(res.headers.get("Retry-After")).toBe(String(SIGNUP_CEILING_RETRY_SEC));
+    // AUT-05: byte-identical to the per-identifier refusal — the ceiling adds no signal.
+    expect(await res.json()).toEqual({
+      code: "signup_check_email",
+      message: "If that email can be used, we've sent a link to finish signing up.",
+    });
+
+    await flushAfter();
+    expect(anomalyCalls.some((d) => d.includes("ceiling reached"))).toBe(true);
+    // AUT-03: refused before any provisioning — no auth user was created.
+    expect(createUserCalls).toHaveLength(0);
+  });
+
+  it("AUT-03 (WP-SU-8): alerts on the surge threshold WITHOUT refusing, and names no one (SEC-05)", async () => {
+    await seedGlobalSignupsTo(SIGNUP_SURGE_THRESHOLD);
+    const email = `fresh-${randomUUID()}@example.test`;
+    identifiersToClear.push(email.toLowerCase());
+
+    const res = await POST(
+      jsonRequest("POST", "/api/auth/signup", {
+        email,
+        password: strongPassword(),
+        workspaceName: `Surge Co ${randomUUID().slice(0, 8)}`,
+        captchaToken: "captcha-token",
+        inviteCode: validCode,
+        tosAccepted: true,
+      }),
+    );
+    expect(res.status).toBe(200);
+
+    await flushAfter();
+    expect(anomalyCalls.some((d) => d.includes("signup surge"))).toBe(true);
+    // SEC-05: the alert is a count and a code — never the address that triggered it.
+    expect(anomalyCalls.join(" ")).not.toContain(email);
+
+    // The request was allowed through, so it provisioned — collect for cleanup.
+    const rows = await db
+      .select()
+      .from(schema.users)
+      .where(sql`lower(${schema.users.email}) = ${email.toLowerCase()}`);
+    if (rows.length) {
+      userIds.push(rows[0].id);
+      tenantIds.push(rows[0].tenantId);
+    }
+  });
+
+  // WP-SU-8 REGRESSION: the first implementation alerted when the hourly count was EXACTLY
+  // the ceiling, expecting that to fire once per crossing. It fired once per REFUSED REQUEST,
+  // because a refused request returns 429 before the route records an attempt, so the count
+  // froze at the ceiling and the equality branch stayed true forever. The original ceiling
+  // test could not see it: it asserted `.some(...)` after a single request. Assert the COUNT.
+  it("AUT-03 (WP-SU-8): a sustained refusal burst alerts AT MOST ONCE, not once per request", async () => {
+    await seedGlobalSignupsTo(SIGNUP_GLOBAL_CEILING.limit);
+    for (let i = 0; i < 3; i++) {
+      const res = await POST(
+        jsonRequest("POST", "/api/auth/signup", {
+          email: `burst-${randomUUID()}@example.test`,
+          password: strongPassword(),
+          workspaceName: "Surge Co",
+          captchaToken: "captcha-token",
+          inviteCode: validCode,
+          tosAccepted: true,
+        }),
+      );
+      expect(res.status).toBe(429);
+      await flushAfter();
+    }
+    expect(anomalyCalls.filter((d) => d.includes("ceiling reached"))).toHaveLength(1);
+  });
+
+  // WP-SU-8 REGRESSION (the mirror-image failure): the first implementation returned
+  // `{blocked:true, alert:null}` for any count ABOVE the ceiling, assuming the alert had
+  // already fired exactly at it. A concurrent burst over-admits past the ceiling in one step,
+  // so that assumption put the system in a state where signups were refused for a full hour
+  // with NO alert at all — the outage and the silence together.
+  it("AUT-03 (WP-SU-8): a count ABOVE the ceiling still alerts — the outage is never silent", async () => {
+    await seedGlobalSignupsTo(SIGNUP_GLOBAL_CEILING.limit + 5);
+    const res = await POST(
+      jsonRequest("POST", "/api/auth/signup", {
+        email: `over-${randomUUID()}@example.test`,
+        password: strongPassword(),
+        workspaceName: "Surge Co",
+        captchaToken: "captcha-token",
+        inviteCode: validCode,
+        tosAccepted: true,
+      }),
+    );
+    expect(res.status).toBe(429);
+    await flushAfter();
+    expect(anomalyCalls.filter((d) => d.includes("ceiling reached"))).toHaveLength(1);
+  });
+
+  /** Pre-insert a tenant + admin so `email` is already registered (the notice branch). */
+  async function seedExistingAdmin(email: string): Promise<void> {
+    const [t] = await db
+      .insert(schema.tenants)
+      .values({ name: `Existing ${randomUUID().slice(0, 8)}`, slug: `existing-${randomUUID()}` })
+      .returning({ id: schema.tenants.id });
+    tenantIds.push(t.id);
+    const userId = randomUUID();
+    await db.insert(schema.users).values({ id: userId, tenantId: t.id, email, role: "admin" });
+    userIds.push(userId);
+  }
+
+  it("SEC-05 (WP-SU-8): consumes one notice unit per delivered 'already registered' mail", async () => {
+    const email = `victim-${randomUUID()}@example.test`;
+    identifiersToClear.push(email.toLowerCase());
+    await seedExistingAdmin(email);
+
+    const res = await POST(
+      jsonRequest("POST", "/api/auth/signup", {
+        email,
+        password: strongPassword(),
+        workspaceName: "Bomb Co",
+        captchaToken: "captcha-token",
+        inviteCode: validCode,
+        tosAccepted: true,
+      }),
+    );
+    expect(res.status).toBe(200);
+    await flushAfter();
+
+    expect(
+      recentDevEmails().filter((e) => e.kind === "already_registered" && e.intendedTo.includes(email.toLowerCase())),
+    ).toHaveLength(1);
+    const budget = await db
+      .select()
+      .from(schema.authAttempts)
+      .where(and(eq(schema.authAttempts.identifier, email.toLowerCase()), eq(schema.authAttempts.kind, "signup_notice")));
+    expect(budget).toHaveLength(1);
+    // AUT-04: the notice budget must never feed the lockout ladder — a stranger triggering
+    // notices must not be able to lock the victim's account.
+    expect(budget[0].success).toBe(true);
+  });
+
+  it("SEC-05 (WP-SU-8): a capped recipient gets NO further mail, and the response is unchanged", async () => {
+    const email = `victim-${randomUUID()}@example.test`;
+    identifiersToClear.push(email.toLowerCase());
+    await seedExistingAdmin(email);
+
+    // Exhaust the 3/24h notice budget directly. Driving it through the route instead would
+    // entangle this with the per-identifier signup limit and the AUT-04 lockout ladder,
+    // which are a different mechanism.
+    const attempts = new AuthAttemptsStore(db);
+    for (let i = 0; i < ALREADY_REGISTERED_CAP.limit; i++) {
+      await attempts.record(email, null, "signup_notice", true);
+    }
+
+    const res = await POST(
+      jsonRequest("POST", "/api/auth/signup", {
+        email,
+        password: strongPassword(),
+        workspaceName: "Bomb Co",
+        captchaToken: "captcha-token",
+        inviteCode: validCode,
+        tosAccepted: true,
+      }),
+    );
+    // AUT-05: the cap is invisible from outside — same uniform 200 either way.
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      code: "signup_check_email",
+      message: "If that email can be used, we've sent a link to finish signing up.",
+    });
+    await flushAfter();
+
+    expect(
+      recentDevEmails().filter((e) => e.kind === "already_registered" && e.intendedTo.includes(email.toLowerCase())),
+    ).toHaveLength(0);
+  });
+
+  it("LGL-01: a missing tosAccepted returns 400 invalid_input and does no provisioning", async () => {
+    const email = `signup-${randomUUID()}@example.test`;
+    identifiersToClear.push(email.toLowerCase());
+
+    const req = jsonRequest("POST", "/api/auth/signup", {
+      email,
+      password: strongPassword(),
+      workspaceName: "No Consent Co",
+      captchaToken: "captcha-token",
+      inviteCode: validCode,
+    });
+    const res = await POST(req);
+
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.code).toBe("invalid_input");
+    expect(createUserCalls).toHaveLength(0);
+  });
+
+  it("LGL-01: a false tosAccepted returns 400 invalid_input and does no provisioning", async () => {
+    const email = `signup-${randomUUID()}@example.test`;
+    identifiersToClear.push(email.toLowerCase());
+
+    const req = jsonRequest("POST", "/api/auth/signup", {
+      email,
+      password: strongPassword(),
+      workspaceName: "No Consent Co",
+      captchaToken: "captcha-token",
+      inviteCode: validCode,
+      tosAccepted: false,
+    });
+    const res = await POST(req);
+
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.code).toBe("invalid_input");
+    expect(createUserCalls).toHaveLength(0);
+  });
+
+  it("ADR-0034: returns 403 signup_disabled when the kill-switch is off", async () => {
+    vi.resetModules();
+    vi.doMock("@/lib/env", async (importOriginal) => {
+      const actual = await importOriginal<typeof import("@/lib/env")>();
+      return { ...actual, isSignupEnabled: false };
+    });
+    try {
+      const { POST: disabledPost } = await import("@/app/api/auth/signup/route");
+      const email = `signup-${randomUUID()}@example.test`;
+      identifiersToClear.push(email.toLowerCase());
+
+      const req = jsonRequest("POST", "/api/auth/signup", {
+        email,
+        password: strongPassword(),
+        workspaceName: "Disabled Co",
+        captchaToken: "captcha-token",
+        inviteCode: validCode,
+        tosAccepted: true,
+      });
+      const res = await disabledPost(req);
+
+      expect(res.status).toBe(403);
+      const body = await res.json();
+      expect(body.code).toBe("signup_disabled");
+      expect(createUserCalls).toHaveLength(0);
+    } finally {
+      vi.doUnmock("@/lib/env");
+      vi.resetModules();
+    }
+  });
+
+  it("SEC-05: a provisioning failure logs the error via logError and still returns the uniform 200", async () => {
+    vi.resetModules();
+    const logErrorSpy = vi.fn();
+    vi.doMock("@/lib/observability", () => ({ logError: logErrorSpy }));
+    vi.doMock("@/lib/auth/provision-signup", async (importOriginal) => {
+      const actual = await importOriginal<typeof import("@/lib/auth/provision-signup")>();
+      return {
+        ...actual,
+        provisionSignup: vi.fn(async () => {
+          throw new Error("boom: provisioning exploded");
+        }),
+      };
+    });
+    try {
+      const { POST: failingPost } = await import("@/app/api/auth/signup/route");
+      const email = `signup-${randomUUID()}@example.test`;
+      identifiersToClear.push(email.toLowerCase());
+
+      const req = jsonRequest("POST", "/api/auth/signup", {
+        email,
+        password: strongPassword(),
+        workspaceName: "Boom Co",
+        captchaToken: "captcha-token",
+        inviteCode: validCode,
+        tosAccepted: true,
+      });
+      const res = await failingPost(req);
+      await flushAfter();
+
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expect(body).toEqual({
+        code: "signup_check_email",
+        message: "If that email can be used, we've sent a link to finish signing up.",
+      });
+      expect(logErrorSpy).toHaveBeenCalledWith(
+        "signup_provision_failed",
+        expect.objectContaining({ message: expect.stringContaining("boom: provisioning exploded") }),
+      );
+
+      const userRows = await db
+        .select()
+        .from(schema.users)
+        .where(sql`lower(${schema.users.email}) = ${email.toLowerCase()}`);
+      expect(userRows).toHaveLength(0);
+    } finally {
+      vi.doUnmock("@/lib/observability");
+      vi.doUnmock("@/lib/auth/provision-signup");
+      vi.resetModules();
+    }
+  });
+});

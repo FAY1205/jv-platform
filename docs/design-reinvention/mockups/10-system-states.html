@@ -1,0 +1,94 @@
+<title>TerritoryDesk — System states</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root{--paper:#F1F4F3;--surface:#FFFFFF;--surface-2:#E9EEEC;--surface-3:#DDE5E2;--ink:#16242B;--ink-2:#46565D;--ink-3:#566268;--line:#D3DCD9;--line-strong:#B8C4C0;--route:#E0912B;--route-strong:#C67D1E;--route-tint:#FAEFDA;--route-ink:#8F5416;--matched:#2C7A57;--info:#2E6E93;--warn:#B9741C;--danger:#B23A2E;--shadow:0 1px 2px rgba(22,36,43,.06),0 10px 28px -14px rgba(22,36,43,.20);--shadow-sm:0 1px 2px rgba(22,36,43,.08);--r-xs:4px;--r-sm:8px;--r-md:12px;--r-lg:16px;--r-pill:999px;--font-display:ui-serif,"Iowan Old Style","Palatino Linotype",Georgia,serif;--font-sans:system-ui,-apple-system,"Segoe UI",sans-serif;--font-mono:"SF Mono","Cascadia Code",ui-monospace,"Roboto Mono",monospace;}
+  @media (prefers-color-scheme:dark){:root:not([data-theme]){--paper:#10181C;--surface:#17232A;--surface-2:#1E2C33;--surface-3:#26363E;--ink:#EAF0EE;--ink-2:#A9B8BC;--ink-3:#85969B;--line:#2A3A41;--line-strong:#3A4D55;--route:#F0A63E;--route-strong:#F6B856;--route-tint:#2A2417;--route-ink:#F0A63E;--matched:#4FB183;--info:#5FA0C8;--warn:#E0973A;--danger:#E06555;--shadow:0 1px 2px rgba(0,0,0,.3),0 12px 32px -14px rgba(0,0,0,.6);--shadow-sm:0 1px 2px rgba(0,0,0,.35);}}
+  :root[data-theme="dark"]{--paper:#10181C;--surface:#17232A;--surface-2:#1E2C33;--surface-3:#26363E;--ink:#EAF0EE;--ink-2:#A9B8BC;--ink-3:#85969B;--line:#2A3A41;--line-strong:#3A4D55;--route:#F0A63E;--route-strong:#F6B856;--route-tint:#2A2417;--route-ink:#F0A63E;--matched:#4FB183;--info:#5FA0C8;--warn:#E0973A;--danger:#E06555;--shadow:0 1px 2px rgba(0,0,0,.3),0 12px 32px -14px rgba(0,0,0,.6);--shadow-sm:0 1px 2px rgba(0,0,0,.35);}
+  :root[data-theme="light"]{--paper:#F1F4F3;--surface:#FFFFFF;--surface-2:#E9EEEC;--surface-3:#DDE5E2;--ink:#16242B;--ink-2:#46565D;--ink-3:#566268;--line:#D3DCD9;--line-strong:#B8C4C0;--route:#E0912B;--route-strong:#C67D1E;--route-tint:#FAEFDA;--route-ink:#8F5416;--matched:#2C7A57;--info:#2E6E93;--warn:#B9741C;--danger:#B23A2E;--shadow:0 1px 2px rgba(22,36,43,.06),0 10px 28px -14px rgba(22,36,43,.20);--shadow-sm:0 1px 2px rgba(22,36,43,.08);}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--font-sans);font-size:15px;line-height:1.5;-webkit-font-smoothing:antialiased}
+  .num{font-family:var(--font-mono);font-variant-numeric:tabular-nums}
+  h1,h2,h3{font-family:var(--font-display);font-weight:500;line-height:1.15;margin:0;text-wrap:balance}
+  :focus-visible{outline:2px solid var(--route-strong);outline-offset:2px;border-radius:var(--r-xs)}
+  @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+  .wrap{max-width:1080px;margin:0 auto;padding:28px 22px 80px}
+  .head{display:flex;align-items:center;gap:12px;margin-bottom:8px}
+  .head .brand{display:flex;align-items:center;gap:9px;font-weight:600}
+  .head .tg{margin-left:auto;width:36px;height:36px;border-radius:var(--r-pill);border:1px solid var(--line-strong);background:var(--surface);color:var(--ink-2);cursor:pointer}
+  .lede{color:var(--ink-2);margin:0 0 22px}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+  @media (max-width:760px){.grid{grid-template-columns:1fr}}
+  .demo{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-md);box-shadow:var(--shadow-sm);overflow:hidden;display:flex;flex-direction:column}
+  .demo .cap{font-family:var(--font-mono);font-size:.64rem;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-3);padding:10px 14px;border-bottom:1px solid var(--line);background:var(--surface-2)}
+  .stage{flex:1;min-height:290px;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:30px 26px;gap:12px}
+  .stage h3{font-size:1.3rem}.stage p{color:var(--ink-2);max-width:34ch;margin:0}
+  .art{width:76px;height:76px;display:grid;place-items:center;border-radius:var(--r-lg);background:var(--surface-2);border:1px solid var(--line)}
+  .btn{font:inherit;font-size:.86rem;font-weight:600;border-radius:var(--r-sm);padding:9px 16px;border:1px solid var(--route-strong);background:var(--route);color:#20160A;cursor:pointer}
+  .btn.sec{background:var(--surface);color:var(--ink);border-color:var(--line-strong)}
+  .trace{font-family:var(--font-mono);font-size:.72rem;color:var(--ink-3);background:var(--surface-2);border:1px solid var(--line);border-radius:var(--r-xs);padding:4px 8px}
+  /* loading skeleton */
+  .sk{width:100%;display:flex;flex-direction:column;gap:10px;padding:4px 10px}
+  .skrow{display:flex;align-items:center;gap:12px}
+  .shimmer{background:linear-gradient(90deg,var(--surface-2) 25%,var(--surface-3) 37%,var(--surface-2) 63%);background-size:400% 100%;animation:sh 1.4s ease infinite;border-radius:var(--r-xs)}
+  @keyframes sh{0%{background-position:100% 0}100%{background-position:-100% 0}}
+  @media (prefers-reduced-motion:reduce){.shimmer{animation:none;opacity:.7}}
+  .big{font-family:var(--font-display);font-size:4rem;color:var(--route-ink);line-height:1}
+</style>
+<div class="wrap">
+  <div class="head">
+    <span class="brand"><svg width="26" height="26" viewBox="0 0 34 34" fill="none" aria-hidden="true"><rect x="1.5" y="1.5" width="31" height="31" rx="7" stroke="var(--ink)" stroke-width="1.6"/><path d="M7 24 L14 12 L21 19 L27 9" stroke="var(--route)" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/><circle cx="7" cy="24" r="2.4" fill="var(--ink)"/><circle cx="27" cy="9" r="2.8" fill="var(--route)"/></svg>TerritoryDesk</span>
+    <button class="tg" id="tg" aria-label="Toggle theme">◐</button>
+  </div>
+  <h1 style="font-size:1.6rem">System states</h1>
+  <p class="lede">Empty, loading, error, and not-found — designed to give direction, in the interface's voice.</p>
+
+  <div class="grid">
+    <!-- EMPTY -->
+    <div class="demo">
+      <div class="cap">Empty · first run</div>
+      <div class="stage">
+        <div class="art"><svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="var(--route)" stroke-width="1.6"><path d="M9 3l-6 3v15l6-3 6 3 6-3V3l-6 3-6-3zM9 3v15M15 6v15"/></svg></div>
+        <h3>No territories yet</h3>
+        <p>Import a ZIP map or assign your first state, and leads will start routing to partners automatically.</p>
+        <button class="btn">Import ZIP map</button>
+      </div>
+    </div>
+
+    <!-- LOADING -->
+    <div class="demo">
+      <div class="cap">Loading · skeleton</div>
+      <div class="stage" style="justify-content:flex-start;align-items:stretch;padding:22px">
+        <div class="sk">
+          <div class="skrow"><span class="shimmer" style="width:28px;height:28px;border-radius:6px"></span><span class="shimmer" style="height:12px;flex:1"></span><span class="shimmer" style="height:12px;width:48px"></span></div>
+          <div class="skrow"><span class="shimmer" style="width:28px;height:28px;border-radius:6px"></span><span class="shimmer" style="height:12px;flex:1"></span><span class="shimmer" style="height:12px;width:48px"></span></div>
+          <div class="skrow"><span class="shimmer" style="width:28px;height:28px;border-radius:6px"></span><span class="shimmer" style="height:12px;flex:1"></span><span class="shimmer" style="height:12px;width:48px"></span></div>
+          <div class="skrow"><span class="shimmer" style="width:28px;height:28px;border-radius:6px"></span><span class="shimmer" style="height:12px;flex:1"></span><span class="shimmer" style="height:12px;width:48px"></span></div>
+          <div class="skrow"><span class="shimmer" style="width:28px;height:28px;border-radius:6px"></span><span class="shimmer" style="height:12px;flex:1"></span><span class="shimmer" style="height:12px;width:48px"></span></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ERROR -->
+    <div class="demo">
+      <div class="cap">Error · with trace ID</div>
+      <div class="stage">
+        <div class="art" style="background:color-mix(in srgb,var(--danger) 10%,transparent);border-color:color-mix(in srgb,var(--danger) 30%,transparent)"><svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="var(--danger)" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M12 8v5M12 16h.01"/></svg></div>
+        <h3>We couldn't load your leads</h3>
+        <p>Something broke on our side. Try again — if it keeps happening, send us the code below.</p>
+        <div style="display:flex;gap:10px;align-items:center"><button class="btn">Try again</button><span class="trace">trace 7f3a9c21</span></div>
+      </div>
+    </div>
+
+    <!-- 404 -->
+    <div class="demo">
+      <div class="cap">Not found · 404</div>
+      <div class="stage">
+        <div class="big num">404</div>
+        <h3>Off the map</h3>
+        <p>This page doesn't exist — or the lead was reassigned. Let's get you back on route.</p>
+        <button class="btn sec">Back to dashboard</button>
+      </div>
+    </div>
+  </div>
+</div>
+<script>(function(){var r=document.documentElement;function c(){return r.getAttribute('data-theme')||(matchMedia('(prefers-color-scheme:dark)').matches?'dark':'light');}document.getElementById('tg').addEventListener('click',function(){r.setAttribute('data-theme',c()==='dark'?'light':'dark');});})();</script>

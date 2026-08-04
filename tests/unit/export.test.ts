@@ -122,6 +122,38 @@ describe("EXP-02/03: export structure", () => {
   });
 });
 
+describe("F-26: partner-name cells are formula-sanitized on every path", () => {
+  const EVIL = new Map<string, PartnerInfo>([["evil", { id: "evil", name: "=cmd()|Acme", refId: "JV-009", color: "#2E7D6F" }]]);
+  const EVIL_LEADS: ExportLead[] = [mk({ leadRefId: "LD-9", partnerId: "evil" })];
+  const EVIL_SUMMARY: RunSummary = { total: 1, kept: 1, removed: 0, unmatched: 0, previouslyMatched: 0, perPartner: [{ partnerId: "evil", count: 1 }] };
+
+  it("F-26: the legend + summary partner-name cells are neutralised", async () => {
+    const wb = await load(await renderExport(EVIL_LEADS, EVIL, EVIL_SUMMARY, { colorCoding: true }));
+    const legendName = String(wb.getWorksheet("JV_Color_Legend")!.getRow(2).getCell(1).value);
+    expect(legendName.startsWith("=")).toBe(false);
+    expect(legendName).toContain("cmd()|Acme");
+    const sum = wb.getWorksheet("Run_Summary")!;
+    let summaryPartner: string | undefined;
+    sum.eachRow((row) => {
+      const v = String(row.getCell(1).value ?? "");
+      if (v.includes("cmd()|Acme")) summaryPartner = v;
+    });
+    expect(summaryPartner).toBeDefined();
+    expect(summaryPartner!.startsWith("=")).toBe(false);
+  });
+
+  it("F-26: the color-OFF group-header partner name is neutralised", async () => {
+    const ws = (await load(await renderExport(EVIL_LEADS, EVIL, EVIL_SUMMARY, { colorCoding: false }))).getWorksheet("Leads")!;
+    let header: string | undefined;
+    ws.eachRow((row) => {
+      const c = row.getCell(1);
+      if (c.font?.bold && String(c.value ?? "").includes("cmd()|Acme")) header = String(c.value);
+    });
+    expect(header).toBeDefined();
+    expect(header!.startsWith("=")).toBe(false);
+  });
+});
+
 describe("EXP-06: color ON/OFF toggle", () => {
   it("color ON fills data rows with the locked partner color + sets a font color (AA)", async () => {
     const ws = (await load(await renderExport(LEADS, PARTNERS, SUMMARY, { colorCoding: true }))).getWorksheet(

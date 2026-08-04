@@ -19,7 +19,7 @@ A deterministic lead-routing platform for real-estate JV (joint-venture) network
 | ID | Constraint |
 | -- | ---------- |
 | SCP-01 | Single-org operation in V1; `tenant_id` on every table; every query tenant-scoped. Productizing MUST NOT require a migration. |
-| SCP-02 | Roles: **admin** (owner — full control) and **partner** (portal: own leads, statuses, own notes, export). No partner self-signup; admin invites. Admin self-signup closed in V1 (accounts provisioned). |
+| SCP-02 | Roles: **admin** (owner — full control) and **partner** (portal: own leads, statuses, own notes, export). No partner self-signup; admin invites. **Public self-serve admin signup is open (ADR-0033): a new customer signs up → their own isolated tenant + admin; partner accounts remain invite-only.** |
 | SCP-03 | External dependencies: Supabase (US region — Postgres/Auth/Storage), Vercel, Resend, one pluggable listing-check provider, and (AI phase only) one LLM provider behind a gateway. |
 | SCP-04 | **Web only, responsive.** No native app in V1. Partners will primarily use phones: every portal surface MUST be fully usable at 375 px width with ≥ 44 px touch targets. The app SHOULD ship a PWA manifest + icons so it can be installed to a home screen (no offline mode). |
 | SCP-05 | Files .xlsx/.csv ≤ 10 MB / 10k rows. ~100 leads/week; optimize for correctness and auditability, never throughput. |
@@ -90,7 +90,7 @@ Tables: `tenants, users, partners, coverage_zips, state_rules, mls_patterns, cam
 | DM-04 | `audit_log` append-only: every pipeline decision, admin mutation, partner status/note change — actor, before/after, timestamp, trace ID. |
 | DM-05 | Timestamps UTC; tenant timezone (SET-08) applied at render. |
 | DM-06 | Coverage versioned (`effective_from/to`); history queryable; versions revertible (CVG-03). |
-| DM-07 | **Reference IDs**, human-readable, tenant-scoped, immutable: partners `JV-###`, leads `LD-YYYY-#####`, uploads `UP-YYYY-###`. Shown on every surface, export, and email; globally searchable. |
+| DM-07 | **Reference IDs**, human-readable, tenant-scoped, immutable: partners `PR-###` (ADR-0028; was `JV-###`), leads `LD-YY-#####`, imports `IM-YY-###` (ADR-0019). Shown on every surface, export, and email; globally searchable. |
 | DM-08 | **Rules snapshot:** every run stores a hash + snapshot reference of the rule set used (MLS patterns, coverage version, recodes, Source Profile version). _Why:_ preserves determinism and pins golden-file tests when rules evolve. |
 | DM-09 | Soft-delete with restore for partners and leads; hard delete only via retention policy or account deletion. |
 | DM-10 | `lead_notes`: lead_id, author_user_id, author_role (admin|partner), body, timestamps; visibility per PRN-13. |
@@ -110,7 +110,7 @@ Tables: `tenants, users, partners, coverage_zips, state_rules, mls_patterns, cam
 | ING-06 | **Processing lock:** one pipeline run at a time per tenant; concurrent uploads queue with visible position. _Why:_ interleaved runs could corrupt dedupe ordering. |
 | ING-07 | **Source Profiles:** declared, versioned format contracts — header signature, mapping, required columns, strictness (*flexible*: extra columns allowed; *strict*: any deviation blocks). Managed in Settings (SET-12). Profile version pinned into the run's rules snapshot (DM-08). |
 | ING-08 | **Drift handling — never silently re-guess.** Partial signature match → block and show a format-diff (added/removed/renamed columns), propose an updated mapping, require explicit admin confirmation → new profile version. Missing required columns → hard block naming the columns in plain language. |
-| ING-09 | **Void a run.** Admin can void a processed upload (wrong file, wrongly confirmed mapping): soft-void with required reason; voided leads are excluded from dedupe, analytics, and exports while remaining visible in history as voided; the action is audited, partner digests already sent get a correction notice, and portal counts update. _Why:_ history immutability (PRN-05) must not make honest mistakes permanent — a bad run would otherwise poison "previously matched" results forever. |
+| ING-09 | **Void a run.** Admin can void a processed upload (wrong file, wrongly confirmed mapping): soft-void with required reason; voided leads are excluded from dedupe, analytics, and exports while remaining visible in history as voided; the action is audited and portal counts update. New imports are **held from partners for a 5-min window (ADR-0026, amended 2026-08-01)**, so an in-window void reaches no partner (no recall notice needed) — only the **latest, still-held** import can be voided, and its seller PII is purged immediately on void (ADR-0025). _Why:_ history immutability (PRN-05) must not make honest mistakes permanent — a bad run would otherwise poison "previously matched" results forever. |
 
 ### 6.2 Normalization (NRM)
 
@@ -136,6 +136,28 @@ Tables: `tenants, users, partners, coverage_zips, state_rules, mls_patterns, cam
 | ASN-01 | Precedence: (1) exact zip5 in coverage → that partner, stop; (2) state fallback (seed: SC→Randy Wolfe, VA→Forrest McGhee, NJ→Josh Ax, CT→Josh Ax); (3) unmatched. |
 | ASN-02 | No special-case partner code. Regional exceptions (e.g., Virginia Beach, Philadelphia metro) emerge from ZIP precedence; adding exception code is forbidden. |
 | ASN-03 | Unmatched view with ZIP/state so coverage gaps become visible decisions. |
+
+### 6.4a Lead scoring (SCR) — WP-SCORE-1/2/3
+
+Scores each kept lead 0–50 from the RESIDI scoring workbook so the highest-intent
+sellers surface first. The engine (`src/modules/pipeline/score.ts`) is PURE (PRN-01);
+the scheme is fixed in code for v1 (owner decision) and pinned by `SCORING_VERSION`
+into every run's rules snapshot (DM-08).
+
+| ID | Requirement |
+| -- | ----------- |
+| SCR-01 | State points: AZ/CA/TX/FL/CO=10; HI/NV/GA/NJ/DC=7; all other=5. Blank state ⇒ missing. |
+| SCR-02 | Motivation (from reason-for-selling): inheritance/financial-hardship/emergency/foreclosure/needs-money-for-investment=10; any other stated reason=7 (owner: unmapped ⇒ Other, never a blocker); blank ⇒ missing. |
+| SCR-03 | Timeline (from time-to-sell): ASAP/urgent/within-30-days/within-1–3-months=10; 3–6 months=7; 6+ months/no-hurry=3; unrecognized or blank ⇒ missing. |
+| SCR-04 | Equity from loan-to-value (debt ÷ estimated value): free-and-clear=10; <20%=8; 20–70%=5; ≥70%=3; no equity data ⇒ missing. |
+| SCR-05 | Mortgage (loan type): no-mortgage/new-conventional=10; HELOC/construction=5; USDA/VA/FHA=3; other/unknown=0 (owner: unknown ⇒ 0, still scoreable). Free-and-clear auto-scores 10. |
+| SCR-06 | Penalty: loan at 80%+ of value AND a USDA/VA/FHA loan ⇒ −15. |
+| SCR-07 | Groups: Hot 38–50, Warm 25–37, Nurture 0–24 (Hot threshold fixed at 38). |
+| SCR-08 | Any missing required input ⇒ status "incomplete", null total/group — never a misleading number; an incomplete lead never becomes Hot, so it never alerts. |
+| SCR-09 | Deterministic (PRN-01): same inputs ⇒ same result; the workbook's four Formula-Test cases are pinned. |
+| SCR-10 | Equity + loan type are extracted from the notes blob per vendor (LeadZolo, Real Estate Bees) with anchored per-line reads; a blank numeric line is never coerced to 0. |
+| SCR-11 | UI: a kept, Hot lead shows a small target mark before its reference ID (admin + portal lists) and a "Hot · N/50" badge + criterion breakdown in the lead dialog; an MLS-removed lead shows no mark (owner). Meaning never rides on color alone (PRN-14). A "Hot" filter and the read-only scoring scheme on Rules complete the surface. |
+| SCR-12 | Notifications: a hot lead alerts the admin instantly at import and the assigned partner at distribution-release (respecting the 10-min hold, ADR-0026); a house-territory or unmatched hot lead alerts the admin only; refId + coarse location + score only, no seller PII (SEC-05); on/off in notification preferences per role. |
 
 ### 6.5 Dedupe & history (DED)
 
@@ -186,7 +208,7 @@ Tables: `tenants, users, partners, coverage_zips, state_rules, mls_patterns, cam
 
 | ID | Requirement |
 | -- | ----------- |
-| NTF-01 | Upload completion → per-partner digest (only partners with new leads) with counts + reference IDs + portal link. Partners with zero new leads receive nothing. |
+| NTF-01 | **Release** (5 min after upload — the distribution hold, ADR-0026) → per-partner digest (only partners with new leads) with counts + reference IDs + portal link. Partners with zero new leads receive nothing. (The admin run-summary is sent at upload completion.) |
 | NTF-02 | Admin run-summary email; optional admin alert on partner status changes (SET-03). |
 | NTF-03 | All email via Resend through an outbox table (delivery status, retry with backoff), consuming `events`. |
 | NTF-04 | In-app notification center for both roles: unread badge, list with deep links, mark-read. |
@@ -284,9 +306,9 @@ Tables: `tenants, users, partners, coverage_zips, state_rules, mls_patterns, cam
 | -- | ----------- |
 | AUT-01 | **Password storage:** delegated to Supabase Auth (bcrypt, salted). Passwords never appear in application tables, logs, analytics, or error reports. |
 | AUT-02 | **Password strength (admin):** minimum length 12, zxcvbn score ≥ 3, checked against known-breach corpus via k-anonymity API at set/change; clear inline strength feedback (FRM-01). |
-| AUT-03 | **Login rate limiting:** sliding-window limits keyed on IP + identifier for login, OTP, and reset endpoints (API-05); anomaly alert to admin on sustained abuse. |
+| AUT-03 | **Login rate limiting:** sliding-window limits keyed on IP + identifier for login, OTP, reset request, **reset confirm** (WP-SU-9), signup, and signup-verify endpoints (API-05) — every credential endpoint wires a throttle kind; anomaly alert to admin on sustained abuse, including a GLOBAL rolling-hour signup ceiling (WP-SU-8) because the per-identifier and per-IP keys are both attacker-chosen. **The rate decision is atomic (WP-SU-9):** the attempt row is reserved BEFORE the window is counted, so N concurrent requests cannot all observe the same pre-burst state (CWE-367 — measured at 10 of 10 admitted against a limit of 3 before the fix). The reservation is recorded as a success so a request refused at the gate never feeds the AUT-04 lockout ladder. Two behaviours of the atomic design are intended (WP-SU-9 review): (a) a request refused at the rate gate now *consumes* rate-window budget — the reservation persists — so sustained refusal traffic holds a per-key window open for its duration plus the window length; this is fail-closed and correct for a limiter. (b) An infrastructure error thrown between the reservation and its settle leaves the reservation as a success row — counted toward the rate window but, being a success, never toward the AUT-04 lockout ladder; this is fail-safe by construction (a genuine credential failure that threw simply won't advance lockout, a safe-direction miss, never a false lockout). |
 | AUT-04 | **Account lockout:** progressive delays after repeated failures (never a silent permanent lock); the account owner is notified by email on lockout; admin can unlock. |
-| AUT-05 | **Enumeration resistance:** login, invite, OTP, and reset endpoints return uniform messages and uniform timing whether or not the account exists ("If an account exists, we've sent a code."). |
+| AUT-05 | **Enumeration resistance:** login, invite, OTP, reset, and public signup endpoints return uniform messages and uniform timing whether or not the account exists ("If an account exists, we've sent a code."). The uniform-timing floor must exceed the slowest branch's in-request work; where a branch does heavy work (e.g. signup provisioning), that work is deferred via `after()` so only symmetric work is on the measured response path. |
 | AUT-06 | **Secure password reset:** single-use token, hashed at rest, 30-minute expiry; all sessions revoked on successful reset; notification email sent ("your password was changed"). |
 | AUT-07 | **Session fixation protection:** fresh session tokens issued at every authentication event including MFA step-up; session identifiers are never accepted from the client. |
 | AUT-08 | **MFA:** TOTP available for admin with recovery codes (SET-10); partner email-OTP login is possession-based by design (PTL-01). Sensitive operations (change email, disable MFA, revoke sessions) require recent re-authentication; email change additionally requires verification of the NEW address and a notification to the OLD address. |
@@ -296,6 +318,7 @@ Tables: `tenants, users, partners, coverage_zips, state_rules, mls_patterns, cam
 | AUT-12 | **Cookie security:** session cookies are HttpOnly, Secure, SameSite=Lax with `__Host-` prefix; tokens never in localStorage; CSRF protection on state-changing routes (SameSite + token). |
 | AUT-13 | **Session expiration:** short-lived access tokens (≤ 1 h); refresh idle timeout 7 days (30 on trusted devices); absolute lifetime 90 days; authed pages served with `Cache-Control: no-store`. |
 | AUT-14 | **Logout correctness:** server-side refresh-token revocation (not just cookie deletion); "sign out all devices" available; client cache cleared; back button after logout reveals no authenticated data. |
+| AUT-16 | **Client session-state teardown:** any client-side session-scoped store that can hold tenant or user data (e.g. the assistant transcript mirror in sessionStorage) is cleared on sign-out, alongside the server-side revoke (AUT-14) — sessionStorage is per-tab, not per-login, so a re-login in the same tab must not inherit it. |
 
 **Delegation boundary (implementation note):** Supabase Auth supplies the primitives — password hashing, email OTP, refresh-token rotation with reuse detection. The following are **application-layer responsibilities built on top**: progressive lockout + notifications (AUT-04), uniform enumeration responses (AUT-05), password strength + breach checking (AUT-02), CAPTCHA attachment (AUT-11), and the per-device session registry backing ACC-02 (maintain an app-owned sessions table keyed to refresh-token families; do not assume Supabase exposes a session list).
 

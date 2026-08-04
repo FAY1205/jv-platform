@@ -23,7 +23,7 @@ export interface PartnerView {
 
 export interface RunLeadView {
   refId: string;
-  campaignCode: string;
+  campaign: string;
   address: string;
   city: string;
   state: string;

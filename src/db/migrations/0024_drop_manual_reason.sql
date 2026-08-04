@@ -1,0 +1,24 @@
+-- ─────────────────────────────────────────────────────────────────────────────
+-- Remove the manual-assignment free-text "reason" (owner decision 2026-07-15).
+--
+-- WHY: the field was admin-typed free text written BOTH to leads.manual_reason and,
+-- raw, into the append-only audit_log (lead.manually_assigned). Free text is where a
+-- human pastes seller PII — the same shape of field as lead_notes.body, which ADR-0031
+-- masks for exactly that reason. Worse, the WP-GL-B retention sweep (redactionPatch)
+-- never listed manual_reason, so a voided + purged lead kept that text on the live
+-- row — on a lead that reports itself as purged.
+--
+-- Rather than mask it (which would have cost the audit trail its "why did this route
+-- here?" legibility to protect a field the owner does not want), the field is removed
+-- outright: a field that cannot hold PII cannot leak it. WHO routed WHICH lead to WHOM
+-- and WHEN stays in audit_log and is the audit-relevant part (DM-04).
+--
+-- ⚠️ DESTRUCTIVE + IRREVERSIBLE: drops the column and its data. Checked before writing
+-- this — dev held 63 rows with a manual_reason, all seeded demo data, and production is
+-- not live, so no real reason text is lost. If that ever stops being true, this must not
+-- be replayed against real data without a fresh decision.
+--
+-- The append-only trail is untouched: `leads` is a mutable table (DM-09 soft delete;
+-- WP-GL-B's purge already nulls columns on it), and no audit_log row is modified here.
+-- ─────────────────────────────────────────────────────────────────────────────
+ALTER TABLE "leads" DROP COLUMN "manual_reason";

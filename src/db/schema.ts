@@ -4,6 +4,7 @@ import {
   uuid,
   text,
   integer,
+  bigint,
   boolean,
   jsonb,
   timestamp,
@@ -11,6 +12,7 @@ import {
   uniqueIndex,
   primaryKey,
 } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Data model (spec §5, DM-01..11). Every table carries tenant_id (SCP-01,
@@ -27,6 +29,10 @@ export const partnerStatusEnum = pgEnum("partner_status", [
 ]);
 export const matchMethodEnum = pgEnum("match_method", ["zip", "state_fallback", "none"]);
 export const mlsStatusEnum = pgEnum("mls_status", ["kept", "removed"]);
+// Lead scoring (SCR-01..10). Group is null until a lead scores; status distinguishes
+// a real 0 from "not enough data to score".
+export const scoreGroupEnum = pgEnum("score_group", ["hot", "warm", "nurture"]);
+export const scoreStatusEnum = pgEnum("score_status", ["complete", "incomplete"]);
 export const possibleMlsEnum = pgEnum("possible_mls", ["yes", "no", "unknown", "pending"]);
 export const uploadStatusEnum = pgEnum("upload_status", [
   "queued",
@@ -41,6 +47,7 @@ export const listingStatusEnum = pgEnum("listing_status", ["pending", "yes", "no
 export const refEntityEnum = pgEnum("ref_entity", ["partner", "lead", "upload"]);
 export const feedbackRatingEnum = pgEnum("feedback_rating", ["up", "down"]);
 export const idempotencyStatusEnum = pgEnum("idempotency_status", ["in_progress", "completed"]);
+export const outboxStatusEnum = pgEnum("outbox_status", ["pending", "sent", "failed"]);
 
 const createdAt = () => timestamp("created_at", { withTimezone: true }).notNull().defaultNow();
 const updatedAt = () => timestamp("updated_at", { withTimezone: true }).notNull().defaultNow();
@@ -51,6 +58,11 @@ export const tenants = pgTable("tenants", {
   name: text("name").notNull(),
   slug: text("slug").notNull().unique(),
   timezone: text("timezone").notNull().default("America/New_York"),
+  // LGL-01 (WP-SU-5): true when this tenant was created by PUBLIC self-serve signup, whose
+  // admin accepted the ToS at provisioning. Owner/script-provisioned tenants are false and
+  // stay exempt from the admin ToS gate — they have no acceptance record, so gating every
+  // admin would lock the owner out of their own app.
+  selfServe: boolean("self_serve").notNull().default(false),
   createdAt: createdAt(),
 });
 
@@ -80,7 +92,7 @@ export const partners = pgTable(
     tenantId: uuid("tenant_id")
       .notNull()
       .references(() => tenants.id),
-    refId: text("ref_id").notNull(), // JV-### (DM-07)
+    refId: text("ref_id").notNull(), // PR-### (DM-07; JV- renamed by migration 0022)
     name: text("name").notNull(),
     email: text("email"),
     phone: text("phone"),
@@ -88,6 +100,11 @@ export const partners = pgTable(
     dealTerms: text("deal_terms"),
     adminNotes: text("admin_notes"),
     status: partnerStatusEnum("status").notNull().default("not_invited"),
+    // WP-D (ADR-0037): the tenant's own "house" territory — ZIPs/states the admin manages
+    // themselves. Modeled as a partner row so it flows through coverage, routing, and every map
+    // with zero pipeline special-casing (ASN-02); the distinction is purely presentational. At
+    // most one active house per tenant, enforced by a partial unique index in migration 0031.
+    isHouse: boolean("is_house").notNull().default(false),
     invitedAt: timestamp("invited_at", { withTimezone: true }),
     activatedAt: timestamp("activated_at", { withTimezone: true }),
     lastPortalLoginAt: timestamp("last_portal_login_at", { withTimezone: true }),
@@ -160,19 +177,6 @@ export const mlsPatterns = pgTable(
   (t) => [uniqueIndex("mls_patterns_tenant_key_idx").on(t.tenantId, t.patternKey)],
 );
 
-export const campaignRecodes = pgTable(
-  "campaign_recodes",
-  {
-    id: uuid("id").primaryKey().defaultRandom(),
-    tenantId: uuid("tenant_id")
-      .notNull()
-      .references(() => tenants.id),
-    matchPattern: text("match_pattern").notNull(), // e.g. "Lead Zolo*"
-    code: text("code").notNull(), // e.g. "Z"
-    createdAt: createdAt(),
-  },
-  (t) => [index("recodes_tenant_idx").on(t.tenantId)],
-);
 
 export const sourceProfiles = pgTable(
   "source_profiles",
@@ -187,6 +191,11 @@ export const sourceProfiles = pgTable(
     mapping: jsonb("mapping").notNull(),
     requiredColumns: jsonb("required_columns").notNull(),
     strictness: strictnessEnum("strictness").notNull().default("flexible"),
+    // WP-LS1 (SEAM): names a PURE transform registered in src/modules/sources/transforms.ts,
+    // run after column mapping for fields mapping cannot reach. MUST persist: detection
+    // prefers saved rows over the code seeds, so a row that lost its transform would
+    // silently ingest leads with no address/name and un-stripped notes (SEC-05).
+    transform: text("transform"),
     createdAt: createdAt(),
   },
   (t) => [index("source_profiles_tenant_idx").on(t.tenantId)],
@@ -200,7 +209,7 @@ export const uploads = pgTable(
     tenantId: uuid("tenant_id")
       .notNull()
       .references(() => tenants.id),
-    refId: text("ref_id").notNull(), // UP-YYYY-### (DM-07)
+    refId: text("ref_id").notNull(), // IM-YY-### (DM-07, ADR-0019 v2)
     filename: text("filename").notNull(),
     storagePath: text("storage_path"),
     sourceProfileId: uuid("source_profile_id").references(() => sourceProfiles.id),
@@ -211,11 +220,20 @@ export const uploads = pgTable(
     rulesSnapshot: jsonb("rules_snapshot"),
     voidReason: text("void_reason"), // ING-09
     voidedAt: timestamp("voided_at", { withTimezone: true }),
+    // Distribution hold: NULL = the partner push (digest + notifications) hasn't been sent yet.
+    // Set by the release cron once the import is past its hold window. Visibility does NOT depend
+    // on this column (it's computed at read time from the lead's created_at) — this marker is only
+    // the push's idempotency, so a stalled cron delays emails, never lead access.
+    distributedAt: timestamp("distributed_at", { withTimezone: true }),
     createdAt: createdAt(),
   },
   (t) => [
     index("uploads_tenant_idx").on(t.tenantId),
     uniqueIndex("uploads_tenant_ref_idx").on(t.tenantId, t.refId),
+    // Release scan: only imports still awaiting their push (not yet distributed, not voided).
+    index("uploads_pending_release_idx")
+      .on(t.tenantId, t.createdAt)
+      .where(sql`${t.distributedAt} is null and ${t.voidedAt} is null`),
   ],
 );
 
@@ -226,7 +244,7 @@ export const leads = pgTable(
     tenantId: uuid("tenant_id")
       .notNull()
       .references(() => tenants.id),
-    refId: text("ref_id").notNull(), // LD-YYYY-##### (DM-07)
+    refId: text("ref_id").notNull(), // LD-YY-##### (DM-07, ADR-0019 v2)
     uploadId: uuid("upload_id")
       .notNull()
       .references(() => uploads.id),
@@ -260,13 +278,47 @@ export const leads = pgTable(
     originalPartnerId: uuid("original_partner_id").references(() => partners.id),
     firstMatchedAt: timestamp("first_matched_at", { withTimezone: true }),
     possibleMlsListing: possibleMlsEnum("possible_mls_listing").notNull().default("pending"),
+    // Scoring (SCR-01..10). Computed at import from the RESIDI scheme (score.ts,
+    // pinned by SCORING_VERSION in the run's rules snapshot). scoreTotal/scoreGroup
+    // are NULL when scoreStatus = 'incomplete' (a required input was missing);
+    // scoreBreakdown holds the per-criterion points + labels for the lead dialog.
+    scoreTotal: integer("score_total"),
+    scoreGroup: scoreGroupEnum("score_group"),
+    scoreStatus: scoreStatusEnum("score_status").notNull().default("incomplete"),
+    scoreBreakdown: jsonb("score_breakdown"),
+    // Manual-assignment overlay (ADM / ASN-03). ADDITIVE — the snapshot columns
+    // (partnerId / matchMethod) are NEVER rewritten (PRN-05: history is immutable).
+    // The "effective" owner is manualPartnerId ?? partnerId, derived in the read
+    // layer; only currently-unmatched leads may be manually assigned.
+    manualPartnerId: uuid("manual_partner_id").references(() => partners.id),
+    manualAssignedAt: timestamp("manual_assigned_at", { withTimezone: true }),
+    manualAssignedBy: uuid("manual_assigned_by"),
     deletedAt: timestamp("deleted_at", { withTimezone: true }), // soft delete (DM-09)
+    // WP-GL-B: stamped when the retention sweep redacts this soft-deleted lead's seller PII
+    // (DM-09 hard-delete-via-retention / LGL-02 grace). NULL = not yet purged; the sweep's
+    // idempotency + selectivity both key off it. PII lives on until then (DM-02 for live leads).
+    piiPurgedAt: timestamp("pii_purged_at", { withTimezone: true }),
     createdAt: createdAt(),
   },
   (t) => [
-    uniqueIndex("leads_tenant_dedupe_idx").on(t.tenantId, t.dedupeKey),
+    // Partial (DM-09 / WP-J2): voiding soft-deletes a run's leads; a corrected re-upload must be
+    // able to re-insert the same dedupe_key, so uniqueness applies only to live (non-deleted) rows.
+    uniqueIndex("leads_tenant_dedupe_idx").on(t.tenantId, t.dedupeKey).where(sql`${t.deletedAt} is null`),
     index("leads_tenant_upload_idx").on(t.tenantId, t.uploadId),
     index("leads_tenant_partner_created_idx").on(t.tenantId, t.partnerId, t.createdAt),
+    index("leads_tenant_manual_partner_idx").on(t.tenantId, t.manualPartnerId),
+    // Leads-list query indexes (F-09): the global admin list filters/sorts by these.
+    index("leads_tenant_created_idx").on(t.tenantId, t.createdAt),
+    index("leads_tenant_state_idx").on(t.tenantId, t.state),
+    index("leads_tenant_campaign_idx").on(t.tenantId, t.campaign),
+    // Hot-lead filter (SCR / F-09): the leads list can filter to a score group; keyed
+    // with created_at so "hot leads, newest first" is index-covered (DM-11).
+    index("leads_tenant_score_idx").on(t.tenantId, t.scoreGroup, t.createdAt),
+    // WP-GL-B: the retention sweep scans only soft-deleted-not-yet-purged rows — a small set —
+    // so a partial index keyed on exactly that predicate keeps the sweep cheap at any table size.
+    index("leads_pii_purge_idx")
+      .on(t.tenantId, t.deletedAt)
+      .where(sql`${t.piiPurgedAt} is null and ${t.deletedAt} is not null`),
   ],
 );
 
@@ -328,7 +380,7 @@ export const listingChecks = pgTable(
   (t) => [index("listing_checks_lead_idx").on(t.leadId)],
 );
 
-// ── Notifications, events, audit ──
+// ── Notifications, audit ──
 export const notifications = pgTable(
   "notifications",
   {
@@ -349,19 +401,10 @@ export const notifications = pgTable(
   (t) => [index("notifications_user_idx").on(t.userId)],
 );
 
-export const events = pgTable(
-  "events",
-  {
-    id: uuid("id").primaryKey().defaultRandom(),
-    tenantId: uuid("tenant_id")
-      .notNull()
-      .references(() => tenants.id),
-    type: text("type").notNull(), // lead.assigned, upload.processed, status.changed, note.added (SEAM-04)
-    payload: jsonb("payload").notNull(),
-    createdAt: createdAt(),
-  },
-  (t) => [index("events_tenant_created_idx").on(t.tenantId, t.createdAt)],
-);
+// The `events` table was removed in WS-9 / migration 0015 (ADR-0020): it had a
+// single writer and no reader, redundant with lead_status_history. The lead
+// lifecycle stream role stays with lead_status_history + audit_log; a future
+// webhooks/member-feed phase can reintroduce a purpose-built stream (SEAM-04).
 
 export const auditLog = pgTable(
   "audit_log",
@@ -380,6 +423,36 @@ export const auditLog = pgTable(
     createdAt: createdAt(),
   },
   (t) => [index("audit_tenant_created_idx").on(t.tenantId, t.createdAt)],
+);
+
+// Outbound email outbox (NTF-03). Every digest/notification is enqueued here, then
+// drained through the sendEmail seam (Resend in prod, the SEC-07 sink in non-prod)
+// with delivery status + retry/backoff. Server-managed (service role); deny-by-default RLS.
+export const emailOutbox = pgTable(
+  "email_outbox",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenants.id),
+    toAddress: text("to_address").notNull(), // intended recipient (real email, even in dev)
+    subject: text("subject").notNull(),
+    body: text("body").notNull(),
+    html: text("html"), // rendered HTML alternative (NTF-03/WP-G); null → text-only send
+    kind: text("kind").notNull(), // partner_digest | admin_run_summary | ...
+    status: outboxStatusEnum("status").notNull().default("pending"),
+    attempts: integer("attempts").notNull().default(0),
+    lastError: text("last_error"),
+    nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true }),
+    providerId: text("provider_id"), // Resend message id / dev id
+    sentAt: timestamp("sent_at", { withTimezone: true }),
+    meta: jsonb("meta"), // {uploadRef, partnerRef, ...} (SEAM-04 linkage)
+    createdAt: createdAt(),
+  },
+  (t) => [
+    index("outbox_tenant_created_idx").on(t.tenantId, t.createdAt),
+    index("outbox_status_next_idx").on(t.status, t.nextAttemptAt),
+  ],
 );
 
 // ── Settings, flags, AI ──
@@ -442,6 +515,24 @@ export const aiFeedback = pgTable(
   (t) => [index("ai_feedback_tenant_idx").on(t.tenantId)],
 );
 
+// ── AI assistant usage metering (AIA-06/BIL-04, ADR-0027). One row per answered
+// question; counts + cost only — NEVER message content (SEC-05). costMicroUsd is
+// integer micro-dollars ($10.00 = 10_000_000) so budget math stays integral.
+export const aiUsage = pgTable(
+  "ai_usage",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id").notNull().references(() => tenants.id),
+    userId: uuid("user_id").notNull(),
+    model: text("model").notNull(),
+    inputTokens: integer("input_tokens").notNull(),
+    outputTokens: integer("output_tokens").notNull(),
+    costMicroUsd: bigint("cost_micro_usd", { mode: "number" }).notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [index("ai_usage_tenant_created_idx").on(t.tenantId, t.createdAt)],
+);
+
 // ── Reference-ID counters (DM-07): per (tenant, entity, year), monotonic. ──
 export const refCounters = pgTable(
   "ref_counters",
@@ -470,4 +561,182 @@ export const idempotencyKeys = pgTable(
     createdAt: createdAt(),
   },
   (t) => [uniqueIndex("idempotency_tenant_key_idx").on(t.tenantId, t.key)],
+);
+
+// ── Auth attempts (AUT-03/04): sliding-window rate limiting + progressive lockout. ──
+// NOT tenant-scoped: login/reset run BEFORE the tenant is known, so throttling keys
+// on the identifier (lowercased email) and IP. Server-managed (service role); RLS is
+// deny-by-default (no permissive policy) per SEC-01.
+export const authAttempts = pgTable(
+  "auth_attempts",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    identifier: text("identifier").notNull(), // lowercased email
+    ip: text("ip"),
+    // 'login' | 'reset' | 'reset_confirm' | 'change_password' | 'otp' | 'signup' | 'signup_verify'
+    // | 'trust_refresh' (WP-SU-14, per-family trusted-device rotation cap)
+    // plus two WP-SU-8 notification budgets that are NOT throttles: 'signup_notice', 'signup_alert'
+    kind: text("kind").notNull(),
+    // WP-SU-9: written `true` by reserve() and stamped with the real outcome by settle(). Only
+    // `false` rows feed the AUT-04 lockout ladder, which is why a reservation is neutral-true —
+    // a refused request must never be able to lock the account it names.
+    success: boolean("success").notNull().default(false),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    index("auth_attempts_identifier_idx").on(t.identifier, t.kind, t.createdAt),
+    index("auth_attempts_ip_idx").on(t.ip, t.kind, t.createdAt),
+    // WP-SU-8: backs the GLOBAL rolling-hour ceiling. Neither index above can serve it —
+    // both lead with an attacker-chosen column, which is precisely why a global dimension
+    // was needed. Leading with `kind` keeps the scan to one endpoint's rows.
+    index("auth_attempts_kind_created_idx").on(t.kind, t.createdAt),
+  ],
+);
+
+// ── Lockout-notice claims (AUT-04, WP-SU-16): one atomic "who sends it" claim per ──
+// (identifier, kind). Both lockout-notify routes decide from a PRE-settle snapshot, so N
+// racing wrong-credential requests each think they are the tripping attempt; this table lets
+// exactly one WIN the notice per lockout window (a read-then-write budget cannot — CWE-367).
+// One row per key, updated in place — so it does NOT grow per-event like the append-only
+// auth_attempts. It still accretes one row per DISTINCT identifier that ever locks (slowly: a
+// lockout is rare), and that row holds a login email in plaintext, so WP-SU-18 sweeps aged rows
+// (notified_at past the claim window + margin) via the WP-SU-13 auth-sibling pruner — the same
+// data-minimisation treatment as otp_challenges.identifier. NOT tenant-scoped (login is
+// pre-tenant); server-managed (service role); RLS deny-by-default per SEC-01.
+//
+// PK is a surrogate uuid `id` (WP-SU-18) so the retention sweep reuses batchedDeleteByAge like
+// every sibling (its invariant is a single uuid PK). The natural key (identifier, kind) is a
+// UNIQUE constraint — still the conflict target claimLockoutNotice's atomic upsert claims on.
+export const noticeClaims = pgTable(
+  "notice_claims",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    identifier: text("identifier").notNull(), // lowercased email
+    kind: text("kind").notNull(), // 'lockout:login' | 'lockout:otp' — one claim key PER auth surface
+    // (never merged: a lock on one surface must not suppress the owner alert for the other)
+    notifiedAt: timestamp("notified_at", { withTimezone: true }).notNull(),
+  },
+  (t) => [uniqueIndex("notice_claims_identifier_kind_key").on(t.identifier, t.kind)],
+);
+
+// ── Password reset tokens (AUT-06): single-use, hashed at rest, 30-min expiry. ──
+// Keyed to the auth user id; server-managed (service role), RLS deny-by-default.
+// Only the SHA-256 hash is stored — the secret goes out once in the reset email.
+export const resetTokens = pgTable(
+  "reset_tokens",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id").notNull(),
+    tokenHash: text("token_hash").notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    usedAt: timestamp("used_at", { withTimezone: true }),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    uniqueIndex("reset_tokens_hash_idx").on(t.tokenHash),
+    index("reset_tokens_user_idx").on(t.userId),
+  ],
+);
+
+// ── Signup email-verification tokens (SCP-02/AUT-06): single-use, hashed at rest, ──
+// 24-hour expiry. Keyed to the auth user id; server-managed (service role), RLS
+// deny-by-default. Only the SHA-256 hash is stored — the secret goes out once in
+// the verification email; consuming it activates the account.
+export const signupVerifications = pgTable(
+  "signup_verifications",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id").notNull(), // the Supabase auth user id to confirm
+    tokenHash: text("token_hash").notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    usedAt: timestamp("used_at", { withTimezone: true }),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    uniqueIndex("signup_verifications_hash_idx").on(t.tokenHash),
+    index("signup_verifications_user_idx").on(t.userId),
+  ],
+);
+
+// ── Signup invitation codes (SCP-03): a single-use, 48h code the platform owner
+// generates and hands to a prospective admin; required at signup. Hashed at rest
+// (only the hash is stored; the plaintext is shown once to the owner). Not
+// tenant-scoped (redeemed before any tenant exists); server-managed via the
+// service role. Single-use is enforced by a conditional `used_at IS NULL` update.
+export const signupCodes = pgTable(
+  "signup_codes",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    codeHash: text("code_hash").notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    usedAt: timestamp("used_at", { withTimezone: true }),
+    /** Email of the platform owner who generated it (from ADMIN_ALLOWLIST). */
+    createdBy: text("created_by").notNull(),
+    /** The tenant created when the code was redeemed (audit trail); null until used. */
+    usedByTenantId: uuid("used_by_tenant_id"),
+    createdAt: createdAt(),
+  },
+  (t) => [uniqueIndex("signup_codes_hash_idx").on(t.codeHash)],
+);
+
+// ── Partner email-OTP challenges (PTL-01): 6-digit code, hashed at rest. ──
+// Not tenant-scoped (issued before the session exists); server-managed, RLS
+// deny-by-default. Constant-time verify (AUT-09); attempt_count caps guessing.
+export const otpChallenges = pgTable(
+  "otp_challenges",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    identifier: text("identifier").notNull(), // lowercased email
+    codeHash: text("code_hash").notNull(),
+    pepper: text("pepper").notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    attemptCount: integer("attempt_count").notNull().default(0),
+    consumedAt: timestamp("consumed_at", { withTimezone: true }),
+    createdAt: createdAt(),
+  },
+  (t) => [index("otp_challenges_identifier_idx").on(t.identifier, t.createdAt)],
+);
+
+// ── ToS / Privacy acceptances (LGL-01): versioned, one row per (user, version). ──
+export const tosAcceptances = pgTable(
+  "tos_acceptances",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id").notNull(),
+    version: text("version").notNull(),
+    acceptedAt: timestamp("accepted_at", { withTimezone: true }).notNull().defaultNow(),
+    createdAt: createdAt(),
+  },
+  (t) => [uniqueIndex("tos_acceptances_user_version_idx").on(t.userId, t.version)],
+);
+
+// ── Trusted devices (AUT-10 / ACC-02): rotating refresh-token families backing the
+// "remember this device" skip-OTP flow and the sessions/devices registry. Only the
+// token hash is stored; reuse of a rotated token ⇒ revoke the whole family. The
+// per-device list + revoke work because these tokens are app-owned. Server-managed.
+export const trustedDevices = pgTable(
+  "trusted_devices",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    familyId: uuid("family_id").notNull(),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenants.id),
+    userId: uuid("user_id").notNull(),
+    partnerId: uuid("partner_id"),
+    tokenHash: text("token_hash").notNull(),
+    deviceLabel: text("device_label"),
+    ip: text("ip"),
+    issuedAt: timestamp("issued_at", { withTimezone: true }).notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    lastSeenAt: timestamp("last_seen_at", { withTimezone: true }),
+    rotatedTo: text("rotated_to"),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    uniqueIndex("trusted_devices_hash_idx").on(t.tokenHash),
+    index("trusted_devices_family_idx").on(t.familyId),
+    index("trusted_devices_user_idx").on(t.tenantId, t.userId),
+  ],
 );

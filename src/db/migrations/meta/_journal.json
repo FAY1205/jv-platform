@@ -29,6 +29,209 @@
       "when": 1783438727479,
       "tag": "0003_idempotency_rls",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1783500546887,
+      "tag": "0004_naive_layla_miller",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1783502094828,
+      "tag": "0005_abnormal_dark_beast",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1783503284318,
+      "tag": "0006_broad_avengers",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1783507573622,
+      "tag": "0007_keen_synch",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1783522016187,
+      "tag": "0008_tired_sister_grimm",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1783587969373,
+      "tag": "0009_manual_assignment",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1783615888154,
+      "tag": "0010_effective_owner_rls",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1783623148948,
+      "tag": "0011_drop_campaign_recodes",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1783624470387,
+      "tag": "0012_ref_id_v2",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1783625049423,
+      "tag": "0013_leads_indexes",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1783699000000,
+      "tag": "0014_audit_log_immutable",
+      "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "7",
+      "when": 1783699404398,
+      "tag": "0015_drop_events",
+      "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1783804731725,
+      "tag": "0016_nifty_dexter_bennett",
+      "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1783849459994,
+      "tag": "0017_wakeful_wasp",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1783853342944,
+      "tag": "0018_backfill_voided_leads",
+      "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1783888581888,
+      "tag": "0019_retention_pii_purged_at",
+      "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1783922920272,
+      "tag": "0020_uploads_distributed_at",
+      "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1783942727185,
+      "tag": "0021_ai_usage",
+      "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1784063742735,
+      "tag": "0022_partner_ref_prefix_pr",
+      "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1784127350270,
+      "tag": "0023_lead_source_1",
+      "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1784143480635,
+      "tag": "0024_drop_manual_reason",
+      "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1784211508266,
+      "tag": "0025_swift_robbie_robertson",
+      "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1785342688951,
+      "tag": "0026_self_serve_tenant",
+      "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "7",
+      "when": 1785354282674,
+      "tag": "0027_abandoned_toad_men",
+      "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "7",
+      "when": 1785444521524,
+      "tag": "0028_notice_claims",
+      "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "7",
+      "when": 1785475446865,
+      "tag": "0029_notice_claims_id",
+      "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "7",
+      "when": 1785619021831,
+      "tag": "0030_tan_sentinels",
+      "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1785736801505,
+      "tag": "0031_nostalgic_starhawk",
+      "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1785788263297,
+      "tag": "0032_lead_scoring",
+      "breakpoints": true
     }
   ]
 }

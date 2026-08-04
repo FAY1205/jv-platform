@@ -13,7 +13,7 @@ import { SAMPLE_STATE_RULES, SAMPLE_ZIP_COVERAGE } from "../tests/fixtures/sampl
 
 // Dev-only: persist ONE distributed run of the anonymized week into the dev tenant so
 // the run views have data. Clears prior demo runs first so it always yields a clean
-// UP-2026-001. Coverage is SAMPLE data (leaves HI uncovered to show an unmatched lead).
+// IM-26-001. Coverage is SAMPLE data (leaves HI uncovered to show an unmatched lead).
 
 const url = process.env.DATABASE_URL;
 if (!url) throw new Error("DATABASE_URL not set — run with node --env-file=.env.local");
@@ -40,10 +40,6 @@ async function main() {
     (z): z is { zip5: string; partnerId: string } => Boolean(z.partnerId),
   );
 
-  const recodes = [
-    { matchPattern: "Lead Zolo*", code: "Z" },
-    { matchPattern: "Real Estate Bees", code: "B" },
-  ];
   const rows = JSON.parse(readFileSync(join(process.cwd(), "tests", "fixtures", "investorfuse-week-anon.json"), "utf8")) as Record<string, string>[];
 
   const store = new DrizzleRunStore(db);
@@ -53,11 +49,10 @@ async function main() {
       filename: "investorfuse-week-anon.xlsx",
       rows,
       profile: INVESTORFUSE_PROFILE,
-      rules: { mlsPatterns: DEFAULT_MLS_PATTERNS, recodes, coverage: buildCoverage(zipCoverage, stateRules) },
+      rules: { mlsPatterns: DEFAULT_MLS_PATTERNS, coverage: buildCoverage(zipCoverage, stateRules) },
       snapshotInput: {
         sourceProfile: { id: INVESTORFUSE_PROFILE.id, version: INVESTORFUSE_PROFILE.version },
         mlsPatterns: DEFAULT_MLS_PATTERNS,
-        recodes,
         stateRules,
         zipCoverage,
       },

@@ -1,5 +1,6 @@
 import ExcelJS from "exceljs";
 import type { RunSummary } from "../analytics/run-summary";
+import { contrastRatio } from "@/lib/contrast";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Export renderer (EXP-02..06, SEC-06, PRN-14). Deterministic transform:
@@ -8,7 +9,7 @@ import type { RunSummary } from "../analytics/run-summary";
 // the xlsx container embeds nondeterministic metadata. This is the TST-05 contract.
 //
 // SEC-06: every user-originated cell is sanitised against formula injection.
-// PRN-14: partner name + JV-### ref accompany the color in every row and the
+// PRN-14: partner name + PR-### ref accompany the color in every row and the
 // legend — color is never the sole signal; fills keep AA-contrast text.
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -80,14 +81,16 @@ function hexToArgb(hex: string): string {
   return "FF" + hex.replace(/^#/, "").toUpperCase();
 }
 
-/** Pick black or white text for AA contrast against a fill (PRN-14). */
-function contrastText(hex: string): string {
-  const h = hex.replace(/^#/, "");
-  const r = parseInt(h.slice(0, 2), 16);
-  const g = parseInt(h.slice(2, 4), 16);
-  const b = parseInt(h.slice(4, 6), 16);
-  const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
-  return luminance > 0.6 ? "FF000000" : "FFFFFFFF";
+/**
+ * Pick black or white text for the strongest WCAG contrast against a fill
+ * (PRN-14, SC 1.4.3). Supersedes the old YIQ-brightness heuristic, which chose the
+ * FAILING color on ~40% of the Survey partner tints (e.g. clay #B4623F → white 4.41:1
+ * when black is 4.76; seafoam #5E9E8E → white 3.11 when black is 6.76). Pure black/white —
+ * not #111 — is required to hold AA margin on the borderline tints (clay, slate). Returns
+ * an exceljs ARGB. WP-H: the luminance math is the shared `contrastRatio` primitive.
+ */
+export function contrastText(hex: string): "FF000000" | "FFFFFFFF" {
+  return contrastRatio("#000000", hex) >= contrastRatio("#FFFFFF", hex) ? "FF000000" : "FFFFFFFF";
 }
 
 function partnerLabel(partnerId: string | null, partners: ReadonlyMap<string, PartnerInfo>): string {
@@ -161,7 +164,7 @@ export async function renderExport(
 
     // Color OFF: a bold group-header row separates partners (EXP-06).
     if (!options.colorCoding) {
-      const hdr = ws.addRow([label]);
+      const hdr = ws.addRow([sanitizeCell(label)]); // SEC-06: partner name is user-originated (F-26)
       hdr.getCell(1).font = { bold: true };
     }
 
@@ -191,8 +194,10 @@ export async function renderExport(
     if (key === UNMATCHED) continue;
     const p = partners.get(key);
     if (!p) continue;
-    const row = legend.addRow([p.name, p.refId, p.color]);
-    row.getCell(3).fill = { type: "pattern", pattern: "solid", fgColor: { argb: hexToArgb(p.color) } };
+    const row = legend.addRow([sanitizeCell(p.name), p.refId, p.color]); // SEC-06: partner name (F-26)
+    const colorCell = row.getCell(3);
+    colorCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: hexToArgb(p.color) } };
+    colorCell.font = { color: { argb: contrastText(p.color) } }; // PRN-14: hex text stays AA on its fill
   }
 
   // ── Run_Summary sheet (EXP-04; numbers from analytics, PRN-15) ──
@@ -204,10 +209,10 @@ export async function renderExport(
   sum.addRow(["Unmatched", summary.unmatched]);
   sum.addRow(["Previously matched", summary.previouslyMatched]);
   sum.addRow([]);
-  sum.addRow(["Partner", "Delivered"]).eachCell((c) => (c.font = { bold: true }));
+  sum.addRow(["Partner", "Distributed"]).eachCell((c) => (c.font = { bold: true }));
   for (const pp of summary.perPartner) {
     const p = partners.get(pp.partnerId);
-    sum.addRow([p ? `${p.name} (${p.refId})` : pp.partnerId, pp.count]);
+    sum.addRow([sanitizeCell(p ? `${p.name} (${p.refId})` : pp.partnerId), pp.count]); // SEC-06: partner name (F-26)
   }
 
   // exceljs types writeBuffer() against its own `Buffer`; return the raw bytes as a

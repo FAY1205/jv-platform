@@ -38,8 +38,8 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
 
   const tones: Record<ToastTone, string> = {
     default: "bg-text text-surface",
-    success: "bg-success text-white",
-    danger: "bg-danger text-white",
+    success: "bg-success text-on-status",
+    danger: "bg-danger text-on-status",
   };
 
   return (

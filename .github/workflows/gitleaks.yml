@@ -1,0 +1,28 @@
+# F-44 (OpenSSF): secret scanning. Fails the check if a credential is committed.
+# Actions are SHA-pinned (F-47). GITLEAKS_LICENSE is only needed for GitHub Orgs; an
+# individual private repo runs without it.
+name: gitleaks
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# F-47 (OpenSSF Token-Permissions): least-privilege GITHUB_TOKEN. gitleaks-action needs
+# pull-requests:read to enumerate a PR's commits when scanning a pull_request event —
+# without it the action 403s ("Resource not accessible by integration") and the check
+# fails before scanning. Still read-only, still least-privilege.
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  gitleaks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7 # v2.3.9
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE }}  # required only for GitHub Organizations

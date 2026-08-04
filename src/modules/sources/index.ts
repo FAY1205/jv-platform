@@ -10,4 +10,16 @@ export {
   type DetectResult,
 } from "./signature";
 export { applyProfile, findRowErrors, type AppliedRow } from "./apply";
-export { GENERIC_PROFILE, INVESTORFUSE_PROFILE, SEED_SOURCE_PROFILES } from "./seed-profiles";
+export {
+  LEAD_SOURCE_1_PROFILE,
+  SEED_SOURCE_PROFILES,
+  // Retired formats (WP-LS1) — not seeded; test/tooling vehicles only.
+  GENERIC_PROFILE,
+  INVESTORFUSE_PROFILE,
+} from "./seed-profiles";
+export {
+  getTransform,
+  stripSkipTrace,
+  transformLeadSource1,
+  type ProfileTransform,
+} from "./transforms";

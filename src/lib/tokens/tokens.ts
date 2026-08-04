@@ -18,13 +18,24 @@ export interface ColorTokens {
   surface3: string;
   border: string;
   borderSoft: string;
+  /** stronger hairline for table rules / dividers (Survey line-strong) */
+  borderStrong: string;
   text: string;
   text2: string;
   text3: string;
+  /** marigold — the signature FILL (buttons, focal fills, active states) */
   brand: string;
   brandStrong: string;
   brandSoft: string;
   brandLine: string;
+  /** amber ink — the accent as TEXT/links (AA on paper); marigold is too light to read */
+  brandInk: string;
+  /** fixed near-black for TEXT on the marigold fill (buttons/checkbox). Theme-invariant —
+   *  --text flips to near-white in dark and cannot read on the mid-tone marigold. */
+  brandContrast: string;
+  /** text ON a solid status FILL (danger/success buttons + toasts). Theme-FLIPPING:
+   *  near-white in light, near-black in dark — hardcoded white-on-fill fails AA in dark. */
+  onStatus: string;
   /** status: info */
   info: string;
   infoSoft: string;
@@ -40,60 +51,84 @@ export interface ColorTokens {
   /** accent for "previously matched" leads (DED-02) */
   prev: string;
   prevSoft: string;
+  /** hairline on a partner-color swatch — theme-FLIPPING (dark edge in light, light edge in
+   *  dark, so the swatch keeps a crisp boundary on dark cards). Direct-use, like `scrim`:
+   *  applied as an inline border color / raw email value; no Tailwind utility. */
+  swatchBorder: string;
   scrim: string;
 }
 
+// "Survey" identity v2 (2026-07, ADR-0022): cool petrol-paper neutrals, one marigold
+// signal (route), petrol ink, status colors kept separate from the accent. Neutrals are
+// biased toward the ink's petrol hue (chosen, not default grey). Var *names* are kept
+// (keep-names decision); only values change, + two additive roles (borderStrong,
+// brandInk). All pairs AA-verified in both themes by tests/unit/tokens.test.ts.
 export const lightColors: ColorTokens = {
-  bg: "#f6f7f7",
-  surface: "#ffffff",
-  surface2: "#fafbfb",
-  surface3: "#f2f4f4",
-  border: "#e4e8e7",
-  borderSoft: "#edf0ef",
-  text: "#0f1722",
-  text2: "#445062",
-  text3: "#8b95a5",
-  brand: "#0d7a6a",
-  brandStrong: "#0a5f53",
-  brandSoft: "#e8f3f0",
-  brandLine: "#cfe6e0",
-  info: "#4f5bd5",
-  infoSoft: "#edeffc",
-  danger: "#c2333b",
-  dangerSoft: "#fbebec",
-  warn: "#b25107",
-  warnSoft: "#fdf2e2",
-  success: "#0d7a6a",
-  successSoft: "#e8f3f0",
-  prev: "#6d4a9e",
-  prevSoft: "#f2ecfa",
-  scrim: "rgba(15,23,34,.4)",
+  bg: "#F1F4F3",
+  surface: "#FFFFFF",
+  surface2: "#E9EEEC",
+  surface3: "#DDE5E2",
+  border: "#D3DCD9",
+  borderSoft: "#E4E9E7",
+  borderStrong: "#B8C4C0",
+  text: "#16242B",
+  text2: "#46565D",
+  // ink-3: AA (≥4.5:1) on both surface (#fff) and paper.
+  text3: "#566268",
+  // brand = the marigold FILL only (buttons/focal fills). It is deliberately too light
+  // to read as text; amber TEXT/links use brandInk (route-ink) instead.
+  brand: "#E0912B",
+  brandStrong: "#C67D1E",
+  brandSoft: "#FAEFDA",
+  brandLine: "#EAD8AE",
+  brandInk: "#8F5416",
+  brandContrast: "#20160A",
+  onStatus: "#FFFFFF",
+  info: "#2E6E93",
+  infoSoft: "#E7EFF4",
+  danger: "#B23A2E",
+  dangerSoft: "#F7E4E1",
+  // warn darkened from DIRECTION's #B9741C (3.76:1) to clear the ≥4.5 body-text gate.
+  warn: "#985E15",
+  warnSoft: "#F7EEDA",
+  success: "#2C7A57",
+  successSoft: "#E8F2EC",
+  // previously-matched: warm stone/taupe (Survey bans purple) — a pencil-annotation read.
+  prev: "#6E5C46",
+  prevSoft: "#EFE8DE",
+  swatchBorder: "rgba(0,0,0,0.18)",
+  scrim: "rgba(22,36,43,.4)",
 };
 
 export const darkColors: ColorTokens = {
-  bg: "#0e1214",
-  surface: "#151a1d",
-  surface2: "#181e21",
-  surface3: "#1d2427",
-  border: "#242c30",
-  borderSoft: "#1d2528",
-  text: "#eef2f1",
-  text2: "#a9b4ba",
-  text3: "#6c787f",
-  brand: "#2aa38e",
-  brandStrong: "#3cb9a2",
-  brandSoft: "#12312b",
-  brandLine: "#1c4a41",
-  info: "#8b95ec",
-  infoSoft: "#20244a",
-  danger: "#e06d74",
-  dangerSoft: "#3a1d20",
-  warn: "#e0964c",
-  warnSoft: "#3a2a15",
-  success: "#2aa38e",
-  successSoft: "#12312b",
-  prev: "#ab8ad6",
-  prevSoft: "#2c2140",
+  bg: "#10181C",
+  surface: "#17232A",
+  surface2: "#1E2C33",
+  surface3: "#26363E",
+  border: "#2A3A41",
+  borderSoft: "#223038",
+  borderStrong: "#3A4D55",
+  text: "#EAF0EE",
+  text2: "#A9B8BC",
+  text3: "#85969B",
+  brand: "#F0A63E",
+  brandStrong: "#F6B856",
+  brandSoft: "#2A2417",
+  brandLine: "#4A3A1E",
+  brandInk: "#F0A63E",
+  brandContrast: "#20160A",
+  onStatus: "#20160A",
+  info: "#5FA0C8",
+  infoSoft: "#1A2A33",
+  danger: "#E06555",
+  dangerSoft: "#301E1B",
+  warn: "#E0973A",
+  warnSoft: "#33291A",
+  success: "#4FB183",
+  successSoft: "#173529",
+  prev: "#CBB89C",
+  prevSoft: "#2A251E",
+  swatchBorder: "rgba(255,255,255,0.22)",
   scrim: "rgba(0,0,0,.55)",
 };
 
@@ -120,12 +155,14 @@ export const radii = {
   full: "9999px",
 } as const;
 
-/** Elevation levels 0–3 — subtle, no heavy drops (DSN-01). */
+/** Elevation levels 0–3 + assistant ambient/upward (WP-AI-2) — subtle, no heavy drops (DSN-01). */
 export const elevation = {
   xs: "0 1px 2px rgba(15,23,34,.04)",
   sm: "0 1px 2px rgba(15,23,34,.05),0 1px 3px rgba(15,23,34,.04)",
   md: "0 4px 12px rgba(15,23,34,.07),0 1px 3px rgba(15,23,34,.05)",
   lg: "0 16px 40px rgba(15,23,34,.14),0 4px 12px rgba(15,23,34,.08)",
+  amb: "0 8px 20px rgba(22,36,43,.2)",
+  up: "0 -2px 10px rgba(22,36,43,.05)",
 } as const;
 
 /** Motion durations + easing (DSN-01, DSN-08). */
@@ -148,6 +185,19 @@ export const typography = {
 } as const;
 
 /**
+ * Raw email-safe font stacks (SEAM-08, PRN-12). Emails cannot load the app's
+ * next/font faces (Fraunces/Hanken/IBM Plex Mono) and cannot read CSS variables,
+ * so the email shell (src/modules/notify/email-template.ts) inlines these literal
+ * fallbacks. This is the single source for the email typeface intent — same role
+ * as `typography` for CSS, so a rebrand/white-label (SET-09) updates one file.
+ */
+export const emailFonts = {
+  display: "Georgia, 'Times New Roman', serif",
+  body: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
+  mono: "'SF Mono', ui-monospace, 'Roboto Mono', Menlo, Consolas, monospace",
+} as const;
+
+/**
  * Seeded partner palette (SET-02) — colors are assigned once and locked (PRN-06).
  * Every partner is identified by color AND a human-readable reference ID / name
  * (PRN-14); color is never the sole signal. This roster mirrors the demo seed.
@@ -158,15 +208,46 @@ export interface PartnerColor {
 }
 
 export const PARTNER_PALETTE: readonly PartnerColor[] = [
-  { name: "Michael Pinter", hex: "#f4c95d" },
-  { name: "Blake McCreight", hex: "#b9c4d6" },
-  { name: "Josh Ax", hex: "#8fbfe8" },
-  { name: "Jeff Lister", hex: "#f2a0b6" },
-  { name: "Dylan Tanaka", hex: "#e5c07b" },
-  { name: "Randy Wolfe", hex: "#e8927c" },
-  { name: "Joe Lieber", hex: "#7fd1c8" },
-  { name: "Forrest McGhee", hex: "#9cc69b" },
-  { name: "Jason Beery", hex: "#c9a0dc" },
+  { name: "Michael Pinter", hex: "#B4623F" }, // clay
+  { name: "Blake McCreight", hex: "#6E8B5E" }, // sage
+  { name: "Josh Ax", hex: "#5B7A9E" }, // slate-blue
+  { name: "Jeff Lister", hex: "#8A5A78" }, // plum
+  { name: "Dylan Tanaka", hex: "#3E8C8A" }, // teal
+  { name: "Randy Wolfe", hex: "#A65A34" }, // rust
+  { name: "Joe Lieber", hex: "#57794C" }, // moss
+  { name: "Forrest McGhee", hex: "#47688E" }, // denim
+  { name: "Jason Beery", hex: "#9E4B45" }, // brick
+] as const;
+
+/**
+ * WP-D (ADR-0037): the reserved color for the tenant's own "house" territory. A neutral
+ * graphite deliberately OUTSIDE the partner tint pool below, so house coverage reads as
+ * "yours, not a partner's" on every map and roster. Stays AA with white text via contrastText.
+ */
+export const HOUSE_COLOR = "#3A3F4B";
+
+/**
+ * The partner swatch pool (SET-02, ADR-0022) — the Survey "printed-map region"
+ * palette: muted, distinguishable tints that stay AA as row/legend fills (the
+ * export picks black/white text per fill via contrastText). New partners created
+ * in-app (ADM-03) get the first unused color from this ordered, locked pool
+ * (PRN-06); color is never the sole signal (always paired with name + PR-###).
+ * Roster 9 first, then ochre (held back from the seed so it doesn't read as the
+ * route marigold), then further vetted map tints for headroom.
+ */
+export const PARTNER_SWATCHES: readonly string[] = [
+  ...PARTNER_PALETTE.map((p) => p.hex),
+  "#C79A3E", // ochre
+  "#3E6B52", // pine
+  "#7A3B45", // wine
+  "#2F6E7A", // harbor
+  "#8A7B57", // dust
+  "#6B4A66", // fig
+  "#6E7A3E", // olive
+  "#B08A52", // sand
+  "#3E5A7A", // indigo-slate
+  "#B5764C", // terracotta
+  "#5E9E8E", // seafoam
 ] as const;
 
 export const themes = { light: lightColors, dark: darkColors } as const;
