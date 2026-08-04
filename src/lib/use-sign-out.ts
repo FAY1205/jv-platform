@@ -3,6 +3,7 @@
 import * as React from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { csrfHeaders } from "@/lib/csrf-client";
+import { clearSession as clearAssistantSession } from "@/components/assistant/assistant-session";
 
 // The one account sign-out (AUT-14 — server-side revoke, then a full navigation that
 // drops the client cache). Extracted from the portal account body (WP-PW-4) and, since
@@ -24,6 +25,10 @@ export function useSignOut(redirectTo: string = "/portal/login") {
     } catch {
       // Navigate away regardless — the session cookie is HttpOnly + server-revoked.
     }
+    // AUT-16: also clear client-side session-scoped state (the assistant transcript
+    // mirror) so a next login in the SAME browser tab can't inherit the prior user's
+    // chat content. sessionStorage is per-tab, not per-login — logout must wipe it.
+    clearAssistantSession();
     qc.clear();
     window.location.assign(redirectTo);
   }

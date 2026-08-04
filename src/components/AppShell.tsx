@@ -2,7 +2,6 @@
 
 import * as React from "react";
 import Link from "next/link";
-import dynamic from "next/dynamic";
 import { usePathname } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { apiGet } from "@/lib/api";
@@ -14,11 +13,6 @@ import { ThemeToggle } from "./ThemeToggle";
 import { ToastProvider } from "./Toast";
 import { IconButton } from "./IconButton";
 import { usePreferences, setPreferences, useApplyTheme } from "@/lib/preferences";
-
-// WP-AI-2 Task 9: admin-only, lazy — the AI SDK + chat UI stay out of the base bundle
-// and never SSR. Not part of the @/components barrel on purpose (keep it out of the
-// base bundle); AppShell wraps every admin page, so mounting it here is admin-only.
-const AssistantWidget = dynamic(() => import("./assistant/AssistantWidget"), { ssr: false });
 
 // The admin app shell (DSN): a minimal sidebar + a clean top bar. Every admin page
 // renders its content inside <AppShell>; the active nav item is derived from the URL.
@@ -263,7 +257,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </header>
 
         <main className="anim-fade w-full max-w-[1240px] px-6 pb-14 pt-5 md:px-8">{children}</main>
-        <AssistantWidget />
       </div>
       </div>
       </PageHeaderProvider>

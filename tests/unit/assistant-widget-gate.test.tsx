@@ -21,6 +21,7 @@ function budgetResponse() {
 describe("WP-AI-2 AssistantWidget — budget gate wiring (real transport)", () => {
   beforeEach(() => {
     vi.stubGlobal("fetch", vi.fn(async () => budgetResponse()));
+    window.sessionStorage.clear(); // WP-AI-PERSIST: isolate the per-session open/transcript mirror
   });
   afterEach(() => vi.unstubAllGlobals());
 

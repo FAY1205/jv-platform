@@ -20,8 +20,8 @@ describe("WP-AI-2 AssistantMessage", () => {
   it("PRN-10: never renders a link for a non-internal path", () => {
     render(<AssistantMessage id="m3" text="ok" sources={[{ label: "Evil", path: "https://evil.example/x" }]} />);
     expect(screen.queryByRole("link")).toBeNull();
-    // but the source label still shows as a plain chip
-    expect(screen.getByText("Evil")).toBeTruthy();
+    // but the source label still shows as a plain "From:" chip
+    expect(screen.getByText(/from: evil/i)).toBeTruthy();
   });
   it("renders extra sources as plain chips alongside the single linked source", () => {
     render(
@@ -35,8 +35,18 @@ describe("WP-AI-2 AssistantMessage", () => {
       />,
     );
     expect(screen.getAllByRole("link")).toHaveLength(1);
-    expect(screen.getByRole("link", { name: /partner performance/i })).toBeTruthy();
-    expect(screen.getByText("Region notes")).toBeTruthy();
+    // WP-AI-STYLE: the link pill reads "Open <label> →"; chips read "From: <label>".
+    expect(screen.getByRole("link", { name: /open partner performance/i })).toBeTruthy();
+    expect(screen.getByText(/from: region notes/i)).toBeTruthy();
+  });
+  it("WP-AI-STYLE: a reply with no text but a link is never blank — shows a fallback sentence", () => {
+    render(<AssistantMessage id="m6" text="" sources={[{ label: "Coverage map", path: "/coverage" }]} />);
+    expect(screen.getByText(/here's your coverage map/i)).toBeTruthy();
+    expect(screen.getByRole("link", { name: /open coverage map/i })).toBeTruthy();
+  });
+  it("WP-AI-STYLE: shows a checking state while a tool runs (pending, no text yet)", () => {
+    render(<AssistantMessage id="m7" text="" sources={[]} pending />);
+    expect(screen.getByText(/checking your workspace/i)).toBeTruthy();
   });
   it("AIA-04/DSN-03: thumbs fire onFeedback and confirm", async () => {
     const onFeedback = vi.fn();

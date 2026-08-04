@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { getServerScope } from "@/lib/scope-context";
+import { AssistantMount } from "@/components/assistant/AssistantMount";
 
 // Parity #4: the ONE admin role gate. Every admin page lives in this route group
 // (URLs are unchanged — route groups are invisible), so a partner who types an
@@ -19,5 +20,12 @@ export default async function AdminLayout({ children }: { children: React.ReactN
     if (typeof e === "object" && e !== null && "digest" in e) throw e;
   }
   if (target) redirect(target);
-  return <>{children}</>;
+  // The assistant mounts here (persistent across admin navigation), not per-page in
+  // AppShell — so the panel stays open and the transcript survives as you move around.
+  return (
+    <>
+      {children}
+      <AssistantMount />
+    </>
+  );
 }

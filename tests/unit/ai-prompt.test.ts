@@ -15,6 +15,11 @@ describe("ai prompt assembly (AIA-03/PRN-10)", () => {
   it("SEC-05: prompt forbids contact info and points to the lead page", () => {
     expect(buildSystemPrompt()).toMatch(/never reveal seller contact/i);
   });
+  it("WP-AI-STYLE: prompt forbids raw paths in prose and bans empty replies", () => {
+    const p = buildSystemPrompt();
+    expect(p).toMatch(/never write a url or app path/i);
+    expect(p).toMatch(/at least one sentence/i);
+  });
   it("screen context is injected for a known screen and absent otherwise", () => {
     expect(buildSystemPrompt("coverage")).toContain(SCREENS.coverage);
     expect(buildSystemPrompt()).not.toContain(SCREENS.coverage);
