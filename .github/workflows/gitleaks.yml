@@ -7,9 +7,13 @@ on:
   push:
     branches: [main]
 
-# F-47 (OpenSSF Token-Permissions): least-privilege GITHUB_TOKEN.
+# F-47 (OpenSSF Token-Permissions): least-privilege GITHUB_TOKEN. gitleaks-action needs
+# pull-requests:read to enumerate a PR's commits when scanning a pull_request event —
+# without it the action 403s ("Resource not accessible by integration") and the check
+# fails before scanning. Still read-only, still least-privilege.
 permissions:
   contents: read
+  pull-requests: read
 
 jobs:
   gitleaks:
