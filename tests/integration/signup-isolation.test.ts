@@ -40,6 +40,13 @@ suite("SCP-02: self-serve signup tenant isolation", () => {
     await db.delete(schema.leads).where(inArray(schema.leads.tenantId, tenantIds));
     await db.delete(schema.uploads).where(inArray(schema.uploads.tenantId, tenantIds));
     await db.delete(schema.users).where(inArray(schema.users.tenantId, tenantIds));
+    // provisionSignup seeds the tenant's ingestion config via seedTenantRules (WP-SU-21):
+    // feature flags, MLS patterns, settings and a source profile. Each FKs the tenant, so
+    // clear them before the tenant delete (uploads above already released source_profiles).
+    await db.delete(schema.featureFlags).where(inArray(schema.featureFlags.tenantId, tenantIds));
+    await db.delete(schema.mlsPatterns).where(inArray(schema.mlsPatterns.tenantId, tenantIds));
+    await db.delete(schema.settings).where(inArray(schema.settings.tenantId, tenantIds));
+    await db.delete(schema.sourceProfiles).where(inArray(schema.sourceProfiles.tenantId, tenantIds));
     // provisionSignup writes an append-only audit_log row per tenant (compliance F-2); its FK
     // blocks the tenant delete, so purge it via the deliberate escape hatch first.
     await purgeAuditLog(db, inArray(schema.auditLog.tenantId, tenantIds));
