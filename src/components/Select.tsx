@@ -64,6 +64,7 @@ export function Select({
           id={selectId}
           aria-label={label ? undefined : ariaLabel}
           aria-invalid={error ? true : undefined}
+          aria-required={required || undefined}
           aria-describedby={describedBy}
           className={cn(
             "inline-flex w-full items-center justify-between gap-2 rounded-md border bg-surface px-3 py-2 text-sm font-medium text-text-2",

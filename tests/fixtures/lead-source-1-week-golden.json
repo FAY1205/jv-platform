@@ -1,5 +1,5 @@
 {
-  "rulesHash": "20b0fa17801c518d061b321b2e673d629ef5759a82245b53d9116f1ced6ec94d",
+  "rulesHash": "9aa14bf98d12342a97f5f2b645ae6c1706797bde9c932dff182e8b7ec992a825",
   "outcomes": [
     {
       "key": "100 fake row|48205",
@@ -8,7 +8,11 @@
       "match": "none",
       "partner": null,
       "patternKey": null,
-      "span": null
+      "span": null,
+      "matchedOn": null,
+      "score": null,
+      "group": null,
+      "scoreStatus": "incomplete"
     },
     {
       "key": "12 invented st|77021",
@@ -21,7 +25,11 @@
         "start": 0,
         "end": 11,
         "text": "Listed? Yes"
-      }
+      },
+      "matchedOn": "77021",
+      "score": null,
+      "group": null,
+      "scoreStatus": "incomplete"
     },
     {
       "key": "12 invented st|77021",
@@ -34,7 +42,11 @@
         "start": 0,
         "end": 11,
         "text": "Listed? Yes"
-      }
+      },
+      "matchedOn": "77021",
+      "score": null,
+      "group": null,
+      "scoreStatus": "incomplete"
     },
     {
       "key": "22 nonexistent rd|98101",
@@ -47,7 +59,11 @@
         "start": 49,
         "end": 68,
         "text": "Listed on MLS?: Yes"
-      }
+      },
+      "matchedOn": "WA",
+      "score": null,
+      "group": null,
+      "scoreStatus": "incomplete"
     },
     {
       "key": "310 fictional ave|90815",
@@ -56,7 +72,11 @@
       "match": "zip",
       "partner": "Jason Beery",
       "patternKey": null,
-      "span": null
+      "span": null,
+      "matchedOn": "90815",
+      "score": null,
+      "group": null,
+      "scoreStatus": "incomplete"
     },
     {
       "key": "48 pretend blvd|77021",
@@ -65,7 +85,11 @@
       "match": "zip",
       "partner": "Joe Lieber",
       "patternKey": null,
-      "span": null
+      "span": null,
+      "matchedOn": "77021",
+      "score": null,
+      "group": null,
+      "scoreStatus": "incomplete"
     },
     {
       "key": "5 unreal ct|80202",
@@ -78,7 +102,11 @@
         "start": 0,
         "end": 20,
         "text": "Is it Listed? : True"
-      }
+      },
+      "matchedOn": "CO",
+      "score": null,
+      "group": null,
+      "scoreStatus": "incomplete"
     },
     {
       "key": "7 imaginary way|95814",
@@ -87,7 +115,11 @@
       "match": "state_fallback",
       "partner": "Blake McCreight",
       "patternKey": null,
-      "span": null
+      "span": null,
+      "matchedOn": "CA",
+      "score": null,
+      "group": null,
+      "scoreStatus": "incomplete"
     },
     {
       "key": "88 recovered st|97205",
@@ -96,7 +128,11 @@
       "match": "state_fallback",
       "partner": "Jason Beery",
       "patternKey": null,
-      "span": null
+      "span": null,
+      "matchedOn": "OR",
+      "score": null,
+      "group": null,
+      "scoreStatus": "incomplete"
     },
     {
       "key": "9 pretend ave|85004",
@@ -105,7 +141,11 @@
       "match": "state_fallback",
       "partner": "Jeff Lister",
       "patternKey": null,
-      "span": null
+      "span": null,
+      "matchedOn": "AZ",
+      "score": null,
+      "group": null,
+      "scoreStatus": "incomplete"
     },
     {
       "key": "|",
@@ -114,7 +154,11 @@
       "match": "none",
       "partner": null,
       "patternKey": null,
-      "span": null
+      "span": null,
+      "matchedOn": null,
+      "score": null,
+      "group": null,
+      "scoreStatus": "incomplete"
     }
   ]
 }

@@ -71,7 +71,7 @@ A deterministic lead-routing platform for real-estate JV (joint-venture) network
 | SEAM-01 | Multi-tenancy: `tenant_id` everywhere; RLS keyed on it; settings per tenant. |
 | SEAM-02 | `ListingCheckProvider` interface; `LinkOnlyProvider` (pre-filled search links) ships in V1; automated providers swap in one file. _Why:_ scraping listing sites breaches their ToS and breaks under bot defenses; the seam contains that risk. |
 | SEAM-03 | Export column contract as tenant data (the fixed V1 columns are the seed). |
-| SEAM-04 | `events` table (lead.assigned, upload.processed, status.changed, note.added) — digests and the notification center consume it now; webhooks later. |
+| SEAM-04 | **Retired (ADR-0020).** The `events` table was dropped (migration 0015); its stated consumers (digests, notification center) are served by `notifications` + `email_outbox`. Webhooks remain a future seam to be built against a real consumer. |
 | SEAM-05 | Source Profiles per lead source (§6.1) — new sources are rows, not code. |
 | SEAM-06 | Status list tenant-editable (seed: New / Contacted / Appointment / Under contract / Closed / Dead). |
 | SEAM-07 | AI read-tool layer: analytics/query functions are API-shaped so assistant tools call the same functions the dashboard uses — never bespoke SQL. |
@@ -80,7 +80,7 @@ A deterministic lead-routing platform for real-estate JV (joint-venture) network
 
 ## 5. Data model
 
-Tables: `tenants, users, partners, coverage_zips, state_rules, mls_patterns, campaign_recodes, source_profiles, uploads, leads, lead_notes, lead_status_history, listing_checks, notifications, events, audit_log, settings, feature_flags, ai_memory, ai_feedback`.
+Tables: `tenants, users, partners, coverage_zips, state_rules, mls_patterns, source_profiles, uploads, leads, lead_notes, lead_status_history, listing_checks, notifications, audit_log, settings, feature_flags, ai_memory, ai_feedback, ai_usage, email_outbox, ref_counters, idempotency_keys`, plus the auth family (`auth_attempts, notice_claims, reset_tokens, signup_verifications, signup_codes, otp_challenges, tos_acceptances, trusted_devices`). _Amended:_ `campaign_recodes` removed by ADR-0018 and `events` by ADR-0020 (both dropped in migration 0015).
 
 | ID | Rule |
 | -- | ---- |
@@ -157,7 +157,7 @@ into every run's rules snapshot (DM-08).
 | SCR-09 | Deterministic (PRN-01): same inputs ⇒ same result; the workbook's four Formula-Test cases are pinned. |
 | SCR-10 | Equity + loan type are extracted from the notes blob per vendor (LeadZolo, Real Estate Bees) with anchored per-line reads; a blank numeric line is never coerced to 0. |
 | SCR-11 | UI: a kept, Hot lead shows a small target mark before its reference ID (admin + portal lists) and a "Hot · N/50" badge + criterion breakdown in the lead dialog; an MLS-removed lead shows no mark (owner). Meaning never rides on color alone (PRN-14). A "Hot" filter and the read-only scoring scheme on Rules complete the surface. |
-| SCR-12 | Notifications: a hot lead alerts the admin instantly at import and the assigned partner at distribution-release (respecting the 10-min hold, ADR-0026); a house-territory or unmatched hot lead alerts the admin only; refId + coarse location + score only, no seller PII (SEC-05); on/off in notification preferences per role. |
+| SCR-12 | Notifications: a hot lead alerts the admin instantly at import and the assigned partner at distribution-release (respecting the 5-min hold, ADR-0026 as amended); a house-territory or unmatched hot lead alerts the admin only; refId + coarse location + score only, no seller PII (SEC-05); on/off in notification preferences per role. |
 
 ### 6.5 Dedupe & history (DED)
 
@@ -171,8 +171,8 @@ into every run's rules snapshot (DM-08).
 
 | ID | Requirement |
 | -- | ----------- |
-| EXP-01 | Campaign recodes from data (seed: `Lead Zolo*` → `Z`, `Real Estate Bees` → `B`). |
-| EXP-02 | Fixed export column order — Lead ID, Campaign, Date Created, JV Notes (blank), Notes, Address, City, State, Zip, Seller First Name, Seller Last Name, Seller Phone, Seller Email Address, Reason For Selling, Motivation, Time to Sell, JV Partner Name, Previously Matched, Possible MLS Listing — as the SEAM-03 seed. |
+| EXP-01 | **Retired (ADR-0018).** Campaign recodes removed (`campaign_recodes` dropped in migration 0015); the Campaign value passes through from the source row. |
+| EXP-02 | Fixed export column order — Lead ID, Campaign, Date Created, JV Notes (blank), Notes, Address, City, State, Zip, Seller First Name, Seller Last Name, Seller Phone, Seller Email Address, Reason For Selling, Motivation, Time to Sell, JV Partner Name, Possible MLS Listing — as the SEAM-03 seed. _Amended by ADR-0038:_ the `Previously Matched` column is removed with the dedup collapse. |
 | EXP-03 | Rows grouped by partner; `JV_Color_Legend` sheet (Partner → Ref → hex); `Run_Summary` sheet. |
 | EXP-04 | Run summary on screen and in export: totals, per-partner counts, removed, unmatched, previously-matched. |
 | EXP-05 | Exports stored in Storage; signed-URL download; re-downloadable from upload history. |
@@ -192,7 +192,7 @@ into every run's rules snapshot (DM-08).
 | -- | ----------- |
 | PTL-01 | **Onboarding:** admin creates partner (contact details per ADM-03) → Invite → branded email → partner opens link → **6-digit email OTP** completes login (code entry defeats forwarded-link risk) → first login requires ToS/Privacy acceptance (LGL-01) → optional 30-day trusted device (AUT-10). Same email+code flow every login; partners never have passwords. Admin can re-invite/revoke anytime. |
 | PTL-02 | Partner sees ONLY their leads, notes, statuses (PRN-08/13; TST-01/08). |
-| PTL-03 | Status updates (SEAM-06); every change → `lead_status_history` + event; visible to admin. |
+| PTL-03 | Status updates (SEAM-06); every change → `lead_status_history` (plus the admin notification); visible to admin. _Amended by ADR-0020:_ the "+ event" write is retired with the `events` table. |
 | PTL-04 | Partner notes per lead (NTS); CSV/Excel export of own leads. |
 | PTL-05 | Portal mini-stats: leads received, status funnel, response time (ANA-05). |
 
@@ -234,7 +234,7 @@ into every run's rules snapshot (DM-08).
 | AIA-03 | Grounded answers: every figure cited to the tool result that produced it; "I don't have that" over improvisation. |
 | AIA-04 | Learning loop, explicit: thumbs feedback in `ai_feedback`; learned preferences as admin-visible, editable `ai_memory` records — never silent adaptation. |
 | AIA-05 | Content the assistant reads (notes, lead fields) is untrusted input (PRN-10); injection cases in TST-10. |
-| AIA-06 | Provider-agnostic gateway; per-tenant token metering + budget cap from day one; cost visible in admin. |
+| AIA-06 | Provider-agnostic per-tenant credentials (BYO, ADR-0036); per-tenant token metering from day one; abuse rate-limit on every model-calling path (chat and credential test). _Amended by ADR-0036:_ spend caps and cost display live in the tenant's own provider dashboard, not in-app. |
 
 ### 6.13 Design system (DSN)
 
@@ -401,7 +401,7 @@ into every run's rules snapshot (DM-08).
 | TST-01 | Isolation suite: two seeded tenants + two partners; prove no query path crosses tenant or partner scope. Every merge. |
 | TST-02 | MLS corpus incl. canonical cases: `"Is it Listed? : true If Yes, MLS Date Active :"` → removed · `"Listed on MLS ? No … MLS Date Active: 3/2/25"` → kept · blank → kept · `"seller has no mortgage"` → no trigger. Corpus grows with every real-world miss. |
 | TST-03 | Precedence suite: covered-ZIP lead in a fallback state → ZIP partner, not the state rule; uncovered → fallback; `6404` ↔ `06404-1234` equivalence. |
-| TST-04 | Dedupe suite: repeat address+zip → flagged, original partner retained; phone-only near-miss NOT merged. |
+| TST-04 | Dedupe-key suite (ADR-0038): normalization produces a stable grouping key; the pipeline no longer collapses repeats — every row persists as its own lead. |
 | TST-05 | Golden file: one real anonymized week, hand-verified, pinned to a rules snapshot; **semantic diff** gate for the spine phase — parsed cell values, row order, assignments, fills, and legend must match exactly (not raw file bytes; xlsx containers embed timestamps). |
 | TST-06 | Export snapshots: column order, colors ON and OFF modes, legend, summary sheet. |
 | TST-07 | Portal E2E (Playwright): invite → OTP login → ToS → scoped leads → status → note → export. |

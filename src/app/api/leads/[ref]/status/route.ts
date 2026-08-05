@@ -14,7 +14,7 @@ const RefSchema = z.string().regex(/^LD-\d{2}-\d{5,}$/);
 const Input = z.object({ status: z.enum(SEED_LEAD_STATUSES) });
 
 // ADM: inline status change from the global Leads table. Admin-only; CSRF-guarded.
-// Appends status history + event (PRN-05: the assignment snapshot is untouched).
+// Appends status history (ADR-0020: the events write was retired) (PRN-05: the assignment snapshot is untouched).
 // Removed-from-MLS leads are read-only (PRN-04) — refused with 409.
 export async function POST(request: Request, { params }: { params: Promise<{ ref: string }> }) {
   if (!assertCsrf(request, { requireToken: true })) {

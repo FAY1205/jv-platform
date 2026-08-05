@@ -41,7 +41,7 @@
     "ai": "^6.0.224",
     "drizzle-orm": "^0.45.2",
     "exceljs": "^4.4.0",
-    "next": "16.2.10",
+    "next": "16.2.11",
     "postgres": "^3.4.9",
     "react": "19.2.4",
     "react-day-picker": "^10.0.1",

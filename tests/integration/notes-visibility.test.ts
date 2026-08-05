@@ -1,12 +1,12 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { drizzle, type PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
-import { inArray } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import * as schema from "@/db/schema";
 import { purgeAuditLog } from "../helpers/audit";
 import type { ScopeContext } from "@/lib/scope";
-import { listLeadNotes, addLeadNote, editLeadNote, LeadNotFoundError } from "@/modules/notes/notes";
+import { listLeadNotes, addLeadNote, editLeadNote, LeadNotFoundError, NoteNotFoundError } from "@/modules/notes/notes";
 import { releaseTenantLeads } from "../helpers/hold";
 import { REDACTED } from "@/modules/audit/redact";
 
@@ -47,8 +47,10 @@ suite("PRN-13/NTS: two-stream note visibility", () => {
     id.py = py.id;
     id.adminUser = randomUUID();
     id.pxUser = randomUUID();
+    id.pyUser = randomUUID();
     await db.insert(schema.users).values({ id: id.adminUser, tenantId: t.id, email: "admin@notes.test", role: "admin" });
     await db.insert(schema.users).values({ id: id.pxUser, tenantId: t.id, email: "px@notes.test", role: "partner", partnerId: px.id });
+    await db.insert(schema.users).values({ id: id.pyUser, tenantId: t.id, email: "py@notes.test", role: "partner", partnerId: py.id });
     const [up] = await db.insert(schema.uploads).values({ tenantId: t.id, refId: "IM-26-001", filename: "a.xlsx", status: "processed" }).returning({ id: schema.uploads.id });
     await db.insert(schema.leads).values({ tenantId: t.id, refId: "LD-26-00001", uploadId: up.id, dedupeKey: "x|1", rawJson: {}, partnerId: px.id, matchMethod: "zip", mlsStatus: "kept" });
     await db.insert(schema.leads).values({ tenantId: t.id, refId: "LD-26-00002", uploadId: up.id, dedupeKey: "y|2", rawJson: {}, partnerId: py.id, matchMethod: "zip", mlsStatus: "kept" });
@@ -63,6 +65,7 @@ suite("PRN-13/NTS: two-stream note visibility", () => {
 
   const admin = (): ScopeContext => ({ tenantId: id.tenant, role: "admin", userId: id.adminUser });
   const partnerX = (): ScopeContext => ({ tenantId: id.tenant, role: "partner", userId: id.pxUser, partnerId: id.px });
+  const partnerY = (): ScopeContext => ({ tenantId: id.tenant, role: "partner", userId: id.pyUser, partnerId: id.py });
 
   it("PRN-13: admin sees only admin notes; partner sees only partner notes", async () => {
     await addLeadNote(admin(), "LD-26-00001", "ADMIN-ONLY note");
@@ -107,5 +110,36 @@ suite("PRN-13/NTS: two-stream note visibility", () => {
   it("a partner cannot edit an admin note (cross-stream)", async () => {
     const { id: adminNoteId } = await addLeadNote(admin(), "LD-26-00001", "admin private");
     await expect(editLeadNote(partnerX(), adminNoteId, "hacked")).rejects.toThrow();
+  });
+
+  it("TST-08/PRN-08: a lead re-routed from X to Y does not expose X's partner notes to Y", async () => {
+    const { id: xNoteId } = await addLeadNote(partnerX(), "LD-26-00001", "X-PRIVATE seller intel");
+    id.xNote = xNoteId;
+    // Admin re-routes the lead to partner Y (manual overlay = the effective owner moves,
+    // same ownership change editLead action "set" performs).
+    await db.update(schema.leads).set({ manualPartnerId: id.py }).where(eq(schema.leads.refId, "LD-26-00001"));
+
+    // Y now owns the lead but sees NONE of X's notes — a note belongs to the org that wrote it.
+    const yBodies = (await listLeadNotes(partnerY(), "LD-26-00001")).map((n) => n.body);
+    expect(yBodies).not.toContain("X-PRIVATE seller intel");
+    expect(yBodies).toHaveLength(0);
+
+    // Y's own stream still works on the re-routed lead (the predicate is not over-broad).
+    await addLeadNote(partnerY(), "LD-26-00001", "Y note after re-route");
+    const yAfter = (await listLeadNotes(partnerY(), "LD-26-00001")).map((n) => n.body);
+    expect(yAfter).toContain("Y note after re-route");
+    expect(yAfter).not.toContain("X-PRIVATE seller intel");
+
+    // X lost the lead itself with the re-route (partnerOwnsLead revokes access).
+    await expect(listLeadNotes(partnerX(), "LD-26-00001")).rejects.toBeInstanceOf(LeadNotFoundError);
+  });
+
+  it("TST-08/PRN-08: Y cannot edit X's note on a re-routed lead (editLeadNote mirror)", async () => {
+    // Lead LD-26-00001 is Y's from the previous case; X's note id was captured there.
+    await expect(editLeadNote(partnerY(), id.xNote, "hijacked")).rejects.toBeInstanceOf(NoteNotFoundError);
+    // The note body is untouched: admin (full stream owner-side check) can't verify partner
+    // notes (PRN-13), so assert straight from the table.
+    const [row] = await db.select({ body: schema.leadNotes.body }).from(schema.leadNotes).where(eq(schema.leadNotes.id, id.xNote));
+    expect(row.body).toBe("X-PRIVATE seller intel");
   });
 });

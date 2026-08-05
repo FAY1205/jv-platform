@@ -55,7 +55,9 @@ describe("NotesPanel (F-20: save errors surface)", () => {
     await user.click(screen.getByRole("button", { name: "Add note" }));
 
     const alert = await screen.findByRole("alert");
-    expect(alert).toHaveTextContent("Could not add note.");
+    // R-51: the server's real reason ("boom") now surfaces instead of a generic string that
+    // hid it — a rate-limit / PRN-13 scope rejection must reach the user, not be swallowed.
+    expect(alert).toHaveTextContent("boom");
     expect(field).not.toBeDisabled();
   });
 });

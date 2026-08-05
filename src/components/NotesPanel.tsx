@@ -24,7 +24,21 @@ interface Note {
   edited: boolean;
 }
 
-export function NotesPanel({ leadRef, title, headingLevel = "h3" }: { leadRef: string; title: string; headingLevel?: "h2" | "h3" }) {
+// tosHref (audit R-19): this panel is shared by the admin lead dialog AND the partner
+// portal dialog. The ToS-recovery link must point at the CALLER's own ToS page — sending
+// a partner to the admin /tos (then its admin-only /dashboard redirect) bounces them out
+// of the portal into an app they can't use. Portal callers pass "/portal/tos".
+export function NotesPanel({
+  leadRef,
+  title,
+  headingLevel = "h3",
+  tosHref = "/tos",
+}: {
+  leadRef: string;
+  title: string;
+  headingLevel?: "h2" | "h3";
+  tosHref?: string;
+}) {
   const qc = useQueryClient();
   const key = ["lead-notes", leadRef];
   // `error` is destructured deliberately: without it a failed load renders as "No notes
@@ -46,7 +60,12 @@ export function NotesPanel({ leadRef, title, headingLevel = "h3" }: { leadRef: s
         headers: { "Content-Type": "application/json", ...csrfHeaders() },
         body: JSON.stringify({ body }),
       });
-      if (!res.ok) throw new Error("Could not add note.");
+      // R-51: surface the server's real reason (rate limit, PRN-13 scope/authorship
+      // rejection, validation) instead of a generic string that hides it.
+      if (!res.ok) {
+        const b = (await res.json().catch(() => null)) as { message?: string } | null;
+        throw new Error(b?.message ?? "Could not add note.");
+      }
     },
     onMutate: () => setAddErr(null),
     onSuccess: () => {
@@ -63,7 +82,10 @@ export function NotesPanel({ leadRef, title, headingLevel = "h3" }: { leadRef: s
         headers: { "Content-Type": "application/json", ...csrfHeaders() },
         body: JSON.stringify({ body }),
       });
-      if (!res.ok) throw new Error("Could not save note.");
+      if (!res.ok) {
+        const b = (await res.json().catch(() => null)) as { message?: string } | null;
+        throw new Error(b?.message ?? "Could not save note.");
+      }
     },
     onMutate: () => setEditErr(null),
     onSuccess: (_d, v) => {
@@ -90,7 +112,7 @@ export function NotesPanel({ leadRef, title, headingLevel = "h3" }: { leadRef: s
         ) : isError ? (
           <p role="alert" className="text-sm text-danger">
             Notes could not be loaded. You may need to{" "}
-            <a href="/tos" className="underline">
+            <a href={tosHref} className="underline">
               accept the current Terms of Service
             </a>
             , or you no longer have access to this lead.

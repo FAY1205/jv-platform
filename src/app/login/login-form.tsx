@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Card, CardBody, Input, Button } from "@/components";
 import { APP_NAME } from "@/lib/app";
+import { safeNextPath } from "@/lib/safe-next";
 
 // Admin sign-in (AUT-05). The failure message is uniform and comes from the server;
 // partners never see this screen (they onboard via email-OTP — PTL-01, WP-025).
@@ -14,7 +15,7 @@ import { APP_NAME } from "@/lib/app";
 export function LoginForm({ signupEnabled = false }: { signupEnabled?: boolean }) {
   const router = useRouter();
   const params = useSearchParams();
-  const next = params.get("next") || "/dashboard";
+  const next = safeNextPath(params.get("next"), "/dashboard");
 
   const [email, setEmail] = React.useState("");
   const [password, setPassword] = React.useState("");

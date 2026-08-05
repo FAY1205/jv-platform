@@ -30,7 +30,13 @@ function rowToProfile(r: typeof schema.sourceProfiles.$inferSelect): SourceProfi
 
 /** Latest saved profile per name, unioned with seeds for names not yet saved. */
 export async function loadProfilesForDetection(db: DB, scope: ScopeContext): Promise<SourceProfile[]> {
-  const rows = await db.select().from(schema.sourceProfiles).where(tenantWhere(schema.sourceProfiles, scope));
+  // R-34: deterministic candidate order — detection tie-breaks must never depend on
+  // unordered DB row order.
+  const rows = await db
+    .select()
+    .from(schema.sourceProfiles)
+    .where(tenantWhere(schema.sourceProfiles, scope))
+    .orderBy(schema.sourceProfiles.name, schema.sourceProfiles.version);
   const latest = new Map<string, typeof schema.sourceProfiles.$inferSelect>();
   for (const r of rows) {
     const cur = latest.get(r.name);

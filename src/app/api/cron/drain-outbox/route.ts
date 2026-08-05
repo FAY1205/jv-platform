@@ -40,7 +40,7 @@ export async function GET(request: Request) {
       let released = 0;
       let drained = 0;
       for (const t of tenants) {
-        // Distribution hold: release imports past their 10-min window (enqueues their digests). Kept in
+        // Distribution hold: release imports past their 5-min window (enqueues their digests). Kept in
         // its OWN try so a release failure never blocks that tenant's unrelated pending mail (F-2).
         try {
           released += (await releaseDueImports(db, { tenantId: t.id, portalBaseUrl: env.APP_URL })).released;

@@ -138,7 +138,7 @@ export function PortalLeadDialog({ refId, onClose }: { refId: string; onClose: (
           </div>
 
           <div className="border-t border-border-soft pt-4">
-            <NotesPanel leadRef={data.refId} title="Your notes" />
+            <NotesPanel leadRef={data.refId} title="Your notes" tosHref="/portal/tos" />
           </div>
         </div>
       )}

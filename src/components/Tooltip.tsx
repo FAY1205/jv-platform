@@ -50,10 +50,20 @@ export function Tooltip({ content, children, className }: TooltipProps) {
 
   React.useEffect(() => {
     if (!open) return;
-    const onMove = () => measure();
+    // FEP-04 (audit R-52): rAF-throttle the reposition so a scroll/resize burst does at
+    // most one getBoundingClientRect + setState per frame, not one per native event.
+    let raf = 0;
+    const onMove = () => {
+      if (raf) return;
+      raf = requestAnimationFrame(() => {
+        raf = 0;
+        measure();
+      });
+    };
     window.addEventListener("scroll", onMove, true);
     window.addEventListener("resize", onMove);
     return () => {
+      if (raf) cancelAnimationFrame(raf);
       window.removeEventListener("scroll", onMove, true);
       window.removeEventListener("resize", onMove);
     };

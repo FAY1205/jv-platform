@@ -22,7 +22,7 @@ const optionalString = z
 // The dev/preview placeholder sender. Production must override it (see the refine below):
 // Resend rejects sends from an unverified example.test domain, so leaving it here would
 // make every OTP/invite/reset silently fail per-send. Named so default + guard can't drift.
-const DEFAULT_EMAIL_FROM = "JV Platform <noreply@example.test>";
+const DEFAULT_EMAIL_FROM = `${APP_NAME} <noreply@example.test>`;
 
 const EnvSchema = z.object({
   APP_ENV: AppEnvSchema.default("development"),
@@ -150,7 +150,6 @@ export function readEnv(source: Record<string, string | undefined> = process.env
 export const env = readEnv();
 
 export const isProduction = env.APP_ENV === "production";
-export const isNonProduction = !isProduction;
 
 // Public signup is OFF by default in production (compliance kill-switch — flip on only after
 // ToS/Privacy + subprocessor page are ready) and ON by default in non-production for testing.

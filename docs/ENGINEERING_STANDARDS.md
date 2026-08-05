@@ -31,7 +31,9 @@ Exemplars: `src/app/api/uploads/route.ts`, `src/app/api/admin/partners/route.ts`
   surface and non-app access. The scope builders are the primary boundary — treat a
   missed builder as a Critical defect, not a style issue.
 - Service-role / `getSupabaseAdmin()` use requires: (a) a reason the scoped path can't
-  work, (b) an explicit tenant filter, (c) an isolation test.
+  work, (b) an explicit tenant filter, (c) an isolation test. Current footprint: 11
+  files (as of 2026-08-05) — the authoritative list is
+  `grep -rln "getSupabaseAdmin\|SERVICE_ROLE" src`, never a written count.
 - New tables ship `tenant_id` + deny-by-default RLS policy + indexes in the same
   migration (SEAM-01, DM-11). Exceptions (pre-tenant auth tables like `auth_attempts`)
   are documented in an ADR (ADR-0010).
@@ -63,8 +65,8 @@ Exemplars: `src/app/api/uploads/route.ts`, `src/app/api/admin/partners/route.ts`
   checks, notifications, drain) is **best-effort**: wrapped in try/catch, failures go
   to `logError` (`src/lib/observability.ts`), and never fail or roll back the run.
 - No silent swallows: every catch either rethrows or calls `logError` with context.
-- `TODO(owner)`: wire `logError` to Sentry (ACT-03) and add job heartbeat (ACT-05)
-  before real weekly operation — console-only means best-effort failures are invisible.
+- `logError` is wired to Sentry (ACT-03, ADR-0032) with PII/secret scrubbing and cron
+  check-in monitors (ACT-05) — best-effort failures are visible in production.
 
 ## 5. Database change discipline (DM-*, working rules)
 
@@ -76,10 +78,13 @@ Exemplars: `src/app/api/uploads/route.ts`, `src/app/api/admin/partners/route.ts`
 - Multi-write flows run in one transaction; advisory locks (`pg_advisory_xact_lock`)
   are taken first and in consistent order. Pooler constraints hold: `prepare: false`,
   xact-scoped locks only.
-- Known open items: `TODO(owner)` partial unique index
-  `leads(tenant_id, dedupe_key) WHERE deleted_at IS NULL` (WP-018 follow-up);
-  `TODO(owner)` retention sweep (SET-07) for `auth_attempts`, `email_outbox`,
-  `events`, `audit_log` growth.
+- Known open items: the dedupe partial-unique-index follow-up is **resolved by
+  ADR-0038** (migration 0034 dropped uniqueness — same-dedupe-key rows are
+  legitimate, do not re-flag); `TODO(owner)` retention sweep (SET-07) for
+  `email_outbox` and `idempotency_keys` growth (the `events` table was dropped by
+  ADR-0020; the auth tables — `auth_attempts`, `otp_challenges`, `reset_tokens`,
+  `signup_verifications`, `trusted_devices`, `notice_claims` — are already swept by
+  the retention cron).
 
 ## 6. AuthN/Z patterns (AUT-*)
 
@@ -93,8 +98,9 @@ Exemplars: `src/app/api/uploads/route.ts`, `src/app/api/admin/partners/route.ts`
   auth-adjacent endpoint wires a throttle config and returns 429 + Retry-After.
 - Trusted-device / sessions are app-owned rotating refresh tokens with reuse-detection
   revoking the family (`src/lib/auth/trusted-device.ts`).
-- `TODO(owner)`: security headers are absent — adopt CSP, HSTS, `frame-ancestors`,
-  `Referrer-Policy` (proposed spec amendment SEC-08; see audit reports).
+- Security headers are shipped (SEC-08): CSP, HSTS, `frame-ancestors`,
+  `Referrer-Policy` and friends are defined centrally in
+  `src/lib/security-headers.ts` and wired via `next.config.ts`.
 
 ## 7. Email & files (SEC-02/03/05/06/07)
 
@@ -132,5 +138,6 @@ Exemplars: `src/app/api/uploads/route.ts`, `src/app/api/admin/partners/route.ts`
 - Every request carries a `traceId` in its error envelope; `logError` is the single
   seam for failures (SEC-05: never log secrets or seller PII).
 - CI: typecheck + lint + unit on every PR; integration vs ephemeral Postgres on merge;
-  e2e on main. `TODO(owner)`: deployment config (Vercel), cron for outbox drain +
-  ACT-05 heartbeat, Sentry (ACT-03), Lighthouse gate re-enable (FEP-08).
+  e2e on main. Deployment (Vercel, push-to-main), the outbox-drain cron, and Sentry
+  with cron check-in monitors (ACT-03/ACT-05, ADR-0032) are live.
+  `TODO(owner)`: Lighthouse gate re-enable (FEP-08).

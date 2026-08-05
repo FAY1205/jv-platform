@@ -10,7 +10,7 @@ import * as schema from "@/db/schema";
 // the RLS policies (0001 migration) are the database half. TST-01 proves both.
 // ─────────────────────────────────────────────────────────────────────────────
 
-const { leads, leadNotes } = schema;
+const { leads, leadNotes, users } = schema;
 type DB = PostgresJsDatabase<typeof schema>;
 
 export interface ScopeContext {
@@ -60,13 +60,26 @@ export function noteWhere(scope: ScopeContext, db: DB): SQL {
   if (scope.role === "admin") {
     return and(base, eq(leadNotes.authorRole, "admin"))!;
   }
+  const me = requirePartner(scope);
   const ownLeads = db
     .select({ id: leads.id })
     .from(leads)
     // WP-J2 / DM-09b: a partner's owned-lead set excludes recalled (soft-deleted) leads, so the
     // guard is self-sufficient — child-table reads never rely on a parent join to filter deletes.
-    .where(and(eq(leads.tenantId, scope.tenantId), partnerOwnsLead(requirePartner(scope)), isNull(leads.deletedAt)));
-  return and(base, eq(leadNotes.authorRole, "partner"), inArray(leadNotes.leadId, ownLeads))!;
+    .where(and(eq(leads.tenantId, scope.tenantId), partnerOwnsLead(me), isNull(leads.deletedAt)));
+  // A note belongs to the partner org that wrote it (PRN-08/PRN-13): lead ownership MOVES
+  // on re-route (partnerOwnsLead), so "notes on leads I own" alone would hand the previous
+  // partner's notes to the new one. Restrict to notes authored by the reading partner's own org.
+  const ownAuthors = db
+    .select({ id: users.id })
+    .from(users)
+    .where(and(eq(users.tenantId, scope.tenantId), eq(users.partnerId, me)));
+  return and(
+    base,
+    eq(leadNotes.authorRole, "partner"),
+    inArray(leadNotes.leadId, ownLeads),
+    inArray(leadNotes.authorUserId, ownAuthors),
+  )!;
 }
 
 /** Status history / listing checks: tenant + (admin all · partner only own leads). */
