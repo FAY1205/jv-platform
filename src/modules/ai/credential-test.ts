@@ -24,8 +24,11 @@ function providerHint(e: unknown): string {
   if (/\bmodel\b|not found|does not exist|404/.test(msg)) return "The default model isn't available for this key or account.";
   if (/quota|rate limit|429|exceed|billing|payment|insufficient/.test(msg)) return "The provider reports a quota, billing, or rate-limit problem on this key.";
   if (/timed out|timeout|aborted|network|fetch failed|enotfound/.test(msg)) return "The provider didn't respond in time. Try again in a moment.";
-  const raw = e instanceof Error ? e.message : String(e);
-  return "The provider call failed: " + raw.slice(0, 180);
+  // R-61 (SEC-05 / LLM02): the branches above give a precise, safe hint. For anything
+  // unmatched, do NOT echo the raw provider body to the client — it can carry request
+  // echoes, account identifiers, or (worst case) a fragment of the key. The full detail
+  // still reaches the log via logError, where the sink scrubber redacts key-shaped tokens.
+  return "The provider call failed. Check the key and the selected model in your provider's dashboard, then try again.";
 }
 
 export async function testAiCredential(scope: ScopeContext): Promise<CredentialTestResult> {

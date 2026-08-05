@@ -1,11 +1,19 @@
+import { NextResponse } from "next/server";
+import { getDb } from "@/db";
 import { getServerScope } from "@/lib/scope-context";
 import { authErrorResponse, requireAdminResponse, assertCsrf } from "@/lib/auth/guard";
-import { jsonOk, jsonError } from "@/lib/http";
+import { jsonOk, jsonError, newTraceId } from "@/lib/http";
+import { clientIp } from "@/lib/auth/client-ip";
+import { AuthAttemptsStore } from "@/lib/auth/attempts-store";
+import { AI_CREDENTIAL_TEST_THROTTLE } from "@/lib/auth/throttle";
+import { rateDecisionWithSelf } from "@/lib/auth/rate-limit";
 import { loadAiSettings, saveAiSettings } from "@/modules/ai/settings";
 import { aiCredentialStatus, saveAiCredential, clearAiCredential, setAiCredentialModel, AI_PROVIDERS } from "@/modules/ai/credential";
 import { testAiCredential } from "@/modules/ai/credential-test";
 import { isValidModel } from "@/modules/ai/models-catalog";
 import { z } from "zod";
+
+const AI_CREDENTIAL_TEST_KIND = "ai_credential_test";
 
 // SET-11 / ADR-0036: read + update the tenant's AI assistant settings — the enable
 // switch AND the BYO provider credential (write-only key). The monthly spend cap and
@@ -59,9 +67,34 @@ export async function POST(request: Request) {
     const parsed = CredentialSchema.safeParse(await request.json().catch(() => null));
     if (!parsed.success) return jsonError("invalid_input", parsed.error.issues[0]?.message ?? "Invalid credential.", 400);
     if (parsed.data.action === "test") {
+      // AUT-03 (audit R-60): the "test" action makes a live provider call on the BYO key.
+      // Throttle it (per-tenant cooldown + per-IP) so it can't be used as a fast key-validity
+      // oracle or a spend vector. Sliding-window only (reserve -> snapshot -> decide), like the
+      // other post-auth guards. Keyed on the tenant.
+      const ip = clientIp(request);
+      const now = Date.now();
+      const attempts = new AuthAttemptsStore(getDb());
+      const attemptId = await attempts.reserve(scope.tenantId, ip, AI_CREDENTIAL_TEST_KIND);
+      const snap = await attempts.snapshot(scope.tenantId, ip, AI_CREDENTIAL_TEST_KIND, now, AI_CREDENTIAL_TEST_THROTTLE);
+      const byTenant = rateDecisionWithSelf(snap.attempts, now, AI_CREDENTIAL_TEST_THROTTLE.perIdentifier);
+      const byIp = rateDecisionWithSelf(snap.ipAttempts, now, AI_CREDENTIAL_TEST_THROTTLE.perIp);
+      if (!byTenant.allowed || !byIp.allowed) {
+        const retryAfterSec = Math.ceil(Math.max(byTenant.retryAfterMs, byIp.retryAfterMs) / 1000);
+        return NextResponse.json(
+          { code: "too_many_requests", message: "Too many key tests. Please wait a moment and try again.", traceId: newTraceId() },
+          { status: 429, headers: { "Retry-After": String(retryAfterSec) } },
+        );
+      }
       // Live check of the STORED key — makes one tiny provider call and reports a
       // precise reason. Always 200; the outcome is in `test.ok`.
-      return jsonOk({ code: "ok", test: await testAiCredential(scope) });
+      let ok = false;
+      try {
+        const test = await testAiCredential(scope);
+        ok = test.ok;
+        return jsonOk({ code: "ok", test });
+      } finally {
+        await attempts.settle(attemptId, ok);
+      }
     }
     if (parsed.data.action === "clear") {
       await clearAiCredential(scope);

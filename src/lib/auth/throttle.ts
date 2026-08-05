@@ -109,6 +109,15 @@ export const CHANGE_PASSWORD_THROTTLE: ThrottleConfig = {
   perIp: { limit: 20, windowMs: 900_000 }, // 20 / 15min per IP
 };
 
+// WP-AI-GUARD (audit R-60): the settings "test connection" action makes ONE live provider
+// call on the tenant's BYO key and was unthrottled — a scripted admin could hammer the key
+// (a fast validity oracle) or drive provider spend, unmetered. Keyed on the TENANT (a
+// per-tenant cooldown) + IP. Sliding-window only, like the other post-auth guards.
+export const AI_CREDENTIAL_TEST_THROTTLE: ThrottleConfig = {
+  perIdentifier: { limit: 5, windowMs: 60_000 }, // 5 / min per tenant
+  perIp: { limit: 10, windowMs: 60_000 }, // 10 / min per IP
+};
+
 // Public signup (ADR-0034) — rarer and costlier (provisioning + email) than login,
 // same shape/values as RESET_THROTTLE.
 export const SIGNUP_THROTTLE: ThrottleConfig = {
