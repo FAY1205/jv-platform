@@ -17,7 +17,8 @@ import { APP_NAME } from "@/lib/app";
 declare global {
   interface Window {
     turnstile?: {
-      render: (el: HTMLElement, opts: Record<string, unknown>) => void;
+      render: (el: HTMLElement, opts: Record<string, unknown>) => string;
+      reset: (widgetId?: string) => void;
     };
   }
 }
@@ -36,6 +37,8 @@ export default function SignupPage() {
   const widgetRef = React.useRef<HTMLDivElement>(null);
   const rendered = React.useRef(false);
   const pollId = React.useRef<number | null>(null);
+  const widgetId = React.useRef<string | null>(null);
+  const autoRetries = React.useRef(0);
 
   const [email, setEmail] = React.useState("");
   const [password, setPassword] = React.useState("");
@@ -54,21 +57,30 @@ export default function SignupPage() {
     if (rendered.current) return;
     if (typeof window !== "undefined" && window.turnstile && widgetRef.current && siteKey) {
       rendered.current = true;
-      window.turnstile.render(widgetRef.current, {
+      widgetId.current = window.turnstile.render(widgetRef.current, {
         sitekey: siteKey,
         callback: (t: string) => {
+          autoRetries.current = 0;
           setCaptchaToken(t);
           setCaptchaError(null);
         },
-        // Before WP-B these silently cleared the token, leaving the Sign-up button dead with no
-        // explanation. Now the user is told why and what to do.
+        // A stale Cloudflare clearance cookie makes the widget error even when the keys are
+        // fine — and a plain page refresh doesn't clear it, but RE-ISSUING the challenge does.
+        // So silently auto-retry once; if it still errors, surface a one-click "Retry
+        // verification" (below) instead of the old "refresh the page" that didn't actually help.
         "error-callback": () => {
           setCaptchaToken("");
-          setCaptchaError("Verification failed. Refresh the page and try again.");
+          if (autoRetries.current < 1 && window.turnstile && widgetId.current != null) {
+            autoRetries.current += 1;
+            window.turnstile.reset(widgetId.current);
+          } else {
+            setCaptchaError("Couldn't verify you're human — tap “Retry verification” below.");
+          }
         },
+        // Expiry is benign — re-issue a fresh challenge in place, no message needed.
         "expired-callback": () => {
           setCaptchaToken("");
-          setCaptchaError("Verification expired — please complete it again below.");
+          if (window.turnstile && widgetId.current != null) window.turnstile.reset(widgetId.current);
         },
       });
       // The widget is up — stop polling now rather than waiting for unmount.
@@ -78,6 +90,17 @@ export default function SignupPage() {
       }
     }
   }, [siteKey]);
+
+  // Manual recovery for the stubborn case — re-issues the challenge in place (no page reload,
+  // no "clear your cookies"): the common fix for a stale Cloudflare clearance cookie.
+  const resetWidget = React.useCallback(() => {
+    autoRetries.current = 0;
+    setCaptchaToken("");
+    setCaptchaError(null);
+    if (typeof window !== "undefined" && window.turnstile && widgetId.current != null) {
+      window.turnstile.reset(widgetId.current);
+    }
+  }, []);
 
   React.useEffect(() => {
     renderWidget();
@@ -216,9 +239,18 @@ export default function SignupPage() {
                 <p className="text-xs text-danger">Verification is unavailable right now. Please try again later.</p>
               )}
               {captchaError && (
-                <p className="text-xs text-danger" aria-live="polite">
-                  {captchaError}
-                </p>
+                <div className="flex flex-col items-start gap-1.5">
+                  <p className="text-xs text-danger" aria-live="polite">
+                    {captchaError}
+                  </p>
+                  <button
+                    type="button"
+                    onClick={resetWidget}
+                    className="rounded text-xs font-semibold text-brand-ink hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-brand-ink"
+                  >
+                    Retry verification
+                  </button>
+                </div>
               )}
               <Checkbox
                 checked={tosAccepted}
