@@ -55,6 +55,55 @@ export interface ExportLead {
   possibleMlsListing: "yes" | "no" | "unknown" | "pending";
 }
 
+// A persisted lead row as either export path reads it. Fields are widened to accept both
+// the admin and portal Drizzle selects (nullable text columns coalesce to "").
+export interface ExportLeadSource {
+  refId: string;
+  campaign?: string | null;
+  dateCreated?: string | null;
+  notes?: string | null;
+  address?: string | null;
+  city?: string | null;
+  state?: string | null;
+  zip?: string | null;
+  sellerFirst?: string | null;
+  sellerLast?: string | null;
+  phone?: string | null;
+  email?: string | null;
+  reasonForSelling?: string | null;
+  motivation?: string | null;
+  timeToSell?: string | null;
+  partnerId: string | null;
+  possibleMlsListing: "yes" | "no" | "unknown" | "pending";
+}
+
+// R-11 / EXP-SS: the ONE serializer for the fixed export row shape. Both export paths (admin
+// run download, partner portal export) build ExportLead through here, so a field added to the
+// contract can't land in one and be forgotten in the other. `blankCampaign` is the explicit,
+// tested option for the partner-facing path — lead source stays admin-only (PRN-08) and must
+// never appear in a partner's deliverable.
+export function toExportLead(l: ExportLeadSource, opts?: { blankCampaign?: boolean }): ExportLead {
+  return {
+    leadRefId: l.refId,
+    campaign: opts?.blankCampaign ? "" : l.campaign ?? "",
+    dateCreated: l.dateCreated ?? "",
+    notes: l.notes ?? "",
+    address: l.address ?? "",
+    city: l.city ?? "",
+    state: l.state ?? "",
+    zip: l.zip ?? "",
+    sellerFirst: l.sellerFirst ?? "",
+    sellerLast: l.sellerLast ?? "",
+    phone: l.phone ?? "",
+    email: l.email ?? "",
+    reasonForSelling: l.reasonForSelling ?? "",
+    motivation: l.motivation ?? "",
+    timeToSell: l.timeToSell ?? "",
+    partnerId: l.partnerId,
+    possibleMlsListing: l.possibleMlsListing,
+  };
+}
+
 export interface PartnerInfo {
   id: string;
   name: string;

@@ -3,7 +3,7 @@ import { getDb } from "@/db";
 import * as schema from "@/db/schema";
 import { tenantWhere, leadWhere, type ScopeContext } from "@/lib/scope";
 import { computeRunSummary } from "../analytics/run-summary";
-import type { ExportLead, PartnerInfo } from "../export/render";
+import { toExportLead, type ExportLead, type PartnerInfo } from "../export/render";
 import type { RunSummary } from "../analytics/run-summary";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -41,27 +41,8 @@ export async function getRunExportData(scope: ScopeContext, ref: string): Promis
   );
 
   // The partner deliverable is the kept leads; removed (MLS) are summarised only.
-  const exportLeads: ExportLead[] = leadRows
-    .filter((l) => l.mlsStatus === "kept")
-    .map((l) => ({
-      leadRefId: l.refId,
-      campaign: l.campaign ?? "",
-      dateCreated: l.dateCreated ?? "",
-      notes: l.notes ?? "",
-      address: l.address ?? "",
-      city: l.city ?? "",
-      state: l.state ?? "",
-      zip: l.zip ?? "",
-      sellerFirst: l.sellerFirst ?? "",
-      sellerLast: l.sellerLast ?? "",
-      phone: l.phone ?? "",
-      email: l.email ?? "",
-      reasonForSelling: l.reasonForSelling ?? "",
-      motivation: l.motivation ?? "",
-      timeToSell: l.timeToSell ?? "",
-      partnerId: l.partnerId,
-      possibleMlsListing: l.possibleMlsListing,
-    }));
+  // Admin download keeps Campaign (lead source). Shape built by the one serializer (R-11).
+  const exportLeads: ExportLead[] = leadRows.filter((l) => l.mlsStatus === "kept").map((l) => toExportLead(l));
 
   return { refId: upload.refId, exportLeads, partners, summary };
 }

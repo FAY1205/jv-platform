@@ -8,7 +8,7 @@ import { partnerPerformanceDetail } from "../analytics/partner-performance";
 import { buildPartnerTerritory, type PartnerTerritory } from "../coverage/partner-territory";
 import { zipToCounty } from "@/lib/geo/zip-county";
 import { deltaOf, type RangeKey } from "../analytics/ranges";
-import type { ExportLead, PartnerInfo } from "../export/render";
+import { toExportLead, type ExportLead, type PartnerInfo } from "../export/render";
 import { currentStatus, SEED_LEAD_STATUSES } from "./statuses";
 import {
   PARTNER_LEADS_PAGE_SIZE,
@@ -381,25 +381,9 @@ export async function getPartnerExportData(scope: ScopeContext): Promise<Partner
   const summary = computeRunSummary(
     leadRows.map((l) => ({ mlsStatus: l.mlsStatus, matchMethod: l.matchMethod, partnerId: l.partnerId })),
   );
-  const exportLeads: ExportLead[] = leadRows.map((l) => ({
-    leadRefId: l.refId,
-    campaign: "", // lead source stays admin-only — never in a partner-facing export
-    dateCreated: l.dateCreated ?? "",
-    notes: l.notes ?? "",
-    address: l.address ?? "",
-    city: l.city ?? "",
-    state: l.state ?? "",
-    zip: l.zip ?? "",
-    sellerFirst: l.sellerFirst ?? "",
-    sellerLast: l.sellerLast ?? "",
-    phone: l.phone ?? "",
-    email: l.email ?? "",
-    reasonForSelling: l.reasonForSelling ?? "",
-    motivation: l.motivation ?? "",
-    timeToSell: l.timeToSell ?? "",
-    partnerId: l.partnerId,
-    possibleMlsListing: l.possibleMlsListing,
-  }));
+  // blankCampaign: lead source stays admin-only — never in a partner-facing export (PRN-08).
+  // Shape built by the one serializer (R-11), so the admin/portal contracts can't drift.
+  const exportLeads: ExportLead[] = leadRows.map((l) => toExportLead(l, { blankCampaign: true }));
 
   return { exportLeads, partners, summary };
 }
