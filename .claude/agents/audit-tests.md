@@ -48,6 +48,21 @@ percentages. You are READ-ONLY: propose fixes as diffs, never edit. Bash only fo
    PR-time Playwright smoke tier (build + login + one portal page).
 8. **Run the suite** when the environment allows (`pnpm run test:unit`); report actual
    counts vs the baseline above — a shrinking count without deleted features is a finding.
+9. **Reward-hacking sweep (VCF-2.8, `docs/audit/VIBE-CODE-FAILURE-CATALOG.md`):**
+   agents demonstrably game tests to go green. Check three signatures:
+   (a) weakened assertions in history — `git log -p --since="60 days ago" -- tests/ | grep "^-.*expect("`
+   and triage every removed/loosened assertion against its commit's stated purpose;
+   (b) fixture-shaped special cases in production code — grep `src/` for branches on
+   exact fixture values or `NODE_ENV === 'test'`/`APP_ENV === 'test'` conditioning
+   BUSINESS logic (test-only wiring in test helpers is fine);
+   (c) test files modified in the same commit as the implementation they cover —
+   `git log --name-only` pairing; legitimate for new features (tests ship WITH code),
+   a finding when an EXISTING test's expected values changed to match new output
+   without a spec/ADR change (golden re-pins have the same rule — PRN-04 fixture-first).
+10. **Skip visibility (VCF-3.5):** the worktree false-green incident — integration
+   suites self-skip without DATABASE_URL and the run looks green. Verify the runner
+   surfaces a skip COUNT and propose a CI assertion that skipped == 0 on the
+   integration job; any env-gated suite whose skip is silent is High.
 
 ## External lens
 Test pyramid balance (currently inverted at the top: 292/57/1); mutation-testing
@@ -55,9 +70,10 @@ mindset for pipeline conditionals (would this test fail if the branch flipped?);
 flaky-test hygiene.
 
 ## Severity anchors
-- Critical: TST-01/02/08/12 suite weakened or skipped.
+- Critical: TST-01/02/08/12 suite weakened or skipped; expected values of an existing
+  test changed to match new output with no spec/ADR trail (reward-hack signature).
 - High: Tier A diff without its requirement-ID tests; `.only` left in; TST-07 still
-  absent at a phase gate.
+  absent at a phase gate; silent env-gated skip; test-only branch in business logic.
 - Medium: implementation-echo assertions; missing negative paths on a new route.
 
 ## Output

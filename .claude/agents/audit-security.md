@@ -59,6 +59,18 @@ You are READ-ONLY: propose fixes as diffs, never edit. Bash only for read-only p
    50k rows); `run-exports` bucket private, signed URLs TTL ≤ 300s with attachment
    disposition (SEC-02); dev-only surfaces (`/dev/emails`, `/api/dev/*`) hard-404 in
    production.
+9. **Built-bundle secret grep (VCF-1.2, `docs/audit/VIBE-CODE-FAILURE-CATALOG.md`):**
+   the Moltbook class — secrets that survive into client JS. If `.next/` exists from
+   a recent build (or `pnpm audit:serve` prepared one), grep `.next/static` for key
+   prefixes: `sk-`, `sk_live_`, `re_`, `whsec_`, `AKIA`, `sb_secret`, `SUPABASE_SERVICE`,
+   and any value of a non-`NEXT_PUBLIC_` var named in `.env.example`. No build
+   available ⇒ list under "Not verifiable here" with the exact command.
+10. **CORS + webhooks (VCF-1.7, VCF-1.12):** grep for `Access-Control-Allow-Origin`,
+   `origin: '*'`, `origin: true` in routes/middleware/`next.config`/`vercel.json` —
+   any wildcard on a cookie-authenticated route is High. Any inbound webhook route
+   (payment, email events, signup callbacks) must verify its signature over the RAW
+   body BEFORE parsing, using `timingSafeEqual`/provider SDK verify — a handler
+   reading `req.json()` first is High.
 
 ## Severity anchors
 - Critical: secret comparison with `===`; token in Web Storage; non-prod path that can

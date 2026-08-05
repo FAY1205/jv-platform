@@ -1,10 +1,12 @@
 # The audit system — how to use it
 
-A standing system of 16 read-only Claude Code agents that audit this codebase against
+A standing system of 18 read-only Claude Code agents that audit this codebase against
 BOTH its own contract (`docs/SPEC.md` requirement IDs, ADRs, standards docs) AND
-industry practice (OWASP ASVS/API Top 10, WCAG 2.1 AA, Core Web Vitals, SOC 2,
-OpenSSF). Decision record: `docs/adr/0015-audit-agent-system.md`. Uniform output
-contract: [PROTOCOL.md](PROTOCOL.md).
+industry practice (OWASP ASVS/API Top 10, OWASP LLM Top 10, WCAG 2.1 AA, Core Web
+Vitals, SOC 2, OpenSSF), plus the documented failure patterns of AI-assisted
+codebases ([VIBE-CODE-FAILURE-CATALOG.md](VIBE-CODE-FAILURE-CATALOG.md)). Decision
+record: `docs/adr/0015-audit-agent-system.md` (incl. 2026-08-05 amendment). Uniform
+output contract: [PROTOCOL.md](PROTOCOL.md).
 
 **Agents never edit code.** They produce findings with `file:line` evidence, severity
 (Critical/High/Medium/Low), a dual-lens verdict (`SPEC-VIOLATION` / `EXTERNAL-GAP` /
@@ -17,7 +19,7 @@ candidates — the audit system feeds the backlog, it does not smuggle scope.
 | --- | --- |
 | Review current work before committing | Ask for the **pr-reviewer** agent (or just "review my diff") |
 | Audit the changed files with the right specialists | `/audit` (or `/audit diff`) |
-| Audit one domain | `/audit auth` · `/audit pipeline` · `/audit frontend` · `/audit data` · `/audit api` · `/audit tests` · `/audit devops` · `/audit compliance` · `/audit arch` · `/audit ux` |
+| Audit one domain | `/audit auth` · `/audit pipeline` · `/audit frontend` · `/audit data` · `/audit api` · `/audit tests` · `/audit devops` · `/audit compliance` · `/audit arch` · `/audit ux` · `/audit ai` · `/audit hygiene` |
 | Full sweep + executive report | `/audit full` |
 | Pre-phase-gate audit (e.g. before WP-035) | `/audit gate` |
 | One specialist directly | "Run audit-tenancy on src/app/api/portal" (any agent by name) |
@@ -44,6 +46,8 @@ goes to `docs/audit/raw/` (git-ignored scratch).
 | `audit-a11y` | WCAG 2.1 AA by success criterion; axe runs against a served build | sonnet |
 | `audit-design-system` | PRN-12 tokens, component states, gallery currency, theme parity | sonnet |
 | `audit-frontend-perf` | Bundles, virtualization (FEP-03), re-renders, CWV readiness | sonnet |
+| `audit-ai-surface` | The app's own GenAI feature vs OWASP LLM Top 10: prompt injection, tool agency, BYO-key handling, output handling, consumption | opus |
+| `audit-hygiene` | AI-code decay: duplication, dead code, swallowed errors, stubs, idiom divergence, doc drift (jscpd/knip/depcheck) | sonnet |
 | `audit-synthesizer` | Merges raw findings → executive report + remediation roadmap | opus |
 
 ## When each runs (recommended cadence)
@@ -53,7 +57,7 @@ Bound to the owner's risk-tier cadence, not calendar weeks:
 - **Every WP, before commit:** `pr-reviewer`, plus path-routed Tier A specialists
   (the routing table lives in `.claude/skills/audit/SKILL.md` §2). Cheap, focused.
 - **Tier B batch checkpoint (~2–3 WPs):** `audit-architecture`, `audit-tests`,
-  `audit-ux-flows`, `audit-frontend-perf`, `audit-devops`.
+  `audit-ux-flows`, `audit-frontend-perf`, `audit-devops`, `audit-hygiene`.
 - **Pre-phase-gate (§11):** `/audit gate` — everything + synthesis. WP-035 is the
   first customer.
 - **Milestones / before real partners / before first deploy:** `audit-compliance`;
