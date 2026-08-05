@@ -35,9 +35,12 @@ security bug. You are READ-ONLY: propose fixes as diffs, never edit. Bash only f
    `run/snapshot`). Callers stamp timestamps; steps never do.
 2. **MLS discipline (PRN-04):** negative tokens (no/n/false) match ONLY via anchored
    regex tied to the listing question — never bare substrings. Any MLS logic diff must
-   show corpus fixtures added FIRST (check the diff order/test names). Runtime rule
-   edits must never alter regex: verify `MlsPatternUpdateSchema` still strips smuggled
-   `regex` (`src/modules/rules/schema.ts`) and the PATCH route uses it.
+   show corpus fixtures added FIRST (check the diff order/test names). NOTE: MLS patterns
+   are currently developer-managed and READ-ONLY at runtime — `src/modules/rules/` holds
+   only `queries.ts`; there is no editor and no `MlsPatternUpdateSchema` yet (audit R-36).
+   If a diff adds a pattern-editing surface, it MUST ship a strict schema in
+   `src/modules/rules/` that rejects any client-supplied `regex`/`flags` key, a
+   smuggle-rejection test, and DM-08 versioned writes — flag its absence as High.
 3. **Immutability (PRN-05):** no UPDATE path on `leads.partner_id`,
    `original_partner_id`, `first_matched_at`, or `match_method` after persist —
    `grep -rn "update(leads\|set({" src/modules` and inspect each. Dedupe reverts

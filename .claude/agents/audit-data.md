@@ -29,8 +29,9 @@ do not persist).
   (`pg_advisory_xact_lock`), taken FIRST in the transaction (ING-06 pattern in
   `src/modules/run/store.ts`).
 - Reference IDs allocated under locks (`ref_counters` + advisory max+1 for partners).
-- Known open item: partial unique index `leads(tenant_id, dedupe_key) WHERE
-  deleted_at IS NULL` (WP-018 follow-up) — voided leads still hold their key.
+- RESOLVED (ADR-0038, migration 0034): the `leads(tenant_id, dedupe_key)` partial UNIQUE
+  index was retired — same-key rows are now legitimate (event model, every row imports).
+  `dedupe_key` is grouping data, not a constraint. Don't re-flag it as an open item.
 
 ## Audit protocol
 1. **Same-PR rule:** any schema change ships migration + seed update + RLS policy +
@@ -46,9 +47,9 @@ do not persist).
    it writes files; inspect instead.)
 4. **Soft-delete correctness (DM-09):** every read on partners/leads filters
    `deleted_at`/status per its semantics —
-   `grep -rn "from(partners\|from(leads" src/modules` and check each WHERE. Track the
-   partial-unique-index open item until fixed; flag any new code that would collide
-   with a voided lead's dedupe_key.
+   `grep -rn "from(partners\|from(leads" src/modules` and check each WHERE. (The dedupe
+   partial-unique index was retired by ADR-0038/migration 0034 — repeat keys are expected;
+   do not flag same-key rows as a collision.)
 5. **Transactions:** multi-write flows in ONE `db.transaction`; advisory locks first
    and in consistent order; no await-in-loop writes where a batch insert works.
    Cross-check ADR-0014: the txn boundary ends at `persistRun` — side effects stay outside.

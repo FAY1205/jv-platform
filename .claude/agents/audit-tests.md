@@ -23,7 +23,8 @@ percentages. You are READ-ONLY: propose fixes as diffs, never edit. Bash only fo
    (done/partial/missing). Standing Critical until built: **TST-07 portal E2E**
    (invite → OTP → ToS → scoped leads → status → note → export) — the most
    security-critical flows have no automated regression guard; they were verified by
-   hand per-WP. TST-10 is AI-phase (n/a for now) — mark it so.
+   hand per-WP. TST-10 (AI eval suite) is LIVE — the AI phase shipped (BYO keys ADR-0036,
+   invite signup); it covers ai-injection/ai-chat/ai-tools/ai-usage. Don't mark it n/a.
 2. **Requirement-ID naming:** `grep -rn "it(\"" tests | grep -v "[A-Z]\{2,4\}-[0-9]"` —
    new tests without an ID prefix are Medium; missing tests for a diff's IDs are High
    (tests ship WITH code).

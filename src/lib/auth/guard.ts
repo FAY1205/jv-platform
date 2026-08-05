@@ -2,16 +2,10 @@ import { type NextResponse } from "next/server";
 import { jsonError } from "@/lib/http";
 import { UnauthenticatedError, NotProvisionedError } from "@/lib/scope-context";
 import type { ScopeContext } from "@/lib/scope";
-import { isAllowedOrigin, csrfOk } from "./csrf";
+import { csrfOk } from "./csrf";
 import { CSRF_COOKIE_NAME, CSRF_HEADER_NAME } from "./csrf-token";
 
 // Route-level helpers shared by API handlers (WP-023/024a).
-
-/** AUT-12 CSRF: the request Origin must match this app's own origin. */
-export function originAllowed(request: Request): boolean {
-  const self = new URL(request.url).origin;
-  return isAllowedOrigin(request.headers.get("origin"), [self]);
-}
 
 function readCookie(request: Request, name: string): string | undefined {
   const header = request.headers.get("cookie");

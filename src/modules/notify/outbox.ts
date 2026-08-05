@@ -496,17 +496,8 @@ export async function drainOutbox(
   return result;
 }
 
-/** Pending outbox rows for a tenant (admin visibility / debugging). */
-export async function pendingOutboxCount(db: DB, tenantId: string): Promise<number> {
-  const rows = await db
-    .select({ id: schema.emailOutbox.id })
-    .from(schema.emailOutbox)
-    .where(and(eq(schema.emailOutbox.tenantId, tenantId), inArray(schema.emailOutbox.status, ["pending"])));
-  return rows.length;
-}
-
 /**
- * Distribution hold: release imports whose 10-min hold window has elapsed. For each processed,
+ * Distribution hold: release imports whose hold window has elapsed. For each processed,
  * not-yet-distributed, not-voided upload past its window, mark it distributed and fan out the
  * PARTNER digests + partner in-app notifications (the admin run-summary already went out at import).
  * Per-upload transaction under the SAME per-tenant advisory lock voidUpload uses, so a void and a

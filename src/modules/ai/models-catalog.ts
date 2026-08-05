@@ -40,10 +40,3 @@ export function coerceModel(provider: CatalogProvider, model: string | null | un
   return model && isValidModel(provider, model) ? model : DEFAULT_MODEL[provider];
 }
 
-export function modelLabel(model: string): string {
-  for (const list of Object.values(AI_MODELS)) {
-    const hit = list.find((m) => m.id === model);
-    if (hit) return hit.label;
-  }
-  return model;
-}

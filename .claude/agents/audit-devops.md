@@ -57,9 +57,11 @@ propose fixes as diffs, never edit. Bash for analyzers only: `pnpm audit`,
    (cross-check audit-data's restore-drill item); sending-domain SPF/DKIM/DMARC and
    spam warm-up (Resend on zayops.com); `AI_KEY_ENCRYPTION_KEY` present in Vercel or
    the tenant-key UI is dead.
-6. **Observability:** `SENTRY_DSN` parsed but unwired (ACT-03); `logError` console-only
-   — ADR-0014 makes this load-bearing (best-effort failures are invisible); propose
-   the minimal Sentry wiring + traceId propagation.
+6. **Observability:** Sentry is WIRED (ADR-0032) — server-side `register`/`onRequestError`
+   in `src/instrumentation.ts`, `logError` → `src/lib/observability.ts` with `beforeSend`
+   PII scrubbing, and `Sentry.withMonitor` cron heartbeats. Verify the scrub coverage and
+   monitor slugs, not the old "unwired" gap; a new best-effort side effect that skips
+   `logError` (ADR-0014) is still a finding.
 7. **Repo protections:** verify `main` branch protection + required checks via
    `gh api repos/FAY1205/jv-platform/branches/main/protection` (read-only; report if
    inaccessible).

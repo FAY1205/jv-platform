@@ -32,7 +32,7 @@ You are READ-ONLY: propose fixes as diffs, never edit. Bash only for read-only p
    credential/identity endpoint (`withUniformTiming`, `loginOutcome` — AUT-05 | ASVS
    V2.2.1); `grep -rn "===\|!==" src/lib/auth src/app/api/auth` and flag any secret
    compared without `timingSafeEqual` (AUT-09 | ASVS V2.4); cookie attrs asserted in
-   `src/lib/supabase/cookie-options.ts` + `src/lib/auth/cookies.ts` (AUT-12 | ASVS V3.4).
+   `src/lib/supabase/cookie-options.ts` + `src/lib/auth/csrf-token.ts` (AUT-12 | ASVS V3.4).
 2. **Headers (standing EXTERNAL-GAP):** no CSP, HSTS, frame-ancestors,
    Referrer-Policy, Permissions-Policy anywhere (`next.config.ts` is empty; proxy
    stamps only `no-store`). Keep this finding open with a drafted SEC-08 amendment +
