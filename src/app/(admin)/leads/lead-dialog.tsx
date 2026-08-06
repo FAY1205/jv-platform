@@ -4,6 +4,7 @@ import * as React from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiGet } from "@/lib/api";
 import { csrfHeaders } from "@/lib/csrf-client";
+import { useDirty } from "@/lib/use-dirty";
 import { fmtDateTime } from "@/lib/dates";
 import {
   Dialog,
@@ -150,6 +151,13 @@ export function LeadDialog({ refId, onClose }: { refId: string; onClose: () => v
   const qc = useQueryClient();
   const toast = useToast();
   const [editing, setEditing] = React.useState(false);
+  // R-54 (FRM-02a): while editing, EditForm reports whether its fields are dirty so a dismiss
+  // gesture (Esc/backdrop/✕) on unsaved edits asks before discarding. Reset when leaving edit mode.
+  const [editDirty, setEditDirty] = React.useState(false);
+  const leaveEdit = () => {
+    setEditing(false);
+    setEditDirty(false);
+  };
 
   const detailQ = useQuery({
     queryKey: ["lead", refId],
@@ -166,6 +174,7 @@ export function LeadDialog({ refId, onClose }: { refId: string; onClose: () => v
       open
       onClose={onClose}
       size="xl"
+      confirmClose={editing && editDirty}
       title={
         <span className="flex items-center gap-2.5">
           <span className="num">{refId}</span>
@@ -189,9 +198,10 @@ export function LeadDialog({ refId, onClose }: { refId: string; onClose: () => v
         <EditForm
           d={d}
           partners={roster.data?.partners ?? []}
-          onCancel={() => setEditing(false)}
+          onDirtyChange={setEditDirty}
+          onCancel={leaveEdit}
           onSaved={() => {
-            setEditing(false);
+            leaveEdit();
             qc.invalidateQueries({ queryKey: ["lead", refId] });
             qc.invalidateQueries({ queryKey: ["leads"] });
             qc.invalidateQueries({ queryKey: ["dashboard"] });
@@ -413,11 +423,14 @@ export function EditForm({
   partners,
   onCancel,
   onSaved,
+  onDirtyChange,
 }: {
   d: LeadDetail;
   partners: Partner[];
   onCancel: () => void;
   onSaved: () => void;
+  /** R-54: reports whether any field has changed, so the host Dialog can guard a dismiss. */
+  onDirtyChange?: (dirty: boolean) => void;
 }) {
   const [f, setF] = React.useState({
     sellerFirst: d.seller.first,
@@ -440,6 +453,13 @@ export function EditForm({
   // Partner select: current effective owner, a partner id, "unassigned" sentinel, or
   // "revert to original". Radix Select forbids an empty-string value, hence the sentinel.
   const [partnerSel, setPartnerSel] = React.useState(d.partner?.id ?? UNASSIGNED);
+
+  // R-54 (FRM-02a): the fields seed synchronously from `d`, so the baseline is the loaded record;
+  // report any divergence up so the host Dialog can raise a discard-confirmation on dismiss.
+  const dirty = useDirty({ ...f, status, partnerSel });
+  React.useEffect(() => {
+    onDirtyChange?.(dirty);
+  }, [dirty, onDirtyChange]);
 
   const save = useMutation({
     mutationFn: async () => {

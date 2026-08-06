@@ -361,6 +361,9 @@ function HouseTerritoryDialog({ house, onClose }: { house: Partner; onClose: () 
     setZips(t.zips.join(", "));
   }
   const zipInvalid = invalidZipTokens(zips);
+  // R-54 (FRM-02a): baseline is the loaded territory (ready=seeded), so a dismiss gesture on
+  // edited coverage asks before discarding — not on the pre-seed blank.
+  const dirty = useDirty({ states, zips }, seeded);
 
   const mutation = useMutation({
     mutationFn: () => send(`/api/admin/partners/${house.id}/coverage`, "PUT", { zips, states: states.join(",") }),
@@ -394,6 +397,7 @@ function HouseTerritoryDialog({ house, onClose }: { house: Partner; onClose: () 
       open
       onClose={onClose}
       title="My Territory"
+      confirmClose={dirty}
       footer={
         <>
           <Button variant="ghost" onClick={onClose}>

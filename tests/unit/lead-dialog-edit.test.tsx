@@ -176,3 +176,18 @@ describe("ASN-03/FRM-03: reassigning a lead is confirmed before it is written", 
     vi.unstubAllGlobals();
   });
 });
+
+// ── The dirty-form discard guard (R-54 / FRM-02a) ─────────────────────────────
+describe("R-54: EditForm reports dirtiness so the host dialog guards a dismiss", () => {
+  it("reports not-dirty on mount (baseline = the loaded record) and dirty once a field changes", async () => {
+    const user = userEvent.setup();
+    const onDirtyChange = vi.fn();
+    wrap(<EditForm d={leadDetail()} partners={[partnerA, partnerB]} onCancel={vi.fn()} onSaved={vi.fn()} onDirtyChange={onDirtyChange} />);
+
+    // Seeds from `d` synchronously → the baseline is the loaded record, so it starts clean.
+    expect(onDirtyChange).toHaveBeenLastCalledWith(false);
+
+    await user.type(screen.getByLabelText(/^City$/i), "Austin");
+    await waitFor(() => expect(onDirtyChange).toHaveBeenLastCalledWith(true));
+  });
+});
