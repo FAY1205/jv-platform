@@ -27,6 +27,8 @@ import {
   PartnerTag,
   EmptyState,
   QueryErrorState,
+  RadioGroup,
+  RadioGroupItem,
   Skeleton,
   useToast,
   usePageHeader,
@@ -501,28 +503,28 @@ function DeactivateModal({
                 <span className="num font-semibold">{territory!.zips.length}</span> ZIP
                 {territory!.zips.length === 1 ? "" : "s"}. Where should that territory go?
               </p>
-              <label className="flex items-center gap-2">
-                <input type="radio" name="mode" checked={mode === "reassign"} onChange={() => setMode("reassign")} />
-                <span>Reassign to another partner</span>
-              </label>
-              {mode === "reassign" && (
-                <div className="pl-6">
-                  {others.length === 0 ? (
-                    <p className="text-danger">No other partner to reassign to — route to Unmatched instead.</p>
-                  ) : (
-                    <Select
-                      value={toPartnerId}
-                      onValueChange={setToPartnerId}
-                      options={others.map((p) => ({ value: p.id, label: `${p.name} (${p.refId})` }))}
-                      ariaLabel="Reassign to partner"
-                    />
-                  )}
-                </div>
-              )}
-              <label className="flex items-center gap-2">
-                <input type="radio" name="mode" checked={mode === "unmatched"} onChange={() => setMode("unmatched")} />
-                <span>Route this territory to Unmatched</span>
-              </label>
+              <RadioGroup
+                ariaLabel="Where should this territory go?"
+                value={mode}
+                onValueChange={(v) => setMode(v as typeof mode)}
+              >
+                <RadioGroupItem value="reassign" label="Reassign to another partner" />
+                {mode === "reassign" && (
+                  <div className="pl-6">
+                    {others.length === 0 ? (
+                      <p className="text-danger">No other partner to reassign to — route to Unmatched instead.</p>
+                    ) : (
+                      <Select
+                        value={toPartnerId}
+                        onValueChange={setToPartnerId}
+                        options={others.map((p) => ({ value: p.id, label: `${p.name} (${p.refId})` }))}
+                        ariaLabel="Reassign to partner"
+                      />
+                    )}
+                  </div>
+                )}
+                <RadioGroupItem value="unmatched" label="Route this territory to Unmatched" />
+              </RadioGroup>
             </div>
           ) : (
             <p className="text-text-3">This partner owns no coverage — nothing to reassign.</p>

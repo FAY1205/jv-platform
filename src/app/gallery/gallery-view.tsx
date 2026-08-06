@@ -34,6 +34,8 @@ import {
   SegmentedControl,
   Combobox,
   Checkbox,
+  RadioGroup,
+  RadioGroupItem,
   Switch,
   NotificationTypeIcon,
   DatePicker,
@@ -167,6 +169,28 @@ function StateMultiSelectDemo() {
         list, so an invalid state is impossible by construction (WP-C).
       </p>
     </>
+  );
+}
+
+function RadioGroupDemo() {
+  const [mode, setMode] = React.useState("reassign");
+  return (
+    <RadioGroup ariaLabel="Where should this territory go?" value={mode} onValueChange={setMode}>
+      <RadioGroupItem value="reassign" label="Reassign to another partner" />
+      {mode === "reassign" && (
+        <div className="pl-6">
+          <NativeSelect
+            aria-label="Reassign to partner"
+            options={[
+              { value: "p1", label: "Randy Wolfe (PR-006)" },
+              { value: "p2", label: "Jeff Lister (PR-004)" },
+            ]}
+          />
+        </div>
+      )}
+      <RadioGroupItem value="unmatched" label="Route this territory to Unmatched" />
+      <RadioGroupItem value="disabled" label="A disabled option" disabled />
+    </RadioGroup>
   );
 }
 
@@ -650,6 +674,16 @@ function Gallery() {
                 <Checkbox checked={checkA} onCheckedChange={setCheckA} label="Email digest" />
                 <Checkbox checked={checkB} onCheckedChange={setCheckB} label="In-app alerts" />
                 <Checkbox checked={false} onCheckedChange={() => {}} label="Disabled" disabled />
+              </CardBody>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle>RadioGroup (single-select; DSN-03, F-1)</CardTitle>
+                <span className="text-xs text-text-3">role=radiogroup · tokened · a reveal can sit between items</span>
+              </CardHeader>
+              <CardBody>
+                <RadioGroupDemo />
               </CardBody>
             </Card>
 
