@@ -27,8 +27,9 @@ Drizzle queries. Audit every finding under that assumption: there is no DB backs
    `noteWhere` / `leadChildWhere` (src/lib/scope.ts). A hand-rolled
    `eq(table.tenantId, …)` is a finding (Medium) even when correct — it evades the
    guard's evolution. A missing tenant filter is Critical.
-2. Service-role sweep: `grep -rln "getSupabaseAdmin\|SERVICE_ROLE" src` (7 files at
-   baseline). Each use must (a) state why the scoped path can't work, (b) carry an
+2. Service-role sweep: `grep -rln "getSupabaseAdmin\|SERVICE_ROLE" src` (~11 files as of
+   2026-08 — trust the grep, never a written count). Each use must (a) state why the
+   scoped path can't work, (b) carry an
    explicit tenant filter or operate on non-tenant data by design, (c) have an
    isolation test. New eighth+ file = automatic High until justified.
 3. Role gates: every `src/app/api/admin/**` and `/api/runs*`, `/api/uploads*` route

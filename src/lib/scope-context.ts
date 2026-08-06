@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { getDb } from "@/db";
 import * as schema from "@/db/schema";
 import type { ScopeContext } from "@/lib/scope";
@@ -102,7 +102,10 @@ export async function getServerScope(): Promise<ScopeContext> {
     const [p] = await db
       .select({ status: schema.partners.status, deletedAt: schema.partners.deletedAt })
       .from(schema.partners)
-      .where(eq(schema.partners.id, row.partnerId));
+      // R-67: scope the lifecycle lookup to the user's own tenant. Provisioning makes a
+      // cross-tenant users.partner_id impossible today, but nothing in the schema enforces
+      // it — without this, a mis-set partner_id would revoke-check the WRONG partner row.
+      .where(and(eq(schema.partners.tenantId, row.tenantId), eq(schema.partners.id, row.partnerId)));
     if (p) partner = { status: p.status, deletedAt: p.deletedAt };
   }
 

@@ -34,6 +34,14 @@ export function tenantWhere<T extends { tenantId: PgColumn }>(table: T, scope: S
   return eq(table.tenantId, scope.tenantId);
 }
 
+/** System-job scope: background jobs (outbox drain, retention sweeps) hold a tenantId
+ *  STRING, not a ScopeContext, so they can't call tenantWhere. Same predicate, in one
+ *  sanctioned place — a future change to tenant filtering reaches them too, instead of
+ *  the hand-rolled `eq(table.tenantId, id)` copies the guard's evolution would miss (R-24). */
+export function tenantIdWhere<T extends { tenantId: PgColumn }>(table: T, tenantId: string): SQL {
+  return eq(table.tenantId, tenantId);
+}
+
 /** A partner "owns" a lead if it is their EFFECTIVE owner: the manual overlay when
  *  present, else the pipeline snapshot — i.e. coalesce(manualPartnerId, partnerId) = me.
  *  Re-routing a MATCHED lead to another partner (editLead "set") REVOKES the original

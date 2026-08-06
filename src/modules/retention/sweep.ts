@@ -1,6 +1,7 @@
-import { and, eq, ne, isNull, isNotNull, lte, inArray, asc, sql } from "drizzle-orm";
+import { and, ne, isNull, isNotNull, lte, inArray, asc, sql } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import * as schema from "@/db/schema";
+import { tenantIdWhere } from "@/lib/scope";
 import { retentionCutoff, redactionPatch, REDACTED_NOTE_BODY, RETENTION_GRACE_MS } from "./purge";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -56,7 +57,7 @@ export async function sweepTenantPii(
       .from(schema.leads)
       .where(
         and(
-          eq(schema.leads.tenantId, opts.tenantId),
+          tenantIdWhere(schema.leads, opts.tenantId),
           isNotNull(schema.leads.deletedAt),
           lte(schema.leads.deletedAt, cutoff),
           isNull(schema.leads.piiPurgedAt),
@@ -71,7 +72,7 @@ export async function sweepTenantPii(
     await tx
       .update(schema.leads)
       .set({ ...redactionPatch(), piiPurgedAt: now })
-      .where(and(eq(schema.leads.tenantId, opts.tenantId), inArray(schema.leads.id, ids)));
+      .where(and(tenantIdWhere(schema.leads, opts.tenantId), inArray(schema.leads.id, ids)));
 
     // Redact note bodies for the purged leads (SEC-05). Count per lead for the audit trail.
     const redactedNotes = await tx
@@ -79,7 +80,7 @@ export async function sweepTenantPii(
       .set({ body: REDACTED_NOTE_BODY })
       .where(
         and(
-          eq(schema.leadNotes.tenantId, opts.tenantId),
+          tenantIdWhere(schema.leadNotes, opts.tenantId),
           inArray(schema.leadNotes.leadId, ids),
           ne(schema.leadNotes.body, REDACTED_NOTE_BODY),
         ),

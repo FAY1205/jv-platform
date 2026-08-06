@@ -2,6 +2,7 @@ import { and, asc, eq, gt, inArray, isNull, lte, sql } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import * as schema from "@/db/schema";
+import { tenantIdWhere } from "@/lib/scope";
 import { SIGNUP_TTL_MS } from "@/lib/auth/signup-token";
 import { logError } from "@/lib/observability";
 
@@ -131,7 +132,7 @@ async function purgeAbandonedSignup(
     await tx.execute(sql`set local app.audit_log_purge = 'on'`);
     await tx
       .delete(schema.auditLog)
-      .where(and(eq(schema.auditLog.tenantId, tenantId), eq(schema.auditLog.action, "tenant.signup_provisioned")));
+      .where(and(tenantIdWhere(schema.auditLog, tenantId), eq(schema.auditLog.action, "tenant.signup_provisioned")));
     await tx.delete(schema.tosAcceptances).where(eq(schema.tosAcceptances.userId, userId));
     await tx.delete(schema.users).where(eq(schema.users.id, userId));
     // By userId (not a single verificationId) so a resend path's sibling rows leave no residue (item I).
@@ -191,7 +192,7 @@ export async function sweepAbandonedSignups(
     .innerJoin(schema.users, eq(schema.users.id, schema.signupVerifications.userId))
     .where(
       and(
-        eq(schema.users.tenantId, opts.tenantId),
+        tenantIdWhere(schema.users, opts.tenantId),
         isNull(schema.signupVerifications.usedAt),
         lte(schema.signupVerifications.expiresAt, now),
       ),

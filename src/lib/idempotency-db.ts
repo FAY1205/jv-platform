@@ -1,6 +1,7 @@
 import { and, eq } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import * as schema from "@/db/schema";
+import { tenantIdWhere } from "@/lib/scope";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // DB-backed idempotency (API-03) for the upload route. A retried POST with the same
@@ -32,7 +33,7 @@ export async function withDbIdempotency<T>(
     const [existing] = await db
       .select()
       .from(schema.idempotencyKeys)
-      .where(and(eq(schema.idempotencyKeys.tenantId, tenantId), eq(schema.idempotencyKeys.key, key)));
+      .where(and(tenantIdWhere(schema.idempotencyKeys, tenantId), eq(schema.idempotencyKeys.key, key)));
     if (existing?.status === "completed") return { replayed: true, response: existing.response as T };
     throw new RequestInProgressError();
   }
@@ -41,6 +42,6 @@ export async function withDbIdempotency<T>(
   await db
     .update(schema.idempotencyKeys)
     .set({ status: "completed", response: response as object })
-    .where(and(eq(schema.idempotencyKeys.tenantId, tenantId), eq(schema.idempotencyKeys.key, key)));
+    .where(and(tenantIdWhere(schema.idempotencyKeys, tenantId), eq(schema.idempotencyKeys.key, key)));
   return { replayed: false, response };
 }

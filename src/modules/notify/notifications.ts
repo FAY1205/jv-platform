@@ -2,7 +2,7 @@ import { and, desc, eq, isNull, sql } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import { getDb } from "@/db";
 import * as schema from "@/db/schema";
-import { type ScopeContext } from "@/lib/scope";
+import { tenantWhere, type ScopeContext } from "@/lib/scope";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // In-app notification center (NTF-04). Notifications are per USER (a partner's
@@ -45,7 +45,7 @@ export async function createNotification(db: DB, input: CreateNotificationInput)
 
 /** Scope: notifications for THIS user in THIS tenant (never anyone else's). */
 function mine(scope: ScopeContext) {
-  return and(eq(schema.notifications.tenantId, scope.tenantId), eq(schema.notifications.userId, scope.userId));
+  return and(tenantWhere(schema.notifications, scope), eq(schema.notifications.userId, scope.userId));
 }
 
 export async function listNotifications(scope: ScopeContext, limit = 30): Promise<NotificationRow[]> {

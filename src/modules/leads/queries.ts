@@ -136,7 +136,15 @@ export async function listLeads(scope: ScopeContext, query: LeadsQuery): Promise
       })
       .from(schema.leads)
       // Effective owner = manual assignment if present, else the pipeline routing.
-      .leftJoin(schema.partners, eq(schema.partners.id, sql`coalesce(${schema.leads.manualPartnerId}, ${schema.leads.partnerId})`))
+      // R-65: the partner must be same-tenant too — a mis-set partner_id must resolve to NULL
+      // (no partner shown), never surface another tenant's partner name/colour (leftJoin).
+      .leftJoin(
+        schema.partners,
+        and(
+          eq(schema.partners.id, sql`coalesce(${schema.leads.manualPartnerId}, ${schema.leads.partnerId})`),
+          eq(schema.partners.tenantId, scope.tenantId),
+        ),
+      )
       .where(where)
       .orderBy(dirFn(sortCol), desc(schema.leads.createdAt))
       .limit(query.pageSize)

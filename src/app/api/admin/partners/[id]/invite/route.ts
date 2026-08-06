@@ -3,7 +3,8 @@ import { z } from "zod";
 import { getDb } from "@/db";
 import * as schema from "@/db/schema";
 import { getServerScope } from "@/lib/scope-context";
-import { assertCsrf, authErrorResponse } from "@/lib/auth/guard";
+import { tenantWhere } from "@/lib/scope";
+import { assertCsrf, authErrorResponse, requireAdminResponse } from "@/lib/auth/guard";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { provisionPartnerUser } from "@/lib/auth/provision";
 import { notifyInvite } from "@/lib/auth/notify";
@@ -25,7 +26,8 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   } catch (e) {
     return authErrorResponse(e) ?? jsonError("scope_failed", "Could not resolve session.", 500);
   }
-  if (scope.role !== "admin") return jsonError("forbidden", "Admin only.", 403);
+  const forbidden = requireAdminResponse(scope);
+  if (forbidden) return forbidden;
 
   const { id } = await params;
   if (!IdSchema.safeParse(id).success) return jsonError("invalid_id", "Invalid partner id.", 400);
@@ -34,7 +36,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   const [partner] = await db
     .select({ id: schema.partners.id, refId: schema.partners.refId, email: schema.partners.email, status: schema.partners.status, isHouse: schema.partners.isHouse })
     .from(schema.partners)
-    .where(and(eq(schema.partners.tenantId, scope.tenantId), eq(schema.partners.id, id)));
+    .where(and(tenantWhere(schema.partners, scope), eq(schema.partners.id, id)));
 
   if (!partner) return jsonError("not_found", "Partner not found.", 404);
   // WP-D: the house row is the admin's own territory — it has no portal identity to invite.
@@ -54,7 +56,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   await db
     .update(schema.partners)
     .set({ status: "invited", invitedAt: new Date() })
-    .where(and(eq(schema.partners.tenantId, scope.tenantId), eq(schema.partners.id, id)));
+    .where(and(tenantWhere(schema.partners, scope), eq(schema.partners.id, id)));
 
   // ACT-04 / F-05: partner invites are admin actions and must reach the audit trail.
   await db.insert(schema.auditLog).values({
