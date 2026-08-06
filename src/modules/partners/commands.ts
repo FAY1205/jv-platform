@@ -8,6 +8,7 @@ import { HOUSE_COLOR } from "@/lib/tokens/tokens";
 import { formatPartnerRef } from "@/db/ref-ids";
 import type { PartnerCreateInput, PartnerUpdateInput, DeactivateInput } from "./schema";
 import type { Territory } from "./queries";
+import { currentTerritoryQuery } from "@/modules/coverage/current-territory";
 
 // ADM-03 write side. All mutations are tenant-scoped (PRN-08), audited (DM-04/08),
 // and transactional. PRN-05: historical lead assignments are NEVER touched — only
@@ -241,20 +242,7 @@ export async function deactivatePartner(
     if (partner.isHouse) throw new HouseNotAllowedError("Your own territory can't be deactivated.");
     if (partner.deletedAt || partner.status === "revoked") throw new AlreadyDeactivatedError();
 
-    const states = await tx
-      .select({ id: schema.stateRules.id, state: schema.stateRules.state })
-      .from(schema.stateRules)
-      .where(and(tenantWhere(schema.stateRules, scope), eq(schema.stateRules.partnerId, partnerId)));
-    const zips = await tx
-      .select()
-      .from(schema.coverageZips)
-      .where(
-        and(
-          tenantWhere(schema.coverageZips, scope),
-          eq(schema.coverageZips.partnerId, partnerId),
-          isNull(schema.coverageZips.effectiveTo),
-        ),
-      );
+    const { stateRules: states, coverageZips: zips } = await currentTerritoryQuery(tx, scope, partnerId);
 
     const hasTerritory = states.length > 0 || zips.length > 0;
     if (hasTerritory && !decision) {
