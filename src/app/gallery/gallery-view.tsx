@@ -55,7 +55,14 @@ import {
   EmptyState,
   QueryErrorState,
   Skeleton,
+  ListingBadge,
+  HotLeadMark,
+  HotLeadIcon,
+  StateMultiSelect,
+  ClampedText,
+  PortalDevices,
 } from "@/components";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ApiError } from "@/lib/api";
 import { PARTNER_PALETTE } from "@/lib/tokens/tokens";
 import { APP_NAME } from "@/lib/app";
@@ -140,6 +147,48 @@ function ComboboxDemo() {
         { value: "WA", label: "Washington (WA)" },
       ]}
     />
+  );
+}
+
+// R-57 catch-up demos (DSN-03: every primitive also lives in the gallery).
+const LONG_NOTE =
+  "Two-story colonial on a corner lot; the seller is relocating for work and wants a fast, clean close. " +
+  "Roof replaced 2021, HVAC 2019. A tenant occupies the lower unit month-to-month. Minor deferred maintenance " +
+  "in the basement (some moisture). The seller is open to a rent-back of up to 30 days and will consider a cash " +
+  "offer below list for certainty of close. No showings before noon on weekdays.";
+
+function StateMultiSelectDemo() {
+  const [states, setStates] = React.useState<string[]>(["NJ", "PA", "NY"]);
+  return (
+    <>
+      <StateMultiSelect selected={states} onChange={setStates} />
+      <p className="mt-2 text-step-1 text-text-3">
+        Selected: <span className="num">{states.join(", ") || "none"}</span> — pick from the canonical 50-state + DC
+        list, so an invalid state is impossible by construction (WP-C).
+      </p>
+    </>
+  );
+}
+
+// PortalDevices reads ["sessions"] via TanStack Query; the living showcase SEEDS that cache so
+// the real component renders its device list with no network call (the light query-mock harness
+// the audit asks for). Revoke fires a real POST on click — in the dev-only gallery a failure
+// just surfaces the component's own error line.
+function PortalDevicesDemo() {
+  const [qc] = React.useState(() => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } });
+    client.setQueryData(["sessions"], {
+      devices: [
+        { familyId: "d1", deviceLabel: "Chrome · macOS", ip: "203.0.113.7", createdAt: "2026-07-01T00:00:00Z", lastSeenAt: "2026-07-10T14:30:00Z" },
+        { familyId: "d2", deviceLabel: "Safari · iPhone", ip: "203.0.113.9", createdAt: "2026-06-15T00:00:00Z", lastSeenAt: "2026-07-09T08:12:00Z" },
+      ],
+    });
+    return client;
+  });
+  return (
+    <QueryClientProvider client={qc}>
+      <PortalDevices />
+    </QueryClientProvider>
   );
 }
 
@@ -739,6 +788,79 @@ function Gallery() {
               </CardBody>
             </Card>
           </div>
+        </Section>
+
+        <Section title="Listing-check badge (LST-03) — the label always carries words, never color alone">
+          <Card>
+            <CardBody className="flex flex-wrap items-center gap-x-6 gap-y-3">
+              <ListingBadge status="pending" link={null} />
+              <ListingBadge status="no" link={null} />
+              <ListingBadge status="yes" link={null} />
+              <ListingBadge status="unknown" link="https://example.com/verify" />
+            </CardBody>
+          </Card>
+          <p className="mt-2 text-step-1 text-text-3">
+            LinkOnly providers yield “Unknown — verify” plus a check link (PRN-14: the word carries the meaning, the
+            Badge tone only reinforces it).
+          </p>
+        </Section>
+
+        <Section title="Hot-lead mark (SCR / PRN-14) — meaning never rides on color">
+          <Card>
+            <CardBody className="flex flex-wrap items-center gap-x-8 gap-y-3">
+              {[50, 44, 38].map((s) => (
+                <span key={s} className="inline-flex items-center gap-2">
+                  <HotLeadMark score={s} />
+                  <span className="num text-step-1 text-text-3">LD-26-004{s} · {s}/50</span>
+                </span>
+              ))}
+              <span className="inline-flex items-center gap-2 text-text-3">
+                <HotLeadIcon />
+                <span className="text-step-1">bare icon — decorative (aria-hidden)</span>
+              </span>
+            </CardBody>
+          </Card>
+          <p className="mt-2 text-step-1 text-text-3">
+            Amber target glyph + an aria-label carrying the score; rendered ONLY for a kept hot lead (Hot floor 38/50)
+            and always beside the reference ID.
+          </p>
+        </Section>
+
+        <Section title="State multi-select (WP-C) — searchable whole-state coverage">
+          <Card>
+            <CardBody className="max-w-md">
+              <StateMultiSelectDemo />
+            </CardBody>
+          </Card>
+        </Section>
+
+        <Section title="Clamped text (DSN-03) — long notes collapse; the toggle shows only on overflow">
+          <div className="grid gap-3.5 md:grid-cols-2">
+            <Card>
+              <CardBody>
+                <p className="mb-2 text-step-1 font-semibold text-text-3">Short — reads as plain text, no toggle</p>
+                <ClampedText>Motivated seller, needs a quick close. Cash preferred.</ClampedText>
+              </CardBody>
+            </Card>
+            <Card>
+              <CardBody>
+                <p className="mb-2 text-step-1 font-semibold text-text-3">Long — clamps to 3 lines + Show more</p>
+                <ClampedText lines={3}>{LONG_NOTE}</ClampedText>
+              </CardBody>
+            </Card>
+          </div>
+        </Section>
+
+        <Section title="Portal devices (ACC-02) — remembered devices, two-step revoke">
+          <Card>
+            <CardBody>
+              <PortalDevicesDemo />
+            </CardBody>
+          </Card>
+          <p className="mt-2 text-step-1 text-text-3">
+            Renders inner content only — the caller frames it. “Sign out” reveals a confirm step before revoking so a
+            partner can’t sign out a device (maybe the one they’re on) with one stray click (P-12).
+          </p>
         </Section>
 
         <Section title="AI assistant (WP-AI-2) — floating admin chat">
