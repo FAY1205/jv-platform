@@ -12,6 +12,7 @@ import { validateUploadFile } from "@/lib/upload-guard";
 // Client-safe: seed-profiles is pure data (its only import is a type, erased at build) —
 // no DB/server chain reaches the bundle through it.
 import { LEAD_SOURCE_1_PROFILE } from "@/modules/sources/seed-profiles";
+import type { HeaderDiff } from "@/modules/sources/signature";
 
 interface Parsed {
   filename: string;
@@ -41,10 +42,11 @@ export default function UploadPage() {
   const [phase, setPhase] = React.useState<"idle" | "parsing" | "ready" | "error">("idle");
   const [parsed, setParsed] = React.useState<Parsed | null>(null);
   const [err, setErr] = React.useState<string | null>(null);
-  // The file didn't match the supported format. Product decision (owner): end users are
-  // NEVER shown a column-mapping/confirm screen — a new format is added in code by the
-  // developer. So an unrecognized file just reports back, it does not offer self-serve mapping.
-  const [unrecognized, setUnrecognized] = React.useState(false);
+  // The file didn't match the supported format (ADR-0039). Product decision (owner): end users
+  // are NEVER shown a column-mapping/confirm screen — a new format is added in code by the
+  // developer. So an unrecognized file reports back with the specific columns that are off; it
+  // does not offer self-serve mapping.
+  const [unrecognized, setUnrecognized] = React.useState<{ profileName: string | null; diff: HeaderDiff | null } | null>(null);
   // ADR-0038: the server saw this exact file before — warn, let the admin push through.
   const [dupWarn, setDupWarn] = React.useState<{ priorRef: string; priorDate: string } | null>(null);
 
@@ -60,7 +62,7 @@ export default function UploadPage() {
         ...(p.contentHash ? { contentHash: p.contentHash } : {}),
         ...(confirmDuplicate ? { confirmDuplicate: true } : {}),
       }),
-    onSuccess: (data: { result: string; uploadRef?: string; priorRef?: string; priorDate?: string }) => {
+    onSuccess: (data: { result: string; uploadRef?: string; priorRef?: string; priorDate?: string; profileName?: string | null; diff?: HeaderDiff | null }) => {
       if (data.result === "processed" && data.uploadRef) {
         qc.invalidateQueries({ queryKey: ["runs"] });
         router.push(`/imports/${data.uploadRef}`);
@@ -69,8 +71,8 @@ export default function UploadPage() {
         setDupWarn({ priorRef: data.priorRef, priorDate: data.priorDate ?? "" });
         setErr(null);
       } else {
-        // "needs_mapping" (drift/unknown) or anything non-processed → unsupported format.
-        setUnrecognized(true);
+        // "unrecognized" (drift/unknown) → report it back with the specific columns (ADR-0039).
+        setUnrecognized({ profileName: data.profileName ?? null, diff: data.diff ?? null });
         setErr(null);
       }
     },
@@ -91,7 +93,7 @@ export default function UploadPage() {
   }, [process.isPending]);
 
   async function handleFile(file: File) {
-    setErr(null); setParsed(null); setUnrecognized(false); setDupWarn(null);
+    setErr(null); setParsed(null); setUnrecognized(null); setDupWarn(null);
     const check = validateUploadFile({ name: file.name, size: file.size });
     if (!check.ok) { setErr(check.error ?? "That file can't be used."); setPhase("error"); return; }
     setPhase("parsing");
@@ -113,7 +115,7 @@ export default function UploadPage() {
   }
 
   function reset() {
-    setPhase("idle"); setParsed(null); setErr(null); setUnrecognized(false); setDupWarn(null);
+    setPhase("idle"); setParsed(null); setErr(null); setUnrecognized(null); setDupWarn(null);
   }
 
   return (
@@ -157,14 +159,32 @@ export default function UploadPage() {
                 </div>
               </div>
             ) : unrecognized ? (
-              // ── Unsupported format (no self-serve mapping — owner decision) ──
+              // ── Unsupported format (no self-serve mapping — ADR-0039). Never a silent
+              //    re-guess: name the columns that are off so the admin can fix and re-upload. ──
               <div className="flex flex-col items-center gap-3 rounded-lg border border-border-soft bg-surface-2 px-6 py-10 text-center">
                 <span className="grid h-11 w-11 place-items-center rounded-full bg-warn-soft text-lg text-warn">!</span>
                 <h2 className="font-display text-base font-semibold text-text">This file isn&apos;t the expected format</h2>
-                <p className="max-w-[46ch] text-sm text-text-2">
-                  We couldn&apos;t recognise the columns in <span className="font-medium text-text">{parsed?.filename}</span>.
-                  Please upload the standard export. Use <span className="font-medium">Download template</span> above to check the
-                  expected columns — and if the format has genuinely changed, contact your administrator to add it.
+                <p className="max-w-[52ch] text-sm text-text-2">
+                  {unrecognized.profileName ? (
+                    <>The columns in <span className="font-medium text-text">{parsed?.filename}</span> don&apos;t match the expected{" "}
+                    <span className="font-medium text-text">{unrecognized.profileName}</span> format.</>
+                  ) : (
+                    <>We couldn&apos;t recognise the columns in <span className="font-medium text-text">{parsed?.filename}</span>.</>
+                  )}
+                </p>
+                {unrecognized.diff && (unrecognized.diff.renamed.length > 0 || unrecognized.diff.removed.length > 0) && (
+                  <div className="max-w-[52ch] rounded-md bg-surface-3 px-4 py-2 text-left text-xs text-text-2">
+                    {unrecognized.diff.renamed.length > 0 && (
+                      <p>Renamed: {unrecognized.diff.renamed.map((r) => `“${r.from}” → “${r.to}”`).join(", ")}</p>
+                    )}
+                    {unrecognized.diff.removed.length > 0 && (
+                      <p>Missing expected column{unrecognized.diff.removed.length === 1 ? "" : "s"}: {unrecognized.diff.removed.join(", ")}</p>
+                    )}
+                  </div>
+                )}
+                <p className="max-w-[52ch] text-sm text-text-2">
+                  Use <span className="font-medium">Download template</span> above to check the expected columns. If the format has
+                  genuinely changed, contact your administrator to update it.
                 </p>
                 <Button variant="primary" onClick={reset}>Choose another file</Button>
               </div>

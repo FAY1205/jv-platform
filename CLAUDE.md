@@ -27,8 +27,10 @@ Companion process doc: docs/PLAYBOOK.md. Backlog: docs/backlog/. Decisions: docs
   wrong — stop and flag it.
 - DM-08: any change to rules tables (patterns, coverage, recodes, Source
   Profiles) must produce a new rules snapshot; never mutate one in place.
-- ING-08: never silently re-guess a changed file format — drift goes through
-  the diff-and-confirm flow.
+- ING-08: never silently re-guess a changed file format. A non-matching file is
+  detected and reported LOUDLY with the specific columns that are off; there is no
+  in-app remap/confirm (ADR-0039 — a new format is added in code: a seed profile +
+  a pure transform). Touching detection still extends the diff + fixtures first.
 
 ## Frontend engineering rules (spec §6.17)
 - Server data via TanStack Query only; one small UI store for preferences;

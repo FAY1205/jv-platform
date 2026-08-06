@@ -3,8 +3,6 @@ import { getDb } from "@/db";
 import { getServerScope } from "@/lib/scope-context";
 import { detectProfile } from "@/modules/sources";
 import { loadProfilesForDetection } from "@/modules/sources/profile-store";
-import { suggestMapping } from "@/modules/sources/mapping";
-import { CANONICAL_FIELDS } from "@/modules/sources/types";
 import { runUpload } from "@/modules/run/run-upload";
 import { findDuplicateUpload } from "@/modules/run/queries";
 import { RequestInProgressError } from "@/lib/idempotency-db";
@@ -16,9 +14,10 @@ import { NextResponse } from "next/server";
 // F-86: bound the serverless function's runtime for a large-run process.
 export const maxDuration = 60;
 
-// POST /api/uploads — detect the file's Source Profile (ING-02/08) and either process
-// it (exact match) or return the drift/unknown mapping payload so the client can show
-// the confirm-mapping screen. Confirmed mappings go to POST /api/uploads/confirm.
+// POST /api/uploads — detect the file's Source Profile (ING-02/08) and either process it
+// (exact match), hard-block a genuinely-missing required column, or report an unrecognized
+// file back with the columns that are off (ADR-0039: no in-app remap — a new format is added
+// in code by a developer; we still never silently re-guess a changed format).
 const BodySchema = z.object({
   filename: z.string().min(1).max(255),
   headers: z.array(z.string()).min(1),
@@ -92,20 +91,13 @@ export async function POST(req: Request) {
       );
     }
 
-    // ING-02/08: drift or unknown → surface a mapping to confirm (never silently guess).
+    // ING-02/08 (ADR-0039): drift or unknown → report it back with the specific columns that
+    // are off. No in-app remap/confirm — but never a silent re-guess either.
     const base = detected.profile ?? null;
     return jsonOk({
-      result: "needs_mapping",
-      kind: detected.status, // "drift" | "unknown"
-      baseProfileId: base?.id ?? null,
-      baseProfileName: base?.name ?? null,
-      strictness: base?.strictness ?? "flexible",
-      uploadHeaders: body.headers,
-      suggestedMapping: suggestMapping(base, body.headers),
+      result: "unrecognized",
+      profileName: base?.name ?? null,
       diff: detected.diff ?? null,
-      missingRequired: detected.missingRequired ?? [],
-      requiredColumns: base?.requiredColumns ?? [],
-      canonicalFields: CANONICAL_FIELDS,
     });
   } catch (e) {
     const authResp = authErrorResponse(e);
