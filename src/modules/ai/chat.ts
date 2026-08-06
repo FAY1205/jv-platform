@@ -10,7 +10,7 @@ import { buildSystemPrompt, ScreenKeySchema } from "./prompt";
 import { AI_MODEL, costMicroUsd } from "./pricing";
 import { rateDecision } from "./budget";
 import { loadAiSettings } from "./settings";
-import { questionsInLastMinute, recordUsage } from "./usage";
+import { questionsInLastMinute, recordAttempt, finalizeUsage } from "./usage";
 
 // The assistant core (AIA-01..06). The model is INJECTED so tests drive the real
 // route/tools with ai/test mocks — CI never spends a token. Gates are checked
@@ -60,8 +60,24 @@ export async function assistantResponse(db: Db, scope: ScopeContext, input: Chat
     return jsonError("invalid_input", "Question too long.", 400);
   }
   const screen = ScreenKeySchema.parse(input.screen);
+
+  // AIA-07 / audit F-1: record the attempt BEFORE any model call. A client that aborts the
+  // stream never triggers onFinish, and N concurrent requests would otherwise all observe the
+  // same pre-write count — pre-inserting closes both. The authoritative rate check then runs on
+  // the now-inserted attempt (`attemptsThisMinute - 1` = questions that preceded this one, the
+  // same predicate the gate uses), so a burst that slipped past the stale gate check is caught.
+  const usageId = await recordAttempt(db, scope, { userId: scope.userId, model: meterModel });
+  const attemptsThisMinute = await questionsInLastMinute(db, scope, scope.userId, deps.now);
+  if (!rateDecision({ questionsLastMinute: attemptsThisMinute - 1 }).allowed) {
+    return jsonError("ai_rate_limited", "Too many questions — try again in a minute.", 429);
+  }
+
   const recent = input.messages.slice(-12); // design §4: only the last 12 messages are replayed
   const messages = await convertToModelMessages(recent as unknown as UIMessage[]);
+  const finalize = async (inputTokens: number, outputTokens: number) => {
+    const cost = costMicroUsd(meterModel, inputTokens, outputTokens) ?? 0;
+    await finalizeUsage(db, scope, usageId, { inputTokens, outputTokens, costMicroUsd: cost });
+  };
   const result = streamText({
     model: deps.model,
     system: buildSystemPrompt(screen),
@@ -71,12 +87,20 @@ export async function assistantResponse(db: Db, scope: ScopeContext, input: Chat
     maxOutputTokens: 1024,
     onFinish: async ({ totalUsage }) => {
       try {
-        const inputTokens = totalUsage.inputTokens ?? 0;
-        const outputTokens = totalUsage.outputTokens ?? 0;
-        const cost = costMicroUsd(meterModel, inputTokens, outputTokens) ?? 0;
-        await recordUsage(db, scope, { userId: scope.userId, model: meterModel, inputTokens, outputTokens, costMicroUsd: cost });
+        await finalize(totalUsage.inputTokens ?? 0, totalUsage.outputTokens ?? 0);
       } catch (e) {
         logError("ai_usage_record_failed", { detail: e instanceof Error ? e.message : "unknown" }); // never break the stream (SEC-05: no content)
+      }
+    },
+    onAbort: async ({ steps }) => {
+      // The attempt is already recorded + counted (pre-insert); meter the partial usage from
+      // any completed steps so an aborted stream isn't free (F-1).
+      try {
+        const inputTokens = steps.reduce((s, st) => s + (st.usage?.inputTokens ?? 0), 0);
+        const outputTokens = steps.reduce((s, st) => s + (st.usage?.outputTokens ?? 0), 0);
+        await finalize(inputTokens, outputTokens);
+      } catch (e) {
+        logError("ai_usage_abort_finalize_failed", { detail: e instanceof Error ? e.message : "unknown" });
       }
     },
   });
