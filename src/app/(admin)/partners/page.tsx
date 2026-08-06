@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiGet } from "@/lib/api";
 import { csrfHeaders } from "@/lib/csrf-client";
+import { useDirty } from "@/lib/use-dirty";
 import {
   AppShell,
   Card,
@@ -226,6 +227,11 @@ export function PartnerForm({
 
   const zipInvalid = invalidZipTokens(f.zips);
 
+  // FRM-02a: guard the dismiss gestures once the form has unsaved edits. On edit the baseline
+  // is deferred until coverage seeds, so the loaded record — not the blank pre-seed form — is
+  // the baseline; on create the empty form is the baseline from the first render.
+  const dirty = useDirty({ ...f, states }, editing ? seeded : true);
+
   const mutation = useMutation({
     mutationFn: async () => {
       const contact = { name: f.name, email: f.email, phone: f.phone, dealTerms: f.dealTerms, adminNotes: f.adminNotes };
@@ -278,6 +284,7 @@ export function PartnerForm({
     <Dialog
       open
       onClose={onClose}
+      confirmClose={dirty}
       title={editing ? `Edit ${editing.refId}` : "New partner"}
       footer={
         <>

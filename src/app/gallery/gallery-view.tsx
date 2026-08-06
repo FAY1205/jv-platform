@@ -160,6 +160,9 @@ function Gallery() {
   const [addrSort, setAddrSort] = React.useState<SortDir>(null);
   // WS-1 primitive demo state.
   const [dialogOpen, setDialogOpen] = React.useState(false);
+  // FRM-02a discard-guard demo.
+  const [dirtyDialogOpen, setDirtyDialogOpen] = React.useState(false);
+  const [dirtyDemoText, setDirtyDemoText] = React.useState("");
   const [selectVal, setSelectVal] = React.useState("new");
   const [checkA, setCheckA] = React.useState(true);
   const [checkB, setCheckB] = React.useState(false);
@@ -671,6 +674,7 @@ function Gallery() {
                   </DropdownMenuContent>
                 </DropdownMenu>
                 <Button variant="secondary" size="sm" onClick={() => setDialogOpen(true)}>Open Dialog</Button>
+                <Button variant="secondary" size="sm" onClick={() => setDirtyDialogOpen(true)}>Open dirty-guard Dialog</Button>
                 <RowOpenButton onClick={() => setDialogOpen(true)}>LD-26-00404</RowOpenButton>
               </CardBody>
             </Card>
@@ -852,6 +856,30 @@ function Gallery() {
         <p className="text-sm text-text-2">
           Radix Dialog — focus is trapped inside and returns to the trigger on close (F-15). Try Tab and Esc.
         </p>
+      </Dialog>
+
+      {/* FRM-02a (F-6): confirmClose guards Esc/backdrop/✕ once the form is dirty. Type
+          something, then press Esc or click the ✕ — a discard-confirmation intercepts it.
+          The explicit "Save" closes directly; a pristine form is never guarded. */}
+      <Dialog
+        open={dirtyDialogOpen}
+        onClose={() => { setDirtyDialogOpen(false); setDirtyDemoText(""); }}
+        confirmClose={dirtyDemoText.trim().length > 0}
+        title="Edit partner PR-003"
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => { setDirtyDialogOpen(false); setDirtyDemoText(""); }}>Cancel</Button>
+            <Button variant="primary" onClick={() => { setDirtyDialogOpen(false); setDirtyDemoText(""); toast("Saved", "success"); }}>Save changes</Button>
+          </>
+        }
+      >
+        <Input
+          label="Deal terms"
+          value={dirtyDemoText}
+          onChange={(e) => setDirtyDemoText(e.target.value)}
+          placeholder="Type here, then press Esc"
+          hint="With text present, Esc/backdrop/✕ asks before discarding (FRM-02a)."
+        />
       </Dialog>
 
       <Modal

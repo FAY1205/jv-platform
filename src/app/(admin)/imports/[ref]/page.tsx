@@ -319,6 +319,7 @@ function RunView({ detail }: { detail: RunDetail }) {
       <Dialog
         open={modalOpen}
         onClose={() => setModalOpen(false)}
+        confirmClose={reason.trim().length > 0}
         title={<span>Void <span className="num">{upload.refId}</span>?</span>}
         footer={
           <>
