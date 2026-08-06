@@ -56,10 +56,12 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
   return (
     <ToastContext.Provider value={api}>
       {children}
+      {/* The visible, interactive stack is NOT the live region (R-56): a toast row also holds a
+          "Dismiss notification" ✕, and a screen reader would read that label out with every message.
+          Announcements come from the dedicated sr-only region below, which carries message text only. */}
       <div
+        data-testid="toast-stack"
         className="fixed bottom-5 left-1/2 z-[110] flex -translate-x-1/2 flex-col items-center gap-2"
-        role="status"
-        aria-live="polite"
         onMouseEnter={() => setHovered(true)}
         onMouseLeave={() => setHovered(false)}
         onFocus={() => setFocused(true)}
@@ -71,6 +73,13 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
       >
         {items.map((t) => (
           <ToastRow key={t.id} item={t} paused={paused} onDismiss={dismiss} />
+        ))}
+      </div>
+      {/* WCAG 4.1.3 (R-56): a persistent polite live region carrying ONLY the message text, so a new
+          toast is announced without the dismiss control's label being read out alongside it. */}
+      <div className="sr-only" role="status" aria-live="polite">
+        {items.map((t) => (
+          <div key={t.id}>{t.message}</div>
         ))}
       </div>
     </ToastContext.Provider>
@@ -98,7 +107,7 @@ function ToastRow({ item, paused, onDismiss }: { item: ToastItem; paused: boolea
         type="button"
         aria-label="Dismiss notification"
         onClick={() => onDismiss(item.id)}
-        className="grid h-6 w-6 shrink-0 place-items-center rounded-full text-current opacity-70 outline-none transition-[opacity,transform] hover:opacity-100 focus-visible:opacity-100 focus-visible:ring-1 focus-visible:ring-current active:scale-95"
+        className="grid h-6 w-6 shrink-0 place-items-center rounded-full text-current opacity-80 outline-none transition-[opacity,transform] hover:opacity-100 focus-visible:opacity-100 focus-visible:ring-1 focus-visible:ring-current active:scale-95"
       >
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" aria-hidden="true">
           <path d="M18 6 6 18M6 6l12 12" />
