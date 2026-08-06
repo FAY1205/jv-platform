@@ -49,8 +49,10 @@ suite("TST-08: partner portal scoping", () => {
 
     id.adminUser = randomUUID();
     id.pxUser = randomUUID();
+    id.pyUser = randomUUID();
     await db.insert(schema.users).values({ id: id.adminUser, tenantId: t.id, email: "admin@portal.test", role: "admin" });
     await db.insert(schema.users).values({ id: id.pxUser, tenantId: t.id, email: "px@portal.test", role: "partner", partnerId: px.id });
+    await db.insert(schema.users).values({ id: id.pyUser, tenantId: t.id, email: "py@portal.test", role: "partner", partnerId: py.id });
 
     const [up] = await db.insert(schema.uploads).values({ tenantId: t.id, refId: "IM-26-001", filename: "a.xlsx", status: "processed" }).returning({ id: schema.uploads.id });
     await db.insert(schema.leads).values({ tenantId: t.id, refId: "LD-26-00001", uploadId: up.id, dedupeKey: "x|1", rawJson: {}, partnerId: px.id, matchMethod: "zip", mlsStatus: "kept", sellerFirst: "Xavier", sellerLast: "X", campaign: "Secret Lead Source A" });
@@ -69,6 +71,7 @@ suite("TST-08: partner portal scoping", () => {
 
   const adminA = (): ScopeContext => ({ tenantId: id.tenant, role: "admin", userId: id.adminUser });
   const partnerX = (): ScopeContext => ({ tenantId: id.tenant, role: "partner", userId: id.pxUser, partnerId: id.px });
+  const partnerY = (): ScopeContext => ({ tenantId: id.tenant, role: "partner", userId: id.pyUser, partnerId: id.py });
 
   it("PTL-02: a partner sees only their own leads", async () => {
     const page = await listPartnerLeads(partnerX());
@@ -132,5 +135,75 @@ suite("TST-08: partner portal scoping", () => {
     expect(second.changed).toBe(false);
     const h2 = await db.select({ id: schema.leadStatusHistory.id }).from(schema.leadStatusHistory).where(eq(schema.leadStatusHistory.leadId, lead.id));
     expect(h2.length).toBe(h1.length);
+  });
+
+  // A dedicated PX-owned lead, released past the distribution hold so both partners can act on it.
+  async function seedReroutableLead(ref: string, dedupe: string) {
+    const [up] = await db.insert(schema.uploads).values({ tenantId: id.tenant, refId: `IM-RR-${dedupe}`, filename: "rr.xlsx", status: "processed" }).returning({ id: schema.uploads.id });
+    await db.insert(schema.leads).values({
+      tenantId: id.tenant, refId: ref, uploadId: up.id, dedupeKey: `reroute|${dedupe}`, rawJson: {},
+      partnerId: id.px, matchMethod: "zip", mlsStatus: "kept",
+      createdAt: new Date(Date.now() - 20 * 60 * 1000),
+    });
+  }
+
+  it("R-22/TST-08: a lead re-routed X→Y does not carry X's status timeline to Y (partner sees only its own org's entries)", async () => {
+    await seedReroutableLead("LD-26-00050", "50");
+    // PX advances the lead → an X-authored status-history row.
+    await updateLeadStatus(partnerX(), "LD-26-00050", "Contacted");
+    // Admin re-routes to PY (manual overlay = the effective owner moves — the ownership
+    // change editLead action "set" performs). PRN-05: historical assignments untouched.
+    await db.update(schema.leads).set({ manualPartnerId: id.py }).where(eq(schema.leads.refId, "LD-26-00050"));
+
+    // PY now owns the lead but inherits NONE of X's timeline: empty history, reset to New.
+    const detailY = await getPartnerLeadDetail(partnerY(), "LD-26-00050");
+    expect(detailY?.history).toHaveLength(0);
+    expect(detailY?.status).toBe("New");
+
+    // The list agrees with the detail — statusMap AND the raw latest-status subquery are both
+    // author-scoped, so PY's row reads "New": a New filter includes it, a Contacted filter never
+    // surfaces X's status (a partner must not even infer the prior owner's status via the filter).
+    expect((await listPartnerLeads(partnerY(), { statuses: ["New"] })).leads.some((l) => l.refId === "LD-26-00050")).toBe(true);
+    expect((await listPartnerLeads(partnerY(), { statuses: ["Contacted"] })).leads.some((l) => l.refId === "LD-26-00050")).toBe(false);
+
+    // The admin still sees the WHOLE timeline (admin reads are unscoped).
+    const detailAdmin = await getPartnerLeadDetail(adminA(), "LD-26-00050");
+    expect(detailAdmin?.history.map((h) => h.status)).toEqual(["Contacted"]);
+  });
+
+  it("R-22/R-26: after re-route, PY re-setting the status X had used is a REAL change for PY, not a no-op (the current-status the update transitions from is PY's own)", async () => {
+    await seedReroutableLead("LD-26-00051", "51");
+    await updateLeadStatus(partnerX(), "LD-26-00051", "Contacted"); // X-authored
+    await db.update(schema.leads).set({ manualPartnerId: id.py }).where(eq(schema.leads.refId, "LD-26-00051"));
+
+    // PY sees "New", so setting "Contacted" is a genuine New→Contacted transition for PY — it must
+    // append a Y-authored row (changed:true), NOT collapse to a no-op against X's global latest.
+    const res = await updateLeadStatus(partnerY(), "LD-26-00051", "Contacted");
+    expect(res.changed).toBe(true);
+
+    const detailY = await getPartnerLeadDetail(partnerY(), "LD-26-00051");
+    expect(detailY?.status).toBe("Contacted");
+    expect(detailY?.history.map((h) => h.status)).toEqual(["Contacted"]); // only PY's entry, never X's
+
+    // Admin sees both partners' entries (two "Contacted" rows, newest first).
+    const detailAdmin = await getPartnerLeadDetail(adminA(), "LD-26-00051");
+    expect(detailAdmin?.history.map((h) => h.status)).toEqual(["Contacted", "Contacted"]);
+  });
+
+  it("R-22 (owner 2026-08-07): a partner DOES see an ADMIN's status change on their own (never re-routed) lead; re-setting the same value is a no-op", async () => {
+    await seedReroutableLead("LD-26-00052", "52"); // owned by PX, never re-routed
+    // The admin changes the status from the admin Leads table → an admin-authored history row.
+    await updateLeadStatus(adminA(), "LD-26-00052", "Appointment");
+
+    // Option B: admin (and own-org) entries stay visible to the owning partner — only ANOTHER
+    // partner's entries are hidden. So PX sees the admin's change, not a stale "New".
+    const detailX = await getPartnerLeadDetail(partnerX(), "LD-26-00052");
+    expect(detailX?.status).toBe("Appointment");
+    expect(detailX?.history.map((h) => h.status)).toEqual(["Appointment"]);
+
+    // The write-path idempotency read is author-scoped the same way, so it sees the admin entry too:
+    // PX re-setting the same value is a genuine no-op (no duplicate row, no spurious notification).
+    const res = await updateLeadStatus(partnerX(), "LD-26-00052", "Appointment");
+    expect(res.changed).toBe(false);
   });
 });

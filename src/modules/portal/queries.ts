@@ -1,7 +1,7 @@
 import { and, asc, desc, eq, ilike, inArray, isNull, or, sql } from "drizzle-orm";
 import { getDb } from "@/db";
 import * as schema from "@/db/schema";
-import { leadWhere, leadChildWhere, tenantWhere, requirePartner, type ScopeContext } from "@/lib/scope";
+import { leadWhere, leadChildWhere, statusHistoryWhere, ownStatusAuthorScope, tenantWhere, requirePartner, type ScopeContext } from "@/lib/scope";
 import { releasedLeads } from "../run/hold-filter";
 import { computeRunSummary, type RunSummary } from "../analytics/run-summary";
 import { partnerPerformanceDetail } from "../analytics/partner-performance";
@@ -59,7 +59,12 @@ export interface ListPartnerLeadsOpts {
 function latestStatus(scope: ScopeContext) {
   // self-scoped (ADR-0013 defence-in-depth): correlation key leads.id is globally unique, but
   // carry an explicit tenant predicate too so no single dropped predicate can widen scope.
-  return sql`(select status from lead_status_history where lead_id = ${schema.leads.id} and ${tenantWhere(schema.leadStatusHistory, scope)} order by created_at desc limit 1)`;
+  // R-22: for a partner, the derived status must come only from their OWN org's entries, so a
+  // re-routed lead's sort/filter position matches the "New" a fresh owner sees (never the prior
+  // partner's). Admin: unscoped. Same predicate statusHistoryWhere applies to the row-level reads.
+  const author = ownStatusAuthorScope(scope);
+  const authorClause = author ? sql` and ${author}` : sql``;
+  return sql`(select status from lead_status_history where lead_id = ${schema.leads.id} and ${tenantWhere(schema.leadStatusHistory, scope)}${authorClause} order by created_at desc limit 1)`;
 }
 function statusExpr(scope: ScopeContext) {
   return sql<string>`coalesce(${latestStatus(scope)}, 'New')`;
@@ -82,7 +87,7 @@ async function statusMap(
       createdAt: schema.leadStatusHistory.createdAt,
     })
     .from(schema.leadStatusHistory)
-    .where(and(leadChildWhere(schema.leadStatusHistory, scope, db), inArray(schema.leadStatusHistory.leadId, leadIds)));
+    .where(and(statusHistoryWhere(scope, db), inArray(schema.leadStatusHistory.leadId, leadIds)));
   for (const r of rows) {
     const list = map.get(r.leadId) ?? [];
     list.push({ status: r.status, createdAt: r.createdAt.toISOString() });
@@ -252,7 +257,7 @@ export async function getPartnerLeadDetail(scope: ScopeContext, refId: string): 
   const hist = await db
     .select({ status: schema.leadStatusHistory.status, createdAt: schema.leadStatusHistory.createdAt })
     .from(schema.leadStatusHistory)
-    .where(and(leadChildWhere(schema.leadStatusHistory, scope, db), eq(schema.leadStatusHistory.leadId, lead.id)))
+    .where(and(statusHistoryWhere(scope, db), eq(schema.leadStatusHistory.leadId, lead.id)))
     .orderBy(desc(schema.leadStatusHistory.createdAt));
   const history = hist.map((h) => ({ status: h.status, changedAt: h.createdAt.toISOString() }));
 

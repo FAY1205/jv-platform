@@ -315,6 +315,20 @@ suite("TST-01: tenant & partner isolation", () => {
     expect(String(rows[0]?.qual)).toContain("COALESCE(manual_partner_id, partner_id)");
   });
 
+  it("R-22: the lead_status_history RLS policy carries the author predicate (DB backstop matches ownStatusAuthorScope, migration 0037)", async () => {
+    const rows = (await db.execute<{ qual: string }>(sql`
+      select qual from pg_policies where tablename = 'lead_status_history' and policyname = 'lead_status_history_scope'
+    `)) as unknown as { qual: string }[];
+    const qual = String(rows[0]?.qual);
+    // Scoped by effective-owner lead-ownership AND — the R-22 addition — the author org, so the DB
+    // backstop hides a prior partner's status entries the same way the app layer does. The
+    // changed_by_user_id predicate was ABSENT before migration 0037 (leads_scope's sibling policy).
+    // (pg_policies.qual re-serializes with table qualifiers, e.g. COALESCE(leads.manual_partner_id, …).)
+    expect(qual).toContain("changed_by_user_id"); // the R-22 author predicate is present
+    expect(qual).toContain("manual_partner_id"); // still scoped by effective-owner lead ownership
+    expect(qual).toContain("role = 'admin'"); // Option B: admin-authored entries stay visible to the owner
+  });
+
   it("F-31: listPartnerActivity counts a partner's action on a manually-assigned (partnerId=null) lead", async () => {
     const [ml] = await db
       .insert(schema.leads)

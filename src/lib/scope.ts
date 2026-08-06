@@ -1,4 +1,4 @@
-import { and, eq, inArray, isNull, or, type SQL } from "drizzle-orm";
+import { and, eq, inArray, isNull, or, sql, type SQL } from "drizzle-orm";
 import type { PgColumn } from "drizzle-orm/pg-core";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import * as schema from "@/db/schema";
@@ -105,4 +105,33 @@ export function leadChildWhere(
     // guard is self-sufficient — child-table reads never rely on a parent join to filter deletes.
     .where(and(eq(leads.tenantId, scope.tenantId), partnerOwnsLead(requirePartner(scope)), isNull(leads.deletedAt)));
   return and(base, inArray(table.leadId, ownLeads))!;
+}
+
+/**
+ * R-22/R-26: the status-history author predicate a partner is scoped to on lead_status_history.
+ * A lead's status timeline follows ownership when the lead is re-routed (partnerOwnsLead moves the
+ * effective owner), so a naive "entries on leads I own" read hands the NEW owner the PRIOR partner's
+ * timeline. This restricts a partner to entries authored by their OWN org OR by an admin/system —
+ * i.e. it hides only ANOTHER partner's entries (owner decision 2026-08-07). So a re-routed lead never
+ * shows the prior partner's timeline, while an admin's inline status change on a currently-owned lead
+ * stays visible to that owner (status is one shared field, unlike the two-stream notes model). Returns
+ * undefined for admin (all entries). A raw SQL fragment so it composes into BOTH the query builders
+ * (statusHistoryWhere / the write-path idempotency read) and the portal's raw correlated latest-status
+ * subquery from one definition — the two never drift. The Postgres RLS backstop
+ * (lead_status_history_scope, migration 0037) carries the identical predicate (SEC-01).
+ */
+export function ownStatusAuthorScope(scope: ScopeContext): SQL | undefined {
+  if (scope.role === "admin") return undefined;
+  const me = requirePartner(scope);
+  return sql`${schema.leadStatusHistory.changedByUserId} in (select id from users where ${tenantWhere(schema.users, scope)} and (role = 'admin' or partner_id = ${me}))`;
+}
+
+/**
+ * Status-history visibility: tenant + own-leads (leadChildWhere) AND — for a partner — only entries
+ * authored by their own org (ownStatusAuthorScope), so a re-routed lead never carries the prior
+ * partner's status timeline into the new owner's portal (R-22). Admin reads are unscoped by author.
+ * Listing checks keep plain leadChildWhere — a system MLS check belongs to the lead, not a partner.
+ */
+export function statusHistoryWhere(scope: ScopeContext, db: DB): SQL {
+  return and(leadChildWhere(schema.leadStatusHistory, scope, db), ownStatusAuthorScope(scope))!;
 }

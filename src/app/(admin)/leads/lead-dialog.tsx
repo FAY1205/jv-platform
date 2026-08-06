@@ -45,7 +45,7 @@ interface Activity {
   actor: string | null;
   status?: string;
 }
-interface LeadDetail {
+export interface LeadDetail {
   refId: string;
   seller: { first: string; last: string; phone: string; email: string };
   address: string;
@@ -82,8 +82,62 @@ interface Partner {
   color: string;
 }
 
-const REVERT = "__revert__";
-const UNASSIGNED = "__unassigned__";
+export const REVERT = "__revert__";
+export const UNASSIGNED = "__unassigned__";
+
+// ASN-03: the partner-overlay action a given selection implies. A "keep" is a no-op; the other
+// three MOVE ownership (and, per R-01/R-22, hide the prior owner's notes + status timeline from
+// the new owner) — so EditForm gates those behind a confirmation. Pure: the submit-time confirm
+// gate and the mutation body both derive the action from here, so they can never disagree.
+export type PartnerAction =
+  | { action: "keep" }
+  | { action: "set"; partnerId: string }
+  | { action: "revert" }
+  | { action: "unassign" };
+
+export function partnerActionFor(partnerSel: string, d: LeadDetail): PartnerAction {
+  const sel = partnerSel === UNASSIGNED ? "" : partnerSel;
+  if (sel === REVERT) return { action: "revert" };
+  if (sel === "" && d.partner) return { action: "unassign" }; // clearing a currently-assigned lead
+  if (sel && sel !== (d.partner?.id ?? "")) return { action: "set", partnerId: sel };
+  return { action: "keep" };
+}
+
+/** Confirmation copy for an ownership-moving action, or null for "keep" (no confirmation needed).
+ *  Names the destination (FRM-03) so the admin sees exactly where the lead is going, and states the
+ *  consequence accurately per action — an unassign has no "new owner" to inherit a clean timeline. */
+interface TransferCopy {
+  title: string;
+  confirmLabel: string;
+  verb: string;
+  dest: string;
+  consequence: string;
+}
+// A re-route to another partner (set/revert): the destination partner becomes the new owner.
+const NEW_OWNER_CONSEQUENCE =
+  "The new owner starts with a clean status timeline and cannot see the previous owner's status history or notes; the previous owner loses access to this lead.";
+function transferCopy(action: PartnerAction, d: LeadDetail, partners: Partner[]): TransferCopy | null {
+  switch (action.action) {
+    case "set": {
+      const p = partners.find((x) => x.id === action.partnerId);
+      return { title: "Reassign this lead?", confirmLabel: "Reassign", verb: "will move to", dest: p ? `${p.name} (${p.refId})` : "the selected partner", consequence: NEW_OWNER_CONSEQUENCE };
+    }
+    case "revert": {
+      const o = d.assignment.original;
+      return { title: "Revert this lead's routing?", confirmLabel: "Revert routing", verb: "will move to", dest: o ? `${o.name} (${o.refId})` : "its original routing", consequence: NEW_OWNER_CONSEQUENCE };
+    }
+    case "unassign":
+      return {
+        title: "Unassign this lead?",
+        confirmLabel: "Unassign",
+        verb: "will return to",
+        dest: "the unassigned pool",
+        consequence: "No partner will own it; the current owner loses access to this lead, its status history, and notes.",
+      };
+    default:
+      return null;
+  }
+}
 
 const ACTIVITY_DOT: Record<Activity["kind"], string> = {
   imported: "bg-info",
@@ -354,7 +408,7 @@ function ActivityLog({ activity }: { activity: Activity[] }) {
 
 // ── Edit mode ─────────────────────────────────────────────────────────────────
 
-function EditForm({
+export function EditForm({
   d,
   partners,
   onCancel,
@@ -399,12 +453,8 @@ function EditForm({
         const b = await res.json();
         if (!res.ok) throw new Error(b?.message ?? "Status update failed.");
       }
-      // 2) Fields + partner overlay.
-      const sel = partnerSel === UNASSIGNED ? "" : partnerSel;
-      let partner: { action: "keep" } | { action: "set"; partnerId: string } | { action: "revert" } | { action: "unassign" } = { action: "keep" };
-      if (sel === REVERT) partner = { action: "revert" };
-      else if (sel === "" && d.partner) partner = { action: "unassign" }; // clearing a currently-assigned lead
-      else if (sel && sel !== (d.partner?.id ?? "")) partner = { action: "set", partnerId: sel };
+      // 2) Fields + partner overlay (the action was decided — and, for a transfer, confirmed — pre-submit).
+      const partner = partnerActionFor(partnerSel, d);
       const res = await fetch(`/api/leads/${d.refId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json", ...csrfHeaders() },
@@ -417,12 +467,23 @@ function EditForm({
     onSuccess: onSaved,
   });
 
+  // ASN-03/FRM-03: reassigning a lead moves ownership and hides the prior owner's notes + status
+  // timeline (R-01/R-22) — a consequential, easy-to-misclick change. Any ownership-moving action is
+  // gated behind a confirmation naming the lead + destination; a plain field edit saves directly.
+  const [confirmTransfer, setConfirmTransfer] = React.useState(false);
+  const transfer = transferCopy(partnerActionFor(partnerSel, d), d, partners);
+  const submit = () => {
+    if (transfer) setConfirmTransfer(true);
+    else save.mutate();
+  };
+
   return (
+    <>
     <form
       className="flex flex-col gap-5"
       onSubmit={(e) => {
         e.preventDefault();
-        save.mutate();
+        submit();
       }}
     >
       <div className="grid grid-cols-2 gap-3">
@@ -493,5 +554,38 @@ function EditForm({
         </Button>
       </div>
     </form>
+
+      {transfer && (
+        <Dialog
+          open={confirmTransfer}
+          onClose={() => setConfirmTransfer(false)}
+          size="sm"
+          title={transfer.title}
+          footer={
+            <>
+              <Button type="button" variant="ghost" onClick={() => setConfirmTransfer(false)} disabled={save.isPending}>
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                variant="danger"
+                loading={save.isPending}
+                onClick={() => {
+                  setConfirmTransfer(false);
+                  save.mutate();
+                }}
+              >
+                {transfer.confirmLabel}
+              </Button>
+            </>
+          }
+        >
+          <p className="text-sm text-text-2">
+            <span className="num">{d.refId}</span> {transfer.verb} <strong className="text-text">{transfer.dest}</strong>.{" "}
+            {transfer.consequence}
+          </p>
+        </Dialog>
+      )}
+    </>
   );
 }
