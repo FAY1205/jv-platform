@@ -5,7 +5,7 @@ import { useQuery } from "@tanstack/react-query";
 import { apiGet } from "@/lib/api";
 import { useDebouncedValue } from "@/lib/use-debounced-value";
 import {
-  Button, Card, FilterPill, Input, Table, THead, TBody, Th, Tr, Td, Pagination, DEFAULT_PAGE_SIZE, Skeleton, EmptyState, HotLeadMark, RowOpenButton, StatusSelect,
+  Button, Card, FilterPill, Input, Table, THead, TBody, Th, Tr, Td, Pagination, DEFAULT_PAGE_SIZE, Skeleton, EmptyState, QueryErrorState, HotLeadMark, RowOpenButton, StatusSelect,
 } from "@/components";
 // leads-contract, NOT ./queries: this is a "use client" component and a VALUE import
 // from queries would pull its @/db → postgres → node:fs chain into the client bundle.
@@ -127,7 +127,7 @@ export function LeadsDesktop({ onOpen }: { onOpen: (refId: string) => void }) {
         ) : leadsQ.error ? (
           // EmptyState itself announces (role="status" on the primitive since D2, SC 4.1.3).
           <div className="p-6">
-            <EmptyState title="Couldn't load your leads" description={(leadsQ.error as Error).message} />
+            <QueryErrorState title="Couldn't load your leads" error={leadsQ.error} onRetry={() => leadsQ.refetch()} />
           </div>
         ) : data!.leads.length === 0 ? (
           <div className="p-6">

@@ -6,7 +6,7 @@ import dynamic from "next/dynamic";
 import { apiGet } from "@/lib/api";
 import { LEAD_STATUS_FILTERS, DEFAULT_STATUS_FILTERS, isDefaultStatuses, type LeadSortField } from "@/modules/leads/schema";
 import {
-  AppShell, Card, Table, THead, TBody, Th, Tr, Td, PartnerTag, EmptyState, Skeleton,
+  AppShell, Card, Table, THead, TBody, Th, Tr, Td, PartnerTag, EmptyState, QueryErrorState, Skeleton,
   Input, Combobox, DateRangePicker, Pagination, RowOpenButton, StatusSelect,
   DEFAULT_PAGE_SIZE, usePageHeader, FilterPill, Tooltip, HotLeadMark, HotLeadIcon,
 } from "@/components";
@@ -252,7 +252,7 @@ function LeadsTable({
         {leadsQ.isPending ? (
           <div className="flex flex-col gap-3 p-5">{Array.from({ length: 8 }).map((_, i) => <Skeleton key={i} className="h-9 w-full" />)}</div>
         ) : leadsQ.error ? (
-          <div className="p-6"><EmptyState title="Couldn't load leads" description={(leadsQ.error as Error).message} /></div>
+          <div className="p-6"><QueryErrorState title="Couldn't load leads" error={leadsQ.error} onRetry={() => leadsQ.refetch()} /></div>
         ) : data!.leads.length === 0 ? (
           <div className="p-6"><EmptyState title="No leads found" description={hasFilters ? "Try widening the filters." : "Process a weekly file to see leads here."} /></div>
         ) : (

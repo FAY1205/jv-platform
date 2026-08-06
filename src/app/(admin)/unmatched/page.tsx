@@ -7,7 +7,7 @@ import { apiGet } from "@/lib/api";
 import { useDebouncedValue } from "@/lib/use-debounced-value";
 import { csrfHeaders } from "@/lib/csrf-client";
 import {
-  AppShell, Card, Badge, Button, Checkbox, Dialog, Select, Input, EmptyState, Skeleton,
+  AppShell, Card, Badge, Button, Checkbox, Dialog, Select, Input, EmptyState, QueryErrorState, Skeleton,
   useToast, Table, THead, TBody, Th, Tr, Td, Pagination, PartnerTag,
   RowOpenButton, DEFAULT_PAGE_SIZE, usePageHeader, Tooltip,
 } from "@/components";
@@ -174,6 +174,20 @@ function CoverageBackfillCard() {
     onError: (e: Error) => toast.toast(e.message, "danger"),
   });
 
+  // R-8: a failed fetch must NOT read as "nothing to backfill" (both would render null and
+  // could mask a real coverage-matching bug) — surface it with a Retry instead.
+  if (matchesQ.error) {
+    return (
+      <div className="rounded-2xl border border-border-soft bg-surface p-4">
+        <QueryErrorState
+          compact
+          title="Couldn't check for coverage backfills."
+          error={matchesQ.error}
+          onRetry={() => matchesQ.refetch()}
+        />
+      </div>
+    );
+  }
   const matches = matchesQ.data?.matches ?? [];
   if (matches.length === 0) return null;
   return (
@@ -303,7 +317,7 @@ function UnmatchedBody() {
       {statsQ.isPending ? (
         <div className="flex flex-col gap-3">{Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-24 rounded-2xl" />)}</div>
       ) : statsQ.error ? (
-        <Card><div className="p-6"><EmptyState title="Couldn't load unmatched leads" description={(statsQ.error as Error).message} /></div></Card>
+        <Card><div className="p-6"><QueryErrorState title="Couldn't load unmatched leads" error={statsQ.error} onRetry={() => statsQ.refetch()} /></div></Card>
       ) : (stats?.total ?? 0) === 0 ? (
         <Card><div className="p-8"><EmptyState title="Nothing unmatched — full coverage" description="Every lead you've processed reached a partner. New gaps will show up here." /></div></Card>
       ) : (
@@ -375,7 +389,7 @@ function UnmatchedBody() {
               {listQ.isPending ? (
                 <div className="flex flex-col gap-3 p-5">{Array.from({ length: 6 }).map((_, i) => <Skeleton key={i} className="h-9 w-full" />)}</div>
               ) : listQ.error ? (
-                <div className="p-6"><EmptyState title="Couldn't load the list" description={(listQ.error as Error).message} /></div>
+                <div className="p-6"><QueryErrorState title="Couldn't load the list" error={listQ.error} onRetry={() => listQ.refetch()} /></div>
               ) : listQ.data!.leads.length === 0 ? (
                 <div className="p-6"><EmptyState title="No leads found" description="Try widening the state filter or clearing the search." /></div>
               ) : (

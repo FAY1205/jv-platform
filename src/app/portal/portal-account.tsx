@@ -2,7 +2,7 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { apiGet } from "@/lib/api";
-import { Card, CardBody, Button, LinkCard, Skeleton, EmptyState } from "@/components";
+import { Card, CardBody, Button, LinkCard, Skeleton, QueryErrorState } from "@/components";
 import { initialsFromEmail } from "@/lib/identity";
 import { useIsDesktop } from "@/lib/use-media-query";
 import { useSignOut } from "@/lib/use-sign-out";
@@ -38,7 +38,7 @@ export function PortalAccount() {
 }
 
 function AccountMobile() {
-  const { data, isPending, error } = useQuery({ queryKey: ["me"], queryFn: () => apiGet<Me>("/api/me") });
+  const { data, isPending, error, refetch } = useQuery({ queryKey: ["me"], queryFn: () => apiGet<Me>("/api/me") });
   const { signOut, signingOut } = useSignOut();
 
   return (
@@ -46,7 +46,7 @@ function AccountMobile() {
       <Card>
         <CardBody>
           {error ? (
-            <EmptyState title="Couldn't load your account" description={(error as Error).message} />
+            <QueryErrorState title="Couldn't load your account" error={error} onRetry={() => refetch()} />
           ) : isPending || !data ? (
             <Skeleton className="h-12" />
           ) : (

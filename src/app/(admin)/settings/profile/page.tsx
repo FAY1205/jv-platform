@@ -3,7 +3,7 @@
 import * as React from "react";
 import { useQuery } from "@tanstack/react-query";
 import { apiGet } from "@/lib/api";
-import { Button, Card, CardBody, CardHeader, CardTitle, Skeleton, EmptyState, PasswordChangeForm } from "@/components";
+import { Button, Card, CardBody, CardHeader, CardTitle, Skeleton, QueryErrorState, PasswordChangeForm } from "@/components";
 import { initialsFromEmail } from "@/lib/identity";
 import { SettingsSection } from "../settings-section";
 
@@ -17,7 +17,7 @@ interface Me {
 // The password form sits behind a disclosure so the page doesn't open on three
 // password fields (owner feedback, testing round 2).
 export default function ProfileSettingsPage() {
-  const { data, isPending, error } = useQuery({ queryKey: ["me"], queryFn: () => apiGet<Me>("/api/me") });
+  const { data, isPending, error, refetch } = useQuery({ queryKey: ["me"], queryFn: () => apiGet<Me>("/api/me") });
   const [changingPassword, setChangingPassword] = React.useState(false);
 
   return (
@@ -25,7 +25,7 @@ export default function ProfileSettingsPage() {
       <Card>
         <CardBody>
           {error ? (
-            <EmptyState title="Couldn't load your account" description={(error as Error).message} />
+            <QueryErrorState title="Couldn't load your account" error={error} onRetry={() => refetch()} />
           ) : isPending || !data ? (
             <Skeleton className="h-14" />
           ) : (

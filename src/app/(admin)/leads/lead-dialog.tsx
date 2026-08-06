@@ -15,7 +15,7 @@ import {
   NotesPanel,
   ClampedText,
   Skeleton,
-  EmptyState,
+  QueryErrorState,
   useToast,
   Tooltip,
   HotLeadMark,
@@ -133,7 +133,7 @@ export function LeadDialog({ refId, onClose }: { refId: string; onClose: () => v
           ))}
         </div>
       ) : detailQ.error || !d ? (
-        <EmptyState title="Couldn't load lead" description={(detailQ.error as Error)?.message ?? "Not found."} />
+        <QueryErrorState title="Couldn't load lead" error={detailQ.error} description={(detailQ.error as Error)?.message ?? "Not found."} onRetry={() => detailQ.refetch()} />
       ) : editing ? (
         <EditForm
           d={d}

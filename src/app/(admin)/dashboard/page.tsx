@@ -9,6 +9,7 @@ import {
   AppShell,
   PartnerTag,
   EmptyState,
+  QueryErrorState,
   Skeleton,
   SegmentedControl,
   LineChart,
@@ -200,7 +201,7 @@ function DashboardBody() {
         </div>
       ) : dash.error ? (
         <div className={panel}>
-          <EmptyState title="Couldn't load the dashboard" description={(dash.error as Error).message} />
+          <QueryErrorState title="Couldn't load the dashboard" error={dash.error} onRetry={() => dash.refetch()} />
         </div>
       ) : (
         <div className="stagger flex flex-col gap-5">

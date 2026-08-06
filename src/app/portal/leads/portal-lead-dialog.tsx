@@ -3,7 +3,7 @@
 import * as React from "react";
 import { useQuery } from "@tanstack/react-query";
 import { apiGet } from "@/lib/api";
-import { Dialog, Badge, Skeleton, EmptyState, NotesPanel, ClampedText, ListingBadge, StatusSelect, Tooltip } from "@/components";
+import { Dialog, Badge, Skeleton, QueryErrorState, NotesPanel, ClampedText, ListingBadge, StatusSelect, Tooltip } from "@/components";
 import { googleSearchUrl } from "@/lib/search-links";
 
 // VP-4: the partner-facing lead dialog (mirrors the admin LeadDialog pattern, portal-scoped).
@@ -43,7 +43,7 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 }
 
 export function PortalLeadDialog({ refId, onClose }: { refId: string; onClose: () => void }) {
-  const { data, isPending, error } = useQuery({
+  const { data, isPending, error, refetch } = useQuery({
     queryKey: ["portal-lead", refId],
     queryFn: () => apiGet<LeadDetail>(`/api/portal/leads/${refId}`),
   });
@@ -57,7 +57,7 @@ export function PortalLeadDialog({ refId, onClose }: { refId: string; onClose: (
           ))}
         </div>
       ) : error || !data ? (
-        <EmptyState title="Couldn't load this lead" description={(error as Error)?.message ?? "Not found."} />
+        <QueryErrorState title="Couldn't load this lead" error={error} description={(error as Error)?.message ?? "Not found."} onRetry={() => refetch()} />
       ) : (
         <div className="flex flex-col gap-5">
           {/* Status — the partner's primary action, up top and editable inline. */}

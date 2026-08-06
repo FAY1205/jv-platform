@@ -3,7 +3,7 @@
 import * as React from "react";
 import { useQuery } from "@tanstack/react-query";
 import { apiGet } from "@/lib/api";
-import { Button, EmptyState, Skeleton, HotLeadMark } from "@/components";
+import { Button, EmptyState, QueryErrorState, Skeleton, HotLeadMark } from "@/components";
 import { statusPillClass } from "@/lib/status-pill";
 
 // WP-PW-3 Task 2: the mobile (< lg) Leads view, extracted verbatim from the pre-WP-PW-3
@@ -36,7 +36,7 @@ function fmtDate(iso: string): string {
 
 export function LeadsMobile({ onOpen }: { onOpen: (refId: string) => void }) {
   const [page, setPage] = React.useState(1);
-  const { data, isLoading, error } = useQuery({
+  const { data, isLoading, error, refetch } = useQuery({
     queryKey: ["portal-leads", page],
     queryFn: () => apiGet<LeadsPage>(`/api/portal/leads?page=${page}`),
   });
@@ -61,7 +61,7 @@ export function LeadsMobile({ onOpen }: { onOpen: (refId: string) => void }) {
       </div>
 
       {error ? (
-        <EmptyState title="Couldn't load your leads" description={(error as Error).message} />
+        <QueryErrorState title="Couldn't load your leads" error={error} onRetry={() => refetch()} />
       ) : isLoading ? (
         <div className="flex flex-col gap-3">
           <Skeleton className="h-24 rounded-xl" />

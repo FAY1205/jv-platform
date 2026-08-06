@@ -21,6 +21,7 @@ import {
   Td,
   RowOpenButton,
   EmptyState,
+  QueryErrorState,
   Skeleton,
 } from "@/components";
 import type { CoverageMapResponse } from "@/modules/coverage/map";
@@ -163,7 +164,7 @@ export default function PartnerDetailPage() {
         </div>
       ) : partnerQ.error || !partner ? (
         <div className={panel}>
-          <EmptyState title="Couldn't load partner" description={(partnerQ.error as Error)?.message ?? "Not found."} />
+          <QueryErrorState title="Couldn't load partner" error={partnerQ.error} description={(partnerQ.error as Error)?.message ?? "Not found."} onRetry={() => partnerQ.refetch()} />
         </div>
       ) : (
         <div className="stagger flex flex-col gap-5">
@@ -208,7 +209,7 @@ export default function PartnerDetailPage() {
             {perfQ.isPending ? (
               <Skeleton className="h-64 w-full" />
             ) : perfQ.error ? (
-              <EmptyState title="Couldn't load performance" description={(perfQ.error as Error).message} />
+              <QueryErrorState title="Couldn't load performance" error={perfQ.error} onRetry={() => perfQ.refetch()} />
             ) : !perf || perf.history.length === 0 ? (
               <p className="py-8 text-center text-sm text-text-3">No activity in this range.</p>
             ) : (

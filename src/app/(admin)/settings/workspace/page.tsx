@@ -4,7 +4,7 @@ import * as React from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiGet } from "@/lib/api";
 import { csrfHeaders } from "@/lib/csrf-client";
-import { Card, CardBody, Input, Button, Skeleton, EmptyState, useToast } from "@/components";
+import { Card, CardBody, Input, Button, Skeleton, QueryErrorState, useToast } from "@/components";
 import { SettingsSection } from "../settings-section";
 
 interface Me {
@@ -16,7 +16,7 @@ interface Me {
 export default function WorkspaceSettingsPage() {
   const qc = useQueryClient();
   const { toast } = useToast();
-  const { data, isPending, error } = useQuery({ queryKey: ["me"], queryFn: () => apiGet<Me>("/api/me") });
+  const { data, isPending, error, refetch } = useQuery({ queryKey: ["me"], queryFn: () => apiGet<Me>("/api/me") });
 
   // Seed the field once the workspace loads; keep local edits after that. Render-time
   // guard (ADR-0008, per settings/notifications) — never copy server data into state via
@@ -54,7 +54,7 @@ export default function WorkspaceSettingsPage() {
       <Card>
         <CardBody>
           {error ? (
-            <EmptyState title="Couldn't load workspace" description={(error as Error).message} />
+            <QueryErrorState title="Couldn't load workspace" error={error} onRetry={() => refetch()} />
           ) : isPending || !data ? (
             <Skeleton className="h-10" />
           ) : (

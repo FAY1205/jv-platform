@@ -6,7 +6,7 @@ import { useQuery } from "@tanstack/react-query";
 import { apiGet } from "@/lib/api";
 import type { RunListPage } from "@/modules/run/queries";
 import {
-  Card, Table, THead, TBody, Th, Tr, Td, Badge, EmptyState, Skeleton, AppShell,
+  Card, Table, THead, TBody, Th, Tr, Td, Badge, EmptyState, QueryErrorState, Skeleton, AppShell,
   DateRangePicker, type DateRangeValue, Pagination, DEFAULT_PAGE_SIZE, usePageHeader,
 } from "@/components";
 import { fmtDate } from "./_shell";
@@ -35,7 +35,7 @@ function ImportsBody() {
   const [resetKey, setResetKey] = React.useState(filterKey);
   if (filterKey !== resetKey) { setResetKey(filterKey); setPage(1); }
 
-  const { data, isPending, error } = useQuery({
+  const { data, isPending, error, refetch } = useQuery({
     queryKey: ["runs", filterKey, page, pageSize],
     queryFn: () => {
       const params = new URLSearchParams({ page: String(page), pageSize: String(pageSize) });
@@ -80,7 +80,7 @@ function ImportsBody() {
           </div>
         ) : error ? (
           <div className="p-6">
-            <EmptyState title="Couldn't load imports" description={(error as Error).message} />
+            <QueryErrorState title="Couldn't load imports" error={error} onRetry={() => refetch()} />
           </div>
         ) : data.runs.length === 0 ? (
           <div className="p-6">

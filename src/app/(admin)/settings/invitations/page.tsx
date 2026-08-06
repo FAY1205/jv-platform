@@ -4,7 +4,7 @@ import * as React from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiGet } from "@/lib/api";
 import { csrfHeaders } from "@/lib/csrf-client";
-import { Card, CardBody, CardHeader, CardTitle, Button, Skeleton, EmptyState, useToast } from "@/components";
+import { Card, CardBody, CardHeader, CardTitle, Button, Skeleton, EmptyState, QueryErrorState, useToast } from "@/components";
 import { SettingsSection } from "../settings-section";
 
 // SCP-03: owner-only signup invitation codes. Visible only to platform owners
@@ -115,7 +115,7 @@ export default function InvitationsPage() {
           {codesQ.isPending ? (
             <div className="flex flex-col gap-2"><Skeleton className="h-12" /><Skeleton className="h-12" /></div>
           ) : codesQ.error ? (
-            <EmptyState title="Couldn't load codes" description={(codesQ.error as Error).message} />
+            <QueryErrorState title="Couldn't load codes" error={codesQ.error} onRetry={() => codesQ.refetch()} />
           ) : codes.length === 0 ? (
             <EmptyState title="No active codes" description="Generate a code to invite someone." />
           ) : (

@@ -53,8 +53,10 @@ import {
   ToastProvider,
   useToast,
   EmptyState,
+  QueryErrorState,
   Skeleton,
 } from "@/components";
+import { ApiError } from "@/lib/api";
 import { PARTNER_PALETTE } from "@/lib/tokens/tokens";
 import { APP_NAME } from "@/lib/app";
 // Assistant components are client-only and intentionally out of the "@/components" barrel
@@ -520,6 +522,34 @@ function Gallery() {
             <Card>
               <div className="h-40">
                 <EmptyState compact title="Territory map unavailable." />
+              </div>
+            </Card>
+          </div>
+        </Section>
+
+        <Section title="Query error state — one failed-fetch surface (UXQ-01a)">
+          <p className="mb-3 text-step-1 text-text-3">
+            The single error state for a failed async data fetch: the server message, a mono{" "}
+            <code className="num">Reference: &lt;traceId&gt;</code> line (so support can correlate — mirrors the
+            crash boundary <code>error.tsx</code>), and a Retry where the query is refetchable. Carries{" "}
+            <code className="num">role=&quot;status&quot;</code>. The compact variant fills an embedded panel.
+          </p>
+          <div className="grid gap-3.5 md:grid-cols-2">
+            <Card>
+              <QueryErrorState
+                title="Couldn't load partners"
+                error={new ApiError("The database is temporarily unavailable.", "db_unavailable", "TR-9F2A-40C1", 500)}
+                onRetry={() => toast("Retrying…")}
+              />
+            </Card>
+            <Card>
+              <div className="h-40">
+                <QueryErrorState
+                  compact
+                  title="Couldn't load your leads."
+                  error={new ApiError("Request failed.", "upstream_error", "TR-77B3-1E9D", 502)}
+                  onRetry={() => toast("Retrying…")}
+                />
               </div>
             </Card>
           </div>

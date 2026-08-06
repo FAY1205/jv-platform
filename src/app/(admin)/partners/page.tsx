@@ -25,6 +25,7 @@ import {
   StateMultiSelect,
   PartnerTag,
   EmptyState,
+  QueryErrorState,
   Skeleton,
   useToast,
   usePageHeader,
@@ -582,7 +583,7 @@ function PartnersBody() {
   usePageHeader({ title: "Partners" });
   const qc = useQueryClient();
   const { toast } = useToast();
-  const { data, isPending, error } = useQuery({
+  const { data, isPending, error, refetch } = useQuery({
     queryKey: ["partners"],
     queryFn: () => apiGet<{ partners: Partner[] }>("/api/admin/partners"),
   });
@@ -685,7 +686,7 @@ function PartnersBody() {
             </div>
           ) : error ? (
             <div className="p-6">
-              <EmptyState title="Couldn't load partners" description={(error as Error).message} />
+              <QueryErrorState title="Couldn't load partners" error={error} onRetry={() => refetch()} />
             </div>
           ) : roster.length === 0 ? (
             <div className="p-6">

@@ -6,6 +6,7 @@ import { apiGet } from "@/lib/api";
 import { csrfHeaders } from "@/lib/csrf-client";
 import { Button } from "./Button";
 import { EmptyState } from "./EmptyState";
+import { QueryErrorState } from "./QueryErrorState";
 import { Skeleton } from "./Skeleton";
 
 // WP-PW-4 Task 2: the partner's remembered devices, each revocable (ACC-02) — extracted
@@ -34,7 +35,7 @@ export function PortalDevices() {
   // "Sign out everywhere" two-step (reveal consequence → confirm) so a partner can't
   // sign a device out (possibly the one they're on) with a single stray click.
   const [confirmId, setConfirmId] = React.useState<string | null>(null);
-  const { data, isLoading, error } = useQuery({
+  const { data, isLoading, error, refetch } = useQuery({
     queryKey: ["sessions"],
     queryFn: () => apiGet<{ devices: Device[] }>("/api/sessions"),
   });
@@ -59,7 +60,7 @@ export function PortalDevices() {
   return (
     <>
       {error ? (
-        <EmptyState title="Couldn't load your devices" description={(error as Error).message} />
+        <QueryErrorState title="Couldn't load your devices" error={error} onRetry={() => refetch()} />
       ) : isLoading ? (
         <div className="flex flex-col gap-2">
           <Skeleton className="h-14" />

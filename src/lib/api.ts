@@ -1,17 +1,8 @@
 import type { ErrorEnvelope } from "@/lib/http";
 import { csrfHeaders } from "@/lib/csrf-client";
 
-// Client-side fetch helper: throws the API's { code, message, traceId } message on error.
-export async function apiGet<T>(url: string): Promise<T> {
-  const res = await fetch(url);
-  if (!res.ok) {
-    const body = (await res.json().catch(() => null)) as ErrorEnvelope | null;
-    throw new Error(body?.message ?? `Request failed (${res.status})`);
-  }
-  return res.json() as Promise<T>;
-}
-
-/** A client write error carrying the server envelope's code + traceId (FEP-09). */
+/** A client fetch/write error carrying the server envelope's code + traceId (FEP-09).
+ *  Both `apiGet` and `apiMutate` throw this so error states can surface the traceId (UXQ-01). */
 export class ApiError extends Error {
   constructor(
     message: string,
@@ -22,6 +13,20 @@ export class ApiError extends Error {
     super(message);
     this.name = "ApiError";
   }
+}
+
+/**
+ * Client-side read helper: on a non-2xx throws an `ApiError` carrying the uniform
+ * `{ code, message, traceId }` envelope (UXQ-01) — same shape `apiMutate` throws, so a
+ * shared `<QueryErrorState>` can render the message, the trace id, and a Retry action.
+ */
+export async function apiGet<T>(url: string): Promise<T> {
+  const res = await fetch(url);
+  if (!res.ok) {
+    const body = (await res.json().catch(() => null)) as ErrorEnvelope | null;
+    throw new ApiError(body?.message ?? `Request failed (${res.status})`, body?.code, body?.traceId, res.status);
+  }
+  return res.json() as Promise<T>;
 }
 
 /**
