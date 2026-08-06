@@ -19,10 +19,12 @@ A deterministic lead-routing platform for real-estate JV (joint-venture) network
 | ID | Constraint |
 | -- | ---------- |
 | SCP-01 | Single-org operation in V1; `tenant_id` on every table; every query tenant-scoped. Productizing MUST NOT require a migration. |
-| SCP-02 | Roles: **admin** (owner — full control) and **partner** (portal: own leads, statuses, own notes, export). No partner self-signup; admin invites. **Public self-serve admin signup is open (ADR-0033): a new customer signs up → their own isolated tenant + admin; partner accounts remain invite-only.** |
+| SCP-02 | Roles: **admin** (owner — full control) and **partner** (portal: own leads, statuses, own notes, export). No partner self-signup; admin invites. _Amended by ADR-0040:_ self-serve admin signup is **invitation-code-gated (SCP-06)**, not open — a new customer redeems a single-use code → their own isolated tenant + admin; partner accounts remain invite-only. (This reverses the "open public signup" of ADR-0033.) |
 | SCP-03 | External dependencies: Supabase (US region — Postgres/Auth/Storage), Vercel, Resend, one pluggable listing-check provider, and (AI phase only) one LLM provider behind a gateway. |
 | SCP-04 | **Web only, responsive.** No native app in V1. Partners will primarily use phones: every portal surface MUST be fully usable at 375 px width with ≥ 44 px touch targets. The app SHOULD ship a PWA manifest + icons so it can be installed to a home screen (no offline mode). |
 | SCP-05 | Files .xlsx/.csv ≤ 10 MB / 10k rows. ~100 leads/week; optimize for correctness and auditability, never throughput. |
+| SCP-06 | Self-serve admin signup is gated by a **single-use, SHA-256-hashed, 48-hour invitation code** (ADR-0040): required at `POST /api/auth/signup`; the code check is rate-limited (after the throttle + global ceiling, before the HIBP breached-password lookup), leaks nothing about accounts (AUT-05), and is consumed atomically in the provisioning tx (single-use even under a race). Codes are minted/listed/revoked by the platform owner (SCP-07). The `signup_codes` table is tenant-less + deny-by-default RLS (ADR-0042). |
+| SCP-07 | A **platform-owner tier** authorizes platform-only surfaces (mint/list/revoke signup codes, the owner-only Invitations settings page, the `isPlatformOwner` flag on `/api/me`). "Owner" = a tenant admin whose email is in the `ADMIN_ALLOWLIST` env allowlist (ADR-0040) — **not** a database role; every owner-only route re-checks server-side. Grants **no** cross-tenant data access (the only non-tenant-scoped resource it reaches is `signup_codes`, which holds no tenant business data). |
 
 **Out of scope for V1 (all phases):** Google Sheets push · CRM/webhook integrations · interactive map *editing* (a read-only map IS in scope, MAP-01) · partner-to-partner lead trading · SMS · native apps · internationalization (US English only; copy centralized so i18n stays possible).
 
@@ -94,7 +96,7 @@ Tables: `tenants, users, partners, coverage_zips, state_rules, mls_patterns, sou
 | DM-08 | **Rules snapshot:** every run stores a hash + snapshot reference of the rule set used (MLS patterns, coverage version, recodes, Source Profile version). _Why:_ preserves determinism and pins golden-file tests when rules evolve. |
 | DM-09 | Soft-delete with restore for partners and leads; hard delete only via retention policy or account deletion. |
 | DM-10 | `lead_notes`: lead_id, author_user_id, author_role (admin|partner), body, timestamps; visibility per PRN-13. |
-| DM-11 | Indexes exist for every list/query path shipped: `leads(tenant_id, upload_id)`, `leads(tenant_id, partner_id, created_at)`, unique `leads(tenant_id, dedupe_key)`, `coverage_zips(tenant_id, zip5)` unique-current, `events(tenant_id, created_at)`, `lead_notes(lead_id)`. New list endpoints ship with their index in the same migration. |
+| DM-11 | Indexes exist for every list/query path shipped: `leads(tenant_id, upload_id)`, `leads(tenant_id, partner_id, created_at)`, `leads(tenant_id, dedupe_key)`, `coverage_zips(tenant_id, zip5)` unique-current, `lead_notes(lead_id)`. New list endpoints ship with their index in the same migration. _Amended:_ `leads(tenant_id, dedupe_key)` is a **plain (non-unique)** index (ADR-0038 retired the dedup collapse); the `events(tenant_id, created_at)` index was dropped with the `events` table (ADR-0020, migration 0015). |
 
 ## 6. Functional requirements
 
@@ -210,7 +212,7 @@ into every run's rules snapshot (DM-08).
 | -- | ----------- |
 | NTF-01 | **Release** (5 min after upload — the distribution hold, ADR-0026) → per-partner digest (only partners with new leads) with counts + reference IDs + portal link. Partners with zero new leads receive nothing. (The admin run-summary is sent at upload completion.) |
 | NTF-02 | Admin run-summary email; optional admin alert on partner status changes (SET-03). |
-| NTF-03 | All email via Resend through an outbox table (delivery status, retry with backoff), consuming `events`. |
+| NTF-03 | All email via Resend through an outbox table (`email_outbox`: delivery status, retry with backoff). _Amended by ADR-0020:_ the "consuming `events`" clause is retired with the `events` table (migration 0015). |
 | NTF-04 | In-app notification center for both roles: unread badge, list with deep links, mark-read. |
 | NTF-05 | Per-event preferences (SET-03): each role toggles email vs in-app-only per event type. Transactional auth email always on. |
 

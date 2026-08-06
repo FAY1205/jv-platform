@@ -9,7 +9,7 @@ import { SettingsHeader } from "./settings-header";
 // The "Settings" title lives in the topbar (SettingsHeader); each section renders its own
 // SettingsSection header. Toast comes from AppShell (ADR-0030).
 export default async function SettingsLayout({ children }: { children: React.ReactNode }) {
-  // SCP-03: resolve platform-ownership server-side so the nav can reveal the owner-only
+  // SCP-07: resolve platform-ownership server-side so the nav can reveal the owner-only
   // Invitations link without a client fetch. Best-effort — the layout must still render
   // if scope can't resolve (the page/route enforce auth).
   const scope = await getServerScope().catch(() => null);

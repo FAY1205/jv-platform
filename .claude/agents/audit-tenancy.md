@@ -42,9 +42,12 @@ Drizzle queries. Audit every finding under that assumption: there is no DB backs
 5. Child-table reads (`lead_status_history`, `listing_checks`) go through
    `leadChildWhere` — a partner must never see another partner's lead children.
 6. New tables: migration adds `tenant_id`, deny-by-default RLS policy, and indexes in
-   the SAME migration (SEAM-01, DM-11). Exception list (pre-tenant auth tables:
-   `auth_attempts`, `reset_tokens`, `trusted_devices`, `otp_challenges`) is closed —
-   additions to it need an ADR.
+   the SAME migration (SEAM-01, DM-11). Exception list (auth-plane / pre-session tables:
+   `auth_attempts`, `reset_tokens`, `trusted_devices`, `otp_challenges`, `notice_claims`,
+   `signup_codes`) is closed — additions to it need an ADR. `notice_claims` (AUT-04) and
+   `signup_codes` (SCP-06) were accepted onto the list by ADR-0042; both are deny-by-default
+   RLS (RLS enabled, no permissive policy). NB the label is "auth-plane," not strictly "no
+   tenant_id": `trusted_devices` does carry a `tenant_id`.
 7. For the non-tenant auth tables: verify identifiers can't be abused across tenants
    (lockout griefing, enumeration via rate-limit state, trusted-device family
    crossover via userId reuse).

@@ -8,7 +8,7 @@ import { csrfHeaders } from "@/lib/csrf-client";
 import { Card, CardBody, CardHeader, CardTitle, Button, Skeleton, EmptyState, QueryErrorState, useToast } from "@/components";
 import { SettingsSection } from "../settings-section";
 
-// SCP-03: owner-only signup invitation codes. Visible only to platform owners
+// SCP-06/SCP-07: owner-only signup invitation codes. Visible only to platform owners
 // (ADMIN_ALLOWLIST); the API re-checks. Generate a single-use, 48-hour code and hand
 // it to a prospective admin — they must enter it to create a workspace.
 

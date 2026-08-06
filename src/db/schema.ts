@@ -671,7 +671,7 @@ export const signupVerifications = pgTable(
   ],
 );
 
-// ── Signup invitation codes (SCP-03): a single-use, 48h code the platform owner
+// ── Signup invitation codes (SCP-06): a single-use, 48h code the platform owner
 // generates and hands to a prospective admin; required at signup. Hashed at rest
 // (only the hash is stored; the plaintext is shown once to the owner). Not
 // tenant-scoped (redeemed before any tenant exists); server-managed via the

@@ -111,7 +111,7 @@ export async function sweepSignupVerifications(
   });
 }
 
-// ── signup_codes (SCP-03) — createdAt-anchored. verifySignupCode rejects any code past
+// ── signup_codes (SCP-06) — createdAt-anchored. verifySignupCode rejects any code past
 // SIGNUP_CODE_TTL_MS (48h) and single-use burns it, so a row older than the TTL is dead
 // regardless of used state. createdBy holds only the OWNER's own allowlisted email (not a
 // third party), so we prune the whole window — used and long-expired alike. Cutoff DERIVED

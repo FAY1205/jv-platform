@@ -9,7 +9,7 @@ import { provisionSignup, SignupCodeConsumedError } from "@/lib/auth/provision-s
 import { SignupCodeStore } from "@/lib/auth/signup-code-store";
 import { issueSignupCode, hashCode } from "@/lib/auth/signup-code";
 
-// SCP-03: invitation code lifecycle + single-use consumption inside provisioning.
+// SCP-06: invitation code lifecycle + single-use consumption inside provisioning.
 // Self-skips without DATABASE_URL.
 const url = process.env.DATABASE_URL;
 const suite = url ? describe : describe.skip;
@@ -36,7 +36,7 @@ function makeFakeAdmin() {
   return { admin: admin as unknown as SupabaseClient, createdUserIds, deleteUserCalls };
 }
 
-suite("SCP-03: signup invitation codes", () => {
+suite("SCP-06: signup invitation codes", () => {
   let client: ReturnType<typeof postgres>;
   let db: PostgresJsDatabase<typeof schema>;
   let store: SignupCodeStore;

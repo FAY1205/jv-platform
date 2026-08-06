@@ -7,7 +7,7 @@ import { issueSignupCode } from "@/lib/auth/signup-code";
 import { SignupCodeStore } from "@/lib/auth/signup-code-store";
 import { jsonOk, jsonError } from "@/lib/http";
 
-// SCP-03: owner-only signup invitation codes. Gated to a tenant admin whose email is
+// SCP-06/SCP-07: owner-only signup invitation codes. Gated to a tenant admin whose email is
 // on the platform ADMIN_ALLOWLIST (no platform role exists — see platform-owner.ts).
 // GET lists active (unused, unexpired) codes; POST mints one (plaintext shown once);
 // DELETE revokes an unused one. The plaintext is never stored or re-shown.

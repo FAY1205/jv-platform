@@ -2,7 +2,7 @@ import { randomInt } from "node:crypto";
 import { sha256Hex } from "./hash";
 import { timingSafeEqualStr } from "./constant-time";
 
-// SCP-03: signup invitation codes. A single-use, 48-hour code the platform owner
+// SCP-06: signup invitation codes. A single-use, 48-hour code the platform owner
 // generates and hands to a prospective admin; required at signup. The plaintext is
 // shown to the owner once (to copy); only its hash is stored (AUT-06 pattern,
 // mirrors signup-token.ts). Human-typeable: Crockford base32 (no ambiguous

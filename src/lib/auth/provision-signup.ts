@@ -72,7 +72,7 @@ export interface ProvisionSignupParams {
   email: string;
   password: string;
   workspaceName: string;
-  /** SCP-03: the invitation code row to consume atomically with provisioning. When
+  /** SCP-06: the invitation code row to consume atomically with provisioning. When
    *  set, provisioning fails (and compensates) if the code was already redeemed. */
   signupCodeId?: string;
 }
@@ -82,7 +82,7 @@ export interface ProvisionSignupParams {
 // route treats this identically to the pre-check "already registered" path.
 export class SignupEmailExistsError extends Error {}
 
-// SCP-03: thrown when the invitation code was consumed by a concurrent signup between
+// SCP-06: thrown when the invitation code was consumed by a concurrent signup between
 // the route's up-front validity check and this transaction (single-use, first wins).
 export class SignupCodeConsumedError extends Error {}
 
@@ -118,7 +118,7 @@ export async function provisionSignup(
       // owner/script-provisioned tenants, which have no acceptance record and stay exempt.
       await tx.insert(schema.tenants).values({ id: tenantId, name: workspaceName, slug: finalSlug, selfServe: true });
       await tx.insert(schema.users).values({ id: userId, tenantId, email, role: "admin" });
-      // SCP-03: burn the invitation code atomically with the tenant it creates. The
+      // SCP-06: burn the invitation code atomically with the tenant it creates. The
       // conditional `used_at IS NULL` guard makes it single-use even under a concurrent
       // race; if it lost the race (0 rows), the whole signup rolls back + compensates.
       if (signupCodeId) {

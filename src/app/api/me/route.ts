@@ -20,7 +20,7 @@ export async function GET() {
       .innerJoin(schema.tenants, eq(schema.tenants.id, schema.users.tenantId))
       .where(and(tenantWhere(schema.users, scope), eq(schema.users.id, scope.userId)));
     if (!row) return jsonError("not_found", "Account not found.", 404);
-    // SCP-03: surface whether this admin is a platform owner (ADMIN_ALLOWLIST) so the
+    // SCP-07: surface whether this admin is a platform owner (ADMIN_ALLOWLIST) so the
     // client can reveal the owner-only Invitations surface. The route itself re-checks.
     return jsonOk({
       email: row.email,
