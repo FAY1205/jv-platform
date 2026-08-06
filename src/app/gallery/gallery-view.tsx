@@ -438,6 +438,10 @@ function Gallery() {
                 <Button variant="secondary" onClick={() => toast("Export started — you’ll be notified")}>Show toast</Button>
                 <Button variant="secondary" onClick={() => toast("Status saved — visible to your admin", "success")}>Success toast</Button>
               </div>
+              <p className="text-step-1 text-text-3">
+                Toasts auto-dismiss after {"~"}2.6s, but the countdown pauses while you hover or keyboard-focus
+                the stack and each carries a ✕ to dismiss on demand (WCAG 2.2.1 Timing Adjustable).
+              </p>
             </CardBody>
           </Card>
         </Section>
