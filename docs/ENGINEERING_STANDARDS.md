@@ -80,11 +80,12 @@ Exemplars: `src/app/api/uploads/route.ts`, `src/app/api/admin/partners/route.ts`
   xact-scoped locks only.
 - Known open items: the dedupe partial-unique-index follow-up is **resolved by
   ADR-0038** (migration 0034 dropped uniqueness — same-dedupe-key rows are
-  legitimate, do not re-flag); `TODO(owner)` retention sweep (SET-07) for
-  `email_outbox` and `idempotency_keys` growth (the `events` table was dropped by
-  ADR-0020; the auth tables — `auth_attempts`, `otp_challenges`, `reset_tokens`,
-  `signup_verifications`, `trusted_devices`, `notice_claims` — are already swept by
-  the retention cron).
+  legitimate, do not re-flag). Retention sweep (SET-07) is now **complete** — the
+  auth tables (`auth_attempts`, `otp_challenges`, `reset_tokens`,
+  `signup_verifications`, `trusted_devices`, `notice_claims`) and, since WP-RET-2,
+  the tenant-scoped operational tables (`idempotency_keys`, `email_outbox` terminal
+  rows, `ai_feedback`) are all pruned by the daily retention cron. The `events`
+  table was dropped by ADR-0020.
 
 ## 6. AuthN/Z patterns (AUT-*)
 

@@ -12,6 +12,7 @@ import {
   sweepTrustedDevices,
   sweepNoticeClaims,
 } from "@/modules/retention/auth-tables";
+import { sweepIdempotencyKeys, sweepEmailOutbox, sweepAiFeedback } from "@/modules/retention/operational";
 import { logError } from "@/lib/observability";
 import { jsonOk, jsonError, jsonServerError } from "@/lib/http";
 import * as Sentry from "@sentry/nextjs";
@@ -80,7 +81,7 @@ export async function GET(request: Request) {
       // with hygiene work. trusted_devices is now swept here too (WP-SU-14) — but CANARY-SAFE: it
       // prunes a row only when its family has no live head, so an active family's reuse canaries
       // survive (AUT-10 preserved).
-      const [authAttempts, otpChallenges, resetTokens, signupVerifications, signupCodes, trustedDevices, noticeClaims] = await Promise.all([
+      const [authAttempts, otpChallenges, resetTokens, signupVerifications, signupCodes, trustedDevices, noticeClaims, idempotencyKeys, emailOutbox, aiFeedback] = await Promise.all([
         sweepAuthAttempts(db)
           .then((r) => r.deleted)
           .catch((e) => {
@@ -126,9 +127,30 @@ export async function GET(request: Request) {
             logError("cron_notice_claims_sweep_failed", { message: e instanceof Error ? e.message : String(e) });
             return 0;
           }),
+        // WP-RET-2: the three tenant-scoped operational tables (idempotency_keys, email_outbox
+        // terminal rows, ai_feedback) — SET-07's remaining unbounded-growth list. Same best-effort-
+        // behind-its-own-alert shape; a hygiene pass must not fail this monitor's LGL-02 check-in.
+        sweepIdempotencyKeys(db)
+          .then((r) => r.deleted)
+          .catch((e) => {
+            logError("cron_idempotency_keys_sweep_failed", { message: e instanceof Error ? e.message : String(e) });
+            return 0;
+          }),
+        sweepEmailOutbox(db)
+          .then((r) => r.deleted)
+          .catch((e) => {
+            logError("cron_email_outbox_sweep_failed", { message: e instanceof Error ? e.message : String(e) });
+            return 0;
+          }),
+        sweepAiFeedback(db)
+          .then((r) => r.deleted)
+          .catch((e) => {
+            logError("cron_ai_feedback_sweep_failed", { message: e instanceof Error ? e.message : String(e) });
+            return 0;
+          }),
       ]);
 
-      return { tenants: swept, purged, authAttempts, otpChallenges, resetTokens, signupVerifications, signupCodes, trustedDevices, noticeClaims };
+      return { tenants: swept, purged, authAttempts, otpChallenges, resetTokens, signupVerifications, signupCodes, trustedDevices, noticeClaims, idempotencyKeys, emailOutbox, aiFeedback };
     },
     monitorConfig(MONITOR),
   ).then(
