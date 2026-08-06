@@ -3,6 +3,7 @@
 import * as React from "react";
 import { useQuery } from "@tanstack/react-query";
 import { apiGet } from "@/lib/api";
+import { fmtDateTime } from "@/lib/dates";
 import { Card, CardBody, Badge, EmptyState, QueryErrorState, Skeleton, Pagination, DEFAULT_PAGE_SIZE } from "@/components";
 
 // WP-PW-4 Task 1: the mobile (< lg) Activity view. WP-PP-5: shares the desktop's query
@@ -41,7 +42,7 @@ export function ActivityMobile() {
                     <Badge variant={i.kind === "status" ? "state" : "neutral"}>{i.kind === "status" ? "Status" : "Note"}</Badge>
                     <span className="num text-sm text-text-2">{i.detail}</span>
                   </div>
-                  <span className="num text-step-1 text-text-3">{new Date(i.when).toLocaleString()}</span>
+                  <span className="num text-step-1 text-text-3">{fmtDateTime(i.when)}</span>
                 </li>
               ))}
             </ul>

@@ -5,6 +5,7 @@ import Link from "next/link";
 import dynamic from "next/dynamic";
 import { useQuery, keepPreviousData } from "@tanstack/react-query";
 import { apiGet } from "@/lib/api";
+import { fmtDate } from "@/lib/dates";
 import { SegmentedControl, Skeleton, EmptyState, QueryErrorState, PartnerTag, Table, THead, TBody, Th, Tr, Td, HeroKpi } from "@/components";
 import { statusPillClass } from "@/lib/status-pill";
 import { useIsDesktop } from "@/lib/use-media-query";
@@ -60,10 +61,6 @@ interface PortalLeadsPage {
   page: number;
   pageSize: number;
   total: number;
-}
-
-function fmtDate(iso: string): string {
-  return new Date(iso).toLocaleDateString();
 }
 
 export function PortalDashboard() {

@@ -3,6 +3,7 @@
 import * as React from "react";
 import { useQuery } from "@tanstack/react-query";
 import { apiGet } from "@/lib/api";
+import { fmtDate } from "@/lib/dates";
 import { useDebouncedValue } from "@/lib/use-debounced-value";
 import {
   Button, Card, FilterPill, Input, Table, THead, TBody, Th, Tr, Td, Pagination, DEFAULT_PAGE_SIZE, Skeleton, EmptyState, QueryErrorState, HotLeadMark, RowOpenButton, StatusSelect,
@@ -25,10 +26,6 @@ const DEFAULT_DIR: Record<PortalLeadSort, "asc" | "desc"> = {
   state: "asc",
   ref: "asc",
 };
-
-function fmtDate(iso: string): string {
-  return new Date(iso).toLocaleDateString();
-}
 
 export function LeadsDesktop({ onOpen }: { onOpen: (refId: string) => void }) {
   const [sort, setSort] = React.useState<PortalLeadSort>("received");

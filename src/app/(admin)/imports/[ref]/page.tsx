@@ -11,7 +11,7 @@ import type { RunDetail, RunLeadView, PartnerView } from "@/modules/run/view-typ
 import { buildAnalytics } from "@/modules/analytics/overview";
 import { matchMethodLabel } from "@/lib/match-method";
 import { Badge, Button, Dialog, Textarea, Card, CardHeader, CardTitle, CardBody, PartnerTag, Table, THead, TBody, Th, Tr, Td, RowOpenButton, EmptyState, QueryErrorState, Skeleton, AppShell, useToast } from "@/components";
-import { fmtDate } from "../_shell";
+import { fmtDate } from "@/lib/dates";
 import { isWithinVoidWindow } from "@/modules/run/void-window";
 
 // F-55: leads open in the shared dialog, not the old read-only /leads/[ref] page.

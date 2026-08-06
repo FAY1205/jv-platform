@@ -4,6 +4,7 @@ import * as React from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiGet } from "@/lib/api";
 import { csrfHeaders } from "@/lib/csrf-client";
+import { fmtDateTime } from "@/lib/dates";
 import {
   Dialog,
   Button,
@@ -83,10 +84,6 @@ interface Partner {
 
 const REVERT = "__revert__";
 const UNASSIGNED = "__unassigned__";
-
-function fmtWhen(iso: string): string {
-  return new Date(iso).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
-}
 
 const ACTIVITY_DOT: Record<Activity["kind"], string> = {
   imported: "bg-info",
@@ -230,7 +227,7 @@ function ViewMode({ d, onEdit }: { d: LeadDetail; onEdit: () => void }) {
             </Badge>
           )}
         </Field>
-        <Field label="Received">{fmtWhen(d.receivedAt)}</Field>
+        <Field label="Received">{fmtDateTime(d.receivedAt)}</Field>
         {d.assignment.manual && d.assignment.original && (
           <Field label="Original routing">
             <PartnerTag size="sm" name={d.assignment.original.name} color={d.assignment.original.color} refId={d.assignment.original.refId} />
@@ -343,7 +340,7 @@ function ActivityLog({ activity }: { activity: Activity[] }) {
               <div className="flex flex-1 flex-col">
                 <span className="text-sm text-text">{a.label}</span>
                 <span className="num text-xs text-text-3">
-                  {fmtWhen(a.at)}
+                  {fmtDateTime(a.at)}
                   {a.actor ? ` · ${a.actor}` : ""}
                 </span>
               </div>

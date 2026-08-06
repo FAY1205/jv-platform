@@ -4,6 +4,7 @@ import * as React from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiGet } from "@/lib/api";
 import { csrfHeaders } from "@/lib/csrf-client";
+import { fmtDateTime } from "@/lib/dates";
 import { Card, CardHeader, CardTitle, CardBody } from "./Card";
 import { Button } from "./Button";
 import { Textarea } from "./Textarea";
@@ -143,7 +144,7 @@ export function NotesPanel({
                   inside aria-live get re-announced noisily by some screen readers. */}
               <span className="text-xs text-text-3">
                 <span aria-live="polite">
-                  {new Date(n.updatedAt).toLocaleString()}
+                  {fmtDateTime(n.updatedAt)}
                   {n.edited ? " · edited" : ""}
                   {edit.isPending && edit.variables?.id === n.id ? " · Saving…" : savedId === n.id ? " · Saved ✓" : ""}
                 </span>

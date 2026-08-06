@@ -22,6 +22,7 @@ vi.mock("@/lib/api", () => ({ apiGet: vi.fn(async () => ACTIVITY_PAGE) }));
 vi.mock("@/lib/use-media-query", () => ({ useIsDesktop: () => true }));
 
 import { apiGet } from "@/lib/api";
+import { fmtDateTime } from "@/lib/dates";
 import PortalActivityPage from "@/app/portal/activity/page";
 
 function renderPage() {
@@ -46,7 +47,8 @@ describe("WP-PW-4 Task 1 ActivityDesktop (table)", () => {
     expect(screen.getByText("Left a voicemail")).toBeTruthy();
     expect(screen.getByText("Status")).toBeTruthy();
     expect(screen.getByText("Note")).toBeTruthy();
-    expect(screen.getByText(new Date(ACTIVITY_PAGE.items[0].when).toLocaleString())).toBeTruthy();
+    // Renders the timestamp through the shared date util (R-63), not an ad-hoc toLocaleString.
+    expect(screen.getByText(fmtDateTime(ACTIVITY_PAGE.items[0].when))).toBeTruthy();
   });
 
   it("PW4-02 + WP-PP-5: the shared Pagination shows a real total and enables Next when more pages exist", async () => {

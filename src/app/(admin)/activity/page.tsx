@@ -3,6 +3,7 @@
 import * as React from "react";
 import { useQuery } from "@tanstack/react-query";
 import { apiGet } from "@/lib/api";
+import { fmtDateTime } from "@/lib/dates";
 import { useDebouncedValue } from "@/lib/use-debounced-value";
 import { AppShell, Card, Table, THead, TBody, Th, Tr, Td, Badge, Input, Select, DateRangePicker, Pagination, EmptyState, QueryErrorState, Skeleton, usePageHeader } from "@/components";
 import type { DateRangeValue } from "@/components/DateRangePicker";
@@ -104,7 +105,7 @@ function ActivityBody() {
             <TBody>
               {rows.map((i) => (
                 <Tr key={i.id}>
-                  <Td><span className="num text-step-1 text-text-3">{new Date(i.when).toLocaleString()}</span></Td>
+                  <Td><span className="num text-step-1 text-text-3">{fmtDateTime(i.when)}</span></Td>
                   <Td><span className="text-sm text-text-2">{i.actor ?? "system"}</span></Td>
                   {/* T6 (owner note #9): sentences, not machine strings — the raw action
                       string stays reachable via the title attribute. */}

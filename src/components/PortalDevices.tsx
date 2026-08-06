@@ -4,6 +4,7 @@ import * as React from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiGet } from "@/lib/api";
 import { csrfHeaders } from "@/lib/csrf-client";
+import { fmtDateTime } from "@/lib/dates";
 import { Button } from "./Button";
 import { EmptyState } from "./EmptyState";
 import { QueryErrorState } from "./QueryErrorState";
@@ -22,11 +23,6 @@ interface Device {
   ip: string | null;
   createdAt: string;
   lastSeenAt: string | null;
-}
-
-function fmt(iso: string | null): string {
-  if (!iso) return "—";
-  return new Date(iso).toLocaleString();
 }
 
 export function PortalDevices() {
@@ -75,7 +71,7 @@ export function PortalDevices() {
               <div className="min-w-0">
                 <p className="truncate text-sm text-text-2">{d.deviceLabel ?? "Unknown device"}</p>
                 <p className="num text-step-1 text-text-3">
-                  last seen {fmt(d.lastSeenAt)} · {d.ip ?? "—"}
+                  last seen {d.lastSeenAt ? fmtDateTime(d.lastSeenAt) : "—"} · {d.ip ?? "—"}
                 </p>
               </div>
               {confirmId === d.familyId ? (

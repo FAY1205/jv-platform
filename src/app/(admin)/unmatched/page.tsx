@@ -4,6 +4,7 @@ import * as React from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import dynamic from "next/dynamic";
 import { apiGet } from "@/lib/api";
+import { fmtDateTime } from "@/lib/dates";
 import { useDebouncedValue } from "@/lib/use-debounced-value";
 import { csrfHeaders } from "@/lib/csrf-client";
 import {
@@ -419,7 +420,7 @@ function UnmatchedBody() {
                           </Tooltip>
                         </Td>
                         <Td>{l.campaign ? <Badge variant="neutral">{l.campaign}</Badge> : <span className="text-xs text-text-3">—</span>}</Td>
-                        <Td align="right"><Tooltip content={new Date(l.receivedAt).toLocaleString()}><span className="num tabular-nums text-text-2" tabIndex={0}>{formatWaiting(l.receivedAt, now)}</span></Tooltip></Td>
+                        <Td align="right"><Tooltip content={fmtDateTime(l.receivedAt)}><span className="num tabular-nums text-text-2" tabIndex={0}>{formatWaiting(l.receivedAt, now)}</span></Tooltip></Td>
                         <Td align="right"><Button size="sm" variant="primary" onClick={() => setAssigning([l.refId])}>Assign →</Button></Td>
                       </Tr>
                     ))}

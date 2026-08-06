@@ -3,6 +3,7 @@
 import * as React from "react";
 import { useQuery } from "@tanstack/react-query";
 import { apiGet } from "@/lib/api";
+import { fmtDate } from "@/lib/dates";
 import { Button, EmptyState, QueryErrorState, Skeleton, HotLeadMark } from "@/components";
 import { statusPillClass } from "@/lib/status-pill";
 
@@ -28,10 +29,6 @@ interface LeadsPage {
   page: number;
   pageSize: number;
   total: number;
-}
-
-function fmtDate(iso: string): string {
-  return new Date(iso).toLocaleDateString();
 }
 
 export function LeadsMobile({ onOpen }: { onOpen: (refId: string) => void }) {

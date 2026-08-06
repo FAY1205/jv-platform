@@ -3,6 +3,7 @@
 import * as React from "react";
 import { useQuery } from "@tanstack/react-query";
 import { apiGet } from "@/lib/api";
+import { fmtDateTime } from "@/lib/dates";
 import { Card, Table, THead, TBody, Th, Tr, Td, Badge, EmptyState, QueryErrorState, Skeleton, Pagination, DEFAULT_PAGE_SIZE } from "@/components";
 
 // WP-PW-4 Task 1: the desktop (>= lg) Activity table (mirrors src/app/(admin)/activity/page.tsx's
@@ -49,7 +50,7 @@ export function ActivityDesktop() {
                 <Tr key={idx}>
                   <Td><Badge variant={i.kind === "status" ? "state" : "neutral"}>{i.kind === "status" ? "Status" : "Note"}</Badge></Td>
                   <Td><span className="num text-sm text-text-2">{i.detail}</span></Td>
-                  <Td align="right"><span className="num text-step-1 text-text-3">{new Date(i.when).toLocaleString()}</span></Td>
+                  <Td align="right"><span className="num text-step-1 text-text-3">{fmtDateTime(i.when)}</span></Td>
                 </Tr>
               ))}
             </TBody>

@@ -3,6 +3,7 @@
 import * as React from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiGet } from "@/lib/api";
+import { fmtDateTime } from "@/lib/dates";
 import { csrfHeaders } from "@/lib/csrf-client";
 import { Card, CardBody, CardHeader, CardTitle, Button, Skeleton, EmptyState, QueryErrorState, useToast } from "@/components";
 import { SettingsSection } from "../settings-section";
@@ -13,10 +14,6 @@ import { SettingsSection } from "../settings-section";
 
 interface Me { isPlatformOwner?: boolean }
 interface ActiveCode { id: string; createdBy: string; createdAt: string; expiresAt: string }
-
-function fmt(iso: string): string {
-  return new Date(iso).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
-}
 
 export default function InvitationsPage() {
   const qc = useQueryClient();
@@ -123,8 +120,8 @@ export default function InvitationsPage() {
               {codes.map((c) => (
                 <li key={c.id} className="flex flex-wrap items-center justify-between gap-3 py-3">
                   <div className="min-w-0">
-                    <p className="text-sm text-text">Created {fmt(c.createdAt)}</p>
-                    <p className="text-xs text-text-3">Expires {fmt(c.expiresAt)} · by {c.createdBy}</p>
+                    <p className="text-sm text-text">Created {fmtDateTime(c.createdAt)}</p>
+                    <p className="text-xs text-text-3">Expires {fmtDateTime(c.expiresAt)} · by {c.createdBy}</p>
                   </div>
                   <Button
                     variant="secondary"

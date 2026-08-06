@@ -4,6 +4,7 @@ import * as React from "react";
 import { useQuery } from "@tanstack/react-query";
 import dynamic from "next/dynamic";
 import { apiGet } from "@/lib/api";
+import { fmtDate } from "@/lib/dates";
 import { LEAD_STATUS_FILTERS, DEFAULT_STATUS_FILTERS, isDefaultStatuses, type LeadSortField } from "@/modules/leads/schema";
 import {
   AppShell, Card, Table, THead, TBody, Th, Tr, Td, PartnerTag, EmptyState, QueryErrorState, Skeleton,
@@ -294,8 +295,8 @@ function LeadsTable({
                       : l.mlsStatus === "kept" ? <span className="text-xs font-semibold text-warn">Unmatched</span>
                       : <span className="text-xs text-text-3">—</span>}
                   </Td>
-                  <Td align="right"><span className="num text-xs text-text-3 tabular-nums">{new Date(l.receivedAt).toLocaleDateString()}</span></Td>
-                  <Td align="right"><span className="num text-xs text-text-3 tabular-nums">{l.modifiedAt ? new Date(l.modifiedAt).toLocaleDateString() : "—"}</span></Td>
+                  <Td align="right"><span className="num text-xs text-text-3 tabular-nums">{fmtDate(l.receivedAt)}</span></Td>
+                  <Td align="right"><span className="num text-xs text-text-3 tabular-nums">{l.modifiedAt ? fmtDate(l.modifiedAt) : "—"}</span></Td>
                   <Td><StatusSelect refId={l.refId} status={l.status} mlsStatus={l.mlsStatus} /></Td>
                 </Tr>
               ))}

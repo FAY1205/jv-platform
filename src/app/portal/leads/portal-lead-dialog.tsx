@@ -3,6 +3,7 @@
 import * as React from "react";
 import { useQuery } from "@tanstack/react-query";
 import { apiGet } from "@/lib/api";
+import { fmtDateTime } from "@/lib/dates";
 import { Dialog, Badge, Skeleton, QueryErrorState, NotesPanel, ClampedText, ListingBadge, StatusSelect, Tooltip } from "@/components";
 import { googleSearchUrl } from "@/lib/search-links";
 
@@ -27,10 +28,6 @@ interface LeadDetail {
   history: { status: string; changedAt: string }[];
   availableStatuses: string[];
   listing: { status: "pending" | "yes" | "no" | "unknown"; link: string | null };
-}
-
-function fmtWhen(iso: string): string {
-  return new Date(iso).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
 }
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
@@ -105,7 +102,7 @@ export function PortalLeadDialog({ refId, onClose }: { refId: string; onClose: (
           <div className="grid grid-cols-2 gap-x-5 gap-y-4">
             <Field label="Reason for selling">{data.reasonForSelling || "—"}</Field>
             <Field label="Time to sell">{data.timeToSell || "—"}</Field>
-            <Field label="Received">{fmtWhen(data.receivedAt)}</Field>
+            <Field label="Received">{fmtDateTime(data.receivedAt)}</Field>
             <Field label="Listing check">
               <ListingBadge status={data.listing.status} link={data.listing.link} />
             </Field>
@@ -130,7 +127,7 @@ export function PortalLeadDialog({ refId, onClose }: { refId: string; onClose: (
                 {data.history.map((h, i) => (
                   <li key={i} className="flex items-center gap-3 text-sm">
                     <Badge>{h.status}</Badge>
-                    <span className="num text-step-1 text-text-3">{fmtWhen(h.changedAt)}</span>
+                    <span className="num text-step-1 text-text-3">{fmtDateTime(h.changedAt)}</span>
                   </li>
                 ))}
               </ol>

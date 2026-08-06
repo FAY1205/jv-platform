@@ -7,6 +7,7 @@ import { parseWorkbookInWorker } from "@/lib/xlsx-client";
 import { Card, CardBody, Button, AppShell, Tooltip, Spinner } from "@/components";
 import { csrfHeaders } from "@/lib/csrf-client";
 import { sha256Hex } from "@/lib/hash-client";
+import { fmtDate } from "@/lib/dates";
 import { validateUploadFile } from "@/lib/upload-guard";
 // Client-safe: seed-profiles is pure data (its only import is a type, erased at build) —
 // no DB/server chain reaches the bundle through it.
@@ -144,7 +145,7 @@ export default function UploadPage() {
                 <p className="max-w-[52ch] text-sm text-text-2">
                   <span className="font-medium text-text">{parsed.filename}</span> matches import{" "}
                   <span className="num font-medium text-text">{dupWarn.priorRef}</span>
-                  {dupWarn.priorDate ? <> from {new Date(dupWarn.priorDate).toLocaleDateString(undefined, { dateStyle: "medium" })}</> : null}.
+                  {dupWarn.priorDate ? <> from {fmtDate(dupWarn.priorDate)}</> : null}.
                   Importing it again will create a <span className="font-medium text-text">second copy of every lead</span> and
                   distribute them to partners again.
                 </p>

@@ -9,7 +9,7 @@ import {
   Card, Table, THead, TBody, Th, Tr, Td, Badge, EmptyState, QueryErrorState, Skeleton, AppShell,
   DateRangePicker, type DateRangeValue, Pagination, DEFAULT_PAGE_SIZE, usePageHeader,
 } from "@/components";
-import { fmtDate } from "./_shell";
+import { fmtDate } from "@/lib/dates";
 
 // The Imports list ("run" stays the internal engine term; the owner-facing word
 // is "import" — one processed weekly file). T4 (owner note #5): server-paginated
