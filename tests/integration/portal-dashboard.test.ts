@@ -90,6 +90,7 @@ suite("WP-PW-2b: portal dashboard KPI deltas (ANA-02, PRN-08)", () => {
     await db.delete(schema.leadStatusHistory).where(inArray(schema.leadStatusHistory.tenantId, tids));
     await db.delete(schema.leads).where(inArray(schema.leads.tenantId, tids));
     await db.delete(schema.uploads).where(inArray(schema.uploads.tenantId, tids));
+    await db.delete(schema.users).where(inArray(schema.users.tenantId, tids));
     await db.delete(schema.partners).where(inArray(schema.partners.tenantId, tids));
     await db.delete(schema.tenants).where(inArray(schema.tenants.id, tids));
   }
@@ -108,14 +109,18 @@ suite("WP-PW-2b: portal dashboard KPI deltas (ANA-02, PRN-08)", () => {
 
     const [t] = await db.insert(schema.tenants).values({ name: "PDashDelta", slug: SLUG_DELTA }).returning({ id: schema.tenants.id });
     const [me] = await db.insert(schema.partners).values({ tenantId: t.id, refId: "JV-301", name: "Cascade", color: "#3E8ED0", status: "active" }).returning({ id: schema.partners.id });
+    // A real partner user so status changes carry an actor (production always stamps changedByUserId;
+    // partnerPerformanceDetail attributes a touch only to the measured partner's own org — R-22).
+    const meUserId = randomUUID();
+    await db.insert(schema.users).values({ id: meUserId, tenantId: t.id, email: "me@pdash.test", role: "partner", partnerId: me.id });
     const [other] = await db.insert(schema.partners).values({ tenantId: t.id, refId: "JV-302", name: "Foothill", color: "#8E5B3E", status: "active" }).returning({ id: schema.partners.id });
     otherPartnerId = other.id;
     const [up] = await db.insert(schema.uploads).values({ tenantId: t.id, refId: "IM-26-060", filename: "d.xlsx", status: "processed" }).returning({ id: schema.uploads.id });
 
     // Mine — current 30d window: 2 given, 1 touched (→1 untouched), 1 closed.
     const [curTouched] = await db.insert(schema.leads).values({ tenantId: t.id, refId: "LD-DELTA-1", uploadId: up.id, dedupeKey: "d1", rawJson: {}, partnerId: me.id, mlsStatus: "kept", createdAt: ago(5 * DAY) }).returning({ id: schema.leads.id });
-    await db.insert(schema.leadStatusHistory).values({ tenantId: t.id, leadId: curTouched.id, status: "Contacted", createdAt: ago(5 * DAY - 3_600_000) });
-    await db.insert(schema.leadStatusHistory).values({ tenantId: t.id, leadId: curTouched.id, status: "Closed", createdAt: ago(4 * DAY) });
+    await db.insert(schema.leadStatusHistory).values({ tenantId: t.id, leadId: curTouched.id, status: "Contacted", changedByUserId: meUserId, createdAt: ago(5 * DAY - 3_600_000) });
+    await db.insert(schema.leadStatusHistory).values({ tenantId: t.id, leadId: curTouched.id, status: "Closed", changedByUserId: meUserId, createdAt: ago(4 * DAY) });
     await db.insert(schema.leads).values({ tenantId: t.id, refId: "LD-DELTA-2", uploadId: up.id, dedupeKey: "d2", rawJson: {}, partnerId: me.id, mlsStatus: "kept", createdAt: ago(3 * DAY) }); // untouched
 
     // Mine — prior 30d window (30-60d ago): 1 given, 0 touched (→1 untouched), 0 closed.
@@ -133,7 +138,7 @@ suite("WP-PW-2b: portal dashboard KPI deltas (ANA-02, PRN-08)", () => {
     await db.insert(schema.leads).values({ tenantId: t2.id, refId: "LD-DELTA-6", uploadId: up2.id, dedupeKey: "d6", rawJson: {}, partnerId: otherTenantPartner.id, mlsStatus: "kept", createdAt: ago(6 * DAY) });
     await db.insert(schema.leads).values({ tenantId: t2.id, refId: "LD-DELTA-7", uploadId: up2.id, dedupeKey: "d7", rawJson: {}, partnerId: otherTenantPartner.id, mlsStatus: "kept", createdAt: ago(50 * DAY) });
 
-    scope = { tenantId: t.id, role: "partner", userId: randomUUID(), partnerId: me.id };
+    scope = { tenantId: t.id, role: "partner", userId: meUserId, partnerId: me.id };
   });
 
   afterAll(async () => {
