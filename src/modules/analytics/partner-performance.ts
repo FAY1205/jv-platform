@@ -128,12 +128,21 @@ export function buildPartnerPerformance(range: RangeKey, now: Date, facts: reado
 
 /** SQL-scoped per-partner facts + the pure aggregate (PRN-15). Effective owner =
  *  `coalesce(manual_partner_id, partner_id) = partnerId`; kept, not deleted. `firstTouchAt`
- *  = earliest non-New status change OR partner note (author_role='partner', PRN-13). */
+ *  = earliest non-New status change (by the partner's own org or an admin) OR partner note
+ *  (author_role='partner', PRN-13), both authored by the measured partner's org — so a re-routed
+ *  lead never credits the new owner with the prior partner's touch/close (R-22). */
 export async function partnerPerformanceDetail(scope: ScopeContext, partnerId: string, range: RangeKey): Promise<PartnerPerformance> {
   const db = getDb();
   const leadTenant = tenantWhere(schema.leads, scope);
   const histTenant = tenantWhere(schema.leadStatusHistory, scope);
   const noteTenant = tenantWhere(schema.leadNotes, scope);
+  const usersTenant = tenantWhere(schema.users, scope);
+  // R-22: attribute a touch only to work the MEASURED partner's own org did (a status change by
+  // an admin still counts — the "any non-New status change" intent — but NOT another partner's).
+  // A lead's ownership moves on re-route (partnerOwnsLead), so without this the new owner inherits
+  // the prior partner's first-touch/closed timing. Notes are partner-only (PRN-13), so no admin arm.
+  const ownStatusAuthor = sql`and changed_by_user_id in (select id from users where ${usersTenant} and (role = 'admin' or partner_id = ${partnerId}))`;
+  const ownNoteAuthor = sql`and author_user_id in (select id from users where ${usersTenant} and partner_id = ${partnerId})`;
   // Distribution hold: a partner's own dashboard counts only RELEASED leads (held leads aren't
   // theirs yet); the admin's view of a partner's stats sees everything.
   // Pass the cutoff as an ISO string + explicit cast: db.execute()'s raw path can't serialize a
@@ -151,13 +160,13 @@ export async function partnerPerformanceDetail(scope: ScopeContext, partnerId: s
         min(created_at) filter (where status <> ${DEFAULT_STATUS}) as status_touch,
         max(created_at) filter (where status = 'Closed') as closed_at
       from lead_status_history
-      where ${histTenant} and lead_id in (select id from partner_leads)
+      where ${histTenant} and lead_id in (select id from partner_leads) ${ownStatusAuthor}
       group by lead_id
     ),
     note_hist as (
       select lead_id, min(created_at) as note_touch
       from lead_notes
-      where ${noteTenant} and author_role = 'partner' and lead_id in (select id from partner_leads)
+      where ${noteTenant} and author_role = 'partner' and lead_id in (select id from partner_leads) ${ownNoteAuthor}
       group by lead_id
     )
     select
