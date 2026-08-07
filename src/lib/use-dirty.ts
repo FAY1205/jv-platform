@@ -10,11 +10,12 @@ import * as React from "react";
  * so a dismiss gesture (Esc/backdrop/✕) on a dirty form asks before discarding.
  */
 export function useDirty(value: unknown, ready: boolean = true): boolean {
-  const baseline = React.useRef<string | null>(null);
   const snapshot = JSON.stringify(value);
-  // Capture once, the first ready render — an idempotent ref write, not reactive state.
-  if (ready && baseline.current === null) {
-    baseline.current = snapshot;
-  }
-  return baseline.current !== null && snapshot !== baseline.current;
+  // Capture the baseline snapshot once, on the first render where `ready` is true (a create form:
+  // the first render; an edit form that seeds asynchronously: after the record loads). Held in
+  // state and captured via adjust-state-during-render — the same idiom as the `seeded`/`prevOpen`
+  // patterns elsewhere — which converges in one extra render and reads no ref during render.
+  const [baseline, setBaseline] = React.useState<string | null>(() => (ready ? snapshot : null));
+  if (ready && baseline === null) setBaseline(snapshot);
+  return baseline !== null && snapshot !== baseline;
 }
