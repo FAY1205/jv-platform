@@ -12,8 +12,8 @@ Canonicalizes the frontend patterns this codebase follows. Authority order:
   **adjust-state-during-render** pattern (`data !== seededFrom` guard), never
   `setState`-in-`useEffect` (`react-hooks/set-state-in-effect` is an error).
 - Client state is minimal UI preference state; no new global stores.
-- Polling is a last resort; the ceiling is the NotificationBell 20s poll.
-  `TODO(owner)`: pause polling when the tab is hidden.
+- Polling is a last resort; the ceiling is the NotificationBell 30s poll, which
+  pauses when the tab is hidden and refetches on focus (visibility-aware by design).
 
 ## 2. Components (DSN, §6.17)
 
@@ -32,7 +32,6 @@ Canonicalizes the frontend patterns this codebase follows. Authority order:
     step — kept sub-floor by design and excluded from the ladder (and from the guard's
     ban list). (The hex map's on-polygon labels — the second former carve-out — retired
     with the hex `CoverageMap`, D1 2026-07-15.)
-- Known debt: `TODO(owner)` a `Checkbox` primitive (notification prefs use styled inputs).
 
 ## 3. Tokens & theming (PRN-12, SEAM-08)
 

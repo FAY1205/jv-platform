@@ -62,22 +62,28 @@ export function detectProfile(
 ): DetectResult {
   const upload = new Set(headers.map(normalizeHeader));
 
+  // R-34 (PRN-01, TST-11): rank by FIT RATIO (overlap / signature size), not absolute
+  // overlap — an exact match on a small signature must beat a partial overlap on a
+  // bigger one. Ties break deterministically on profile id (lexicographic), so the
+  // winner never depends on candidate order (DB rows arrive unordered).
   let best: SourceProfile | undefined;
-  let bestOverlap = -1;
+  let bestFit = -1;
   for (const p of profiles) {
+    if (p.headerSignature.length === 0) continue;
     const sig = p.headerSignature.map(normalizeHeader);
     const overlap = sig.filter((h) => upload.has(h)).length;
-    if (overlap > bestOverlap) {
-      bestOverlap = overlap;
+    const fit = overlap / sig.length;
+    if (fit > bestFit || (fit === bestFit && best !== undefined && p.id < best.id)) {
+      bestFit = fit;
       best = p;
     }
   }
 
-  if (!best || best.headerSignature.length === 0) return { status: "unknown" };
+  if (!best) return { status: "unknown" };
 
   const sig = best.headerSignature.map(normalizeHeader);
   const sigSet = new Set(sig);
-  if (bestOverlap / sig.length < MATCH_THRESHOLD) return { status: "unknown" };
+  if (bestFit < MATCH_THRESHOLD) return { status: "unknown" };
 
   const missing = sig.filter((h) => !upload.has(h));
   const extra = [...upload].filter((h) => !sigSet.has(h));

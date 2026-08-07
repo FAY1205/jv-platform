@@ -99,7 +99,7 @@ suite("POST /api/auth/signup", () => {
   // rows would push every later test in this file past the ceiling.
   const seededGlobal: string[] = [];
 
-  // SCP-03: signup now requires a valid invitation code. Seed a fresh one per test
+  // SCP-06: signup now requires a valid invitation code. Seed a fresh one per test
   // (single-use; only the happy-path test consumes it) exposed as `validCode`.
   const CODE_OWNER = "test@signup-route";
   let validCode = "";
@@ -217,14 +217,14 @@ suite("POST /api/auth/signup", () => {
     expect(verifyEmail).toBeTruthy();
     expect(verifyEmail!.links.some((l) => l.includes("/signup/verify?token="))).toBe(true);
 
-    // SCP-03: the code was consumed (single-use) and no longer redeems.
+    // SCP-06: the code was consumed (single-use) and no longer redeems.
     const codes = await db.select().from(schema.signupCodes).where(eq(schema.signupCodes.createdBy, CODE_OWNER));
     expect(codes).toHaveLength(1);
     expect(codes[0].usedAt).not.toBeNull();
     expect(codes[0].usedByTenantId).toBe(userRows[0].tenantId);
   });
 
-  it("SCP-03: an invalid invitation code is rejected (400) and never provisions", async () => {
+  it("SCP-06: an invalid invitation code is rejected (400) and never provisions", async () => {
     const email = `signup-${randomUUID()}@example.test`;
     const req = jsonRequest("POST", "/api/auth/signup", {
       email,

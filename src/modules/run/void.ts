@@ -65,7 +65,7 @@ export async function voidUpload(scope: ScopeContext, ref: string, reason: strin
   const db = getDb();
   return db.transaction(async (tx) => {
     // ING-06 / concurrency: serialize per tenant (mirrors persistRun) so two overlapping voids
-    // can't double-recall, and a void can't race a concurrent import's dedupe.
+    // can't double-recall, and a void can't race a concurrent import's inserts.
     await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${scope.tenantId})::bigint)`);
     const [upload] = await tx
       .select()
@@ -109,8 +109,8 @@ export async function voidUpload(scope: ScopeContext, ref: string, reason: strin
     // info goes at once (owner decision 2026-07-13). Every lead read filters deleted_at, so they
     // drop from dedupe/analytics/exports and both partner + admin lists globally; the import page
     // still shows them (redacted) since getRunDetail doesn't filter deleted_at. PRN-05: assignment
-    // untouched. dedupe_key is sentineled too, but the partial unique index (WHERE deleted_at IS
-    // NULL) already excludes soft-deleted rows, so a corrected re-upload still re-inserts freely.
+    // untouched. dedupe_key is sentineled too; ADR-0038 retired the dedup collapse, so dedupe_key
+    // is a plain (non-unique) index — a corrected re-upload re-inserts freely (no key collision).
     const recalled = await tx
       .update(schema.leads)
       .set({ deletedAt: voidedAt, ...redactionPatch(), piiPurgedAt: voidedAt })

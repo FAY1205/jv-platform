@@ -10,8 +10,8 @@ import { csrfHeaders } from "@/lib/csrf-client";
 import type { RunDetail, RunLeadView, PartnerView } from "@/modules/run/view-types";
 import { buildAnalytics } from "@/modules/analytics/overview";
 import { matchMethodLabel } from "@/lib/match-method";
-import { Badge, Button, Dialog, Textarea, Card, CardHeader, CardTitle, CardBody, PartnerTag, Table, THead, TBody, Th, Tr, Td, RowOpenButton, EmptyState, Skeleton, AppShell, useToast } from "@/components";
-import { fmtDate } from "../_shell";
+import { Badge, Button, Dialog, Textarea, Card, CardHeader, CardTitle, CardBody, PartnerTag, Table, THead, TBody, Th, Tr, Td, RowOpenButton, EmptyState, QueryErrorState, Skeleton, AppShell, useToast } from "@/components";
+import { fmtDate } from "@/lib/dates";
 import { isWithinVoidWindow } from "@/modules/run/void-window";
 
 // F-55: leads open in the shared dialog, not the old read-only /leads/[ref] page.
@@ -20,7 +20,7 @@ const LeadDialog = dynamic(() => import("../../leads/lead-dialog").then((m) => m
 export default function ImportDetailPage() {
   const params = useParams<{ ref: string }>();
   const ref = params.ref;
-  const { data, isPending, error } = useQuery({
+  const { data, isPending, error, refetch } = useQuery({
     queryKey: ["run", ref],
     queryFn: () => apiGet<RunDetail>(`/api/runs/${ref}`),
     enabled: Boolean(ref),
@@ -31,7 +31,7 @@ export default function ImportDetailPage() {
         <Link href="/imports" className="mb-4 inline-block text-sm text-text-3 transition-colors hover:text-text-2">
           ← Imports
         </Link>
-        {isPending ? <LoadingState /> : error ? <ErrorState message={(error as Error).message} /> : <RunView detail={data} />}
+        {isPending ? <LoadingState /> : error ? <ErrorState error={error} onRetry={refetch} /> : <RunView detail={data} />}
     </AppShell>
   );
 }
@@ -46,8 +46,8 @@ function LoadingState() {
   );
 }
 
-function ErrorState({ message }: { message: string }) {
-  return <Card><CardBody><EmptyState title="Couldn't load this import" description={message} /></CardBody></Card>;
+function ErrorState({ error, onRetry }: { error: unknown; onRetry: () => void }) {
+  return <Card><CardBody><QueryErrorState title="Couldn't load this import" error={error} onRetry={onRetry} /></CardBody></Card>;
 }
 
 // Import pipeline funnel (mockup 14): Imported → Removed → Distributed → Unmatched.
@@ -319,6 +319,7 @@ function RunView({ detail }: { detail: RunDetail }) {
       <Dialog
         open={modalOpen}
         onClose={() => setModalOpen(false)}
+        confirmClose={reason.trim().length > 0}
         title={<span>Void <span className="num">{upload.refId}</span>?</span>}
         footer={
           <>

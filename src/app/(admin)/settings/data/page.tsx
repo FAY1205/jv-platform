@@ -3,7 +3,7 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiGet } from "@/lib/api";
 import { csrfHeaders } from "@/lib/csrf-client";
-import { Card, CardBody, CardHeader, CardTitle, Table, THead, TBody, Th, Tr, Td, Badge, Switch, Skeleton, EmptyState, useToast } from "@/components";
+import { Card, CardBody, CardHeader, CardTitle, Table, THead, TBody, Th, Tr, Td, Badge, Switch, Skeleton, EmptyState, QueryErrorState, useToast } from "@/components";
 import { SettingsSection } from "../settings-section";
 
 // WS-7g: Data & Export — export color coding (F-39, wired to the export routes), data
@@ -26,7 +26,7 @@ interface DataSettings {
 export default function DataSettingsPage() {
   const qc = useQueryClient();
   const { toast } = useToast();
-  const { data, isPending, error } = useQuery({ queryKey: ["settings-data"], queryFn: () => apiGet<DataSettings>("/api/settings/data") });
+  const { data, isPending, error, refetch } = useQuery({ queryKey: ["settings-data"], queryFn: () => apiGet<DataSettings>("/api/settings/data") });
 
   const saveColor = useMutation({
     mutationFn: async (colorCoding: boolean) => {
@@ -47,7 +47,7 @@ export default function DataSettingsPage() {
   return (
     <SettingsSection title="Data & Export" description="Export options, retention, and recognized file formats.">
       {error ? (
-        <Card><CardBody><EmptyState title="Couldn't load settings" description={(error as Error).message} /></CardBody></Card>
+        <Card><CardBody><QueryErrorState title="Couldn't load settings" error={error} onRetry={() => refetch()} /></CardBody></Card>
       ) : isPending || !data ? (
         <Skeleton className="h-40" />
       ) : (

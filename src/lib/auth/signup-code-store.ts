@@ -3,7 +3,7 @@ import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import * as schema from "@/db/schema";
 import type { SignupCodeRecord } from "./signup-code";
 
-// SCP-03: persistence for signup invitation codes. Only the hash is stored; the
+// SCP-06: persistence for signup invitation codes. Only the hash is stored; the
 // plaintext exists only where the owner copied it. Server-managed (service role).
 
 type DB = PostgresJsDatabase<typeof schema>;

@@ -5,7 +5,8 @@ import Link from "next/link";
 import dynamic from "next/dynamic";
 import { useQuery, keepPreviousData } from "@tanstack/react-query";
 import { apiGet } from "@/lib/api";
-import { SegmentedControl, Skeleton, EmptyState, PartnerTag, Table, THead, TBody, Th, Tr, Td, HeroKpi } from "@/components";
+import { fmtDate } from "@/lib/dates";
+import { SegmentedControl, Skeleton, EmptyState, QueryErrorState, PartnerTag, Table, THead, TBody, Th, Tr, Td, HeroKpi } from "@/components";
 import { statusPillClass } from "@/lib/status-pill";
 import { useIsDesktop } from "@/lib/use-media-query";
 import type { RangeKey } from "@/modules/analytics/ranges";
@@ -60,10 +61,6 @@ interface PortalLeadsPage {
   page: number;
   pageSize: number;
   total: number;
-}
-
-function fmtDate(iso: string): string {
-  return new Date(iso).toLocaleDateString();
 }
 
 export function PortalDashboard() {
@@ -150,7 +147,7 @@ export function PortalDashboard() {
           territory map below (WP-PW-2 final fix 2). */}
       <div className="flex flex-col gap-4 lg:hidden">
         {stats.error ? (
-          <EmptyState title="Couldn't load your dashboard" description={(stats.error as Error).message} />
+          <QueryErrorState title="Couldn't load your dashboard" error={stats.error} onRetry={() => stats.refetch()} />
         ) : (
           <>
             <p className="font-display text-2xl font-semibold leading-tight tracking-tight text-balance text-text">
@@ -204,7 +201,7 @@ export function PortalDashboard() {
       <section className="hidden overflow-hidden rounded-2xl border border-border-soft bg-surface shadow-sm lg:grid lg:grid-cols-[1fr_1.2fr]">
         <div className="flex flex-col p-6 lg:p-7">
           {stats.error ? (
-            <EmptyState title="Couldn't load your dashboard" description={(stats.error as Error).message} />
+            <QueryErrorState title="Couldn't load your dashboard" error={stats.error} onRetry={() => stats.refetch()} />
           ) : (
             <>
               {/* T7a: admin hero anatomy — uppercase range eyebrow, headline, honest
@@ -292,7 +289,7 @@ export function PortalDashboard() {
           </Link>
         </div>
         {recentLeads.error ? (
-          <EmptyState compact title="Couldn't load your leads." className="py-8" />
+          <QueryErrorState compact title="Couldn't load your leads." error={recentLeads.error} onRetry={() => recentLeads.refetch()} className="py-8" />
         ) : !recentLeads.data ? (
           <div className="p-5">
             <Skeleton className="h-32 w-full rounded-lg" />

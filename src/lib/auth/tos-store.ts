@@ -1,4 +1,4 @@
-import { and, desc, eq } from "drizzle-orm";
+import { desc, eq } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import * as schema from "@/db/schema";
 
@@ -20,13 +20,4 @@ export async function recordTosAcceptance(db: DB, userId: string, version: strin
     .insert(schema.tosAcceptances)
     .values({ userId, version })
     .onConflictDoNothing({ target: [schema.tosAcceptances.userId, schema.tosAcceptances.version] });
-}
-
-export async function hasAcceptedTos(db: DB, userId: string, version: string): Promise<boolean> {
-  const [row] = await db
-    .select({ id: schema.tosAcceptances.id })
-    .from(schema.tosAcceptances)
-    .where(and(eq(schema.tosAcceptances.userId, userId), eq(schema.tosAcceptances.version, version)))
-    .limit(1);
-  return Boolean(row);
 }

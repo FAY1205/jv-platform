@@ -13,7 +13,7 @@ read-only; you write the report files.
 
 - **(no arg) or `diff`** — audit uncommitted + unmerged work: collect changed files via
   `git diff --name-only main...HEAD` plus `git status --porcelain`. Route by path (below).
-- **`full`** — all 14 specialists over the whole repo.
+- **`full`** — all 16 specialists over the whole repo.
 - **`gate`** — same as `full`, but tell each agent this is a pre-phase-gate audit
   (they escalate standing items that block a §11 gate) and pass the gate name.
 - **`<area>`** — one of:
@@ -22,7 +22,8 @@ read-only; you write the report files.
   audit-tenancy · `frontend` → audit-frontend-arch, audit-design-system,
   audit-ux-flows, audit-a11y, audit-frontend-perf · `ux` → audit-ux-flows, audit-a11y ·
   `tests` → audit-tests · `devops|ci` → audit-devops · `compliance` → audit-compliance ·
-  `arch` → audit-architecture.
+  `arch` → audit-architecture · `ai` → audit-ai-surface, audit-security ·
+  `hygiene` → audit-hygiene.
 - A file/directory path as the arg → route that path like a diff.
 
 ## 2. Path → agent routing table (diff mode)
@@ -40,6 +41,7 @@ read-only; you write the report files.
 | `tests/**` | audit-tests |
 | `.github/**`, `package.json`, root configs | audit-devops |
 | `docs/SPEC.md`, `docs/adr/**` | audit-architecture |
+| `src/modules/ai/**`, `src/app/api/ai/**`, assistant widget/settings | audit-ai-surface, audit-security |
 
 `pr-reviewer` always runs first in diff mode. Dedupe the resulting agent set; skip
 agents whose routed file set is empty and record the skip.
@@ -53,8 +55,10 @@ agents whose routed file set is empty and record the skip.
   "full sweep"), the run's git SHA, and "follow docs/audit/PROTOCOL.md".
 - As each agent returns, write its raw output verbatim to
   `docs/audit/raw/<run>/<agent-name>.md`.
-- Cost note: `full`/`gate` dispatches up to 14 agents (5 on opus) — confirm with the
+- Cost note: `full`/`gate` dispatches up to 16 agents (6 on opus) — confirm with the
   user before dispatching more than 8 agents unless they asked for full/gate explicitly.
+- `audit-hygiene` runs in every `full`/`gate` sweep and at Tier B checkpoints; in
+  diff mode dispatch it only when the diff spans ≥3 modules (decay is cross-cutting).
 
 ## 4. Synthesize
 

@@ -27,7 +27,7 @@ const GROUPS: { label: string; items: NavItem[] }[] = [
 
 export function SettingsNav({ isPlatformOwner = false }: { isPlatformOwner?: boolean }) {
   const path = usePathname() ?? "";
-  // SCP-03: the owner-only Invitations item appears only for platform owners
+  // SCP-07: the owner-only Invitations item appears only for platform owners
   // (ADMIN_ALLOWLIST). The flag is resolved server-side in the settings layout; the
   // route re-checks, so this only hides the link.
   const groups = isPlatformOwner

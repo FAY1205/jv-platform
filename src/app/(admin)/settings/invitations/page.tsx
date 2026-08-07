@@ -3,20 +3,17 @@
 import * as React from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiGet } from "@/lib/api";
+import { fmtDateTime } from "@/lib/dates";
 import { csrfHeaders } from "@/lib/csrf-client";
-import { Card, CardBody, CardHeader, CardTitle, Button, Skeleton, EmptyState, useToast } from "@/components";
+import { Card, CardBody, CardHeader, CardTitle, Button, Skeleton, EmptyState, QueryErrorState, useToast } from "@/components";
 import { SettingsSection } from "../settings-section";
 
-// SCP-03: owner-only signup invitation codes. Visible only to platform owners
+// SCP-06/SCP-07: owner-only signup invitation codes. Visible only to platform owners
 // (ADMIN_ALLOWLIST); the API re-checks. Generate a single-use, 48-hour code and hand
 // it to a prospective admin — they must enter it to create a workspace.
 
 interface Me { isPlatformOwner?: boolean }
 interface ActiveCode { id: string; createdBy: string; createdAt: string; expiresAt: string }
-
-function fmt(iso: string): string {
-  return new Date(iso).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
-}
 
 export default function InvitationsPage() {
   const qc = useQueryClient();
@@ -115,7 +112,7 @@ export default function InvitationsPage() {
           {codesQ.isPending ? (
             <div className="flex flex-col gap-2"><Skeleton className="h-12" /><Skeleton className="h-12" /></div>
           ) : codesQ.error ? (
-            <EmptyState title="Couldn't load codes" description={(codesQ.error as Error).message} />
+            <QueryErrorState title="Couldn't load codes" error={codesQ.error} onRetry={() => codesQ.refetch()} />
           ) : codes.length === 0 ? (
             <EmptyState title="No active codes" description="Generate a code to invite someone." />
           ) : (
@@ -123,8 +120,8 @@ export default function InvitationsPage() {
               {codes.map((c) => (
                 <li key={c.id} className="flex flex-wrap items-center justify-between gap-3 py-3">
                   <div className="min-w-0">
-                    <p className="text-sm text-text">Created {fmt(c.createdAt)}</p>
-                    <p className="text-xs text-text-3">Expires {fmt(c.expiresAt)} · by {c.createdBy}</p>
+                    <p className="text-sm text-text">Created {fmtDateTime(c.createdAt)}</p>
+                    <p className="text-xs text-text-3">Expires {fmtDateTime(c.expiresAt)} · by {c.createdBy}</p>
                   </div>
                   <Button
                     variant="secondary"

@@ -51,3 +51,29 @@ PRN-05/ASN-02); external audit tooling (nothing understands the spec's requireme
   `/audit diff` keeps day-to-day cost small.
 - Maintenance duty: when SPEC.md or the standards docs change, the affected agents'
   directives must be updated in the same change (the synthesizer flags stale refs).
+
+## Amendment 2026-08-05 — vibe-code failure coverage (16 → 18 agents)
+
+Research into documented failure patterns of AI-assisted codebases (catalogue:
+`docs/audit/VIBE-CODE-FAILURE-CATALOG.md`, with incident/study sources) showed four
+classes the roster did not cover. Changes:
+
+- **New specialist `audit-ai-surface` (opus):** the app now ships its own GenAI
+  feature (admin assistant, BYO tenant keys — ADR-0036); OWASP Top 10 for LLM
+  Applications gets a dedicated owner (prompt injection via lead data, tool agency,
+  key handling, output handling, unbounded consumption).
+- **New specialist `audit-hygiene` (sonnet):** AI-generated-code decay — duplication,
+  dead code, swallowed errors repo-wide, stub implementations, cross-session idiom
+  divergence, doc drift. Analyzers: jscpd/knip/depcheck (read-only, `pnpm dlx`).
+- **Extended protocols:** audit-tests (+reward-hacking sweep, +skip visibility);
+  audit-data (+per-table RLS coverage probe incl. Supabase advisors, +destructive-SQL
+  grep, +ledger reconciliation, +backup/restore-drill item); audit-security
+  (+built-bundle secret grep, +CORS/webhook checks); audit-devops (+slopsquatting
+  lockfile gate, +prod-as-test-target standing item; deployment facts refreshed to
+  live-on-Vercel).
+- **Prevention-side control (outside the audit system):** a hookify deny-list blocks
+  destructive agent commands (`drizzle-kit push`, `migrate reset`, `rm -rf`,
+  `TRUNCATE`/`DROP` via psql) — the Replit/claude-code incident class is prevented by
+  hooks, not found by audits.
+
+`/audit full` now dispatches 16 specialists (6 on opus).

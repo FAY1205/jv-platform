@@ -253,6 +253,20 @@
       "when": 1785858013318,
       "tag": "0035_upload_content_hash",
       "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1786264812345,
+      "tag": "0036_lead_notes_author_idx",
+      "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "7",
+      "when": 1786264900000,
+      "tag": "0037_status_history_author_rls",
+      "breakpoints": true
     }
   ]
 }

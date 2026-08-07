@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import * as React from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
@@ -78,7 +78,8 @@ describe("UXQ-03: AppShell owns the toast provider (ADR-0030)", () => {
     expect(screen.queryByText("Import voided.")).toBeNull();
     await user.click(screen.getByRole("button", { name: "fire toast" }));
 
-    expect(await screen.findByText("Import voided.")).toBeInTheDocument();
+    // Scope to the visible stack: the message also lives in the sr-only announcer (R-56).
+    expect(await within(screen.getByTestId("toast-stack")).findByText("Import voided.")).toBeInTheDocument();
     // Toasts announce politely rather than stealing focus (UXQ-03).
     expect(screen.getByRole("status")).toHaveTextContent("Import voided.");
   });

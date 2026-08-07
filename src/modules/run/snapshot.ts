@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { SCORING_VERSION } from "../pipeline/score";
+import { SCORING_SCHEME, SCORING_VERSION } from "../pipeline/score";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Rules snapshot (DM-08). Every run stores a hash + snapshot of the rule set it
@@ -24,6 +24,16 @@ export interface RulesSnapshotShape {
   stateRules: { state: string; partnerId: string }[];
   zipCoverage: { zip5: string; partnerId: string }[];
   scoringVersion: string;
+  /** Content digest of the scoring scheme (see scoringDigest below). */
+  scoringDigest: string;
+}
+
+// DM-08: pin the scheme by CONTENT, not a hand-maintained label — an edited point
+// table must change the rulesHash even if nobody bumps SCORING_VERSION.
+// First 16 hex chars of sha256 over the serialized scheme (same idiom as the
+// snapshot hash itself).
+function scoringDigest(): string {
+  return createHash("sha256").update(JSON.stringify(SCORING_SCHEME)).digest("hex").slice(0, 16);
 }
 
 export interface RulesSnapshot {
@@ -49,6 +59,7 @@ export function buildRulesSnapshot(input: RulesSnapshotInput): RulesSnapshot {
       .map((z) => ({ zip5: z.zip5, partnerId: z.partnerId }))
       .sort(byKey((z) => z.zip5)),
     scoringVersion: input.scoringVersion ?? SCORING_VERSION,
+    scoringDigest: scoringDigest(),
   };
 
   const hash = createHash("sha256").update(JSON.stringify(snapshot)).digest("hex");

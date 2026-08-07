@@ -21,14 +21,17 @@ do not persist).
    `src/modules/**/queries.ts|store.ts|commands.ts`.
 
 ## Codebase facts you must hold
-- 9 migrations (0000–0008), 22 RLS deny-by-default tables; app connection bypasses
-  RLS (ADR-0013) — RLS here is about presence/consistency, not app enforcement.
+- Migrations live in the drizzle folder — count them fresh each run (0030+ as of
+  2026-08; do NOT trust remembered counts — the ledger has drifted from the folder
+  before). RLS is deny-by-default per table; app connection bypasses RLS (ADR-0013) —
+  RLS here is about presence/consistency of the backstop, not app enforcement.
 - Pooler constraints: `prepare: false`; ONLY transaction-scoped advisory locks
   (`pg_advisory_xact_lock`), taken FIRST in the transaction (ING-06 pattern in
   `src/modules/run/store.ts`).
 - Reference IDs allocated under locks (`ref_counters` + advisory max+1 for partners).
-- Known open item: partial unique index `leads(tenant_id, dedupe_key) WHERE
-  deleted_at IS NULL` (WP-018 follow-up) — voided leads still hold their key.
+- RESOLVED (ADR-0038, migration 0034): the `leads(tenant_id, dedupe_key)` partial UNIQUE
+  index was retired — same-key rows are now legitimate (event model, every row imports).
+  `dedupe_key` is grouping data, not a constraint. Don't re-flag it as an open item.
 
 ## Audit protocol
 1. **Same-PR rule:** any schema change ships migration + seed update + RLS policy +
@@ -44,9 +47,9 @@ do not persist).
    it writes files; inspect instead.)
 4. **Soft-delete correctness (DM-09):** every read on partners/leads filters
    `deleted_at`/status per its semantics —
-   `grep -rn "from(partners\|from(leads" src/modules` and check each WHERE. Track the
-   partial-unique-index open item until fixed; flag any new code that would collide
-   with a voided lead's dedupe_key.
+   `grep -rn "from(partners\|from(leads" src/modules` and check each WHERE. (The dedupe
+   partial-unique index was retired by ADR-0038/migration 0034 — repeat keys are expected;
+   do not flag same-key rows as a collision.)
 5. **Transactions:** multi-write flows in ONE `db.transaction`; advisory locks first
    and in consistent order; no await-in-loop writes where a batch insert works.
    Cross-check ADR-0014: the txn boundary ends at `persistRun` — side effects stay outside.
@@ -59,6 +62,27 @@ do not persist).
    estimate until a retention ADR lands.
 8. **When DB reachable:** spot-check the top 2–3 new query paths with `EXPLAIN`
    (read-only) for index usage; otherwise list them under "Not verifiable here".
+9. **RLS coverage probe (VCF-1.1, `docs/audit/VIBE-CODE-FAILURE-CATALOG.md`):** the
+   Lovable CVE-2025-48757 class — anon key is public by design, RLS is the backstop.
+   Statically: diff the table list in `src/db/schema.ts` against
+   `ENABLE ROW LEVEL SECURITY` + `CREATE POLICY` statements across migrations — every
+   table has both, no policy is `USING (true)` on a tenant-scoped table. When DB
+   reachable (or via Supabase MCP `get_advisors`): query `pg_tables` × `pg_policies`
+   for `rowsecurity = false` or zero-policy tables, and report advisor findings
+   verbatim. Storage buckets: each private with storage RLS; no orphaned buckets
+   from old migrations (VCF-1.6).
+10. **Destructive-SQL grep (VCF-4.1):** over ALL migrations, not just new ones —
+   `DROP TABLE|DROP COLUMN|TRUNCATE`, type narrowing, `NOT NULL` added without a
+   backfill `UPDATE`/default in the same migration. Each hit needs an expand/contract
+   plan or an explicit reviewed-destructive note in its WP/ADR trail.
+11. **Ledger reconciliation (VCF-3.4):** drizzle journal entries vs files in the
+   migrations folder — count, ordering, and hashes agree; flag any evidence of SQL
+   applied outside a migration file (this repo has hit ledger drift once). Propose a
+   CI fresh-DB replay (migrate from zero must succeed) if absent.
+12. **Backup/restore reality (VCF-4.3):** confirm docs record the prod Supabase
+   backup/PITR tier AND a performed restore test. The Replit incident's damage
+   multiplier was believing rollback impossible when PITR existed. No evidence =
+   standing High until the owner documents a restore drill.
 
 ## External lens
 Expand/contract (parallel change) for zero-downtime migrations; Postgres index
@@ -70,7 +94,8 @@ consumption) for unbounded queries.
   half-persist a run; dedupe-key collision path that drops leads (DED-03).
 - High: missing index for a shipped query path; new table without RLS; N+1 on a
   per-lead path.
-- Medium: drift between schema.ts and SQL; missing LIMIT; lifecycle gap.
+- Medium: drift between schema.ts and SQL; missing LIMIT; lifecycle gap; ledger/
+  folder mismatch with an innocent explanation.
 
 ## Output
 Per PROTOCOL.md: ≤15 findings ranked; say explicitly whether EXPLAIN checks ran

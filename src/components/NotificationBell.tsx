@@ -13,7 +13,7 @@ import {
   DropdownMenuItem,
   DropdownMenuLabel,
 } from "./DropdownMenu";
-import { EmptyState } from "./EmptyState";
+import { QueryErrorState } from "./QueryErrorState";
 import { IconButton } from "./IconButton";
 import { Skeleton } from "./Skeleton";
 import { NotificationTypeIcon } from "./NotificationTypeIcon";
@@ -45,7 +45,7 @@ function timeAgo(iso: string): string {
 export function NotificationBell() {
   const qc = useQueryClient();
 
-  const { data, isPending, error } = useQuery({
+  const { data, isPending, error, refetch } = useQuery({
     queryKey: ["notifications"],
     queryFn: () => apiGet<{ notifications: Notification[]; unread: number }>("/api/notifications"),
     // F-87: don't poll a backgrounded tab; refetch when the user returns to it.
@@ -123,7 +123,7 @@ export function NotificationBell() {
           <div className="max-h-96 overflow-auto py-1">
             {error ? (
               <div className="px-2 py-4">
-                <EmptyState title="Couldn't load notifications" description="Check your connection and try again." />
+                <QueryErrorState title="Couldn't load notifications" error={error} onRetry={() => refetch()} />
               </div>
             ) : isPending ? (
               <div className="flex flex-col gap-2 p-2">

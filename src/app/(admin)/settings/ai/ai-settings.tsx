@@ -5,7 +5,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiGet, apiMutate } from "@/lib/api";
 import { csrfHeaders } from "@/lib/csrf-client";
 import { AI_MODELS, coerceModel, type CatalogProvider } from "@/modules/ai/models-catalog";
-import { Card, CardBody, CardHeader, CardTitle, Switch, Input, Select, Button, EmptyState, Skeleton, Badge, useToast } from "@/components";
+import { Card, CardBody, CardHeader, CardTitle, Switch, Input, Select, Button, QueryErrorState, Skeleton, Badge, useToast } from "@/components";
 
 // SET-11 / ADR-0036: admin-only AI assistant control — a single card. The enable switch
 // auto-saves; when ON it reveals the tenant's OWN provider credential (BYO). The API key
@@ -95,7 +95,7 @@ export function AiSettings() {
   });
 
   if (q.isLoading) return <Skeleton className="h-40 w-full" />;
-  if (q.isError || !q.data) return <EmptyState title="Couldn't load AI settings" description="Refresh to try again." />;
+  if (q.isError || !q.data) return <QueryErrorState title="Couldn't load AI settings" error={q.error} onRetry={() => q.refetch()} />;
 
   const cred = q.data.credential;
 

@@ -4,7 +4,7 @@ import * as React from "react";
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
 import { apiGet } from "@/lib/api";
-import { AppShell, CountyCoverageMap, PartnerTag, EmptyState, Skeleton, usePageHeader } from "@/components";
+import { AppShell, CountyCoverageMap, PartnerTag, QueryErrorState, Skeleton, usePageHeader } from "@/components";
 import { MapHatch } from "@/components/map";
 import type { StateCoverage, CoveragePartner, CountyCoverage } from "@/modules/coverage/map";
 
@@ -45,7 +45,7 @@ export default function CoveragePage() {
 }
 
 function CoverageBody() {
-  const { data, isPending, error } = useQuery({
+  const { data, isPending, error, refetch } = useQuery({
     queryKey: ["coverage"],
     queryFn: () => apiGet<CoverageResponse>("/api/coverage"),
   });
@@ -63,7 +63,7 @@ function CoverageBody() {
         <Skeleton className="h-[460px] rounded-2xl" />
       ) : error ? (
         <div className={panel}>
-          <EmptyState title="Couldn't load coverage" description={(error as Error).message} />
+          <QueryErrorState title="Couldn't load coverage" error={error} onRetry={() => refetch()} />
         </div>
       ) : (
         <div className="stagger flex flex-col gap-5">

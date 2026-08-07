@@ -1,15 +1,16 @@
 import { and, asc, desc, eq, ilike, inArray, isNull, or, sql } from "drizzle-orm";
 import { getDb } from "@/db";
 import * as schema from "@/db/schema";
-import { leadWhere, leadChildWhere, tenantWhere, requirePartner, type ScopeContext } from "@/lib/scope";
+import { leadWhere, leadChildWhere, statusHistoryWhere, ownStatusAuthorScope, tenantWhere, requirePartner, type ScopeContext } from "@/lib/scope";
 import { releasedLeads } from "../run/hold-filter";
 import { computeRunSummary, type RunSummary } from "../analytics/run-summary";
 import { partnerPerformanceDetail } from "../analytics/partner-performance";
 import { buildPartnerTerritory, type PartnerTerritory } from "../coverage/partner-territory";
 import { zipToCounty } from "@/lib/geo/zip-county";
 import { deltaOf, type RangeKey } from "../analytics/ranges";
-import type { ExportLead, PartnerInfo } from "../export/render";
+import { toExportLead, type ExportLead, type PartnerInfo } from "../export/render";
 import { currentStatus, SEED_LEAD_STATUSES } from "./statuses";
+import { currentTerritoryQuery } from "../coverage/current-territory";
 import {
   PARTNER_LEADS_PAGE_SIZE,
   PORTAL_LEAD_SORT_FIELDS,
@@ -58,7 +59,12 @@ export interface ListPartnerLeadsOpts {
 function latestStatus(scope: ScopeContext) {
   // self-scoped (ADR-0013 defence-in-depth): correlation key leads.id is globally unique, but
   // carry an explicit tenant predicate too so no single dropped predicate can widen scope.
-  return sql`(select status from lead_status_history where lead_id = ${schema.leads.id} and ${tenantWhere(schema.leadStatusHistory, scope)} order by created_at desc limit 1)`;
+  // R-22: for a partner, the derived status must come only from their OWN org's entries, so a
+  // re-routed lead's sort/filter position matches the "New" a fresh owner sees (never the prior
+  // partner's). Admin: unscoped. Same predicate statusHistoryWhere applies to the row-level reads.
+  const author = ownStatusAuthorScope(scope);
+  const authorClause = author ? sql` and ${author}` : sql``;
+  return sql`(select status from lead_status_history where lead_id = ${schema.leads.id} and ${tenantWhere(schema.leadStatusHistory, scope)}${authorClause} order by created_at desc limit 1)`;
 }
 function statusExpr(scope: ScopeContext) {
   return sql<string>`coalesce(${latestStatus(scope)}, 'New')`;
@@ -81,7 +87,7 @@ async function statusMap(
       createdAt: schema.leadStatusHistory.createdAt,
     })
     .from(schema.leadStatusHistory)
-    .where(and(leadChildWhere(schema.leadStatusHistory, scope, db), inArray(schema.leadStatusHistory.leadId, leadIds)));
+    .where(and(statusHistoryWhere(scope, db), inArray(schema.leadStatusHistory.leadId, leadIds)));
   for (const r of rows) {
     const list = map.get(r.leadId) ?? [];
     list.push({ status: r.status, createdAt: r.createdAt.toISOString() });
@@ -251,7 +257,7 @@ export async function getPartnerLeadDetail(scope: ScopeContext, refId: string): 
   const hist = await db
     .select({ status: schema.leadStatusHistory.status, createdAt: schema.leadStatusHistory.createdAt })
     .from(schema.leadStatusHistory)
-    .where(and(leadChildWhere(schema.leadStatusHistory, scope, db), eq(schema.leadStatusHistory.leadId, lead.id)))
+    .where(and(statusHistoryWhere(scope, db), eq(schema.leadStatusHistory.leadId, lead.id)))
     .orderBy(desc(schema.leadStatusHistory.createdAt));
   const history = hist.map((h) => ({ status: h.status, changedAt: h.createdAt.toISOString() }));
 
@@ -325,23 +331,8 @@ export async function partnerTerritory(scope: ScopeContext): Promise<PartnerTerr
     .select({ id: schema.partners.id, name: schema.partners.name, refId: schema.partners.refId, color: schema.partners.color })
     .from(schema.partners)
     .where(and(tenantWhere(schema.partners, scope), eq(schema.partners.id, scope.partnerId)));
-  const [rules, zips] = await Promise.all([
-    db
-      .select({ state: schema.stateRules.state })
-      .from(schema.stateRules)
-      .where(and(tenantWhere(schema.stateRules, scope), eq(schema.stateRules.partnerId, scope.partnerId))),
-    // WP-E: the partner's own current ZIP coverage → their own counties (only theirs; PRN-08).
-    db
-      .select({ zip5: schema.coverageZips.zip5 })
-      .from(schema.coverageZips)
-      .where(
-        and(
-          tenantWhere(schema.coverageZips, scope),
-          eq(schema.coverageZips.partnerId, scope.partnerId),
-          isNull(schema.coverageZips.effectiveTo),
-        ),
-      ),
-  ]);
+  // WP-E: the partner's own current ZIP coverage → their own counties (only theirs; PRN-08).
+  const { stateRules: rules, coverageZips: zips } = await currentTerritoryQuery(db, scope, scope.partnerId);
   return buildPartnerTerritory({
     ownStates: rules.map((r) => r.state),
     ownZips: zips.map((z) => z.zip5),
@@ -381,25 +372,9 @@ export async function getPartnerExportData(scope: ScopeContext): Promise<Partner
   const summary = computeRunSummary(
     leadRows.map((l) => ({ mlsStatus: l.mlsStatus, matchMethod: l.matchMethod, partnerId: l.partnerId })),
   );
-  const exportLeads: ExportLead[] = leadRows.map((l) => ({
-    leadRefId: l.refId,
-    campaign: "", // lead source stays admin-only — never in a partner-facing export
-    dateCreated: l.dateCreated ?? "",
-    notes: l.notes ?? "",
-    address: l.address ?? "",
-    city: l.city ?? "",
-    state: l.state ?? "",
-    zip: l.zip ?? "",
-    sellerFirst: l.sellerFirst ?? "",
-    sellerLast: l.sellerLast ?? "",
-    phone: l.phone ?? "",
-    email: l.email ?? "",
-    reasonForSelling: l.reasonForSelling ?? "",
-    motivation: l.motivation ?? "",
-    timeToSell: l.timeToSell ?? "",
-    partnerId: l.partnerId,
-    possibleMlsListing: l.possibleMlsListing,
-  }));
+  // blankCampaign: lead source stays admin-only — never in a partner-facing export (PRN-08).
+  // Shape built by the one serializer (R-11), so the admin/portal contracts can't drift.
+  const exportLeads: ExportLead[] = leadRows.map((l) => toExportLead(l, { blankCampaign: true }));
 
   return { exportLeads, partners, summary };
 }

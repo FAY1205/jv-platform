@@ -20,6 +20,7 @@ suite("WS-5: partnerPerformanceDetail (ANA-02/03, PRN-08/13)", () => {
   let partnerB: string;
   let uploadId: string;
   let partnerUserId: string;
+  let partnerBUserId: string;
   let scopeB: ScopeContext;
   let partnerOther: string;
 
@@ -53,10 +54,12 @@ suite("WS-5: partnerPerformanceDetail (ANA-02/03, PRN-08/13)", () => {
     uploadId = u.id;
     partnerUserId = randomUUID();
     await db.insert(schema.users).values({ id: partnerUserId, tenantId: t.id, email: "p@pp.test", role: "partner", partnerId: partnerA });
+    partnerBUserId = randomUUID();
+    await db.insert(schema.users).values({ id: partnerBUserId, tenantId: t.id, email: "pb@pp.test", role: "partner", partnerId: partnerB });
 
-    // l1: A, contacted via status change.
+    // l1: A, contacted via status change (authored by A's user — production always stamps the actor).
     const [l1] = await mkLead({ partnerId: partnerA, createdAt: daysAgo(5) });
-    await db.insert(schema.leadStatusHistory).values({ tenantId: t.id, leadId: l1.id, status: "Contacted", createdAt: new Date(daysAgo(5).getTime() + 2 * 3_600_000) });
+    await db.insert(schema.leadStatusHistory).values({ tenantId: t.id, leadId: l1.id, status: "Contacted", changedByUserId: partnerUserId, createdAt: new Date(daysAgo(5).getTime() + 2 * 3_600_000) });
     // l2: A, contacted via a PARTNER note only (PRN-13).
     const [l2] = await mkLead({ partnerId: partnerA, createdAt: daysAgo(4) });
     await db.insert(schema.leadNotes).values({ tenantId: t.id, leadId: l2.id, authorUserId: partnerUserId, authorRole: "partner", body: "called", createdAt: new Date(daysAgo(4).getTime() + 3_600_000) });
@@ -97,6 +100,24 @@ suite("WS-5: partnerPerformanceDetail (ANA-02/03, PRN-08/13)", () => {
     expect(leaked.stats.given).toBe(0);
     const own = await partnerPerformanceDetail(scopeB, partnerOther, "all");
     expect(own.stats.given).toBe(1);
+  });
+
+  it("R-22: a re-routed lead's PRIOR-partner status/note does not credit the new owner's first-touch or closed", async () => {
+    // A lead re-routed to A (pipeline B, manual overlay A → effective owner A) that the PRIOR
+    // partner B contacted + closed while it was still theirs. Deltas so test order can't matter.
+    const before = (await partnerPerformanceDetail(scope, partnerA, "all")).stats;
+    const [rr] = await mkLead({ partnerId: partnerB, manualPartnerId: partnerA, createdAt: daysAgo(6) });
+    await db.insert(schema.leadStatusHistory).values([
+      { tenantId: scope.tenantId, leadId: rr.id, status: "Contacted", changedByUserId: partnerBUserId, createdAt: daysAgo(6) },
+      { tenantId: scope.tenantId, leadId: rr.id, status: "Closed", changedByUserId: partnerBUserId, createdAt: new Date(daysAgo(6).getTime() + 3_600_000) },
+    ]);
+    await db.insert(schema.leadNotes).values({ tenantId: scope.tenantId, leadId: rr.id, authorUserId: partnerBUserId, authorRole: "partner", body: "B called", createdAt: daysAgo(6) });
+
+    const after = (await partnerPerformanceDetail(scope, partnerA, "all")).stats;
+    expect(after.given).toBe(before.given + 1); // A owns one more lead…
+    expect(after.contacted).toBe(before.contacted); // …but B's contact must NOT credit A
+    expect(after.closed).toBe(before.closed); // …nor B's close
+    expect(after.untouched).toBe(before.untouched + 1); // to A it's an untouched lead
   });
 
   it("distribution-hold: a held lead is excluded from the PARTNER's own stats but visible to ADMIN", async () => {

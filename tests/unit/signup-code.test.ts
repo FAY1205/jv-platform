@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { issueSignupCode, verifySignupCode, normalizeCode, hashCode, SIGNUP_CODE_TTL_MS } from "@/lib/auth/signup-code";
 
-describe("SCP-03: signup invitation codes", () => {
+describe("SCP-06: signup invitation codes", () => {
   const now = 1_760_000_000_000;
 
   it("issues a formatted, human-typeable code and stores only the hash + 48h expiry", () => {

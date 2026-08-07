@@ -1,7 +1,7 @@
 import { and, eq } from "drizzle-orm";
 import { getDb } from "@/db";
 import * as schema from "@/db/schema";
-import type { ScopeContext } from "@/lib/scope";
+import { tenantWhere, type ScopeContext } from "@/lib/scope";
 import type { SourceProfile } from "@/modules/sources";
 import { loadRunRules } from "./rules";
 import { processRun } from "./process";
@@ -67,7 +67,7 @@ export async function runUpload(scope: ScopeContext, input: RunUploadInput): Pro
     // EXP-05: store the rendered deliverable (best-effort).
     try {
       const path = await storeExport(getSupabaseAdmin(), { tenantId: scope.tenantId, uploadRef: result.uploadRefId, bytes: result.exportBytes });
-      await db.update(schema.uploads).set({ storagePath: path }).where(and(eq(schema.uploads.tenantId, scope.tenantId), eq(schema.uploads.refId, result.uploadRefId)));
+      await db.update(schema.uploads).set({ storagePath: path }).where(and(tenantWhere(schema.uploads, scope), eq(schema.uploads.refId, result.uploadRefId)));
     } catch (e) {
       logError("export_store_failed", { message: errMsg(e) });
     }

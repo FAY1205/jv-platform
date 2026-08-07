@@ -6,13 +6,14 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Card, CardBody, Input, Button, Checkbox, Spinner } from "@/components";
 import { APP_NAME } from "@/lib/app";
+import { safeNextPath } from "@/lib/safe-next";
 
 // PTL-01 + AUT-10: partner sign-in. On load we silently try the trusted-device
 // route (skip OTP for a remembered browser); on 401 we fall back to email → code.
 function PortalLoginForm() {
   const router = useRouter();
   const params = useSearchParams();
-  const next = params.get("next") || "/portal/dashboard";
+  const next = safeNextPath(params.get("next"), "/portal/dashboard");
 
   const [checking, setChecking] = React.useState(true);
   const [step, setStep] = React.useState<"email" | "code">("email");

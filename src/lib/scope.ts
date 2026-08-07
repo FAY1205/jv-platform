@@ -1,4 +1,4 @@
-import { and, eq, inArray, isNull, or, type SQL } from "drizzle-orm";
+import { and, eq, inArray, isNull, or, sql, type SQL } from "drizzle-orm";
 import type { PgColumn } from "drizzle-orm/pg-core";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import * as schema from "@/db/schema";
@@ -10,7 +10,7 @@ import * as schema from "@/db/schema";
 // the RLS policies (0001 migration) are the database half. TST-01 proves both.
 // ─────────────────────────────────────────────────────────────────────────────
 
-const { leads, leadNotes } = schema;
+const { leads, leadNotes, users } = schema;
 type DB = PostgresJsDatabase<typeof schema>;
 
 export interface ScopeContext {
@@ -32,6 +32,14 @@ export function requirePartner(scope: ScopeContext): string {
 /** Tenant-only scope for any table with a tenantId column. */
 export function tenantWhere<T extends { tenantId: PgColumn }>(table: T, scope: ScopeContext): SQL {
   return eq(table.tenantId, scope.tenantId);
+}
+
+/** System-job scope: background jobs (outbox drain, retention sweeps) hold a tenantId
+ *  STRING, not a ScopeContext, so they can't call tenantWhere. Same predicate, in one
+ *  sanctioned place — a future change to tenant filtering reaches them too, instead of
+ *  the hand-rolled `eq(table.tenantId, id)` copies the guard's evolution would miss (R-24). */
+export function tenantIdWhere<T extends { tenantId: PgColumn }>(table: T, tenantId: string): SQL {
+  return eq(table.tenantId, tenantId);
 }
 
 /** A partner "owns" a lead if it is their EFFECTIVE owner: the manual overlay when
@@ -60,13 +68,26 @@ export function noteWhere(scope: ScopeContext, db: DB): SQL {
   if (scope.role === "admin") {
     return and(base, eq(leadNotes.authorRole, "admin"))!;
   }
+  const me = requirePartner(scope);
   const ownLeads = db
     .select({ id: leads.id })
     .from(leads)
     // WP-J2 / DM-09b: a partner's owned-lead set excludes recalled (soft-deleted) leads, so the
     // guard is self-sufficient — child-table reads never rely on a parent join to filter deletes.
-    .where(and(eq(leads.tenantId, scope.tenantId), partnerOwnsLead(requirePartner(scope)), isNull(leads.deletedAt)));
-  return and(base, eq(leadNotes.authorRole, "partner"), inArray(leadNotes.leadId, ownLeads))!;
+    .where(and(eq(leads.tenantId, scope.tenantId), partnerOwnsLead(me), isNull(leads.deletedAt)));
+  // A note belongs to the partner org that wrote it (PRN-08/PRN-13): lead ownership MOVES
+  // on re-route (partnerOwnsLead), so "notes on leads I own" alone would hand the previous
+  // partner's notes to the new one. Restrict to notes authored by the reading partner's own org.
+  const ownAuthors = db
+    .select({ id: users.id })
+    .from(users)
+    .where(and(eq(users.tenantId, scope.tenantId), eq(users.partnerId, me)));
+  return and(
+    base,
+    eq(leadNotes.authorRole, "partner"),
+    inArray(leadNotes.leadId, ownLeads),
+    inArray(leadNotes.authorUserId, ownAuthors),
+  )!;
 }
 
 /** Status history / listing checks: tenant + (admin all · partner only own leads). */
@@ -84,4 +105,33 @@ export function leadChildWhere(
     // guard is self-sufficient — child-table reads never rely on a parent join to filter deletes.
     .where(and(eq(leads.tenantId, scope.tenantId), partnerOwnsLead(requirePartner(scope)), isNull(leads.deletedAt)));
   return and(base, inArray(table.leadId, ownLeads))!;
+}
+
+/**
+ * R-22/R-26: the status-history author predicate a partner is scoped to on lead_status_history.
+ * A lead's status timeline follows ownership when the lead is re-routed (partnerOwnsLead moves the
+ * effective owner), so a naive "entries on leads I own" read hands the NEW owner the PRIOR partner's
+ * timeline. This restricts a partner to entries authored by their OWN org OR by an admin/system —
+ * i.e. it hides only ANOTHER partner's entries (owner decision 2026-08-07). So a re-routed lead never
+ * shows the prior partner's timeline, while an admin's inline status change on a currently-owned lead
+ * stays visible to that owner (status is one shared field, unlike the two-stream notes model). Returns
+ * undefined for admin (all entries). A raw SQL fragment so it composes into BOTH the query builders
+ * (statusHistoryWhere / the write-path idempotency read) and the portal's raw correlated latest-status
+ * subquery from one definition — the two never drift. The Postgres RLS backstop
+ * (lead_status_history_scope, migration 0037) carries the identical predicate (SEC-01).
+ */
+export function ownStatusAuthorScope(scope: ScopeContext): SQL | undefined {
+  if (scope.role === "admin") return undefined;
+  const me = requirePartner(scope);
+  return sql`${schema.leadStatusHistory.changedByUserId} in (select id from users where ${tenantWhere(schema.users, scope)} and (role = 'admin' or partner_id = ${me}))`;
+}
+
+/**
+ * Status-history visibility: tenant + own-leads (leadChildWhere) AND — for a partner — only entries
+ * authored by their own org (ownStatusAuthorScope), so a re-routed lead never carries the prior
+ * partner's status timeline into the new owner's portal (R-22). Admin reads are unscoped by author.
+ * Listing checks keep plain leadChildWhere — a system MLS check belongs to the lead, not a partner.
+ */
+export function statusHistoryWhere(scope: ScopeContext, db: DB): SQL {
+  return and(leadChildWhere(schema.leadStatusHistory, scope, db), ownStatusAuthorScope(scope))!;
 }

@@ -3,7 +3,8 @@
 import * as React from "react";
 import { useQuery } from "@tanstack/react-query";
 import { apiGet } from "@/lib/api";
-import { Dialog, Badge, Skeleton, EmptyState, NotesPanel, ClampedText, ListingBadge, StatusSelect, Tooltip } from "@/components";
+import { fmtDateTime } from "@/lib/dates";
+import { Dialog, Badge, Skeleton, QueryErrorState, NotesPanel, ClampedText, ListingBadge, StatusSelect, Tooltip } from "@/components";
 import { googleSearchUrl } from "@/lib/search-links";
 
 // VP-4: the partner-facing lead dialog (mirrors the admin LeadDialog pattern, portal-scoped).
@@ -29,10 +30,6 @@ interface LeadDetail {
   listing: { status: "pending" | "yes" | "no" | "unknown"; link: string | null };
 }
 
-function fmtWhen(iso: string): string {
-  return new Date(iso).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
-}
-
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="flex flex-col gap-0.5">
@@ -43,7 +40,7 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 }
 
 export function PortalLeadDialog({ refId, onClose }: { refId: string; onClose: () => void }) {
-  const { data, isPending, error } = useQuery({
+  const { data, isPending, error, refetch } = useQuery({
     queryKey: ["portal-lead", refId],
     queryFn: () => apiGet<LeadDetail>(`/api/portal/leads/${refId}`),
   });
@@ -57,7 +54,7 @@ export function PortalLeadDialog({ refId, onClose }: { refId: string; onClose: (
           ))}
         </div>
       ) : error || !data ? (
-        <EmptyState title="Couldn't load this lead" description={(error as Error)?.message ?? "Not found."} />
+        <QueryErrorState title="Couldn't load this lead" error={error} description={(error as Error)?.message ?? "Not found."} onRetry={() => refetch()} />
       ) : (
         <div className="flex flex-col gap-5">
           {/* Status — the partner's primary action, up top and editable inline. */}
@@ -105,7 +102,7 @@ export function PortalLeadDialog({ refId, onClose }: { refId: string; onClose: (
           <div className="grid grid-cols-2 gap-x-5 gap-y-4">
             <Field label="Reason for selling">{data.reasonForSelling || "—"}</Field>
             <Field label="Time to sell">{data.timeToSell || "—"}</Field>
-            <Field label="Received">{fmtWhen(data.receivedAt)}</Field>
+            <Field label="Received">{fmtDateTime(data.receivedAt)}</Field>
             <Field label="Listing check">
               <ListingBadge status={data.listing.status} link={data.listing.link} />
             </Field>
@@ -130,7 +127,7 @@ export function PortalLeadDialog({ refId, onClose }: { refId: string; onClose: (
                 {data.history.map((h, i) => (
                   <li key={i} className="flex items-center gap-3 text-sm">
                     <Badge>{h.status}</Badge>
-                    <span className="num text-step-1 text-text-3">{fmtWhen(h.changedAt)}</span>
+                    <span className="num text-step-1 text-text-3">{fmtDateTime(h.changedAt)}</span>
                   </li>
                 ))}
               </ol>
@@ -138,7 +135,7 @@ export function PortalLeadDialog({ refId, onClose }: { refId: string; onClose: (
           </div>
 
           <div className="border-t border-border-soft pt-4">
-            <NotesPanel leadRef={data.refId} title="Your notes" />
+            <NotesPanel leadRef={data.refId} title="Your notes" tosHref="/portal/tos" />
           </div>
         </div>
       )}

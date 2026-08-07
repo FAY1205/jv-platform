@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiGet } from "@/lib/api";
 import { csrfHeaders } from "@/lib/csrf-client";
+import { useDirty } from "@/lib/use-dirty";
 import {
   AppShell,
   Card,
@@ -25,6 +26,9 @@ import {
   StateMultiSelect,
   PartnerTag,
   EmptyState,
+  QueryErrorState,
+  RadioGroup,
+  RadioGroupItem,
   Skeleton,
   useToast,
   usePageHeader,
@@ -225,6 +229,11 @@ export function PartnerForm({
 
   const zipInvalid = invalidZipTokens(f.zips);
 
+  // FRM-02a: guard the dismiss gestures once the form has unsaved edits. On edit the baseline
+  // is deferred until coverage seeds, so the loaded record — not the blank pre-seed form — is
+  // the baseline; on create the empty form is the baseline from the first render.
+  const dirty = useDirty({ ...f, states }, editing ? seeded : true);
+
   const mutation = useMutation({
     mutationFn: async () => {
       const contact = { name: f.name, email: f.email, phone: f.phone, dealTerms: f.dealTerms, adminNotes: f.adminNotes };
@@ -277,6 +286,7 @@ export function PartnerForm({
     <Dialog
       open
       onClose={onClose}
+      confirmClose={dirty}
       title={editing ? `Edit ${editing.refId}` : "New partner"}
       footer={
         <>
@@ -351,6 +361,9 @@ function HouseTerritoryDialog({ house, onClose }: { house: Partner; onClose: () 
     setZips(t.zips.join(", "));
   }
   const zipInvalid = invalidZipTokens(zips);
+  // R-54 (FRM-02a): baseline is the loaded territory (ready=seeded), so a dismiss gesture on
+  // edited coverage asks before discarding — not on the pre-seed blank.
+  const dirty = useDirty({ states, zips }, seeded);
 
   const mutation = useMutation({
     mutationFn: () => send(`/api/admin/partners/${house.id}/coverage`, "PUT", { zips, states: states.join(",") }),
@@ -384,6 +397,7 @@ function HouseTerritoryDialog({ house, onClose }: { house: Partner; onClose: () 
       open
       onClose={onClose}
       title="My Territory"
+      confirmClose={dirty}
       footer={
         <>
           <Button variant="ghost" onClick={onClose}>
@@ -493,28 +507,28 @@ function DeactivateModal({
                 <span className="num font-semibold">{territory!.zips.length}</span> ZIP
                 {territory!.zips.length === 1 ? "" : "s"}. Where should that territory go?
               </p>
-              <label className="flex items-center gap-2">
-                <input type="radio" name="mode" checked={mode === "reassign"} onChange={() => setMode("reassign")} />
-                <span>Reassign to another partner</span>
-              </label>
-              {mode === "reassign" && (
-                <div className="pl-6">
-                  {others.length === 0 ? (
-                    <p className="text-danger">No other partner to reassign to — route to Unmatched instead.</p>
-                  ) : (
-                    <Select
-                      value={toPartnerId}
-                      onValueChange={setToPartnerId}
-                      options={others.map((p) => ({ value: p.id, label: `${p.name} (${p.refId})` }))}
-                      ariaLabel="Reassign to partner"
-                    />
-                  )}
-                </div>
-              )}
-              <label className="flex items-center gap-2">
-                <input type="radio" name="mode" checked={mode === "unmatched"} onChange={() => setMode("unmatched")} />
-                <span>Route this territory to Unmatched</span>
-              </label>
+              <RadioGroup
+                ariaLabel="Where should this territory go?"
+                value={mode}
+                onValueChange={(v) => setMode(v as typeof mode)}
+              >
+                <RadioGroupItem value="reassign" label="Reassign to another partner" />
+                {mode === "reassign" && (
+                  <div className="pl-6">
+                    {others.length === 0 ? (
+                      <p className="text-danger">No other partner to reassign to — route to Unmatched instead.</p>
+                    ) : (
+                      <Select
+                        value={toPartnerId}
+                        onValueChange={setToPartnerId}
+                        options={others.map((p) => ({ value: p.id, label: `${p.name} (${p.refId})` }))}
+                        ariaLabel="Reassign to partner"
+                      />
+                    )}
+                  </div>
+                )}
+                <RadioGroupItem value="unmatched" label="Route this territory to Unmatched" />
+              </RadioGroup>
             </div>
           ) : (
             <p className="text-text-3">This partner owns no coverage — nothing to reassign.</p>
@@ -582,7 +596,7 @@ function PartnersBody() {
   usePageHeader({ title: "Partners" });
   const qc = useQueryClient();
   const { toast } = useToast();
-  const { data, isPending, error } = useQuery({
+  const { data, isPending, error, refetch } = useQuery({
     queryKey: ["partners"],
     queryFn: () => apiGet<{ partners: Partner[] }>("/api/admin/partners"),
   });
@@ -685,7 +699,7 @@ function PartnersBody() {
             </div>
           ) : error ? (
             <div className="p-6">
-              <EmptyState title="Couldn't load partners" description={(error as Error).message} />
+              <QueryErrorState title="Couldn't load partners" error={error} onRetry={() => refetch()} />
             </div>
           ) : roster.length === 0 ? (
             <div className="p-6">

@@ -49,7 +49,7 @@ describe("SignupPage — public signup with Turnstile", () => {
     const consent = screen.getByRole("checkbox", { name: /terms of service/i }) as HTMLInputElement;
     expect(consent).toBeTruthy();
 
-    // SCP-03: an invitation code is also required to enable submit.
+    // SCP-06: an invitation code is also required to enable submit.
     await userEvent.type(screen.getByLabelText(/invitation code/i), "ABCD-EFGH-JKLM");
 
     const submit = await screen.findByRole("button", { name: /sign up|create/i });

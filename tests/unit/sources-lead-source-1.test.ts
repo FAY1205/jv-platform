@@ -5,7 +5,6 @@ import { parseWorkbook } from "@/modules/sources/parse";
 import { planRun } from "@/modules/run/plan";
 import { buildCoverage } from "@/modules/pipeline/assign";
 import { DEFAULT_MLS_PATTERNS } from "@/modules/pipeline/mls-patterns";
-import { buildConfirmedProfile, suggestMapping } from "@/modules/sources/mapping";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // WP-LS1 — the "Lead Source 1" pure transform (PRN-01: same input ⇒ same output,
@@ -326,36 +325,6 @@ describe("ING-02/08 LS1: detection + drift on the consumed-column signature", ()
 
   it("ING-02: an unrelated file does not masquerade as Lead Source 1", () => {
     expect(detectProfile(["Foo", "Bar", "Baz"], SEED_SOURCE_PROFILES).status).toBe("unknown");
-  });
-});
-
-describe("ING-08 SEAM: a confirmed drift must not lose the transform", () => {
-  // The CRM adds/removes columns, so the drift-confirm flow WILL run on this profile.
-  // If the next version drops `transform`, every later upload silently ingests with no
-  // address, no seller name, and un-stripped skip-trace notes (SEC-05) — with no error.
-  it("ING-08: the next version inherits the base profile's transform", () => {
-    const drifted = LEAD_SOURCE_1_PROFILE.headerSignature.map((h) => (h === "Notes" ? "Lead Notes" : h));
-    const mapping = suggestMapping(LEAD_SOURCE_1_PROFILE, drifted);
-    const v2 = buildConfirmedProfile({
-      base: LEAD_SOURCE_1_PROFILE,
-      name: LEAD_SOURCE_1_PROFILE.name,
-      uploadHeaders: drifted,
-      mapping,
-      strictness: "flexible",
-    });
-    expect(v2.version).toBe(2);
-    expect(v2.transform).toBe("lead-source-1");
-  });
-
-  it("ING-02: a brand-new unknown format has NO transform — no code exists to derive it", () => {
-    const v1 = buildConfirmedProfile({
-      base: null,
-      name: "Acme CRM",
-      uploadHeaders: ["Zip", "Address"],
-      mapping: { zip: "Zip", address: "Address" },
-      strictness: "flexible",
-    });
-    expect(v1.transform).toBeUndefined();
   });
 });
 

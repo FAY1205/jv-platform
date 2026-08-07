@@ -3,8 +3,9 @@
 import * as React from "react";
 import { useQuery } from "@tanstack/react-query";
 import { apiGet } from "@/lib/api";
+import { fmtDateTime } from "@/lib/dates";
 import { useDebouncedValue } from "@/lib/use-debounced-value";
-import { AppShell, Card, Table, THead, TBody, Th, Tr, Td, Badge, Input, Select, DateRangePicker, Pagination, EmptyState, Skeleton, usePageHeader } from "@/components";
+import { AppShell, Card, Table, THead, TBody, Th, Tr, Td, Badge, Input, Select, DateRangePicker, Pagination, EmptyState, QueryErrorState, Skeleton, usePageHeader } from "@/components";
 import type { DateRangeValue } from "@/components/DateRangePicker";
 import { activityActionLabel, activityEntityLabel } from "@/modules/activity/labels";
 
@@ -56,7 +57,7 @@ function ActivityBody() {
   if (range.from) params.set("dateFrom", range.from);
   if (range.to) params.set("dateTo", range.to);
 
-  const { data, isPending, error } = useQuery({
+  const { data, isPending, error, refetch } = useQuery({
     queryKey: ["activity", { page, pageSize, category, actor, dir, q: qDebounced, from: range.from, to: range.to }],
     queryFn: () => apiGet<Resp>(`/api/activity?${params.toString()}`),
   });
@@ -87,7 +88,7 @@ function ActivityBody() {
         {isPending ? (
           <div className="flex flex-col gap-3 p-5">{Array.from({ length: 6 }).map((_, i) => <Skeleton key={i} className="h-9 w-full" />)}</div>
         ) : error ? (
-          <div className="p-6"><EmptyState title="Couldn't load activity" description={(error as Error).message} /></div>
+          <div className="p-6"><QueryErrorState title="Couldn't load activity" error={error} onRetry={() => refetch()} /></div>
         ) : rows.length === 0 ? (
           <div className="p-6"><EmptyState title="Nothing matches" description="Try widening the filters or clearing the search." /></div>
         ) : (
@@ -104,7 +105,7 @@ function ActivityBody() {
             <TBody>
               {rows.map((i) => (
                 <Tr key={i.id}>
-                  <Td><span className="num text-step-1 text-text-3">{new Date(i.when).toLocaleString()}</span></Td>
+                  <Td><span className="num text-step-1 text-text-3">{fmtDateTime(i.when)}</span></Td>
                   <Td><span className="text-sm text-text-2">{i.actor ?? "system"}</span></Td>
                   {/* T6 (owner note #9): sentences, not machine strings — the raw action
                       string stays reachable via the title attribute. */}

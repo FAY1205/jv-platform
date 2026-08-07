@@ -276,8 +276,8 @@ export const leads = pgTable(
     partnerId: uuid("partner_id").references(() => partners.id),
     matchMethod: matchMethodEnum("match_method").notNull().default("none"),
     // DM-03: the exact ZIP5 or state code the router matched on (assign.ts matchedOn).
-    // NULL for a previously-matched revert (decided by history, not this run's coverage) or
-    // an unmatched lead. Written once at insert, never rewritten (PRN-05); shown in the lead dialog.
+    // NULL for an unmatched lead. Written once at insert, never rewritten (PRN-05);
+    // shown in the lead dialog.
     matchedOn: text("matched_on"),
     mlsStatus: mlsStatusEnum("mls_status").notNull().default("kept"),
     mlsReason: text("mls_reason"),
@@ -350,7 +350,11 @@ export const leadNotes = pgTable(
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
-  (t) => [index("lead_notes_lead_idx").on(t.leadId)],
+  (t) => [
+    index("lead_notes_lead_idx").on(t.leadId),
+    // noteWhere's same-partner-org author predicate filters by author (DM-11).
+    index("lead_notes_author_user_idx").on(t.authorUserId),
+  ],
 );
 
 export const leadStatusHistory = pgTable(
@@ -667,7 +671,7 @@ export const signupVerifications = pgTable(
   ],
 );
 
-// ── Signup invitation codes (SCP-03): a single-use, 48h code the platform owner
+// ── Signup invitation codes (SCP-06): a single-use, 48h code the platform owner
 // generates and hands to a prospective admin; required at signup. Hashed at rest
 // (only the hash is stored; the plaintext is shown once to the owner). Not
 // tenant-scoped (redeemed before any tenant exists); server-managed via the

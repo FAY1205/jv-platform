@@ -7,6 +7,7 @@ import { MockLanguageModelV3 } from "ai/test";
 import { simulateReadableStream, type LanguageModel } from "ai";
 import * as schema from "@/db/schema";
 import { assistantGate, assistantResponse, type ChatBody } from "@/modules/ai/chat";
+import { questionsInLastMinute } from "@/modules/ai/usage";
 import { saveAiSettings } from "@/modules/ai/settings";
 import type { ScopeContext } from "@/lib/scope";
 
@@ -20,7 +21,9 @@ const suite = url ? describe : describe.skip;
 const SLUG = "test-ai-chat-wpai1";
 const SLUG_DISABLED = "test-ai-chat-wpai1-disabled";
 const SLUG_RATE = "test-ai-chat-wpai1-rate";
-const ALL_SLUGS = [SLUG, SLUG_DISABLED, SLUG_RATE];
+const SLUG_ABORT = "test-ai-chat-wpai1-abort";
+const SLUG_CONCURRENT = "test-ai-chat-wpai1-concurrent";
+const ALL_SLUGS = [SLUG, SLUG_DISABLED, SLUG_RATE, SLUG_ABORT, SLUG_CONCURRENT];
 
 const LEAD_REF = "LD-26-90011";
 // Distinctive zip that appears ONLY in the real masked get_lead output — never in
@@ -225,6 +228,41 @@ suite("WP-AI-1 Task 11: assistant core — gate + streamText (AIA-01..06)", () =
       await db.insert(schema.aiUsage).values(rows);
       const res = await assistantGate(db, scope, { hasCredential: true, now: NOW });
       expect(res).toEqual({ ok: false, code: "ai_rate_limited", status: 429, message: expect.any(String) });
+    });
+  });
+
+  // AIA-07 / audit F-1: the rate limit must not be bypassable by a client that aborts the
+  // stream (never triggering onFinish) or by a concurrent burst that all read the same
+  // pre-write count. assistantResponse records the attempt BEFORE the model call and enforces
+  // the limit on the now-inserted attempt.
+  describe("AIA-07 (F-1): the attempt is recorded before the model call", () => {
+    it("pre-insert: assistantResponse records the attempt before streaming, so an aborted (undrained) stream still counts", async () => {
+      const scope = await seedTenant(SLUG_ABORT, "AI Chat Abort");
+      await saveAiSettings(scope, { enabled: true });
+      // Call the response but DO NOT read the body — onFinish never fires (this is what a
+      // client abort does). The counted ai_usage row must already exist from the pre-insert.
+      await assistantResponse(db, scope, body(), { model: twoStepModel(), now: NOW });
+      expect(await questionsInLastMinute(db, scope, scope.userId, NOW)).toBe(1);
+    });
+
+    it("authoritative enforcement: the 16th attempt is 429 from assistantResponse itself, not just the gate", async () => {
+      const scope = await seedTenant(SLUG_CONCURRENT, "AI Chat Concurrent");
+      await saveAiSettings(scope, { enabled: true });
+      // 15 attempts already in the window (as a concurrent burst's pre-inserts would leave).
+      // The gate is bypassed here on purpose — proves assistantResponse closes the race itself.
+      const rows = Array.from({ length: 15 }, () => ({
+        tenantId: scope.tenantId,
+        userId: scope.userId,
+        model: "google/gemini-3.1-flash-lite",
+        inputTokens: 0,
+        outputTokens: 0,
+        costMicroUsd: 0,
+        createdAt: new Date(NOW.getTime() - 30_000),
+      }));
+      await db.insert(schema.aiUsage).values(rows);
+      const res = await assistantResponse(db, scope, body(), { model: twoStepModel(), now: NOW });
+      expect(res.status).toBe(429);
+      expect((await res.json()).code).toBe("ai_rate_limited");
     });
   });
 });

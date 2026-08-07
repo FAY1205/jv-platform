@@ -46,9 +46,9 @@ export const REDACTED_RAW_JSON: { _redacted: true } = { _redacted: true };
 export const REDACTED_NOTE_BODY = "[redacted — retention policy]";
 
 /** Sentinel for `dedupe_key` (NOT NULL). The key is `normalized(address)+zip5`, so it embeds
- *  the street address — sentinel it so the address is fully removed. Safe: a purged lead is
- *  soft-deleted and thus outside the partial unique index (WHERE deleted_at IS NULL) and out of
- *  dedupe history, so the key is dead data and duplicate sentinels never collide. */
+ *  the street address — sentinel it so the address is fully removed. Safe: ADR-0038 retired the
+ *  dedup collapse, so `dedupe_key` is a plain (non-unique) index — duplicate sentinels are allowed
+ *  and never collide; a purged lead is soft-deleted, so the key is dead data anyway. */
 export const REDACTED_DEDUPE_KEY = "[redacted]";
 
 export interface LeadRedactionPatch {

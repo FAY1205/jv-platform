@@ -3,7 +3,8 @@
 import * as React from "react";
 import { useQuery } from "@tanstack/react-query";
 import { apiGet } from "@/lib/api";
-import { Card, CardBody, Badge, EmptyState, Skeleton, Pagination, DEFAULT_PAGE_SIZE } from "@/components";
+import { fmtDateTime } from "@/lib/dates";
+import { Card, CardBody, Badge, EmptyState, QueryErrorState, Skeleton, Pagination, DEFAULT_PAGE_SIZE } from "@/components";
 
 // WP-PW-4 Task 1: the mobile (< lg) Activity view. WP-PP-5: shares the desktop's query
 // (real `total`) and the shared Pagination primitive instead of a hand-rolled prev/next —
@@ -16,7 +17,7 @@ interface Page { items: Item[]; page: number; pageSize: number; total: number }
 export function ActivityMobile() {
   const [page, setPage] = React.useState(1);
   const [pageSize, setPageSize] = React.useState<number>(DEFAULT_PAGE_SIZE);
-  const { data, isLoading, error } = useQuery({
+  const { data, isLoading, error, refetch } = useQuery({
     queryKey: ["portal-activity", page, pageSize],
     queryFn: () => apiGet<Page>(`/api/portal/activity?page=${page}&pageSize=${pageSize}`),
   });
@@ -28,7 +29,7 @@ export function ActivityMobile() {
       <Card>
         <CardBody>
           {error ? (
-            <EmptyState title="Couldn't load activity" description={(error as Error).message} />
+            <QueryErrorState title="Couldn't load activity" error={error} onRetry={() => refetch()} />
           ) : isLoading ? (
             <div className="flex flex-col gap-2"><Skeleton className="h-12" /><Skeleton className="h-12" /></div>
           ) : items.length === 0 ? (
@@ -41,7 +42,7 @@ export function ActivityMobile() {
                     <Badge variant={i.kind === "status" ? "state" : "neutral"}>{i.kind === "status" ? "Status" : "Note"}</Badge>
                     <span className="num text-sm text-text-2">{i.detail}</span>
                   </div>
-                  <span className="num text-step-1 text-text-3">{new Date(i.when).toLocaleString()}</span>
+                  <span className="num text-step-1 text-text-3">{fmtDateTime(i.when)}</span>
                 </li>
               ))}
             </ul>

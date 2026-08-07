@@ -40,7 +40,7 @@ const Input = z.object({
   workspaceName: z.string().min(1).max(80),
   captchaToken: z.string().min(1),
   tosAccepted: z.literal(true),
-  inviteCode: z.string().min(1), // SCP-03: required invitation code
+  inviteCode: z.string().min(1), // SCP-06: required invitation code
 });
 const KIND = "signup";
 const MIN_RESPONSE_MS = 700;
@@ -135,7 +135,7 @@ export async function POST(request: Request) {
     );
   }
 
-  // SCP-03: the invitation-code gate. Independent of whether the email exists, so it
+  // SCP-06: the invitation-code gate. Independent of whether the email exists, so it
   // leaks nothing about accounts (AUT-05) — it reveals only whether a code is valid,
   // which the redeemer must be told. Placed after the throttle/ceiling so code-guessing
   // is rate-limited (20/15min per IP), before the HIBP work so a bad code stays cheap.
@@ -182,7 +182,7 @@ export async function POST(request: Request) {
             email,
             password: parsed.data.password,
             workspaceName: parsed.data.workspaceName,
-            signupCodeId: storedCode.id, // SCP-03: consumed atomically in the provisioning tx
+            signupCodeId: storedCode.id, // SCP-06: consumed atomically in the provisioning tx
           });
           const { token, record } = issueSignupToken(userId, Date.now());
           await new SignupStore(db).persist(record);

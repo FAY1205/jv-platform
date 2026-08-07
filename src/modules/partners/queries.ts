@@ -2,6 +2,7 @@ import { and, count, desc, eq, isNull } from "drizzle-orm";
 import { getDb } from "@/db";
 import * as schema from "@/db/schema";
 import { tenantWhere, partnerOwnsLead, type ScopeContext } from "@/lib/scope";
+import { currentTerritoryQuery } from "@/modules/coverage/current-territory";
 
 // ADM-03 read side. Every query is tenant-scoped through the guard (PRN-08).
 // Admin-only surface (the routes enforce role); partners never reach these.
@@ -79,26 +80,8 @@ export async function listPartners(scope: ScopeContext): Promise<PartnerRow[]> {
 
 /** The current territory a partner owns (for the deactivation prompt). */
 export async function territoryOf(scope: ScopeContext, partnerId: string): Promise<Territory> {
-  const db = getDb();
-  const [states, zips] = await Promise.all([
-    db
-      .select({ state: schema.stateRules.state })
-      .from(schema.stateRules)
-      .where(and(tenantWhere(schema.stateRules, scope), eq(schema.stateRules.partnerId, partnerId)))
-      .orderBy(schema.stateRules.state),
-    db
-      .select({ zip5: schema.coverageZips.zip5 })
-      .from(schema.coverageZips)
-      .where(
-        and(
-          tenantWhere(schema.coverageZips, scope),
-          eq(schema.coverageZips.partnerId, partnerId),
-          isNull(schema.coverageZips.effectiveTo),
-        ),
-      )
-      .orderBy(schema.coverageZips.zip5),
-  ]);
-  return { states: states.map((s) => s.state), zips: zips.map((z) => z.zip5) };
+  const { stateRules, coverageZips } = await currentTerritoryQuery(getDb(), scope, partnerId);
+  return { states: stateRules.map((s) => s.state), zips: coverageZips.map((z) => z.zip5) };
 }
 
 export interface PartnerLeadSummary {

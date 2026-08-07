@@ -5,10 +5,12 @@ import Link from "next/link";
 import dynamic from "next/dynamic";
 import { useQuery } from "@tanstack/react-query";
 import { apiGet } from "@/lib/api";
+import { fmtBucket } from "@/lib/dates";
 import {
   AppShell,
   PartnerTag,
   EmptyState,
+  QueryErrorState,
   Skeleton,
   SegmentedControl,
   LineChart,
@@ -55,14 +57,6 @@ const RANGE_SEGMENTS: { value: RangeKey; label: string }[] = RANGES.map((r) => (
 const panel = "rounded-2xl border border-border-soft bg-surface p-5 shadow-sm";
 const label13 = "text-step-1"; // ≥13px chrome text (no sub-13px — WP-A/C rule)
 const pct = (n: number) => `${Math.round(n * 100)}%`;
-
-// Trend x-axis label: "Jul 3" for daily buckets, "Jul 2026" for monthly.
-const fmtBucket = (iso: string, bucket: "day" | "month") => {
-  const dt = new Date(`${iso.slice(0, 10)}T00:00:00Z`);
-  return bucket === "month"
-    ? dt.toLocaleDateString("en-US", { month: "short", year: "numeric", timeZone: "UTC" })
-    : dt.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
-};
 
 // Donut palette from tokens (PRN-12); cycled per source. Names always accompany
 // color in the legend + tooltip (PRN-14).
@@ -200,7 +194,7 @@ function DashboardBody() {
         </div>
       ) : dash.error ? (
         <div className={panel}>
-          <EmptyState title="Couldn't load the dashboard" description={(dash.error as Error).message} />
+          <QueryErrorState title="Couldn't load the dashboard" error={dash.error} onRetry={() => dash.refetch()} />
         </div>
       ) : (
         <div className="stagger flex flex-col gap-5">

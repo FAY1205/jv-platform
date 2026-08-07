@@ -6,6 +6,7 @@ import dynamic from "next/dynamic";
 import { useParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { apiGet } from "@/lib/api";
+import { fmtDate, fmtBucket } from "@/lib/dates";
 import {
   AppShell,
   PartnerTag,
@@ -21,6 +22,7 @@ import {
   Td,
   RowOpenButton,
   EmptyState,
+  QueryErrorState,
   Skeleton,
 } from "@/components";
 import type { CoverageMapResponse } from "@/modules/coverage/map";
@@ -87,13 +89,6 @@ const RANGES: { value: RangeKey; label: string }[] = [
 ];
 
 const panel = "rounded-2xl border border-border-soft bg-surface p-5 shadow-sm";
-
-const fmtBucket = (iso: string, bucket: "day" | "month") => {
-  const dt = new Date(`${iso.slice(0, 10)}T00:00:00Z`);
-  return bucket === "month"
-    ? dt.toLocaleDateString("en-US", { month: "short", year: "numeric", timeZone: "UTC" })
-    : dt.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
-};
 
 function Stat({ label, value, sub, tip }: { label: React.ReactNode; value: React.ReactNode; sub?: string; tip?: string }) {
   const header = tip ? (
@@ -163,7 +158,7 @@ export default function PartnerDetailPage() {
         </div>
       ) : partnerQ.error || !partner ? (
         <div className={panel}>
-          <EmptyState title="Couldn't load partner" description={(partnerQ.error as Error)?.message ?? "Not found."} />
+          <QueryErrorState title="Couldn't load partner" error={partnerQ.error} description={(partnerQ.error as Error)?.message ?? "Not found."} onRetry={() => partnerQ.refetch()} />
         </div>
       ) : (
         <div className="stagger flex flex-col gap-5">
@@ -208,7 +203,7 @@ export default function PartnerDetailPage() {
             {perfQ.isPending ? (
               <Skeleton className="h-64 w-full" />
             ) : perfQ.error ? (
-              <EmptyState title="Couldn't load performance" description={(perfQ.error as Error).message} />
+              <QueryErrorState title="Couldn't load performance" error={perfQ.error} onRetry={() => perfQ.refetch()} />
             ) : !perf || perf.history.length === 0 ? (
               <p className="py-8 text-center text-sm text-text-3">No activity in this range.</p>
             ) : (
@@ -298,7 +293,7 @@ export default function PartnerDetailPage() {
                         </span>
                       </Td>
                       <Td>{matchBadge(l.matchMethod)}</Td>
-                      <Td align="right"><span className="num text-xs text-text-3 tabular-nums">{new Date(l.receivedAt).toLocaleDateString()}</span></Td>
+                      <Td align="right"><span className="num text-xs text-text-3 tabular-nums">{fmtDate(l.receivedAt)}</span></Td>
                     </Tr>
                   ))}
                 </TBody>

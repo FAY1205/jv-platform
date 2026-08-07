@@ -58,6 +58,39 @@ describe("TST-11: source format drift", () => {
     expect(detectProfile(GENERIC_PROFILE.headerSignature, []).status).toBe("unknown");
   });
 
+  // R-34: detection ranks by fit ratio with a total tie-break on profile id, so the
+  // winner is a pure function of the inputs — never of candidate (DB row) order.
+  it("TST-11: equal-overlap candidates resolve to a stable winner regardless of order", () => {
+    const a: SourceProfile = {
+      id: "a-profile", name: "A", version: 1, headerSignature: ["Name", "Zip"],
+      mapping: {}, requiredColumns: [], strictness: "flexible",
+    };
+    const b: SourceProfile = {
+      id: "b-profile", name: "B", version: 1, headerSignature: ["Phone", "Email"],
+      mapping: {}, requiredColumns: [], strictness: "flexible",
+    };
+    const headers = ["Name", "Zip", "Phone", "Email"]; // both fit 1.0 — a true tie
+    expect(detectProfile(headers, [a, b]).profile?.id).toBe("a-profile");
+    expect(detectProfile(headers, [b, a]).profile?.id).toBe("a-profile");
+  });
+
+  it("TST-11: an exact smaller-signature match beats a larger-signature partial overlap", () => {
+    const small: SourceProfile = {
+      id: "small-exact", name: "Small", version: 1, headerSignature: ["Name", "Zip"],
+      mapping: {}, requiredColumns: [], strictness: "flexible",
+    };
+    const large: SourceProfile = {
+      id: "large-partial", name: "Large", version: 1,
+      headerSignature: ["Name", "Zip", "Phone", "Email", "Address", "City"],
+      mapping: {}, requiredColumns: [], strictness: "flexible",
+    };
+    // Upload matches ALL of small (fit 1.0) but only 3/6 of large (fit 0.5).
+    // Absolute overlap would pick large (3 > 2) and report drift — the R-34 bug.
+    const r = detectProfile(["Name", "Zip", "Phone"], [large, small]);
+    expect(r.profile?.id).toBe("small-exact");
+    expect(r.status).toBe("exact"); // flexible: the extra column is allowed
+  });
+
   it("confirmed drift creates profile v+1 without mutating the original (DM-08)", () => {
     const next = createNextVersion(GENERIC_PROFILE, {
       headerSignature: [...GENERIC_PROFILE.headerSignature, "County"],

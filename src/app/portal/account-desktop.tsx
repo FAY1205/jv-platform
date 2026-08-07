@@ -2,7 +2,7 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { apiGet } from "@/lib/api";
-import { Card, CardHeader, CardTitle, CardBody, Button, LinkCard, Skeleton, EmptyState, PortalDevices } from "@/components";
+import { Card, CardHeader, CardTitle, CardBody, Button, LinkCard, Skeleton, QueryErrorState, PortalDevices } from "@/components";
 import { initialsFromEmail } from "@/lib/identity";
 import { useSignOut } from "@/lib/use-sign-out";
 
@@ -21,7 +21,7 @@ interface Me {
 }
 
 export function AccountDesktop() {
-  const { data, isPending, error } = useQuery({ queryKey: ["me"], queryFn: () => apiGet<Me>("/api/me") });
+  const { data, isPending, error, refetch } = useQuery({ queryKey: ["me"], queryFn: () => apiGet<Me>("/api/me") });
   const { signOut, signingOut } = useSignOut();
 
   return (
@@ -32,7 +32,7 @@ export function AccountDesktop() {
         </CardHeader>
         <CardBody className="flex flex-col gap-4">
           {error ? (
-            <EmptyState title="Couldn't load your account" description={(error as Error).message} />
+            <QueryErrorState title="Couldn't load your account" error={error} onRetry={() => refetch()} />
           ) : isPending || !data ? (
             <Skeleton className="h-12" />
           ) : (

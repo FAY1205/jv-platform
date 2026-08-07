@@ -30,6 +30,7 @@ const { hash } = buildRulesSnapshot({
 });
 
 // Semantic projection: only the decision-bearing fields, sorted deterministically.
+// R-33: matchedOn + the score columns are persisted decisions (DM-03) and belong here.
 const outcomes = leads
   .map((l) => ({
     key: l.dedupeKey,
@@ -39,6 +40,10 @@ const outcomes = leads
     partner: l.partnerId,
     patternKey: l.mlsPatternKey,
     span: l.mlsMatchSpan,
+    matchedOn: l.matchedOn,
+    score: l.scoreTotal,
+    group: l.scoreGroup,
+    scoreStatus: l.scoreStatus,
   }))
   .sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
 

@@ -3,6 +3,7 @@
 import * as React from "react";
 import { useQuery } from "@tanstack/react-query";
 import { apiGet } from "@/lib/api";
+import { fmtDateTime } from "@/lib/dates";
 import { Card, CardBody, CardHeader, CardTitle, Badge, Button, EmptyState, Skeleton } from "@/components";
 
 // Dev-only "sent emails" viewer. Non-production + admin-gated by the API, and the
@@ -32,10 +33,6 @@ const KIND_LABEL: Record<string, string> = {
   trust_reuse: "Device signed out",
   email: "Email",
 };
-
-function fmt(iso: string): string {
-  return new Date(iso).toLocaleString();
-}
 
 function Copy({ value, label }: { value: string; label: string }) {
   const [done, setDone] = React.useState(false);
@@ -116,7 +113,7 @@ export function EmailsView() {
                     <Badge variant="outline">{KIND_LABEL[e.kind] ?? e.kind}</Badge>
                   </div>
                   <p className="mt-1 font-mono text-xs text-text-3">
-                    to {e.intendedTo.join(", ") || "—"} · {fmt(e.at)}
+                    to {e.intendedTo.join(", ") || "—"} · {fmtDateTime(e.at)}
                     {e.redirected ? " · redirected to sink" : ""}
                   </p>
                 </CardHeader>

@@ -4,7 +4,7 @@ import * as schema from "@/db/schema";
 import { adminAllowlist } from "@/lib/env";
 import { tenantWhere, type ScopeContext } from "@/lib/scope";
 
-// SCP-03: the platform OWNER gate. There is no platform-super-admin role (roles are
+// SCP-07: the platform OWNER gate. There is no platform-super-admin role (roles are
 // tenant-scoped admin|partner), so "owner" = a tenant admin whose email is in the
 // ADMIN_ALLOWLIST env (the same list that already receives the platform alert mails).
 // This is the app's first email-vs-allowlist authorization check; it gates only the

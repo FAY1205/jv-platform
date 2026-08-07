@@ -4,8 +4,10 @@ import * as React from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiGet } from "@/lib/api";
 import { csrfHeaders } from "@/lib/csrf-client";
+import { fmtDateTime } from "@/lib/dates";
 import { Button } from "./Button";
 import { EmptyState } from "./EmptyState";
+import { QueryErrorState } from "./QueryErrorState";
 import { Skeleton } from "./Skeleton";
 
 // WP-PW-4 Task 2: the partner's remembered devices, each revocable (ACC-02) — extracted
@@ -23,18 +25,13 @@ interface Device {
   lastSeenAt: string | null;
 }
 
-function fmt(iso: string | null): string {
-  if (!iso) return "—";
-  return new Date(iso).toLocaleString();
-}
-
 export function PortalDevices() {
   const qc = useQueryClient();
   // P-12: which device is awaiting a revoke confirmation — mirrors the admin
   // "Sign out everywhere" two-step (reveal consequence → confirm) so a partner can't
   // sign a device out (possibly the one they're on) with a single stray click.
   const [confirmId, setConfirmId] = React.useState<string | null>(null);
-  const { data, isLoading, error } = useQuery({
+  const { data, isLoading, error, refetch } = useQuery({
     queryKey: ["sessions"],
     queryFn: () => apiGet<{ devices: Device[] }>("/api/sessions"),
   });
@@ -59,7 +56,7 @@ export function PortalDevices() {
   return (
     <>
       {error ? (
-        <EmptyState title="Couldn't load your devices" description={(error as Error).message} />
+        <QueryErrorState title="Couldn't load your devices" error={error} onRetry={() => refetch()} />
       ) : isLoading ? (
         <div className="flex flex-col gap-2">
           <Skeleton className="h-14" />
@@ -74,7 +71,7 @@ export function PortalDevices() {
               <div className="min-w-0">
                 <p className="truncate text-sm text-text-2">{d.deviceLabel ?? "Unknown device"}</p>
                 <p className="num text-step-1 text-text-3">
-                  last seen {fmt(d.lastSeenAt)} · {d.ip ?? "—"}
+                  last seen {d.lastSeenAt ? fmtDateTime(d.lastSeenAt) : "—"} · {d.ip ?? "—"}
                 </p>
               </div>
               {confirmId === d.familyId ? (

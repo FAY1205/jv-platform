@@ -29,8 +29,13 @@ const { leads } = planRun(
   { mlsPatterns: DEFAULT_MLS_PATTERNS, coverage: buildCoverage(ZIP_COVERAGE, STATE_RULES) },
 );
 
+// 2026-08-05 (audit R-33 + R-08): the tuple grew `matchedOn` + the score columns —
+// all persisted decisions (DM-03) that were previously invisible to this gate — and
+// the rulesHash was re-pinned because the snapshot now carries `scoringDigest`
+// (DM-08 content pin). NOT a rules change: the underlying MLS patterns, coverage,
+// profile, and scoring scheme are byte-identical to the previous pin.
 const actual = leads
-  .map((l) => ({ key: l.dedupeKey, campaign: l.campaign, mls: l.mlsStatus, match: l.matchMethod, partner: l.partnerId, patternKey: l.mlsPatternKey, span: l.mlsMatchSpan }))
+  .map((l) => ({ key: l.dedupeKey, campaign: l.campaign, mls: l.mlsStatus, match: l.matchMethod, partner: l.partnerId, patternKey: l.mlsPatternKey, span: l.mlsMatchSpan, matchedOn: l.matchedOn, score: l.scoreTotal, group: l.scoreGroup, scoreStatus: l.scoreStatus }))
   .sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
 
 describe("TST-05: golden semantic zero-diff (sanitized Lead Source 1 week)", () => {

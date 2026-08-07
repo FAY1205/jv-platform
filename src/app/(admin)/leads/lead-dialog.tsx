@@ -4,6 +4,8 @@ import * as React from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiGet } from "@/lib/api";
 import { csrfHeaders } from "@/lib/csrf-client";
+import { useDirty } from "@/lib/use-dirty";
+import { fmtDateTime } from "@/lib/dates";
 import {
   Dialog,
   Button,
@@ -15,7 +17,7 @@ import {
   NotesPanel,
   ClampedText,
   Skeleton,
-  EmptyState,
+  QueryErrorState,
   useToast,
   Tooltip,
   HotLeadMark,
@@ -44,7 +46,7 @@ interface Activity {
   actor: string | null;
   status?: string;
 }
-interface LeadDetail {
+export interface LeadDetail {
   refId: string;
   seller: { first: string; last: string; phone: string; email: string };
   address: string;
@@ -81,11 +83,61 @@ interface Partner {
   color: string;
 }
 
-const REVERT = "__revert__";
-const UNASSIGNED = "__unassigned__";
+export const REVERT = "__revert__";
+export const UNASSIGNED = "__unassigned__";
 
-function fmtWhen(iso: string): string {
-  return new Date(iso).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
+// ASN-03: the partner-overlay action a given selection implies. A "keep" is a no-op; the other
+// three MOVE ownership (and, per R-01/R-22, hide the prior owner's notes + status timeline from
+// the new owner) — so EditForm gates those behind a confirmation. Pure: the submit-time confirm
+// gate and the mutation body both derive the action from here, so they can never disagree.
+export type PartnerAction =
+  | { action: "keep" }
+  | { action: "set"; partnerId: string }
+  | { action: "revert" }
+  | { action: "unassign" };
+
+export function partnerActionFor(partnerSel: string, d: LeadDetail): PartnerAction {
+  const sel = partnerSel === UNASSIGNED ? "" : partnerSel;
+  if (sel === REVERT) return { action: "revert" };
+  if (sel === "" && d.partner) return { action: "unassign" }; // clearing a currently-assigned lead
+  if (sel && sel !== (d.partner?.id ?? "")) return { action: "set", partnerId: sel };
+  return { action: "keep" };
+}
+
+/** Confirmation copy for an ownership-moving action, or null for "keep" (no confirmation needed).
+ *  Names the destination (FRM-03) so the admin sees exactly where the lead is going, and states the
+ *  consequence accurately per action — an unassign has no "new owner" to inherit a clean timeline. */
+interface TransferCopy {
+  title: string;
+  confirmLabel: string;
+  verb: string;
+  dest: string;
+  consequence: string;
+}
+// A re-route to another partner (set/revert): the destination partner becomes the new owner.
+const NEW_OWNER_CONSEQUENCE =
+  "The new owner starts with a clean status timeline and cannot see the previous owner's status history or notes; the previous owner loses access to this lead.";
+function transferCopy(action: PartnerAction, d: LeadDetail, partners: Partner[]): TransferCopy | null {
+  switch (action.action) {
+    case "set": {
+      const p = partners.find((x) => x.id === action.partnerId);
+      return { title: "Reassign this lead?", confirmLabel: "Reassign", verb: "will move to", dest: p ? `${p.name} (${p.refId})` : "the selected partner", consequence: NEW_OWNER_CONSEQUENCE };
+    }
+    case "revert": {
+      const o = d.assignment.original;
+      return { title: "Revert this lead's routing?", confirmLabel: "Revert routing", verb: "will move to", dest: o ? `${o.name} (${o.refId})` : "its original routing", consequence: NEW_OWNER_CONSEQUENCE };
+    }
+    case "unassign":
+      return {
+        title: "Unassign this lead?",
+        confirmLabel: "Unassign",
+        verb: "will return to",
+        dest: "the unassigned pool",
+        consequence: "No partner will own it; the current owner loses access to this lead, its status history, and notes.",
+      };
+    default:
+      return null;
+  }
 }
 
 const ACTIVITY_DOT: Record<Activity["kind"], string> = {
@@ -99,6 +151,13 @@ export function LeadDialog({ refId, onClose }: { refId: string; onClose: () => v
   const qc = useQueryClient();
   const toast = useToast();
   const [editing, setEditing] = React.useState(false);
+  // R-54 (FRM-02a): while editing, EditForm reports whether its fields are dirty so a dismiss
+  // gesture (Esc/backdrop/✕) on unsaved edits asks before discarding. Reset when leaving edit mode.
+  const [editDirty, setEditDirty] = React.useState(false);
+  const leaveEdit = () => {
+    setEditing(false);
+    setEditDirty(false);
+  };
 
   const detailQ = useQuery({
     queryKey: ["lead", refId],
@@ -115,6 +174,7 @@ export function LeadDialog({ refId, onClose }: { refId: string; onClose: () => v
       open
       onClose={onClose}
       size="xl"
+      confirmClose={editing && editDirty}
       title={
         <span className="flex items-center gap-2.5">
           <span className="num">{refId}</span>
@@ -133,14 +193,15 @@ export function LeadDialog({ refId, onClose }: { refId: string; onClose: () => v
           ))}
         </div>
       ) : detailQ.error || !d ? (
-        <EmptyState title="Couldn't load lead" description={(detailQ.error as Error)?.message ?? "Not found."} />
+        <QueryErrorState title="Couldn't load lead" error={detailQ.error} description={(detailQ.error as Error)?.message ?? "Not found."} onRetry={() => detailQ.refetch()} />
       ) : editing ? (
         <EditForm
           d={d}
           partners={roster.data?.partners ?? []}
-          onCancel={() => setEditing(false)}
+          onDirtyChange={setEditDirty}
+          onCancel={leaveEdit}
           onSaved={() => {
-            setEditing(false);
+            leaveEdit();
             qc.invalidateQueries({ queryKey: ["lead", refId] });
             qc.invalidateQueries({ queryKey: ["leads"] });
             qc.invalidateQueries({ queryKey: ["dashboard"] });
@@ -230,7 +291,7 @@ function ViewMode({ d, onEdit }: { d: LeadDetail; onEdit: () => void }) {
             </Badge>
           )}
         </Field>
-        <Field label="Received">{fmtWhen(d.receivedAt)}</Field>
+        <Field label="Received">{fmtDateTime(d.receivedAt)}</Field>
         {d.assignment.manual && d.assignment.original && (
           <Field label="Original routing">
             <PartnerTag size="sm" name={d.assignment.original.name} color={d.assignment.original.color} refId={d.assignment.original.refId} />
@@ -343,7 +404,7 @@ function ActivityLog({ activity }: { activity: Activity[] }) {
               <div className="flex flex-1 flex-col">
                 <span className="text-sm text-text">{a.label}</span>
                 <span className="num text-xs text-text-3">
-                  {fmtWhen(a.at)}
+                  {fmtDateTime(a.at)}
                   {a.actor ? ` · ${a.actor}` : ""}
                 </span>
               </div>
@@ -357,16 +418,19 @@ function ActivityLog({ activity }: { activity: Activity[] }) {
 
 // ── Edit mode ─────────────────────────────────────────────────────────────────
 
-function EditForm({
+export function EditForm({
   d,
   partners,
   onCancel,
   onSaved,
+  onDirtyChange,
 }: {
   d: LeadDetail;
   partners: Partner[];
   onCancel: () => void;
   onSaved: () => void;
+  /** R-54: reports whether any field has changed, so the host Dialog can guard a dismiss. */
+  onDirtyChange?: (dirty: boolean) => void;
 }) {
   const [f, setF] = React.useState({
     sellerFirst: d.seller.first,
@@ -390,6 +454,13 @@ function EditForm({
   // "revert to original". Radix Select forbids an empty-string value, hence the sentinel.
   const [partnerSel, setPartnerSel] = React.useState(d.partner?.id ?? UNASSIGNED);
 
+  // R-54 (FRM-02a): the fields seed synchronously from `d`, so the baseline is the loaded record;
+  // report any divergence up so the host Dialog can raise a discard-confirmation on dismiss.
+  const dirty = useDirty({ ...f, status, partnerSel });
+  React.useEffect(() => {
+    onDirtyChange?.(dirty);
+  }, [dirty, onDirtyChange]);
+
   const save = useMutation({
     mutationFn: async () => {
       // 1) Status (kept leads only) — its own endpoint appends history + event.
@@ -402,12 +473,8 @@ function EditForm({
         const b = await res.json();
         if (!res.ok) throw new Error(b?.message ?? "Status update failed.");
       }
-      // 2) Fields + partner overlay.
-      const sel = partnerSel === UNASSIGNED ? "" : partnerSel;
-      let partner: { action: "keep" } | { action: "set"; partnerId: string } | { action: "revert" } | { action: "unassign" } = { action: "keep" };
-      if (sel === REVERT) partner = { action: "revert" };
-      else if (sel === "" && d.partner) partner = { action: "unassign" }; // clearing a currently-assigned lead
-      else if (sel && sel !== (d.partner?.id ?? "")) partner = { action: "set", partnerId: sel };
+      // 2) Fields + partner overlay (the action was decided — and, for a transfer, confirmed — pre-submit).
+      const partner = partnerActionFor(partnerSel, d);
       const res = await fetch(`/api/leads/${d.refId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json", ...csrfHeaders() },
@@ -420,12 +487,23 @@ function EditForm({
     onSuccess: onSaved,
   });
 
+  // ASN-03/FRM-03: reassigning a lead moves ownership and hides the prior owner's notes + status
+  // timeline (R-01/R-22) — a consequential, easy-to-misclick change. Any ownership-moving action is
+  // gated behind a confirmation naming the lead + destination; a plain field edit saves directly.
+  const [confirmTransfer, setConfirmTransfer] = React.useState(false);
+  const transfer = transferCopy(partnerActionFor(partnerSel, d), d, partners);
+  const submit = () => {
+    if (transfer) setConfirmTransfer(true);
+    else save.mutate();
+  };
+
   return (
+    <>
     <form
       className="flex flex-col gap-5"
       onSubmit={(e) => {
         e.preventDefault();
-        save.mutate();
+        submit();
       }}
     >
       <div className="grid grid-cols-2 gap-3">
@@ -496,5 +574,38 @@ function EditForm({
         </Button>
       </div>
     </form>
+
+      {transfer && (
+        <Dialog
+          open={confirmTransfer}
+          onClose={() => setConfirmTransfer(false)}
+          size="sm"
+          title={transfer.title}
+          footer={
+            <>
+              <Button type="button" variant="ghost" onClick={() => setConfirmTransfer(false)} disabled={save.isPending}>
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                variant="danger"
+                loading={save.isPending}
+                onClick={() => {
+                  setConfirmTransfer(false);
+                  save.mutate();
+                }}
+              >
+                {transfer.confirmLabel}
+              </Button>
+            </>
+          }
+        >
+          <p className="text-sm text-text-2">
+            <span className="num">{d.refId}</span> {transfer.verb} <strong className="text-text">{transfer.dest}</strong>.{" "}
+            {transfer.consequence}
+          </p>
+        </Dialog>
+      )}
+    </>
   );
 }

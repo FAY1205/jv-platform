@@ -4,7 +4,7 @@ import * as React from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiGet } from "@/lib/api";
 import { csrfHeaders } from "@/lib/csrf-client";
-import { Card, CardBody, CardHeader, CardTitle, Button, Checkbox, Skeleton, EmptyState, useToast } from "@/components";
+import { Card, CardBody, CardHeader, CardTitle, Button, Checkbox, Skeleton, QueryErrorState, useToast } from "@/components";
 import { SettingsSection } from "../settings-section";
 
 // SET-03 / NTF-05: the admin sets, per role + event, whether it emails, shows in-app,
@@ -25,7 +25,7 @@ type Prefs = Record<string, Record<string, Channel>>;
 export default function NotificationSettingsPage() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  const { data, isPending, error } = useQuery({
+  const { data, isPending, error, refetch } = useQuery({
     queryKey: ["notif-prefs"],
     queryFn: () => apiGet<{ prefs: Prefs; events: EventDef[] }>("/api/settings/notifications"),
   });
@@ -75,7 +75,7 @@ export default function NotificationSettingsPage() {
           </CardHeader>
           <CardBody>
             {error ? (
-              <EmptyState title="Couldn't load settings" description={(error as Error).message} />
+              <QueryErrorState title="Couldn't load settings" error={error} onRetry={() => refetch()} />
             ) : isPending || !draft ? (
               <div className="flex flex-col gap-2">
                 <Skeleton className="h-10" />
