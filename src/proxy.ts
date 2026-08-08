@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createServerClient } from "@supabase/ssr";
+import type { User } from "@supabase/supabase-js";
 import { env, isProduction } from "@/lib/env";
 import { AUTH_COOKIE_OPTIONS } from "@/lib/supabase/cookie-options";
 import { newCsrfToken, CSRF_COOKIE_NAME } from "@/lib/auth/csrf-token";
@@ -23,6 +24,29 @@ const PUBLIC_EXCEPTIONS = ["/portal/login"];
 function isProtectedPage(pathname: string): boolean {
   if (PUBLIC_EXCEPTIONS.includes(pathname)) return false;
   return PROTECTED_PAGE_PREFIXES.some((p) => pathname === p || pathname.startsWith(`${p}/`));
+}
+
+// A returning visitor whose refresh token has expired or rotated makes supabase.auth.getUser()
+// THROW AuthApiError(refresh_token_not_found, status 400) — a benign "your session ended", not an
+// application fault, so the request is simply unauthenticated (the redirect below handles it).
+//
+// Match ONLY the specific auth-error codes/name that mean the LOCAL session is dead — an
+// expired/reused/missing refresh token. NOT every 4xx: GoTrue also returns 4xx AuthApiErrors for
+// rate-limiting (over_request_rate_limit, 429), a banned user (user_banned, 403), and a bad or
+// revoked SUPABASE_ANON_KEY (an uncoded 401). Those are operationally significant — silently
+// bouncing every affected visitor to /login with no Sentry signal is exactly the invisible-outage
+// failure ADR-0032 exists to prevent — so they fall through to the caller's re-throw → Sentry.
+const ENDED_SESSION_CODES = new Set(["refresh_token_not_found", "refresh_token_already_used", "session_not_found"]);
+
+export function isEndedSessionError(e: unknown): boolean {
+  if (typeof e !== "object" || e === null) return false;
+  const err = e as { __isAuthError?: unknown; status?: unknown; code?: unknown; name?: unknown };
+  if (err.__isAuthError !== true || typeof err.status !== "number" || err.status < 400 || err.status >= 500) {
+    return false;
+  }
+  // AuthSessionMissingError ("no session") is identified by name — it carries no `code`.
+  if (err.name === "AuthSessionMissingError") return true;
+  return typeof err.code === "string" && ENDED_SESSION_CODES.has(err.code);
 }
 
 export async function proxy(request: NextRequest) {
@@ -54,10 +78,17 @@ export async function proxy(request: NextRequest) {
     },
   });
 
-  // getUser() validates the JWT and refreshes if needed (writing cookies via setAll).
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  // getUser() validates the JWT and refreshes if needed (writing cookies via setAll). An expired
+  // or rotated refresh token makes it THROW — treat that as an unauthenticated request (the
+  // redirect below handles protected pages) rather than a 500 + Sentry event; re-throw anything
+  // that is not a benign ended-session error (see isEndedSessionError).
+  let user: User | null = null;
+  try {
+    const { data } = await supabase.auth.getUser();
+    user = data.user;
+  } catch (e) {
+    if (!isEndedSessionError(e)) throw e;
+  }
 
   if (isProtectedPage(pathname) && !user) {
     // Partners onboard via the portal OTP screen; admins via the password screen.
