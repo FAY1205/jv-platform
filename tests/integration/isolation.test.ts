@@ -383,4 +383,25 @@ suite("TST-01: tenant & partner isolation", () => {
       await db.execute(sql`drop table if exists public._rls_probe`);
     }
   });
+
+  it("SEC-01: the RLS claim helpers + audit trigger keep a pinned search_path (advisor 0011, migration 0040)", async () => {
+    // These functions run inside every RLS policy; a search_path that follows the caller is the
+    // classic hijack vector. 0040 pinned it — this guards against a future CREATE OR REPLACE
+    // silently dropping the pin (CREATE OR REPLACE resets attributes not restated), which would
+    // reopen the advisor finding with no other signal.
+    const rows = (await db.execute<{ proname: string; pinned: boolean }>(sql`
+      select p.proname,
+             (p.proconfig is not null and exists (
+               select 1 from unnest(p.proconfig) c where c like 'search_path=%'
+             )) as pinned
+      from pg_proc p
+      join pg_namespace n on n.oid = p.pronamespace
+      where n.nspname = 'public'
+        and p.proname in ('app_current_claims','app_current_tenant','app_current_role',
+                          'app_current_partner','app_current_user','reject_audit_log_mutation')
+      order by p.proname
+    `)) as unknown as { proname: string; pinned: boolean }[];
+    expect(rows).toHaveLength(6);
+    expect(rows.every((r) => r.pinned)).toBe(true);
+  });
 });
