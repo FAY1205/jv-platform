@@ -281,6 +281,13 @@
       "when": 1786264900002,
       "tag": "0039_capture_rls_auto_enable",
       "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "7",
+      "when": 1786264900003,
+      "tag": "0040_pin_function_search_path",
+      "breakpoints": true
     }
   ]
 }
