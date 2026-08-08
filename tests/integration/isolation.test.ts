@@ -362,4 +362,25 @@ suite("TST-01: tenant & partner isolation", () => {
     `) as unknown as { count: number }[];
     expect(Number(count)).toBeGreaterThanOrEqual(20);
   });
+
+  it("SEC-01: the ensure_rls trigger auto-enables RLS on a newly created public table (ADR-0043)", async () => {
+    // The count test above proves current state; this proves the BACKSTOP still works — that the
+    // captured rls_auto_enable() event trigger actually fires and enables RLS on a table that did
+    // NOT ask for it, which is the whole point (a future migration that forgets the explicit
+    // `enable row level security` must not silently open a cross-tenant hole). A broken trigger is
+    // invisible to a static count.
+    try {
+      await db.execute(sql`drop table if exists public._rls_probe`);
+      await db.execute(sql`create table public._rls_probe (id uuid primary key)`);
+      const [{ enabled }] = (await db.execute<{ enabled: boolean }>(sql`
+        select c.relrowsecurity as enabled
+        from pg_class c
+        join pg_namespace n on n.oid = c.relnamespace
+        where n.nspname = 'public' and c.relname = '_rls_probe'
+      `)) as unknown as { enabled: boolean }[];
+      expect(enabled).toBe(true);
+    } finally {
+      await db.execute(sql`drop table if exists public._rls_probe`);
+    }
+  });
 });

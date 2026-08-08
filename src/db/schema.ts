@@ -140,6 +140,8 @@ export const coverageZips = pgTable(
     // Unique CURRENT coverage per (tenant, zip5): enforced by a partial unique
     // index in the RLS/constraints migration (WHERE effective_to IS NULL).
     index("coverage_tenant_zip_idx").on(t.tenantId, t.zip5),
+    // FK-covering index (db-linter 0001): the partner_id FK had no leading-column index.
+    index("coverage_zips_partner_idx").on(t.partnerId),
   ],
 );
 
@@ -156,7 +158,11 @@ export const stateRules = pgTable(
       .references(() => partners.id),
     createdAt: createdAt(),
   },
-  (t) => [uniqueIndex("state_rules_tenant_state_idx").on(t.tenantId, t.state)],
+  (t) => [
+    uniqueIndex("state_rules_tenant_state_idx").on(t.tenantId, t.state),
+    // FK-covering index (db-linter 0001): the partner_id FK had no leading-column index.
+    index("state_rules_partner_idx").on(t.partnerId),
+  ],
 );
 
 export const mlsPatterns = pgTable(
@@ -239,6 +245,8 @@ export const uploads = pgTable(
       .where(sql`${t.distributedAt} is null and ${t.voidedAt} is null`),
     // ADR-0038: duplicate-file lookup — "has this tenant already imported these bytes?"
     index("uploads_tenant_content_hash_idx").on(t.tenantId, t.contentHash),
+    // FK-covering index (db-linter 0001): the source_profile_id FK had no leading-column index.
+    index("uploads_source_profile_idx").on(t.sourceProfileId),
   ],
 );
 
@@ -328,6 +336,13 @@ export const leads = pgTable(
     index("leads_pii_purge_idx")
       .on(t.tenantId, t.deletedAt)
       .where(sql`${t.piiPurgedAt} is null and ${t.deletedAt} is not null`),
+    // FK-covering indexes (db-linter 0001): each partner/upload FK had only composite
+    // indexes LEADING with tenant_id, which cannot serve a lookup on the FK column alone
+    // (e.g. the reference check when a partner or upload row is deleted).
+    index("leads_partner_idx").on(t.partnerId),
+    index("leads_original_partner_idx").on(t.originalPartnerId),
+    index("leads_manual_partner_idx").on(t.manualPartnerId),
+    index("leads_upload_idx").on(t.uploadId),
   ],
 );
 
@@ -354,6 +369,8 @@ export const leadNotes = pgTable(
     index("lead_notes_lead_idx").on(t.leadId),
     // noteWhere's same-partner-org author predicate filters by author (DM-11).
     index("lead_notes_author_user_idx").on(t.authorUserId),
+    // FK-covering index (db-linter 0001): the tenant_id FK had no leading-column index.
+    index("lead_notes_tenant_idx").on(t.tenantId),
   ],
 );
 
@@ -371,7 +388,13 @@ export const leadStatusHistory = pgTable(
     changedByUserId: uuid("changed_by_user_id").references(() => users.id),
     createdAt: createdAt(),
   },
-  (t) => [index("lead_status_lead_idx").on(t.leadId)],
+  (t) => [
+    index("lead_status_lead_idx").on(t.leadId),
+    // FK-covering indexes (db-linter 0001). changed_by_user_id also backs the R-22 policy
+    // (0037) predicate `changed_by_user_id IN (...)`; tenant_id had no leading-column index.
+    index("lead_status_history_changed_by_idx").on(t.changedByUserId),
+    index("lead_status_history_tenant_idx").on(t.tenantId),
+  ],
 );
 
 export const listingChecks = pgTable(
@@ -390,7 +413,11 @@ export const listingChecks = pgTable(
     checkedAt: timestamp("checked_at", { withTimezone: true }),
     createdAt: createdAt(),
   },
-  (t) => [index("listing_checks_lead_idx").on(t.leadId)],
+  (t) => [
+    index("listing_checks_lead_idx").on(t.leadId),
+    // FK-covering index (db-linter 0001): the tenant_id FK had no leading-column index.
+    index("listing_checks_tenant_idx").on(t.tenantId),
+  ],
 );
 
 // ── Notifications, audit ──
@@ -411,7 +438,11 @@ export const notifications = pgTable(
     readAt: timestamp("read_at", { withTimezone: true }),
     createdAt: createdAt(),
   },
-  (t) => [index("notifications_user_idx").on(t.userId)],
+  (t) => [
+    index("notifications_user_idx").on(t.userId),
+    // FK-covering index (db-linter 0001): the tenant_id FK had no leading-column index.
+    index("notifications_tenant_idx").on(t.tenantId),
+  ],
 );
 
 // The `events` table was removed in WS-9 / migration 0015 (ADR-0020): it had a
