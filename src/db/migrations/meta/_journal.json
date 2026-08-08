@@ -267,6 +267,20 @@
       "when": 1786264900000,
       "tag": "0037_status_history_author_rls",
       "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "7",
+      "when": 1786264900001,
+      "tag": "0038_fk_covering_indexes",
+      "breakpoints": true
+    },
+    {
+      "idx": 39,
+      "version": "7",
+      "when": 1786264900002,
+      "tag": "0039_capture_rls_auto_enable",
+      "breakpoints": true
     }
   ]
 }
