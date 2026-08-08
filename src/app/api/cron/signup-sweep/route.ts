@@ -6,8 +6,7 @@ import { sweepAbandonedSignups, reconcileDroppedSignups } from "@/modules/retent
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { logError } from "@/lib/observability";
 import { jsonOk, jsonError, jsonServerError } from "@/lib/http";
-import * as Sentry from "@sentry/nextjs";
-import { CRON_MONITORS, monitorConfig } from "@/lib/cron-monitors";
+import { CRON_MONITORS, withCronMonitor } from "@/lib/cron-monitors";
 import { pgErrorCode } from "@/lib/db/pg-error";
 
 // WP-SU-2: bound the scheduled function's runtime (mirrors retention-sweep).
@@ -31,8 +30,8 @@ export async function GET(request: Request) {
   // ACT-05: check in with Sentry around the real work, so a run that never happens is
   // itself an alert. See retention-sweep/route.ts for why the tenant-list failure THROWS
   // rather than returning an error response from inside the callback.
-  return Sentry.withMonitor(
-    MONITOR.slug,
+  return withCronMonitor(
+    MONITOR,
     async () => {
       const db = getDb();
       const admin = getSupabaseAdmin();
@@ -63,7 +62,6 @@ export async function GET(request: Request) {
       const reconciled = await reconcileDroppedSignups(db, admin, {});
       return { tenants: swept, purged, skipped, orphans: reconciled.orphans, partials: reconciled.partials };
     },
-    monitorConfig(MONITOR),
   ).then(
     (r) => jsonOk({ code: "ok", ...r }),
     (e) =>

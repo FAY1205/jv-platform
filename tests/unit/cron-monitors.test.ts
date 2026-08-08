@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import * as Sentry from "@sentry/nextjs";
-import { CRON_MONITORS, monitorConfig } from "@/lib/cron-monitors";
+import { CRON_MONITORS, monitorConfig, withCronMonitor } from "@/lib/cron-monitors";
 
 // NOTE: this file deliberately does NOT mock @sentry/nextjs — see the last test.
 
@@ -58,6 +58,14 @@ describe("ACT-05: cron monitors match the real Vercel schedule", () => {
       async () => "job ran",
       monitorConfig(CRON_MONITORS["/api/cron/drain-outbox"]),
     );
+    expect(result).toBe("job ran");
+  });
+
+  // Same guarantee for the flush wrapper the routes actually call. With no DSN, Sentry.flush()
+  // resolves immediately against no client, so the added flush must be a harmless no-op that
+  // neither throws nor swallows the job's return value — proven against the REAL SDK, not a mock.
+  it("ACT-05: the REAL uninitialised withCronMonitor still runs the job and returns its value", async () => {
+    const result = await withCronMonitor(CRON_MONITORS["/api/cron/drain-outbox"], async () => "job ran");
     expect(result).toBe("job ran");
   });
 });

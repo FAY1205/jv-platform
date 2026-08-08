@@ -233,7 +233,11 @@ retention we accept.
 - **Audit hooks:** `audit-security` verifies no PII reaches the transport and that the
   DSN is never logged; `audit-devops` verifies env separation (silent without a DSN) and
   that the monitor schedules match `vercel.json`; `pr-reviewer` flags any Sentry import
-  outside `observability.ts`, the instrumentation files, and the two cron routes.
+  outside `observability.ts`, `src/lib/cron-monitors.ts` (the `withCronMonitor` check-in +
+  flush wrapper), and the instrumentation files. The cron routes themselves no longer import
+  Sentry directly — they call `withCronMonitor`, which owns the check-in AND the post-run
+  `Sentry.flush` that ships the terminal check-in before Vercel freezes the function (without
+  it the monitor reported a false "timeout check-in" every run — see the flush note below).
 
 ### Amended by WP-SU-3 (2026-07-17) — caller `detail` is scrubbed at the seam
 
