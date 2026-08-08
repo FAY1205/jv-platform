@@ -28,14 +28,25 @@ function isProtectedPage(pathname: string): boolean {
 
 // A returning visitor whose refresh token has expired or rotated makes supabase.auth.getUser()
 // THROW AuthApiError(refresh_token_not_found, status 400) — a benign "your session ended", not an
-// application fault. Any 4xx Supabase auth error means the same thing: the session cannot be
-// established, so the request is simply unauthenticated (the redirect below handles it). A 5xx
-// (the Supabase token endpoint is down) or a non-auth failure is genuinely unexpected and must
-// still reach onRequestError/Sentry (ADR-0032), so the caller re-throws those.
+// application fault, so the request is simply unauthenticated (the redirect below handles it).
+//
+// Match ONLY the specific auth-error codes/name that mean the LOCAL session is dead — an
+// expired/reused/missing refresh token. NOT every 4xx: GoTrue also returns 4xx AuthApiErrors for
+// rate-limiting (over_request_rate_limit, 429), a banned user (user_banned, 403), and a bad or
+// revoked SUPABASE_ANON_KEY (an uncoded 401). Those are operationally significant — silently
+// bouncing every affected visitor to /login with no Sentry signal is exactly the invisible-outage
+// failure ADR-0032 exists to prevent — so they fall through to the caller's re-throw → Sentry.
+const ENDED_SESSION_CODES = new Set(["refresh_token_not_found", "refresh_token_already_used", "session_not_found"]);
+
 export function isEndedSessionError(e: unknown): boolean {
   if (typeof e !== "object" || e === null) return false;
-  const err = e as { __isAuthError?: unknown; status?: unknown };
-  return err.__isAuthError === true && typeof err.status === "number" && err.status >= 400 && err.status < 500;
+  const err = e as { __isAuthError?: unknown; status?: unknown; code?: unknown; name?: unknown };
+  if (err.__isAuthError !== true || typeof err.status !== "number" || err.status < 400 || err.status >= 500) {
+    return false;
+  }
+  // AuthSessionMissingError ("no session") is identified by name — it carries no `code`.
+  if (err.name === "AuthSessionMissingError") return true;
+  return typeof err.code === "string" && ENDED_SESSION_CODES.has(err.code);
 }
 
 export async function proxy(request: NextRequest) {
