@@ -386,13 +386,14 @@ suite("TST-01: tenant & partner isolation", () => {
 
   it("SEC-01: the RLS claim helpers + audit trigger keep a pinned search_path (advisor 0011, migration 0040)", async () => {
     // These functions run inside every RLS policy; a search_path that follows the caller is the
-    // classic hijack vector. 0040 pinned it — this guards against a future CREATE OR REPLACE
-    // silently dropping the pin (CREATE OR REPLACE resets attributes not restated), which would
-    // reopen the advisor finding with no other signal.
+    // classic hijack vector. 0040 pinned it — this guards against a future CREATE OR REPLACE both
+    // dropping the pin entirely AND weakening it (e.g. to `search_path=public`, which would let a
+    // public object shadow a built-in). Assert pg_catalog is FIRST, which is the actual property,
+    // not merely that some search_path is set.
     const rows = (await db.execute<{ proname: string; pinned: boolean }>(sql`
       select p.proname,
              (p.proconfig is not null and exists (
-               select 1 from unnest(p.proconfig) c where c like 'search_path=%'
+               select 1 from unnest(p.proconfig) c where c like 'search_path=pg_catalog%'
              )) as pinned
       from pg_proc p
       join pg_namespace n on n.oid = p.pronamespace
