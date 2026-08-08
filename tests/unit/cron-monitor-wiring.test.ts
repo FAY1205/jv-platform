@@ -34,6 +34,10 @@ const h = vi.hoisted(() => ({
   // retention-sweep only (WP-SU-18): the notice_claims pass's count, and whether it throws.
   noticeClaimsDeleted: 0,
   noticeClaimsThrows: false,
+  // F-3: how many check-in outcomes were already recorded at the instant flush() was CALLED.
+  // Call order alone can't prove flush ran after withMonitor SETTLED (flush is always invoked
+  // textually after withMonitor, even if a refactor dropped the await); this snapshot can.
+  flushSawOutcomes: null as number | null,
 }));
 
 vi.mock("@sentry/nextjs", () => ({
@@ -46,6 +50,13 @@ vi.mock("@sentry/nextjs", () => ({
       h.outcomes.push({ slug, ok: false });
       throw e;
     }
+  }),
+  // withCronMonitor flushes after the check-in so the terminal envelope ships before Vercel
+  // freezes the function. Snapshot how many outcomes were recorded when flush is CALLED, so a
+  // test can prove flush ran after withMonitor SETTLED (F-3), not merely after it was invoked.
+  flush: vi.fn(async () => {
+    h.flushSawOutcomes = h.outcomes.length;
+    return true;
   }),
   captureMessage: vi.fn(),
 }));
@@ -120,6 +131,7 @@ vi.mock("@/modules/retention/signup-sweep", () => ({
 }));
 
 const withMonitor = vi.mocked(Sentry.withMonitor);
+const flush = vi.mocked(Sentry.flush);
 const authed = () =>
   new Request("https://example.test/api/cron/x", {
     headers: { authorization: "Bearer test-cron-secret" },
@@ -130,7 +142,9 @@ const authed = () =>
 // mock itself with no args after every test.
 beforeEach(() => {
   withMonitor.mockClear();
+  flush.mockClear();
   h.outcomes.length = 0;
+  h.flushSawOutcomes = null;
   h.dbThrows = false;
   h.tenantRows = [];
   h.reconcileThrows = false;
@@ -185,6 +199,7 @@ describe("ACT-05: each cron route checks in with its Sentry monitor", () => {
     expect(res.status).toBe(500);
     expect((await res.json()).code).toBe("cron_drain_failed"); // envelope unchanged
     expect(h.outcomes).toEqual([{ slug: "drain-outbox", ok: false }]); // ...and Sentry knows
+    expect(flush).toHaveBeenCalledTimes(1); // ...and the FAILED check-in ships too (finally runs on both paths)
   });
 
   it("ACT-05: retention-sweep reports a FAILED check-in when the run cannot list tenants", async () => {
@@ -203,12 +218,47 @@ describe("ACT-05: each cron route checks in with its Sentry monitor", () => {
     expect(h.outcomes).toEqual([{ slug: "drain-outbox", ok: true }]);
   });
 
+  // The bug this fixes: on Vercel the function is suspended the instant GET resolves, so
+  // withMonitor's buffered terminal "ok" check-in never ships and Sentry logs a false
+  // "timeout check-in" for a run that returned 200 (drain-outbox did this every ~5 min).
+  it("ACT-05: a completed run flushes Sentry AFTER the check-in, so the terminal check-in ships before the serverless freeze", async () => {
+    const { GET } = await import("@/app/api/cron/drain-outbox/route");
+    await GET(authed());
+
+    expect(flush).toHaveBeenCalledTimes(1);
+    expect(h.outcomes).toEqual([{ slug: "drain-outbox", ok: true }]);
+    // flush must run after withMonitor SETTLED — the "ok" envelope is only in the buffer once
+    // the callback resolved and the outcome was recorded. If a refactor dropped the `await`
+    // before flush (the exact regression this guards), flush would fire with 0 outcomes.
+    expect(h.flushSawOutcomes).toBe(1);
+  });
+
+  it("ACT-05: a flush failure is logged (cron_flush_failed) and does NOT change the job outcome", async () => {
+    // The flush is best-effort telemetry: a degraded Sentry transport must not fail the cron.
+    // But it must not fail SILENTLY either (ADR-0014) — the run still returns 200 AND leaves a
+    // first-party trace so a persistently-lost check-in is diagnosable.
+    flush.mockRejectedValueOnce(new Error("sentry transport down"));
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const { GET } = await import("@/app/api/cron/drain-outbox/route");
+    const res = await GET(authed());
+
+    expect(res.status).toBe(200);
+    expect(h.outcomes).toEqual([{ slug: "drain-outbox", ok: true }]);
+    const line = errSpy.mock.calls
+      .map((c) => c[0] as string)
+      .find((l) => typeof l === "string" && l.includes("cron_flush_failed"));
+    expect(line).toBeDefined();
+    expect(JSON.parse(line!)).toMatchObject({ code: "cron_flush_failed" });
+    errSpy.mockRestore();
+  });
+
   it("ACT-05: an unauthorized call does NOT check in (a 401 must not look like a healthy run)", async () => {
     const { GET } = await import("@/app/api/cron/drain-outbox/route");
     const res = await GET(new Request("https://example.test/api/cron/x"));
 
     expect(res.status).toBe(401);
     expect(withMonitor).not.toHaveBeenCalled();
+    expect(flush).not.toHaveBeenCalled(); // no check-in happened, so there is nothing to flush
   });
 
   // ── WP-SU-11 (ADR-0010): the auth_attempts pass hung off the daily retention sweep. ──

@@ -15,8 +15,7 @@ import {
 import { sweepIdempotencyKeys, sweepEmailOutbox, sweepAiFeedback } from "@/modules/retention/operational";
 import { logError } from "@/lib/observability";
 import { jsonOk, jsonError, jsonServerError } from "@/lib/http";
-import * as Sentry from "@sentry/nextjs";
-import { CRON_MONITORS, monitorConfig } from "@/lib/cron-monitors";
+import { CRON_MONITORS, withCronMonitor } from "@/lib/cron-monitors";
 
 // WP-GL-B: bound the scheduled function's runtime.
 export const maxDuration = 60;
@@ -41,8 +40,8 @@ export async function GET(request: Request) {
   // callback RESOLVES and never inspects the resolved value, so returning a 500 from in
   // here would report a sweep that purged NOTHING as healthy — a green dashboard over an
   // undischarged LGL-02 deletion promise. The rejection handler below restores the envelope.
-  return Sentry.withMonitor(
-    MONITOR.slug,
+  return withCronMonitor(
+    MONITOR,
     async () => {
       const db = getDb();
       const tenants: { id: string }[] = await db.select({ id: schema.tenants.id }).from(schema.tenants);
@@ -152,7 +151,6 @@ export async function GET(request: Request) {
 
       return { tenants: swept, purged, authAttempts, otpChallenges, resetTokens, signupVerifications, signupCodes, trustedDevices, noticeClaims, idempotencyKeys, emailOutbox, aiFeedback };
     },
-    monitorConfig(MONITOR),
   ).then(
     (r) => jsonOk({ code: "ok", ...r }),
     (e) =>
