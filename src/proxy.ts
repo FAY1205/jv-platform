@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createServerClient } from "@supabase/ssr";
+import type { User } from "@supabase/supabase-js";
 import { env, isProduction } from "@/lib/env";
 import { AUTH_COOKIE_OPTIONS } from "@/lib/supabase/cookie-options";
 import { newCsrfToken, CSRF_COOKIE_NAME } from "@/lib/auth/csrf-token";
@@ -23,6 +24,18 @@ const PUBLIC_EXCEPTIONS = ["/portal/login"];
 function isProtectedPage(pathname: string): boolean {
   if (PUBLIC_EXCEPTIONS.includes(pathname)) return false;
   return PROTECTED_PAGE_PREFIXES.some((p) => pathname === p || pathname.startsWith(`${p}/`));
+}
+
+// A returning visitor whose refresh token has expired or rotated makes supabase.auth.getUser()
+// THROW AuthApiError(refresh_token_not_found, status 400) — a benign "your session ended", not an
+// application fault. Any 4xx Supabase auth error means the same thing: the session cannot be
+// established, so the request is simply unauthenticated (the redirect below handles it). A 5xx
+// (the Supabase token endpoint is down) or a non-auth failure is genuinely unexpected and must
+// still reach onRequestError/Sentry (ADR-0032), so the caller re-throws those.
+export function isEndedSessionError(e: unknown): boolean {
+  if (typeof e !== "object" || e === null) return false;
+  const err = e as { __isAuthError?: unknown; status?: unknown };
+  return err.__isAuthError === true && typeof err.status === "number" && err.status >= 400 && err.status < 500;
 }
 
 export async function proxy(request: NextRequest) {
@@ -54,10 +67,17 @@ export async function proxy(request: NextRequest) {
     },
   });
 
-  // getUser() validates the JWT and refreshes if needed (writing cookies via setAll).
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  // getUser() validates the JWT and refreshes if needed (writing cookies via setAll). An expired
+  // or rotated refresh token makes it THROW — treat that as an unauthenticated request (the
+  // redirect below handles protected pages) rather than a 500 + Sentry event; re-throw anything
+  // that is not a benign ended-session error (see isEndedSessionError).
+  let user: User | null = null;
+  try {
+    const { data } = await supabase.auth.getUser();
+    user = data.user;
+  } catch (e) {
+    if (!isEndedSessionError(e)) throw e;
+  }
 
   if (isProtectedPage(pathname) && !user) {
     // Partners onboard via the portal OTP screen; admins via the password screen.
