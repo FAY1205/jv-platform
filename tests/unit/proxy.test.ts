@@ -124,6 +124,18 @@ describe("proxy: getUser() failure handling (ADR-0032 — keep benign session-en
     expect(obs.logError).toHaveBeenCalledWith("proxy_auth_unavailable", expect.objectContaining({ path: "/" }));
   });
 
+  it("ADR-0032 (F-3): a Supabase Auth outage on /portal/login (a PUBLIC_EXCEPTIONS path under /portal) stays up", async () => {
+    // The whole point of the fix: /portal/login lives under the protected /portal prefix but is
+    // public (PUBLIC_EXCEPTIONS), and it's the page a partner needs to recover — an outage must not
+    // 500 it. Guards the exception's interaction with the outage-degrade branch.
+    state.getUser = async () => {
+      throw authApiError(503);
+    };
+    const res = await proxy(req("/portal/login"));
+    expect(res.headers.get("location")).toBeNull(); // rendered, not redirected to a login page
+    expect(obs.logError).toHaveBeenCalledWith("proxy_auth_unavailable", expect.objectContaining({ path: "/portal/login" }));
+  });
+
   it("ADR-0032: a non-auth error is re-thrown", async () => {
     state.getUser = async () => {
       throw new Error("token endpoint unreachable");
