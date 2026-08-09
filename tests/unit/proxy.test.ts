@@ -19,6 +19,9 @@ vi.mock("@/lib/auth/csrf-token", () => ({
   newCsrfToken: () => "csrf-token",
   CSRF_COOKIE_NAME: "__Host-jv-csrf",
 }));
+// Spy on the observability seam so F-3 can assert a public-page outage is still surfaced.
+const obs = vi.hoisted(() => ({ logError: vi.fn() }));
+vi.mock("@/lib/observability", () => ({ logError: obs.logError }));
 
 import { proxy, isEndedSessionError } from "@/proxy";
 
@@ -44,6 +47,7 @@ const req = (path: string) => new NextRequest(new URL(`https://app.test${path}`)
 
 beforeEach(() => {
   state.getUser = async () => ({ data: { user: null } });
+  obs.logError.mockClear();
 });
 
 describe("isEndedSessionError: only a genuine ended-session error is benign", () => {
@@ -94,6 +98,7 @@ describe("proxy: getUser() failure handling (ADR-0032 — keep benign session-en
     };
     const res = await proxy(req("/"));
     expect(res.headers.get("location")).toBeNull();
+    expect(obs.logError).not.toHaveBeenCalled(); // a benign session-end is quiet, not an outage
   });
 
   it("ADR-0032 (F-1): a 4xx rate-limit auth error is re-thrown, not silently swallowed", async () => {
@@ -103,11 +108,20 @@ describe("proxy: getUser() failure handling (ADR-0032 — keep benign session-en
     await expect(proxy(req("/dashboard"))).rejects.toThrow();
   });
 
-  it("ADR-0032: a 5xx Supabase auth error is re-thrown (a real outage stays visible)", async () => {
+  it("ADR-0032: a 5xx Supabase auth error on a PROTECTED page is re-thrown (fail closed + visible)", async () => {
     state.getUser = async () => {
       throw authApiError(503);
     };
     await expect(proxy(req("/dashboard"))).rejects.toThrow();
+  });
+
+  it("ADR-0032 (F-3): a Supabase Auth outage on a PUBLIC page renders logged-out + logs, does NOT 500", async () => {
+    state.getUser = async () => {
+      throw authApiError(503);
+    };
+    const res = await proxy(req("/")); // must NOT throw — the login/marketing pages stay up
+    expect(res.headers.get("location")).toBeNull(); // rendered, not redirected
+    expect(obs.logError).toHaveBeenCalledWith("proxy_auth_unavailable", expect.objectContaining({ path: "/" }));
   });
 
   it("ADR-0032: a non-auth error is re-thrown", async () => {
