@@ -4,6 +4,7 @@ import type { User } from "@supabase/supabase-js";
 import { env, isProduction } from "@/lib/env";
 import { AUTH_COOKIE_OPTIONS } from "@/lib/supabase/cookie-options";
 import { newCsrfToken, CSRF_COOKIE_NAME } from "@/lib/auth/csrf-token";
+import { logError } from "@/lib/observability";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Auth proxy (WP-023; Next 16 renamed the `middleware` convention to `proxy`).
@@ -78,16 +79,30 @@ export async function proxy(request: NextRequest) {
     },
   });
 
-  // getUser() validates the JWT and refreshes if needed (writing cookies via setAll). An expired
-  // or rotated refresh token makes it THROW — treat that as an unauthenticated request (the
-  // redirect below handles protected pages) rather than a 500 + Sentry event; re-throw anything
-  // that is not a benign ended-session error (see isEndedSessionError).
+  // getUser() validates the JWT and refreshes if needed (writing cookies via setAll). It THROWS on
+  // an expired/rotated refresh token — and also on a genuine Supabase Auth outage (5xx), a rate
+  // limit, or a misconfig. Handle the three cases distinctly so a benign session-end stays quiet,
+  // a real failure stays visible, and an outage never takes down a page that needs no session.
   let user: User | null = null;
   try {
     const { data } = await supabase.auth.getUser();
     user = data.user;
   } catch (e) {
-    if (!isEndedSessionError(e)) throw e;
+    if (isEndedSessionError(e)) {
+      // Benign: the local session ended. Unauthenticated — the redirect below handles protected
+      // pages; public pages render logged-out. Deliberately NOT a Sentry event (ADR-0032).
+    } else if (isProtectedPage(pathname)) {
+      // A genuinely unexpected auth failure on a page that REQUIRES a session: fail closed and let
+      // it reach Sentry (onRequestError). We cannot verify the user, so we must not serve protected
+      // content against an unverifiable session.
+      throw e;
+    } else {
+      // The same failure on a PUBLIC page (/, /login, /gallery, /portal/login, …): the page needs
+      // no session, so a Supabase Auth outage must NOT 500 it — least of all the login page a
+      // visitor needs to recover. Surface the outage (so it stays visible even with no protected
+      // traffic in the window), then fall through and render logged-out.
+      logError("proxy_auth_unavailable", { path: pathname, message: e instanceof Error ? e.message : String(e) });
+    }
   }
 
   if (isProtectedPage(pathname) && !user) {
