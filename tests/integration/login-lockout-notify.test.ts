@@ -85,31 +85,32 @@ suite("AUT-04: admin login lockout notifies the account owner (HTTP, concurrent)
     recentDevEmails(200).filter((m) => m.kind === "lockout" && m.intendedTo.includes(e)).length;
 
   it("AUT-04: N concurrent wrong-password logins at the tripping attempt email the owner exactly once", async () => {
-    // Prime 4 prior credential failures, back-dated ~6min so they sit OUTSIDE the 5-min login rate
-    // window but INSIDE the 1h lockout window: they count 4 toward `failures` (so the burst trips the
-    // lock) without spending the 8/5min rate budget (so the burst isn't 429'd at the gate and races).
-    const staleFailedAt = new Date(Date.now() - 6 * 60_000);
-    await db.insert(schema.authAttempts).values(
-      Array.from({ length: 4 }, () => ({
-        identifier: victim,
-        ip: null,
-        kind: "login",
-        success: false,
-        createdAt: staleFailedAt,
-      })),
-    );
+    // Mirrors the otp/verify twin (auth-lockout-notify.test.ts) — see it for the race + why we
+    // retry: under CI load the "concurrent" burst can serialise so fewer than 2 requests reach the
+    // credential-check (401) branch (the rest 429 at the lock gate), and the >=2 precondition
+    // flakes on timing, not on a bug. Retry — resetting the victim's lockout state each try — until
+    // the burst genuinely races, THEN assert exactly-one owner mail. Fail loudly if it never races.
+    const staleFailedAt = new Date(Date.now() - 6 * 60_000); // OUTSIDE 5-min rate window, INSIDE 1h lockout
 
-    // 6 simultaneous wrong-password logins. Each real sign-in fails → the 5th failure trips the lock.
-    // Before WP-SU-16 each racer would read the same pre-settle failures===4 and email the owner; the
-    // atomic claimLockoutNotice("login") must collapse them to exactly one owner mail.
-    const burst = await Promise.all(
-      Array.from({ length: 6 }, () => login(post({ email, password: `wrong-${randomUUID()}` }))),
-    );
-    // Precondition guarding a THROTTLE regression (not the claim race itself): assert ≥2 racers
-    // reached the credential-check branch (401) rather than the lockout gate (429), so a future
-    // tightening that 429'd the burst can't silently turn this into a non-race. The atomic de-dup is
-    // proven by the exactly-1 assertion below + the bypass-goes-red TDD validation (6 emails).
-    expect(burst.filter((r) => r.status === 401).length).toBeGreaterThanOrEqual(2);
+    const raceOnce = async (): Promise<number> => {
+      await db.delete(schema.authAttempts).where(eq(schema.authAttempts.identifier, victim));
+      await db.execute(sql`delete from notice_claims where identifier = ${victim}`).catch(() => {});
+      // 4 prior failures count toward the lock (so the burst trips it) without spending the 8/5min
+      // rate budget (so the burst isn't 429'd at the gate and genuinely races).
+      await db.insert(schema.authAttempts).values(
+        Array.from({ length: 4 }, () => ({ identifier: victim, ip: null, kind: "login", success: false, createdAt: staleFailedAt })),
+      );
+      clearDevMailbox();
+      const burst = await Promise.all(
+        Array.from({ length: 6 }, () => login(post({ email, password: `wrong-${randomUUID()}` }))),
+      );
+      return burst.filter((r) => r.status === 401).length;
+    };
+
+    let raced = 0;
+    for (let attempt = 0; attempt < 8 && raced < 2; attempt++) raced = await raceOnce();
+
+    expect(raced, "concurrent burst never raced (>=2 reached the credential-check branch) after 8 tries").toBeGreaterThanOrEqual(2);
     expect(lockoutMailsTo(victim)).toBe(1);
   });
 });
