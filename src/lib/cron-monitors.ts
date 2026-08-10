@@ -35,6 +35,12 @@ export type CronMonitor = {
   checkinMargin: number;
   /** Minutes a run may take before Sentry calls it stuck (routes cap at maxDuration=60s). */
   maxRuntime: number;
+  /** Consecutive missed check-ins before Sentry opens an issue. Omit to use Sentry's default
+   *  (1 → alert on the first miss), which is correct for the daily PII/compliance crons where a
+   *  single failure matters. Raise it only for a high-frequency job whose terminal check-in can
+   *  still lose the serverless-freeze race despite the flush below, so an ISOLATED missed window
+   *  doesn't open an issue while a real dead scheduler (consecutive misses) still does. */
+  failureIssueThreshold?: number;
 };
 
 export const CRON_MONITORS: Record<string, CronMonitor> = {
@@ -43,6 +49,13 @@ export const CRON_MONITORS: Record<string, CronMonitor> = {
     schedule: "*/5 * * * *",
     checkinMargin: 2,
     maxRuntime: 5,
+    // Observability sweep (2026-08-10): the flush above closed ~95% of the false timeout
+    // check-ins, but at a 5-min cadence a residual few/day still slip through when the
+    // terminal envelope loses the freeze race. Those are ISOLATED single-window misses (the
+    // job runs 200 every 5 min), so requiring TWO consecutive misses before opening an issue
+    // suppresses them while a genuinely dead scheduler — which misses every window — still
+    // fires in ~10 min. Only drain-outbox: the daily sweeps must alert on the first miss.
+    failureIssueThreshold: 2,
   },
   "/api/cron/retention-sweep": {
     slug: "retention-sweep",
@@ -65,6 +78,8 @@ export function monitorConfig(m: CronMonitor): MonitorConfig {
     schedule: { type: "crontab", value: m.schedule },
     checkinMargin: m.checkinMargin,
     maxRuntime: m.maxRuntime,
+    // Only sent when a monitor overrides the default (1); keeps the daily crons' config unchanged.
+    ...(m.failureIssueThreshold !== undefined ? { failureIssueThreshold: m.failureIssueThreshold } : {}),
   };
 }
 
