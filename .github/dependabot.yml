@@ -33,8 +33,6 @@ updates:
         update-types: ["version-update:semver-major"]
       - dependency-name: "eslint" # 10.x: flat-config + rule breaking changes
         update-types: ["version-update:semver-major"]
-      - dependency-name: "vitest" # 4.x: config + API breaking changes
-        update-types: ["version-update:semver-major"]
   - package-ecosystem: github-actions
     directory: "/"
     schedule:
