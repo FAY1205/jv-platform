@@ -47,6 +47,19 @@ describe("ACT-05: cron monitors match the real Vercel schedule", () => {
     });
   });
 
+  // Observability sweep (2026-08-10): drain-outbox alone raises its failure-issue threshold to 2
+  // so an ISOLATED missed check-in (the flush-race residual on the every-5-min job) does not open
+  // an issue, while a real dead scheduler (consecutive misses) still does (~10 min to fire). The
+  // daily PII/compliance sweeps must keep Sentry's default (alert on the first miss). Pins both
+  // sides so a refactor can neither drop drain-outbox's override nor add one to a daily cron.
+  it("ACT-05: drain-outbox needs 2 consecutive misses before an issue; the daily crons alert on the first", () => {
+    expect(CRON_MONITORS["/api/cron/drain-outbox"].failureIssueThreshold).toBe(2);
+    expect(monitorConfig(CRON_MONITORS["/api/cron/drain-outbox"]).failureIssueThreshold).toBe(2);
+    expect(CRON_MONITORS["/api/cron/retention-sweep"].failureIssueThreshold).toBeUndefined();
+    expect(CRON_MONITORS["/api/cron/signup-sweep"].failureIssueThreshold).toBeUndefined();
+    expect(monitorConfig(CRON_MONITORS["/api/cron/signup-sweep"]).failureIssueThreshold).toBeUndefined();
+  });
+
   // The wiring tests mock Sentry, so they prove we CALL withMonitor — not that the real
   // one behaves. Everywhere without a DSN (dev, CI, preview) Sentry is uninitialised, and
   // both cron routes now run their entire body inside withMonitor. If an uninitialised
