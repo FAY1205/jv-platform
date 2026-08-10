@@ -20,6 +20,21 @@ updates:
     groups:
       dev-dependencies:
         dependency-type: development
+        # Group only minor/patch dev-dep updates. Each MAJOR carries its own migration
+        # (typescript, eslint, vitest, jest-dom, ...), so bundling them made the group PR
+        # permanently unmergeable. Majors now arrive as INDIVIDUAL PRs to handle one at a time.
+        update-types:
+          - minor
+          - patch
+    ignore:
+      # Deferred majors — real migrations held until scheduled deliberately. Remove the entry
+      # (or bump manually) when ready to migrate; minor/patch updates still flow.
+      - dependency-name: "typescript" # 7.0 is the native-compiler rewrite — too new to adopt now
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "eslint" # 10.x: flat-config + rule breaking changes
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "vitest" # 4.x: config + API breaking changes
+        update-types: ["version-update:semver-major"]
   - package-ecosystem: github-actions
     directory: "/"
     schedule:
