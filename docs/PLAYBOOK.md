@@ -217,3 +217,58 @@ Run a dedicated audit session: *"Read SPEC sections for Phase N. For every requi
 - **Plan mode always** for WPs touching schema, auth, the pipeline, or Source Profiles. Skipping plan review on load-bearing modules is where solo projects rot.
 - **Fixtures over cleverness.** When output looks wrong, add the failing case to the corpus/golden file FIRST, then fix. The regression corpus is the institutional memory a solo founder doesn't otherwise have.
 - **Weekly ritual (30 min):** re-read the phase gate, prune the backlog, check the traceability delta, and process one real file even mid-build. Reality contact weekly, not at phase end.
+
+## 10. R1 working loop + model assignment (supersedes §4's session protocol)
+
+Adopted 2026-08-15 (CRM-evolution program). The §4 protocol grows into a 7-stage,
+risk-tiered loop; §6 self-audit and the ADR discipline (§5) are unchanged.
+
+**Stages per WP:**
+
+1. **Frame** *(once per slice)* — capability map → owner picks slices → visual mockup
+   for sign-off before any real components (mockup-first rule).
+2. **Spec** — WP spec in `docs/backlog/` BEFORE code: requirement IDs, data model, API
+   contracts, scope/RLS predicates, test list, explicit non-goals. Real decisions → ADR
+   (Draft) in the same pass. **Gate: owner approves the spec.**
+3. **Plan** — implementation plan against the spec: files touched, migration numbers
+   (check the `when`-bump trap — journal `when` must exceed the future-dated 0036/0037
+   entries), reuse-vs-add. Small WPs may fold 2+3 into one doc.
+4. **Implement (TDD)** — tests first, named by requirement ID; code to green. Schema
+   change = migration + seed + RLS + index in the same PR. No new deps without an ADR.
+5. **Self-audit + first review** — §6 checklist printed, then the `pr-reviewer` agent
+   on the diff.
+6. **Adversarial review** — ONE targeted audit agent per risk axis the diff actually
+   touches, never the roster: scope/RLS/new query surface → `audit-tenancy` · auth/
+   cookies/uploads/exports → `audit-security` · migrations/queries → `audit-data` ·
+   Tier B UI → none (pr-reviewer suffices). `/audit full` is a milestone ritual
+   (slice end, pre-deploy), never per-WP. Verify findings against real code before
+   fixing (agents can cite things that don't exist).
+7. **Verify & ship** — right-sized (owner decision 2026-08-15): a diff touching a
+   SHARED module (`lib/scope.ts`, analytics, notify, `db/`, pipeline) runs the FULL
+   integration suite locally before PR (the 975cfa6 lesson); other diffs run targeted
+   suites locally and let CI's full run on the PR carry the gate. Lint always.
+   Branch → PR → green CI → merge. Owner does a hands-on pass on the running app
+   **per slice**, not per WP. Noticed-in-passing items go to
+   `docs/backlog/CANDIDATES.md`. Retro: fold gotchas into memory/PLAYBOOK.
+
+**Risk tiers** decide ceremony: **Tier A** (touches `lib/scope.ts`, RLS, migrations,
+auth, notify/outbox, pipeline) runs every stage. **Tier B** (UI over existing data,
+copy, styling) may compress stages 5–6 into `pr-reviewer` only.
+
+**Model assignment** (owner policy 2026-08-15: Fable 5 and Opus 4.8 only at the top;
+**Sonnet 5 is the floor** — no smaller model on this codebase; Opus 5 not used):
+
+| Stage | Model |
+| ----- | ----- |
+| 1–3 Frame / Spec / Plan | Fable 5 |
+| 4 Implement — Tier A | Fable 5 or Opus 4.8 |
+| 4 Implement — Tier B + mechanical work (fixtures, seeds, boilerplate) | Sonnet 5 |
+| 5 `pr-reviewer` | Sonnet 5 |
+| 6 `audit-tenancy` / `audit-security` | Opus 4.8 |
+| 6 other audit agents | Sonnet 5 |
+| 7 Test-failure debugging | Sonnet 5 → escalate to Fable 5/Opus 4.8 if it resists (check the cold-Vite false-red gotcha before trusting any red) |
+
+Session model drives stages 1–4; subagent calls carry per-agent `model` overrides so
+the table applies without switching sessions. The gates (spec approval, tenancy audit
+on scope changes, full suite before merge) are the real safety net — the model table
+is an economy measure, not a correctness one.

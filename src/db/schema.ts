@@ -8,6 +8,7 @@ import {
   boolean,
   jsonb,
   timestamp,
+  date,
   index,
   uniqueIndex,
   primaryKey,
@@ -371,6 +372,48 @@ export const leadNotes = pgTable(
     index("lead_notes_author_user_idx").on(t.authorUserId),
     // FK-covering index (db-linter 0001): the tenant_id FK had no leading-column index.
     index("lead_notes_tenant_idx").on(t.tenantId),
+  ],
+);
+
+// WP-TSK-1 (TSK-01..03, ADR-0044): tasks are the work layer on a lead. Two-stream like
+// lead_notes — author_role is the visibility boundary (PRN-13), and a task never follows
+// the lead on re-route (taskWhere restricts to own-org authors, exactly noteWhere's
+// shape). done_at null = open; reminded_at stamps the one-time due nudge (TSK-08).
+export const leadTasks = pgTable(
+  "lead_tasks",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenants.id),
+    leadId: uuid("lead_id")
+      .notNull()
+      .references(() => leads.id),
+    authorUserId: uuid("author_user_id")
+      .notNull()
+      .references(() => users.id),
+    authorRole: authorRoleEnum("author_role").notNull(), // visibility boundary (PRN-13, ADR-0044)
+    // TSK-03: must belong to the author's stream; null = the creator's own task. The
+    // column lands now so multi-seat partner orgs need no schema change later.
+    assignedToUserId: uuid("assigned_to_user_id").references(() => users.id),
+    title: text("title").notNull(),
+    dueOn: date("due_on"), // calendar date, UTC semantics (TSK-10)
+    doneAt: timestamp("done_at", { withTimezone: true }),
+    remindedAt: timestamp("reminded_at", { withTimezone: true }),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [
+    index("lead_tasks_lead_idx").on(t.leadId),
+    // FK-covering indexes (db-linter 0001 precedent): every FK gets a leading-column index.
+    index("lead_tasks_tenant_idx").on(t.tenantId),
+    index("lead_tasks_author_user_idx").on(t.authorUserId),
+    index("lead_tasks_assignee_idx").on(t.assignedToUserId),
+    // The reminder sweep (TSK-08) and My Tasks grouping (TSK-07) scan OPEN tasks by due
+    // date; the partial index keeps that scan off completed rows.
+    index("lead_tasks_open_due_idx")
+      .on(t.tenantId, t.dueOn)
+      .where(sql`done_at is null`),
   ],
 );
 
