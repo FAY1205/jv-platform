@@ -255,13 +255,15 @@ risk-tiered loop; §6 self-audit and the ADR discipline (§5) are unchanged.
 auth, notify/outbox, pipeline) runs every stage. **Tier B** (UI over existing data,
 copy, styling) may compress stages 5–6 into `pr-reviewer` only.
 
-**Model assignment** (owner policy 2026-08-15: Fable 5 and Opus 4.8 only at the top;
-**Sonnet 5 is the floor** — no smaller model on this codebase; Opus 5 not used):
+**Model assignment** (owner policy 2026-08-15, tightened same day: **Fable 5 is
+reserved for critical decisions and important planning only** — day-to-day
+orchestration and all implementation run on Opus 4.8 / Sonnet 5; **Sonnet 5 is the
+floor** — no smaller model on this codebase; Opus 5 not used):
 
 | Stage | Model |
 | ----- | ----- |
-| 1–3 Frame / Spec / Plan | Fable 5 |
-| 4 Implement — Tier A | Fable 5 or Opus 4.8 |
+| 1–3 Frame / Spec / Plan | Opus 4.8 (Fable 5 only for critical decisions / major plans) |
+| 4 Implement — Tier A | Opus 4.8 |
 | 4 Implement — Tier B + mechanical work (fixtures, seeds, boilerplate) | Sonnet 5 |
 | 5 `pr-reviewer` | Sonnet 5 |
 | 6 `audit-tenancy` / `audit-security` | Opus 4.8 |
