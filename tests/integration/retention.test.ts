@@ -6,7 +6,7 @@ import { randomUUID } from "node:crypto";
 import * as schema from "@/db/schema";
 import { purgeAuditLog } from "../helpers/audit";
 import { sweepTenantPii } from "@/modules/retention/sweep";
-import { REDACTED_RAW_JSON, REDACTED_NOTE_BODY, REDACTED_DEDUPE_KEY } from "@/modules/retention/purge";
+import { REDACTED_RAW_JSON, REDACTED_NOTE_BODY, REDACTED_TASK_TITLE, REDACTED_DEDUPE_KEY } from "@/modules/retention/purge";
 
 // WP-GL-B (DM-09 / LGL-02 / SEC-05): the retention sweep is the BACKSTOP — it redacts seller PII
 // from ANY soft-deleted-but-unpurged lead (the default grace is 0). Voiding purges immediately in
@@ -50,6 +50,7 @@ suite("WP-GL-B: retention PII sweep — backstop (DM-09 / LGL-02)", () => {
     const tids = t.map((x) => x.id);
     if (tids.length === 0) return;
     await purgeAuditLog(db, inArray(schema.auditLog.tenantId, tids));
+    await db.delete(schema.leadTasks).where(inArray(schema.leadTasks.tenantId, tids));
     await db.delete(schema.leadNotes).where(inArray(schema.leadNotes.tenantId, tids));
     await db.delete(schema.leads).where(inArray(schema.leads.tenantId, tids));
     await db.delete(schema.uploads).where(inArray(schema.uploads.tenantId, tids));
@@ -96,6 +97,11 @@ suite("WP-GL-B: retention PII sweep — backstop (DM-09 / LGL-02)", () => {
       { tenantId: tenantA, leadId: idSoftDeleted, authorUserId: adminId, authorRole: "admin", body: "called Jane at 555-867-5309" },
       { tenantId: tenantA, leadId: idLive, authorUserId: adminId, authorRole: "admin", body: "live lead note stays" },
     ]);
+    // WP-TSK-2 (audit F-5): task titles are the same human-typed free text, on the same leads.
+    await db.insert(schema.leadTasks).values([
+      { tenantId: tenantA, leadId: idSoftDeleted, authorUserId: adminId, authorRole: "admin", title: "call Jane at 555-867-5309" },
+      { tenantId: tenantA, leadId: idLive, authorUserId: adminId, authorRole: "admin", title: "live lead task stays" },
+    ]);
   });
 
   afterAll(async () => {
@@ -109,6 +115,7 @@ suite("WP-GL-B: retention PII sweep — backstop (DM-09 / LGL-02)", () => {
     const res = await sweepTenantPii(db, { tenantId: tenantA, now });
     expect(res.purged).toBe(1);
     expect(res.notesRedacted).toBe(1);
+    expect(res.tasksRedacted).toBe(1);
 
     const l = await getLead(idSoftDeleted);
     expect(l.sellerFirst).toBeNull();
@@ -135,9 +142,12 @@ suite("WP-GL-B: retention PII sweep — backstop (DM-09 / LGL-02)", () => {
     // the lead's free-text note (which held seller PII) is redacted too.
     const notes = await db.select().from(schema.leadNotes).where(eq(schema.leadNotes.leadId, idSoftDeleted));
     expect(notes.every((n) => n.body === REDACTED_NOTE_BODY)).toBe(true);
+    // …and its task titles (SEC-05), by the same statement pair.
+    const tasks = await db.select().from(schema.leadTasks).where(eq(schema.leadTasks.leadId, idSoftDeleted));
+    expect(tasks.every((t) => t.title === REDACTED_TASK_TITLE)).toBe(true);
   });
 
-  it("LGL-02: leaves a live lead (and its note) untouched", async () => {
+  it("LGL-02: leaves a live lead (and its note + task) untouched", async () => {
     const live = await getLead(idLive);
     expect(live.email).toBe(PII.email);
     expect(live.address).toBe(PII.address);
@@ -146,6 +156,8 @@ suite("WP-GL-B: retention PII sweep — backstop (DM-09 / LGL-02)", () => {
 
     const liveNotes = await db.select().from(schema.leadNotes).where(eq(schema.leadNotes.leadId, idLive));
     expect(liveNotes[0].body).toBe("live lead note stays");
+    const liveTasks = await db.select().from(schema.leadTasks).where(eq(schema.leadTasks.leadId, idLive));
+    expect(liveTasks[0].title).toBe("live lead task stays");
   });
 
   it("DM-04/SEC-05: writes one append-only audit row per purged lead, carrying no PII", async () => {

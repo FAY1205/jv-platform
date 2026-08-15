@@ -3,7 +3,7 @@ import { getDb } from "@/db";
 import * as schema from "@/db/schema";
 import { tenantWhere, type ScopeContext } from "@/lib/scope";
 import { isWithinVoidWindow } from "./void-window";
-import { redactionPatch, REDACTED_NOTE_BODY } from "../retention/purge";
+import { redactionPatch, REDACTED_NOTE_BODY, REDACTED_TASK_TITLE } from "../retention/purge";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Void a run (ING-09). Soft-void with a required reason: the upload is marked voided
@@ -134,6 +134,19 @@ export async function voidUpload(scope: ScopeContext, ref: string, reason: strin
             tenantWhere(schema.leadNotes, scope),
             inArray(schema.leadNotes.leadId, recalledIds),
             ne(schema.leadNotes.body, REDACTED_NOTE_BODY),
+          ),
+        );
+      // …and their task titles, which are the same kind of human-typed free text on the same
+      // lead (TSK-01, audit-tenancy F-5). PRN-13 is a VISIBILITY boundary — this is a system
+      // anonymization with no viewer, so both streams' tasks are redacted by design.
+      await tx
+        .update(schema.leadTasks)
+        .set({ title: REDACTED_TASK_TITLE })
+        .where(
+          and(
+            tenantWhere(schema.leadTasks, scope),
+            inArray(schema.leadTasks.leadId, recalledIds),
+            ne(schema.leadTasks.title, REDACTED_TASK_TITLE),
           ),
         );
     }

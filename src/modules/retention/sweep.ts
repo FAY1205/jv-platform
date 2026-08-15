@@ -2,7 +2,7 @@ import { and, ne, isNull, isNotNull, lte, inArray, asc, sql } from "drizzle-orm"
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import * as schema from "@/db/schema";
 import { tenantIdWhere } from "@/lib/scope";
-import { retentionCutoff, redactionPatch, REDACTED_NOTE_BODY, RETENTION_GRACE_MS } from "./purge";
+import { retentionCutoff, redactionPatch, REDACTED_NOTE_BODY, REDACTED_TASK_TITLE, RETENTION_GRACE_MS } from "./purge";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Retention sweep adapter (WP-GL-B) — the BACKSTOP. Voiding redacts a run's PII
@@ -23,13 +23,14 @@ export const RETENTION_SWEEP_BATCH = 500;
 export interface SweepResult {
   purged: number;
   notesRedacted: number;
+  tasksRedacted: number;
 }
 
 /**
  * Redact seller PII from leads soft-deleted past the grace window, for ONE tenant.
  * One transaction: select a bounded, oldest-first batch of eligible leads (soft-deleted
  * at/before the cutoff, not yet purged) → write the redaction patch + stamp `pii_purged_at`
- * → redact those leads' note bodies → one append-only audit_log row per lead. Idempotent
+ * → redact those leads' note bodies AND task titles → one append-only audit_log row per lead. Idempotent
  * (only `pii_purged_at IS NULL` rows are touched) and always tenant-scoped (PRN-08).
  * SEC-05: the audit detail carries no PII. PRN-13 is a *visibility* boundary — this is a
  * system anonymization with no viewer, so it redacts both note streams by design.
@@ -66,7 +67,7 @@ export async function sweepTenantPii(
       .orderBy(asc(schema.leads.deletedAt))
       .limit(limit);
 
-    if (eligible.length === 0) return { purged: 0, notesRedacted: 0 };
+    if (eligible.length === 0) return { purged: 0, notesRedacted: 0, tasksRedacted: 0 };
 
     const ids = eligible.map((l) => l.id);
     await tx
@@ -89,8 +90,24 @@ export async function sweepTenantPii(
     const notesByLead = new Map<string, number>();
     for (const n of redactedNotes) notesByLead.set(n.leadId, (notesByLead.get(n.leadId) ?? 0) + 1);
 
+    // Task titles are the same human-typed free text on the same lead (TSK-01, audit-tenancy
+    // F-5) — redacted alongside note bodies, both streams (see the PRN-13 note above).
+    const redactedTasks = await tx
+      .update(schema.leadTasks)
+      .set({ title: REDACTED_TASK_TITLE })
+      .where(
+        and(
+          tenantIdWhere(schema.leadTasks, opts.tenantId),
+          inArray(schema.leadTasks.leadId, ids),
+          ne(schema.leadTasks.title, REDACTED_TASK_TITLE),
+        ),
+      )
+      .returning({ leadId: schema.leadTasks.leadId });
+    const tasksByLead = new Map<string, number>();
+    for (const t of redactedTasks) tasksByLead.set(t.leadId, (tasksByLead.get(t.leadId) ?? 0) + 1);
+
     // Append-only audit (DM-04), one per lead. actorUserId null = the scheduled system sweep.
-    // SEC-05: before/after record only that PII was purged + a note count — never the values.
+    // SEC-05: before/after record only that PII was purged + note/task counts — never the values.
     await tx.insert(schema.auditLog).values(
       eligible.map((l) => ({
         tenantId: opts.tenantId,
@@ -99,11 +116,11 @@ export async function sweepTenantPii(
         entityType: "lead",
         entityRef: l.refId,
         before: { piiPurged: false },
-        after: { piiPurged: true, notesRedacted: notesByLead.get(l.id) ?? 0 },
+        after: { piiPurged: true, notesRedacted: notesByLead.get(l.id) ?? 0, tasksRedacted: tasksByLead.get(l.id) ?? 0 },
         traceId: globalThis.crypto.randomUUID(),
       })),
     );
 
-    return { purged: eligible.length, notesRedacted: redactedNotes.length };
+    return { purged: eligible.length, notesRedacted: redactedNotes.length, tasksRedacted: redactedTasks.length };
   });
 }
