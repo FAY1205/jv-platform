@@ -9,6 +9,7 @@ import { buildPartnerTerritory, type PartnerTerritory } from "../coverage/partne
 import { zipToCounty } from "@/lib/geo/zip-county";
 import { deltaOf, type RangeKey } from "../analytics/ranges";
 import { toExportLead, type ExportLead, type PartnerInfo } from "../export/render";
+import { noteAndTaskActivity, sortNewestFirst, type LeadActivity } from "../leads/timeline";
 import { currentStatus, SEED_LEAD_STATUSES } from "./statuses";
 import { currentTerritoryQuery } from "../coverage/current-territory";
 import {
@@ -240,6 +241,10 @@ export interface PartnerLeadDetail {
   receivedAt: string;
   status: string;
   history: { status: string; changedAt: string }[];
+  /** TSK-06: the unified timeline — the lead's arrival, its (own-org, R-22) status
+   *  changes, and this org's notes and task events, newest first. `history` stays as
+   *  it was for the existing status list. */
+  activity: LeadActivity[];
   availableStatuses: string[];
   /** LST-01: listing-check flag (never affects delivery) + a link to verify. */
   listing: { status: "pending" | "yes" | "no" | "unknown"; link: string | null };
@@ -271,6 +276,25 @@ export async function getPartnerLeadDetail(scope: ScopeContext, refId: string): 
     .limit(1);
   const listing = { status: lead.possibleMlsListing, link: (check?.result as { link?: string } | null)?.link ?? null };
 
+  const receivedAt = (lead.firstMatchedAt ?? lead.createdAt).toISOString();
+  // TSK-06: the partner's timeline. One system anchor — when the lead landed with them —
+  // and deliberately NOT the admin feed's routing/assignment entries: the routing method
+  // and sibling-partner identities are admin-only (PRN-08), and receivedAt is already in
+  // this payload, so the anchor adds nothing new. Status entries keep their actor
+  // withheld: R-22 lets an admin-authored entry through to the owner, and the portal has
+  // never exposed admin identities. Notes/tasks come from the shared read-model, scoped.
+  const activity = sortNewestFirst([
+    { kind: "imported" as const, at: receivedAt, actor: null, label: "Lead received" },
+    ...hist.map((h) => ({
+      kind: "status" as const,
+      status: h.status,
+      at: h.createdAt.toISOString(),
+      actor: null,
+      label: `Status set to ${h.status}`,
+    })),
+    ...(await noteAndTaskActivity(db, scope, lead.id)),
+  ]);
+
   return {
     refId: lead.refId,
     seller: { first: lead.sellerFirst ?? "", last: lead.sellerLast ?? "", phone: lead.phone ?? "", email: lead.email ?? "" },
@@ -282,9 +306,10 @@ export async function getPartnerLeadDetail(scope: ScopeContext, refId: string): 
     motivation: lead.motivation ?? "",
     timeToSell: lead.timeToSell ?? "",
     notes: lead.notes ?? "",
-    receivedAt: (lead.firstMatchedAt ?? lead.createdAt).toISOString(),
+    receivedAt,
     status: currentStatus(history.map((h) => ({ status: h.status, createdAt: h.changedAt }))),
     history,
+    activity,
     availableStatuses: [...SEED_LEAD_STATUSES],
     listing,
   };

@@ -4,6 +4,7 @@ import * as schema from "@/db/schema";
 import { tenantWhere, partnerOwnsLead, leadWhere, type ScopeContext } from "@/lib/scope";
 import { SEED_LEAD_STATUSES, currentStatus } from "@/modules/portal/statuses";
 import type { ScoreGroup, ScoreStatus, ScoreBreakdown } from "@/modules/pipeline/score";
+import { noteAndTaskActivity, sortNewestFirst, type LeadActivity } from "./timeline";
 import type { LeadsQuery } from "./schema";
 
 /** Currently-unmatched = kept, not pipeline-routed, not yet manually assigned.
@@ -198,13 +199,10 @@ export interface AdminLeadPartner {
   color: string;
 }
 
-export interface AdminLeadActivity {
-  kind: "imported" | "routed" | "assigned" | "status";
-  at: string;
-  label: string;
-  actor: string | null;
-  status?: string;
-}
+/** The admin timeline entry (TSK-06): the shared read-model's shape, so the admin and
+ *  portal feeds carry one kind union. Kept as a named alias — the dialog and the API
+ *  contract have referred to `AdminLeadActivity` since ADM. */
+export type AdminLeadActivity = LeadActivity;
 
 export interface AdminLeadDetail {
   refId: string;
@@ -309,7 +307,10 @@ export async function getAdminLeadDetail(scope: ScopeContext, refId: string): Pr
   for (const h of hist) {
     activity.push({ kind: "status", status: h.status, at: h.at.toISOString(), actor: h.actor, label: `Status set to ${h.status}` });
   }
-  activity.sort((a, b) => b.at.localeCompare(a.at));
+  // TSK-06: the admin stream's notes and tasks join the same array — scoped by
+  // noteWhere/taskWhere, so the partner streams stay invisible here (PRN-13).
+  activity.push(...(await noteAndTaskActivity(db, scope, lead.id)));
+  sortNewestFirst(activity);
 
   const modifiedAt = hist.length ? hist[hist.length - 1].at : lead.manualAssignedAt;
 
