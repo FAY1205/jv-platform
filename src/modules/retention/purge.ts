@@ -45,6 +45,13 @@ export const REDACTED_RAW_JSON: { _redacted: true } = { _redacted: true };
  *  value is source-neutral: written by both the immediate void purge and the backstop sweep. */
 export const REDACTED_NOTE_BODY = "[redacted — retention policy]";
 
+/** Sentinel written to a purged lead's task titles (TSK-01, audit-tenancy F-5). `lead_tasks.title`
+ *  is NOT NULL and is free text an admin/partner typed about the seller ("call Jane at 555-…") —
+ *  exactly the exposure `lead_notes.body` carries, so both purge paths (the immediate void purge
+ *  and the backstop sweep) redact it the same way. Its own constant, not an alias of
+ *  REDACTED_NOTE_BODY: the two columns are redacted by separate statements and may diverge. */
+export const REDACTED_TASK_TITLE = "[redacted — retention policy]";
+
 /** Sentinel for `dedupe_key` (NOT NULL). The key is `normalized(address)+zip5`, so it embeds
  *  the street address — sentinel it so the address is fully removed. Safe: ADR-0038 retired the
  *  dedup collapse, so `dedupe_key` is a plain (non-unique) index — duplicate sentinels are allowed

@@ -8,7 +8,7 @@ import { purgeAuditLog } from "../helpers/audit";
 import { DrizzleRunStore } from "@/modules/run/store";
 import { processRun } from "@/modules/run/process";
 import { voidUpload, AlreadyVoidedError, VoidWindowClosedError, NotLatestImportError, AlreadyDistributedError } from "@/modules/run/void";
-import { REDACTED_RAW_JSON, REDACTED_NOTE_BODY, REDACTED_DEDUPE_KEY } from "@/modules/retention/purge";
+import { REDACTED_RAW_JSON, REDACTED_NOTE_BODY, REDACTED_TASK_TITLE, REDACTED_DEDUPE_KEY } from "@/modules/retention/purge";
 import { listPartnerLeads } from "@/modules/portal/queries";
 import { getRunDetail } from "@/modules/run/queries";
 import { getRunExportData } from "@/modules/run/export-data";
@@ -36,6 +36,7 @@ suite("WP-018: void-run (ING-09)", () => {
     await purgeAuditLog(db, inArray(schema.auditLog.tenantId, tids));
     await db.delete(schema.notifications).where(inArray(schema.notifications.tenantId, tids));
     await db.delete(schema.leadStatusHistory).where(inArray(schema.leadStatusHistory.tenantId, tids));
+    await db.delete(schema.leadTasks).where(inArray(schema.leadTasks.tenantId, tids));
     await db.delete(schema.leadNotes).where(inArray(schema.leadNotes.tenantId, tids));
     await db.delete(schema.leads).where(inArray(schema.leads.tenantId, tids));
     await db.delete(schema.uploads).where(inArray(schema.uploads.tenantId, tids));
@@ -176,7 +177,7 @@ suite("WP-018: void-run (ING-09)", () => {
     await expect(processNjRun("77 Reupload Way")).resolves.toBeTruthy();
   });
 
-  it("WP-GL-B: voiding redacts the run's leads' seller PII + notes immediately (DM-09/LGL-02/SEC-05)", async () => {
+  it("WP-GL-B: voiding redacts the run's leads' seller PII + notes + task titles immediately (DM-09/LGL-02/SEC-05)", async () => {
     const uploadRef = await processNjRun("88 Purge Blvd");
     const [up] = await db
       .select({ id: schema.uploads.id })
@@ -190,6 +191,8 @@ suite("WP-018: void-run (ING-09)", () => {
     const author = randomUUID();
     await db.insert(schema.users).values({ id: author, tenantId: scope.tenantId, email: `purge-${author}@test.dev`, role: "admin" });
     await db.insert(schema.leadNotes).values({ tenantId: scope.tenantId, leadId: lead.id, authorUserId: author, authorRole: "admin", body: "seller Bob at 555-000-1234" });
+    // WP-TSK-2 (audit F-5): a task title is the same human-typed free text on the same lead.
+    await db.insert(schema.leadTasks).values({ tenantId: scope.tenantId, leadId: lead.id, authorUserId: author, authorRole: "admin", title: "call Bob on 555-000-1234" });
 
     await voidUpload(scope, uploadRef, "wrong file");
 
@@ -202,6 +205,8 @@ suite("WP-018: void-run (ING-09)", () => {
     expect(l.rawJson).toEqual(REDACTED_RAW_JSON);
     const notes = await db.select().from(schema.leadNotes).where(eq(schema.leadNotes.leadId, lead.id));
     expect(notes[0].body).toBe(REDACTED_NOTE_BODY);
+    const tasks = await db.select().from(schema.leadTasks).where(eq(schema.leadTasks.leadId, lead.id));
+    expect(tasks[0].title).toBe(REDACTED_TASK_TITLE);
     // DM-04: the void audit records the purge count.
     const [audit] = await db
       .select()

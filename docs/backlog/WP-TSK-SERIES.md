@@ -51,6 +51,12 @@ call/meeting/lunch activity types, no participants, no files, no recurrence.
   new `taskWhere()`; Postgres RLS policy carries the identical predicate (SEC-01,
   both halves). TST-01-style isolation tests prove: cross-tenant, cross-partner,
   cross-stream (admin↔partner), and post-re-route invisibility.
+- **TSK-11 — Task authorship.** Edit / complete / reopen are STREAM-scoped: any member of
+  the authoring stream (admin stream, or the author's own partner org) may act on a task
+  they can see. Delete is AUTHOR-only (TSK-05). A deliberate divergence from lead notes,
+  where every mutation is author-only — a task is the ORG's work item, a note is a person's
+  voice. Pinned by "TSK-04: a same-stream colleague can edit and complete a task they did
+  not author" so a future author-check copied from `notes.ts` fails a test.
 - **TSK-10 — Pure date logic.** Overdue/Today/Upcoming grouping and reminder-due
   predicates are pure functions of `(dueOn, today)` with `today` injected — no
   `Date.now()` inside module logic (PRN-01 discipline). `due_on` is a calendar date

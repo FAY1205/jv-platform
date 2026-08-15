@@ -27,6 +27,9 @@ Tasks copy the lead-notes visibility model, not the status-history model:
   stream; defaults to the creator. Picker hidden until a stream has >1 eligible user.
 - Delete is author-only and open-tasks-only, audit-logged; a completed task is a
   permanent timeline fact (append-only discipline, PRN-05 spirit).
+- Edit/complete/reopen are STREAM-scoped, not author-scoped (TSK-11): a task is the org's
+  work item, so any member of the authoring stream may act on one they can see — unlike a
+  note, which is a person's voice and stays author-only to edit.
 
 Alternatives rejected:
 - **Shared tasks (both roles see all):** leaks each company's internal workflow to the
