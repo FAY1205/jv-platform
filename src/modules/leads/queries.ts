@@ -71,7 +71,10 @@ function latestAt(scope: ScopeContext) {
   return sql`(select created_at from lead_status_history where lead_id = ${schema.leads.id} and ${tenantWhere(schema.leadStatusHistory, scope)} order by created_at desc, id desc limit 1)`;
 }
 // The displayed status: removed leads read "Removed MLS"; else current or New.
-function statusExpr(scope: ScopeContext) {
+// Exported (SRCH-01) so the global-search endpoint shows the SAME status string the
+// list and the board show, rather than re-deriving "what status is this lead in"
+// (PRN-15). Scope-aware — pass the caller's live ScopeContext.
+export function statusExpr(scope: ScopeContext) {
   return sql<string>`case when ${schema.leads.mlsStatus} = 'removed' then 'Removed MLS' else coalesce(${latestStatus(scope)}, 'New') end`;
 }
 function modifiedExpr(scope: ScopeContext) {
