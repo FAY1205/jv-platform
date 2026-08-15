@@ -63,6 +63,10 @@ import {
   StateMultiSelect,
   ClampedText,
   PortalDevices,
+  TasksPanel,
+  type LeadTask,
+  Timeline,
+  type TimelineEntry,
 } from "@/components";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ApiError } from "@/lib/api";
@@ -215,6 +219,75 @@ function PortalDevicesDemo() {
     </QueryClientProvider>
   );
 }
+
+// WP-TSK-4 — design F-1: a new component gets a gallery card in the same WP that adds it.
+// Both panels own their own data fetching (TanStack Query), so each demo below seeds an
+// isolated QueryClient with the SAME query key the real component reads — the
+// PortalDevicesDemo pattern above — rather than passing static props. Mutation clicks
+// (checkbox, delete, add) still fire a real request; a failure just surfaces the panel's
+// own toast/error line, exactly like Portal devices' revoke button.
+const TASKS_DEMO_REF = "LD-26-00404";
+const TASKS_DEMO: LeadTask[] = [
+  { id: "gt-1", title: "Call seller to schedule walkthrough", dueOn: "2026-08-14", assignedToUserId: "u1", authorUserId: "u1", authorRole: "admin", doneAt: null, createdAt: "2026-08-10T00:00:00.000Z", updatedAt: "2026-08-10T00:00:00.000Z" },
+  { id: "gt-2", title: "Send comps + preliminary offer range", dueOn: "2026-08-15", assignedToUserId: "u1", authorUserId: "u1", authorRole: "admin", doneAt: null, createdAt: "2026-08-11T00:00:00.000Z", updatedAt: "2026-08-11T00:00:00.000Z" },
+  { id: "gt-3", title: "Quarterly nurture check-in", dueOn: "2026-08-20", assignedToUserId: "u1", authorUserId: "u1", authorRole: "admin", doneAt: null, createdAt: "2026-08-12T00:00:00.000Z", updatedAt: "2026-08-12T00:00:00.000Z" },
+  { id: "gt-4", title: "Initial contact — left voicemail", dueOn: null, assignedToUserId: "u1", authorUserId: "u1", authorRole: "admin", doneAt: "2026-08-12T16:00:00.000Z", createdAt: "2026-08-09T00:00:00.000Z", updatedAt: "2026-08-12T16:00:00.000Z" },
+];
+
+function TasksPanelDemo() {
+  const [qc] = React.useState(() => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } });
+    client.setQueryData(["lead-tasks", TASKS_DEMO_REF], { tasks: TASKS_DEMO });
+    return client;
+  });
+  return (
+    <QueryClientProvider client={qc}>
+      <TasksPanel leadRef={TASKS_DEMO_REF} today="2026-08-15" />
+    </QueryClientProvider>
+  );
+}
+
+function TasksPanelEmptyDemo() {
+  const [qc] = React.useState(() => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } });
+    client.setQueryData(["lead-tasks", "LD-26-DEMO-EMPTY"], { tasks: [] });
+    return client;
+  });
+  return (
+    <QueryClientProvider client={qc}>
+      <TasksPanel leadRef="LD-26-DEMO-EMPTY" today="2026-08-15" />
+    </QueryClientProvider>
+  );
+}
+
+function TasksPanelErrorDemo() {
+  const [qc] = React.useState(() => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    // A fully offline, deterministic error: prefetch the SAME key with a queryFn that
+    // rejects, so TasksPanel's own useQuery (same key) reads the already-errored cache
+    // entry on mount instead of racing (or depending on) a real network failure.
+    void client.prefetchQuery({
+      queryKey: ["lead-tasks", "LD-26-DEMO-ERR"],
+      queryFn: () => Promise.reject(new ApiError("The database is temporarily unavailable.", "tasks_failed", "TR-9F2A-40C2", 500)),
+    });
+    return client;
+  });
+  return (
+    <QueryClientProvider client={qc}>
+      <TasksPanel leadRef="LD-26-DEMO-ERR" today="2026-08-15" />
+    </QueryClientProvider>
+  );
+}
+
+const TIMELINE_DEMO: TimelineEntry[] = [
+  { kind: "task_created", at: "2026-08-15T09:14:00.000Z", label: 'Task added — "Send comps + preliminary offer range"', actor: "faisal@example.com", title: "Send comps + preliminary offer range" },
+  { kind: "note", at: "2026-08-14T16:02:00.000Z", label: "Note added", actor: "faisal@example.com", body: "Seller motivated — inherited from father's estate, wants a clean cash close before probate wraps." },
+  { kind: "task_completed", at: "2026-08-13T11:20:00.000Z", label: "Task completed", actor: null, title: "Initial contact — left voicemail" },
+  { kind: "status", at: "2026-08-12T14:41:00.000Z", label: "Status changed New → Contacted", actor: "faisal@example.com", status: "Contacted" },
+  { kind: "assigned", at: "2026-08-12T09:00:00.000Z", label: "Assigned to Faisal", actor: null },
+  { kind: "routed", at: "2026-08-12T08:00:00.000Z", label: "Routed to Cedar Ridge Capital (JV-004) · ZIP 85028", actor: null },
+  { kind: "imported", at: "2026-08-12T07:58:00.000Z", label: "Imported from Lead Source 1 · run IM-25-112", actor: null },
+];
 
 export default function GalleryView() {
   return (
@@ -895,6 +968,34 @@ function Gallery() {
             Renders inner content only — the caller frames it. “Sign out” reveals a confirm step before revoking so a
             partner can’t sign out a device (maybe the one they’re on) with one stray click (P-12).
           </p>
+        </Section>
+
+        <Section title="Tasks panel + Timeline (WP-TSK-4) — per-lead work items and the unified activity feed">
+          <p className="mb-3 text-step-1 text-text-3">
+            Both panels own their own data fetching (TanStack Query), exactly as they do in the admin and portal
+            lead dialogs — each demo below seeds an isolated QueryClient (the Portal devices pattern above) so the
+            gallery stays a static showcase on load. Checkbox/delete/add clicks still fire a real request; a
+            failure in this dev-only page just surfaces the panel’s own toast or error line. Delete is a two-click
+            inline confirm (“Delete” → “Confirm · Cancel”); Timeline’s four filter chips are fully interactive.
+          </p>
+          <div className="grid gap-4 md:grid-cols-2">
+            <div className="flex flex-col gap-2">
+              <p className="text-step-1 font-semibold text-text-3">Open + done — overdue / due today / upcoming / done</p>
+              <TasksPanelDemo />
+            </div>
+            <div className="flex flex-col gap-2">
+              <p className="text-step-1 font-semibold text-text-3">Empty</p>
+              <TasksPanelEmptyDemo />
+            </div>
+            <div className="flex flex-col gap-2">
+              <p className="text-step-1 font-semibold text-text-3">Error</p>
+              <TasksPanelErrorDemo />
+            </div>
+            <div className="flex flex-col gap-2">
+              <p className="text-step-1 font-semibold text-text-3">Timeline — All / Tasks / Notes / Status filters</p>
+              <Timeline activity={TIMELINE_DEMO} />
+            </div>
+          </div>
         </Section>
 
         <Section title="AI assistant (WP-AI-2) — floating admin chat">

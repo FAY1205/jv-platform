@@ -15,6 +15,8 @@ import {
   Select,
   PartnerTag,
   NotesPanel,
+  TasksPanel,
+  Timeline,
   ClampedText,
   Skeleton,
   QueryErrorState,
@@ -22,6 +24,7 @@ import {
   Tooltip,
   HotLeadMark,
   HotLeadIcon,
+  type TimelineEntry,
 } from "@/components";
 import type { ScoreBreakdown, ScoreGroup } from "@/modules/pipeline/score";
 import { routedByLabel } from "@/lib/match-method";
@@ -38,21 +41,6 @@ interface DetailPartner {
   name: string;
   refId: string;
   color: string;
-}
-interface Activity {
-  // TSK-06: the server merges notes and task events into this one feed. Mirror of the
-  // module's LeadActivity kind union (modules/leads/timeline) — a kind added there must
-  // be added here and to ACTIVITY_DOT. The rendering below is a STOPGAP so this feed is
-  // legible before WP-TSK-4 designs the timeline properly.
-  kind: "imported" | "routed" | "assigned" | "status" | "note" | "task_created" | "task_completed";
-  at: string;
-  label: string;
-  actor: string | null;
-  status?: string;
-  /** kind "note" — the note body. */
-  body?: string;
-  /** kinds "task_created" / "task_completed" — the task title. */
-  title?: string;
 }
 export interface LeadDetail {
   refId: string;
@@ -82,7 +70,7 @@ export interface LeadDetail {
     original: DetailPartner | null;
   };
   availableStatuses: string[];
-  activity: Activity[];
+  activity: TimelineEntry[];
 }
 interface Partner {
   id: string;
@@ -147,20 +135,6 @@ function transferCopy(action: PartnerAction, d: LeadDetail, partners: Partner[])
       return null;
   }
 }
-
-const ACTIVITY_DOT: Record<Activity["kind"], string> = {
-  imported: "bg-info",
-  routed: "bg-brand",
-  assigned: "bg-prev",
-  status: "bg-warn",
-  // TSK-06 stopgap: semantic tokens only (PRN-12) — a note reuses the taupe "prev" dot,
-  // both task events the solid success fill (a "-soft" dot at 8px reads as no dot at all;
-  // created vs completed is carried by the label, never by color alone — PRN-14).
-  // WP-TSK-4 owns the final treatment (distinct icons + filter chips).
-  note: "bg-prev",
-  task_created: "bg-success",
-  task_completed: "bg-success",
-};
 
 export function LeadDialog({ refId, onClose }: { refId: string; onClose: () => void }) {
   const qc = useQueryClient();
@@ -246,7 +220,12 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 }
 
 function ViewMode({ d, onEdit }: { d: LeadDetail; onEdit: () => void }) {
+  const qc = useQueryClient();
   const property = [d.address, d.city, d.state, d.zip].filter(Boolean).join(", ");
+  // A task add/complete/reopen/delete changes the Timeline's activity[] too (task_created /
+  // task_completed entries) — both live in the same lead-detail payload, so a task change
+  // refreshes it alongside the panel's own ["lead-tasks", refId] query.
+  const onTaskChanged = () => qc.invalidateQueries({ queryKey: ["lead", d.refId] });
   return (
     <div className="flex flex-col gap-5">
       <div className="flex items-start justify-between gap-3">
@@ -334,7 +313,10 @@ function ViewMode({ d, onEdit }: { d: LeadDetail; onEdit: () => void }) {
 
       <ScorePanel score={d.score} kept={d.mlsStatus === "kept"} />
 
-      <ActivityLog activity={d.activity} />
+      {/* Tasks panel sits ABOVE the Timeline per the approved mockup. */}
+      <TasksPanel leadRef={d.refId} onTaskChanged={onTaskChanged} />
+
+      <Timeline activity={d.activity} />
 
       <div className="border-t border-border-soft pt-4">
         <NotesPanel leadRef={d.refId} title="Admin notes" />
@@ -403,37 +385,6 @@ function missingReason(breakdown: ScoreBreakdown | null): string {
   const missing = CRITERION_ORDER.filter((k) => breakdown[k].points === null).map((k) => CRITERION_NAME[k].toLowerCase());
   if (missing.length === 0) return "This lead couldn't be scored.";
   return `Not enough data to score — missing ${missing.join(", ")}.`;
-}
-
-function ActivityLog({ activity }: { activity: Activity[] }) {
-  return (
-    <div className="rounded-xl border border-border-soft bg-surface-2 p-4">
-      <h3 className="mb-3 text-step-1 font-semibold uppercase tracking-wide text-text-3">Activity</h3>
-      {activity.length === 0 ? (
-        <p className="text-sm text-text-3">No activity yet.</p>
-      ) : (
-        <ol className="flex flex-col gap-3">
-          {activity.map((a, i) => (
-            <li key={i} className="flex gap-3">
-              <span className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${ACTIVITY_DOT[a.kind]}`} aria-hidden="true" />
-              <div className="flex flex-1 flex-col">
-                <span className="text-sm text-text">{a.label}</span>
-                {/* TSK-06 stopgap: the note body / task title the entry carries, muted under
-                    its label. File-sourced free text is DATA — rendered as text, never HTML
-                    (PRN-10). WP-TSK-4 replaces this with the designed timeline. */}
-                {a.body ? <ClampedText lines={3} className="mt-0.5">{a.body}</ClampedText> : null}
-                {a.title ? <span className="mt-0.5 text-sm text-text-2">{a.title}</span> : null}
-                <span className="num text-xs text-text-3">
-                  {fmtDateTime(a.at)}
-                  {a.actor ? ` · ${a.actor}` : ""}
-                </span>
-              </div>
-            </li>
-          ))}
-        </ol>
-      )}
-    </div>
-  );
 }
 
 // ── Edit mode ─────────────────────────────────────────────────────────────────

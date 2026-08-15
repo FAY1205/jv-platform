@@ -57,6 +57,8 @@ export { QueryErrorState, type QueryErrorStateProps } from "./QueryErrorState";
 export { ClampedText, type ClampedTextProps } from "./ClampedText";
 export { NavIcon, NAV_ICON_NAMES, type NavIconName, type NavIconProps } from "./NavIcon";
 export { NotesPanel } from "./NotesPanel";
+export { TasksPanel, type LeadTask, type TasksPanelProps } from "./TasksPanel";
+export { Timeline, matchesTimelineFilter, type TimelineEntry, type TimelineEntryKind } from "./Timeline";
 export { PasswordChangeForm } from "./PasswordChangeForm";
 export { NotificationBell } from "./NotificationBell";
 export { NotificationTypeIcon, type NotificationTypeIconProps } from "./NotificationTypeIcon";

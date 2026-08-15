@@ -1,10 +1,23 @@
 "use client";
 
 import * as React from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiGet } from "@/lib/api";
 import { fmtDateTime } from "@/lib/dates";
-import { Dialog, Badge, Skeleton, QueryErrorState, NotesPanel, ClampedText, ListingBadge, StatusSelect, Tooltip } from "@/components";
+import {
+  Dialog,
+  Badge,
+  Skeleton,
+  QueryErrorState,
+  NotesPanel,
+  TasksPanel,
+  Timeline,
+  ClampedText,
+  ListingBadge,
+  StatusSelect,
+  Tooltip,
+  type TimelineEntry,
+} from "@/components";
 import { googleSearchUrl } from "@/lib/search-links";
 
 // VP-4: the partner-facing lead dialog (mirrors the admin LeadDialog pattern, portal-scoped).
@@ -26,6 +39,8 @@ interface LeadDetail {
   receivedAt: string;
   status: string;
   history: { status: string; changedAt: string }[];
+  /** TSK-06: the unified timeline (arrival, this org's status changes/notes/tasks). */
+  activity: TimelineEntry[];
   availableStatuses: string[];
   listing: { status: "pending" | "yes" | "no" | "unknown"; link: string | null };
 }
@@ -40,10 +55,14 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 }
 
 export function PortalLeadDialog({ refId, onClose }: { refId: string; onClose: () => void }) {
+  const qc = useQueryClient();
   const { data, isPending, error, refetch } = useQuery({
     queryKey: ["portal-lead", refId],
     queryFn: () => apiGet<LeadDetail>(`/api/portal/leads/${refId}`),
   });
+  // The Timeline's activity[] (task_created/task_completed entries) lives in this same
+  // lead-detail payload, so a task add/complete/reopen/delete refreshes it too.
+  const onTaskChanged = () => qc.invalidateQueries({ queryKey: ["portal-lead", refId] });
 
   return (
     <Dialog open onClose={onClose} size="lg" title={<span className="num">{refId}</span>}>
@@ -117,7 +136,14 @@ export function PortalLeadDialog({ refId, onClose }: { refId: string; onClose: (
             </div>
           )}
 
-          {/* Status history */}
+          {/* Tasks panel sits ABOVE the Timeline per the approved mockup (WP-TSK-4, portal
+              parity — same components as the admin dialog, scoped to this org's own stream). */}
+          <TasksPanel leadRef={data.refId} onTaskChanged={onTaskChanged} />
+
+          <Timeline activity={data.activity} />
+
+          {/* Status history — kept alongside the Timeline (pre-existing PTL-02/03 feature;
+              the Timeline's own "Status" filter already surfaces the same changes inline). */}
           <div className="rounded-xl border border-border-soft bg-surface-2 p-4">
             <h3 className="mb-3 text-step-1 font-semibold uppercase tracking-wide text-text-3">Status history</h3>
             {data.history.length === 0 ? (
