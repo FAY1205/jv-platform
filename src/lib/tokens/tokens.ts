@@ -250,5 +250,37 @@ export const PARTNER_SWATCHES: readonly string[] = [
   "#5E9E8E", // seafoam
 ] as const;
 
+/**
+ * WP-TAG-1 (TAG-01/TAG-04): the fixed chip-safe TAG palette. Deliberately NOT the partner
+ * swatch pool above — a partner swatch is a locked identity hex that must survive a
+ * rebrand unchanged (PRN-06), whereas a tag chip is chrome and must re-tint with the
+ * theme. So a tag stores a palette KEY, never a hex, and the key names an EXISTING
+ * semantic color role (info/success/warn/danger/prev/brand) that already has an AA-checked
+ * soft/ink pair in both themes. Nothing new to contrast-check, nothing to re-audit on a
+ * white-label swap, and no hex ever reaches component code (PRN-12) — lib/tag-chip.ts
+ * resolves a key to Tailwind token utilities. PRN-14 still holds: the tag's NAME is always
+ * rendered beside its color.
+ *
+ * The order is the round-robin order create-inline assigns from (TAG-04); it is append-only
+ * — reordering would silently recolor existing tags, since rows store the key.
+ */
+export const TAG_PALETTE = ["teal", "blue", "amber", "plum", "rose", "gold"] as const;
+export type TagColor = (typeof TAG_PALETTE)[number];
+
+/** True when `v` is one of the fixed palette keys — the one membership test the Zod
+ *  contract, the seed, and the chip renderer all share (an unknown key falls back to a
+ *  neutral chip rather than rendering an unstyled one). */
+export function isTagColor(v: unknown): v is TagColor {
+  return typeof v === "string" && (TAG_PALETTE as readonly string[]).includes(v);
+}
+
+/** TAG-04: create-inline picks "the next palette color, round-robin" — a pure function of
+ *  how many tags the tenant already has, so the Nth tag is deterministic (and testable)
+ *  rather than random. Lives beside the palette so the two can never disagree on length. */
+export function nextTagColor(existingCount: number): TagColor {
+  const n = TAG_PALETTE.length;
+  return TAG_PALETTE[((existingCount % n) + n) % n];
+}
+
 export const themes = { light: lightColors, dark: darkColors } as const;
 export type ThemeName = keyof typeof themes;

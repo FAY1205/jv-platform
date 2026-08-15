@@ -54,6 +54,8 @@ type Card = {
   refId: string; seller: string; city: string | null; state: string | null;
   partner: { name: string; refId: string; color: string } | null;
   hot: boolean; scoreTotal: number | null; statusSince: string;
+  // TAG-04: the board payload now carries each card's chips.
+  tags: { id: string; name: string; color: string }[];
 };
 const card = (refId: string, over: Partial<Card> = {}): Card => ({
   refId,
@@ -64,6 +66,7 @@ const card = (refId: string, over: Partial<Card> = {}): Card => ({
   hot: false,
   scoreTotal: null,
   statusSince: daysAgo(3),
+  tags: [],
   ...over,
 });
 
@@ -93,7 +96,7 @@ function wrap(ui: React.ReactNode) {
 }
 
 const column = (status: string) => screen.getByTestId(`board-column-${status}`);
-const noFilters = { partnerId: "", hot: false };
+const noFilters = { partnerId: "", hot: false, tags: [] };
 
 // ── render (KAN-02/03/08) ─────────────────────────────────────────────────────
 describe("KAN-02: LeadsBoard renders six columns of cards", () => {
@@ -372,7 +375,7 @@ describe("KAN-02: Load more fetches the next page of ONE column", () => {
       return json(payload({}));
     }) as unknown as typeof fetch);
 
-    wrap(<LeadsBoard filters={{ partnerId: "unmatched", hot: true }} onOpen={() => {}} now={NOW} />);
+    wrap(<LeadsBoard filters={{ partnerId: "unmatched", hot: true, tags: [] }} onOpen={() => {}} now={NOW} />);
     await waitFor(() => expect(urls.length).toBeGreaterThan(0));
     expect(urls[0]).toContain("partnerId=unmatched");
     expect(urls[0]).toContain("hot=1");

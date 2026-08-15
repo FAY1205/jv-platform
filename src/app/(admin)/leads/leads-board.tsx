@@ -6,9 +6,15 @@ import { apiGet, apiMutate } from "@/lib/api";
 import { statusDotClass } from "@/lib/status-pill";
 import { BOARD_COLUMNS, BOARD_PAGE_SIZE, DRAG_CLICK_THRESHOLD_PX, boardAge } from "@/modules/leads/board";
 import {
-  Card, EmptyState, HotLeadMark, PartnerTag, QueryErrorState, RowOpenButton, Skeleton, useToast,
+  Card, EmptyState, PartnerTag, QueryErrorState, RowOpenButton, Skeleton, useToast,
   DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel,
+  LeadTags, type LeadTagView,
 } from "@/components";
+import { useTags, useLeadTagMutations } from "@/lib/tags-client";
+
+/** TAG-04: a card shows at most two chips; the rest collapse into "+n" (a card is 15rem
+ *  wide — an unbounded chip row would push the partner + age lines off it). */
+const CARD_TAG_CAP = 2;
 
 // ADM · WP-KAN-1: the Leads BOARD — the same leads the list serves, in six fixed
 // columns keyed on their current status (KAN-02). Drag (or the ⋯ "Move to…" menu —
@@ -25,6 +31,8 @@ export interface BoardFilters {
   /** "" = all, a partner uuid, or the "unmatched" sentinel — mirrors the list. */
   partnerId: string;
   hot: boolean;
+  /** TAG-03: selected tag ids (any-of) — carried over from the list's filter row. */
+  tags: string[];
 }
 
 interface BoardCardData {
@@ -36,6 +44,7 @@ interface BoardCardData {
   hot: boolean;
   scoreTotal: number | null;
   statusSince: string;
+  tags: LeadTagView[];
 }
 interface BoardColumnData {
   status: string;
@@ -55,10 +64,25 @@ interface DragPayload {
   from: string;
 }
 
+/**
+ * TAG-04 — everything a card needs to render + edit its chips, hoisted to the board and
+ * passed down as ONE memoized object (KAN-10): the roster is fetched once for the whole
+ * board rather than per card, and the callbacks are identity-stable, so adding tags does not
+ * cost the memoized columns their re-render discipline.
+ */
+interface TagContext {
+  options: { id: string; name: string; color: string }[];
+  busy: boolean;
+  onAttach: (refId: string, tagId: string) => void;
+  onDetach: (refId: string, tagId: string) => void;
+  onCreate: (refId: string, name: string) => void;
+}
+
 const boardUrl = (filters: BoardFilters, status: string | null, page: number) => {
   const params = new URLSearchParams();
   if (filters.partnerId) params.set("partnerId", filters.partnerId);
   if (filters.hot) params.set("hot", "1");
+  if (filters.tags.length) params.set("tags", filters.tags.join(","));
   if (status) params.set("status", status);
   if (page > 1) params.set("page", String(page));
   const qs = params.toString();
@@ -83,7 +107,7 @@ export function LeadsBoard({
    *  steady for the board's life so a re-render never reshuffles ages mid-drag. */
   now?: Date;
 }) {
-  const filterKey = `${filters.partnerId}|${filters.hot}`;
+  const filterKey = `${filters.partnerId}|${filters.hot}|${filters.tags.join(",")}`;
   const [mountNow] = React.useState(() => new Date());
   const now = nowProp ?? mountNow;
 
@@ -121,6 +145,24 @@ export function LeadsBoard({
     setPages((p) => ({ ...p, [status]: (p[status] ?? 1) + 1 }));
   }, []);
 
+  // TAG-04: one roster fetch + one mutation set for the whole board. `mutate` is
+  // identity-stable (unlike the mutation object), so these callbacks are too.
+  const tagRoster = useTags().data?.tags;
+  const { attach, detach, createAndAttach, busy: tagBusy } = useLeadTagMutations();
+  const attachTag = attach.mutate;
+  const detachTag = detach.mutate;
+  const createTag = createAndAttach.mutate;
+  const tagCtx = React.useMemo<TagContext>(
+    () => ({
+      options: tagRoster ?? [],
+      busy: tagBusy,
+      onAttach: (refId, tagId) => attachTag({ refId, tagId }),
+      onDetach: (refId, tagId) => detachTag({ refId, tagId }),
+      onCreate: (refId, name) => createTag({ refId, name }),
+    }),
+    [tagRoster, tagBusy, attachTag, detachTag, createTag],
+  );
+
   const columnsByStatus = React.useMemo(() => {
     const map = new Map<string, BoardColumnData>();
     for (const c of boardQ.data?.columns ?? []) map.set(c.status, c);
@@ -152,6 +194,7 @@ export function LeadsBoard({
             filterKey={filterKey}
             now={now}
             dragRef={dragRef}
+            tagCtx={tagCtx}
             onOpen={onOpen}
             onMove={onMove}
             onLoadMore={onLoadMore}
@@ -173,13 +216,14 @@ interface ColumnProps {
   filterKey: string;
   now: Date;
   dragRef: React.RefObject<DragPayload | null>;
+  tagCtx: TagContext;
   onOpen: (refId: string) => void;
   onMove: (refId: string, from: string, to: string) => void;
   onLoadMore: (status: string) => void;
 }
 
 const BoardColumnView = React.memo(function BoardColumnView({
-  status, data, loading, pagesLoaded, filters, filterKey, now, dragRef, onOpen, onMove, onLoadMore,
+  status, data, loading, pagesLoaded, filters, filterKey, now, dragRef, tagCtx, onOpen, onMove, onLoadMore,
 }: ColumnProps) {
   // Drop-target highlight is column-LOCAL state: hovering one column never re-renders
   // the other five (KAN-10).
@@ -240,7 +284,7 @@ const BoardColumnView = React.memo(function BoardColumnView({
           <EmptyState compact title="No leads" description={`Nothing is in ${status} yet.`} />
         ) : (
           cards.map((c) => (
-            <BoardCardView key={c.refId} card={c} status={status} now={now} dragRef={dragRef} onOpen={onOpen} onMove={onMove} />
+            <BoardCardView key={c.refId} card={c} status={status} now={now} dragRef={dragRef} tagCtx={tagCtx} onOpen={onOpen} onMove={onMove} />
           ))
         )}
 
@@ -255,6 +299,7 @@ const BoardColumnView = React.memo(function BoardColumnView({
             filterKey={filterKey}
             now={now}
             dragRef={dragRef}
+            tagCtx={tagCtx}
             onOpen={onOpen}
             onMove={onMove}
           />
@@ -277,7 +322,7 @@ const BoardColumnView = React.memo(function BoardColumnView({
 /** One extra page of a column (the "Load more" result). Its own query, its own
  *  loading/error state — the column above it stays rendered either way. */
 function ColumnExtraPage({
-  page, status, filters, filterKey, now, dragRef, onOpen, onMove,
+  page, status, filters, filterKey, now, dragRef, tagCtx, onOpen, onMove,
 }: {
   page: number;
   status: string;
@@ -285,6 +330,7 @@ function ColumnExtraPage({
   filterKey: string;
   now: Date;
   dragRef: React.RefObject<DragPayload | null>;
+  tagCtx: TagContext;
   onOpen: (refId: string) => void;
   onMove: (refId: string, from: string, to: string) => void;
 }) {
@@ -301,7 +347,7 @@ function ColumnExtraPage({
   return (
     <>
       {cards.map((c) => (
-        <BoardCardView key={c.refId} card={c} status={status} now={now} dragRef={dragRef} onOpen={onOpen} onMove={onMove} />
+        <BoardCardView key={c.refId} card={c} status={status} now={now} dragRef={dragRef} tagCtx={tagCtx} onOpen={onOpen} onMove={onMove} />
       ))}
     </>
   );
@@ -310,12 +356,13 @@ function ColumnExtraPage({
 // ── one card ─────────────────────────────────────────────────────────────────
 
 const BoardCardView = React.memo(function BoardCardView({
-  card, status, now, dragRef, onOpen, onMove,
+  card, status, now, dragRef, tagCtx, onOpen, onMove,
 }: {
   card: BoardCardData;
   status: string;
   now: Date;
   dragRef: React.RefObject<DragPayload | null>;
+  tagCtx: TagContext;
   onOpen: (refId: string) => void;
   onMove: (refId: string, from: string, to: string) => void;
 }) {
@@ -368,7 +415,6 @@ const BoardCardView = React.memo(function BoardCardView({
         >
           {card.refId}
         </RowOpenButton>
-        {card.hot && card.scoreTotal !== null && <HotLeadMark score={card.scoreTotal} size={13} />}
         <span className="ml-auto">
           <MoveMenu refId={card.refId} status={status} onMove={onMove} />
         </span>
@@ -376,6 +422,24 @@ const BoardCardView = React.memo(function BoardCardView({
 
       <p className="mt-0.5 truncate text-sm font-semibold text-text">{card.seller}</p>
       {where && <p className="truncate text-step-0 text-text-3">{where}</p>}
+
+      {/* TAG-04/TAG-05: the chip row. The Hot SMART tag lives here now rather than as a bare
+          mark beside the ref (the approved mockup's treatment) — one hot signal per card, in
+          the same vocabulary as the tags it sits beside. Capped at 2 + "+n" on a 15rem card. */}
+      <div className="mt-1.5">
+        <LeadTags
+          editable
+          tags={card.tags}
+          hot={card.hot}
+          hotScore={card.scoreTotal}
+          max={CARD_TAG_CAP}
+          options={tagCtx.options}
+          busy={tagCtx.busy}
+          onAttach={(tagId) => tagCtx.onAttach(card.refId, tagId)}
+          onDetach={(tagId) => tagCtx.onDetach(card.refId, tagId)}
+          onCreate={(name) => tagCtx.onCreate(card.refId, name)}
+        />
+      </div>
 
       <div className="mt-1.5">
         {card.partner ? (

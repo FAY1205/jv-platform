@@ -417,6 +417,64 @@ export const leadTasks = pgTable(
   ],
 );
 
+// WP-TAG-1 (TAG-01): tenant-owned workflow LABELS on a lead. Deliberately NOT the
+// two-stream shape lead_notes/lead_tasks carry — tags are admin-only in v1 (owner
+// decision at mockup sign-off), so there is no author_role column to filter on and the
+// visibility boundary is tenant + the route's admin gate (see modules/tags/tags.ts).
+// `color` stores a PALETTE KEY (lib/tokens TAG_PALETTE), never a hex — the component
+// layer resolves it to semantic token classes (PRN-12), so a rebrand never rewrites data.
+export const tags = pgTable(
+  "tags",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenants.id),
+    name: text("name").notNull(),
+    color: text("color").notNull(),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [
+    // FK-covering index (db-linter 0001 precedent) + the list read's leading column.
+    index("tags_tenant_idx").on(t.tenantId),
+    // TAG-01: names are unique per tenant CASE-INSENSITIVELY — "Probate" and "probate"
+    // are one label. Expression index, so the constraint is enforced in the DB rather
+    // than by a racy pre-read in the command.
+    uniqueIndex("tags_tenant_name_idx").on(t.tenantId, sql`lower(${t.name})`),
+  ],
+);
+
+// TAG-01: the lead ↔ tag junction. A surrogate id (not a composite PK) keeps the audit
+// entityRef and any future per-attachment column simple; (lead_id, tag_id) is UNIQUE, which
+// is what makes attach idempotent at the DB level (onConflictDoNothing).
+export const leadTags = pgTable(
+  "lead_tags",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenants.id),
+    leadId: uuid("lead_id")
+      .notNull()
+      .references(() => leads.id),
+    tagId: uuid("tag_id")
+      .notNull()
+      .references(() => tags.id),
+    addedByUserId: uuid("added_by_user_id")
+      .notNull()
+      .references(() => users.id),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    uniqueIndex("lead_tags_lead_tag_idx").on(t.leadId, t.tagId),
+    // FK-covering indexes: every FK gets a leading-column index (db-linter 0001).
+    index("lead_tags_tenant_idx").on(t.tenantId),
+    index("lead_tags_tag_idx").on(t.tagId),
+    index("lead_tags_added_by_idx").on(t.addedByUserId),
+  ],
+);
+
 export const leadStatusHistory = pgTable(
   "lead_status_history",
   {

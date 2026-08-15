@@ -4,9 +4,39 @@ import * as schema from "@/db/schema";
 import { tenantWhere, partnerOwnsLead, leadWhere, type ScopeContext } from "@/lib/scope";
 import { SEED_LEAD_STATUSES, currentStatus } from "@/modules/portal/statuses";
 import type { ScoreGroup, ScoreStatus, ScoreBreakdown } from "@/modules/pipeline/score";
+import { tagsByLeadRef, type TagView } from "@/modules/tags/tags";
 import { noteAndTaskActivity, sortNewestFirst, type LeadActivity } from "./timeline";
 import { BOARD_COLUMNS, BOARD_PAGE_SIZE } from "./board";
 import type { BoardQuery, LeadsQuery } from "./schema";
+
+/**
+ * TAG-03 — the `?tags=` filter predicate, shared by the list and the board so both mean the
+ * same thing: OR / any-of (a lead matches if it carries ANY of the selected tags).
+ *
+ * An EXISTS subquery rather than a join: a join would multiply a lead's row once per
+ * matching tag and quietly inflate `count(*)` on the list and `col_total` on the board.
+ * Every value is bound (`${...}`), never interpolated — the ids arrive from a URL. The
+ * subquery carries its OWN tenant predicate (ADR-0013 defence-in-depth): the outer query
+ * is already tenant-scoped, but a junction row is only reachable through its own tenant.
+ * Written as a raw fragment so the ORM builder path (list) and the raw CTE (board) share
+ * ONE definition — `leads.id` resolves identically in both.
+ *
+ * The tenant leg is `tenantWhere(schema.leadTags, …)`, not a hand-rolled `eq` (audit-tenancy
+ * F-1, the same rule the partners join two functions below already follows): a future change
+ * to tenant filtering reaches this predicate instead of missing a private copy (R-24). That
+ * is also why the subquery is UNALIASED — the drizzle column refs render the TABLE name
+ * (`"lead_tags"."tenant_id"`), so an alias would put the fragments out of scope. Nothing in
+ * either outer query references `lead_tags`, so unaliased is unambiguous.
+ */
+function taggedWithAny(scope: ScopeContext, tagIds: readonly string[]): SQL {
+  const ids = sql.join(tagIds.map((id) => sql`${id}::uuid`), sql`, `);
+  return sql`exists (
+    select 1 from lead_tags
+    where ${schema.leadTags.leadId} = ${schema.leads.id}
+      and ${tenantWhere(schema.leadTags, scope)}
+      and ${schema.leadTags.tagId} in (${ids})
+  )`;
+}
 
 /** Currently-unmatched = kept, not pipeline-routed, not yet manually assigned.
  *  Exported for the bulk-assign command's shared eligibility guard (S6/ASN-03). */
@@ -42,6 +72,9 @@ export interface GlobalLeadRow {
   receivedAt: string;
   /** Last activity (latest status change or manual assignment), or null. */
   modifiedAt: string | null;
+  /** TAG-04: the lead's tag chips, ordered by lower(name). Always present (possibly empty)
+   *  so the row renderer never branches on undefined. */
+  tags: TagView[];
 }
 
 export interface GlobalLeadsPage {
@@ -94,6 +127,8 @@ export async function listLeads(scope: ScopeContext, query: LeadsQuery): Promise
   if (query.source) conds.push(eq(schema.leads.campaign, query.source));
   // Hot filter (SCR): kept leads only — an MLS-removed lead is never treated as hot.
   if (query.hot) conds.push(and(eq(schema.leads.scoreGroup, "hot"), eq(schema.leads.mlsStatus, "kept"))!);
+  // TAG-03: any-of. Combines with every other filter by plain AND — "hot AND (tag A or B)".
+  if (query.tags.length > 0) conds.push(taggedWithAny(scope, query.tags));
   if (query.dateFrom) conds.push(gte(schema.leads.createdAt, new Date(`${query.dateFrom}T00:00:00Z`)));
   if (query.dateTo) conds.push(lte(schema.leads.createdAt, new Date(`${query.dateTo}T23:59:59Z`)));
   // Built once per call so the status filter, sort column, and select projection below
@@ -162,9 +197,14 @@ export async function listLeads(scope: ScopeContext, query: LeadsQuery): Promise
     db.select({ n: sql<number>`count(*)::int` }).from(schema.leads).where(where),
   ]);
 
+  // TAG-04: one extra round trip for the WHOLE page's chips (never per row). Runs after the
+  // page query because it is keyed on the refs that actually came back.
+  const tagsByRef = await tagsByLeadRef(db, scope, rows.map((r) => r.refId));
+
   return {
     leads: rows.map((r) => ({
       refId: r.refId,
+      tags: tagsByRef.get(r.refId) ?? [],
       seller: `${r.sellerFirst ?? ""} ${r.sellerLast ?? ""}`.trim() || "—",
       address: r.address ?? "—",
       city: r.city,
@@ -203,6 +243,8 @@ export interface BoardCard {
   scoreTotal: number | null;
   /** ISO of the latest status row, else the lead's createdAt (KAN-03 feeds boardAge). */
   statusSince: string;
+  /** TAG-04: the card's tag chips (the card caps the render at 2 + "+n"). */
+  tags: TagView[];
 }
 
 export interface BoardColumn {
@@ -277,6 +319,10 @@ export async function listLeadsBoard(scope: ScopeContext, query: BoardQuery): Pr
     conds.push(partnerOwnsLead(query.partnerId)); // effective owner
   }
   if (query.hot) conds.push(eq(schema.leads.scoreGroup, "hot"));
+  // TAG-03: the same any-of predicate the list uses, inside the CTE's `base` so the per-column
+  // TOTALS are filtered too — a filter applied only to the card slice would report counts for
+  // leads the board isn't showing.
+  if (query.tags.length > 0) conds.push(taggedWithAny(scope, query.tags));
   const where = and(...conds)!;
 
   // Reused, not re-derived (PRN-15): the same scope-aware correlated subqueries the
@@ -339,6 +385,14 @@ export async function listLeadsBoard(scope: ScopeContext, query: BoardQuery): Pr
     else byStatus.set(r.col_status, [r]);
   }
 
+  // TAG-04: one round trip for every card on the requested slice (the totals-only rows carry
+  // a null ref and are skipped), keyed by ref exactly as the list does.
+  const tagsByRef = await tagsByLeadRef(
+    db,
+    scope,
+    rows.map((r) => r.ref_id).filter((v): v is string => v !== null),
+  );
+
   return {
     columns: wanted.map((status) => {
       const own = byStatus.get(status) ?? [];
@@ -359,6 +413,7 @@ export async function listLeadsBoard(scope: ScopeContext, query: BoardQuery): Pr
             hot: r.score_group === "hot",
             scoreTotal: r.score_total === null ? null : Number(r.score_total),
             statusSince: new Date(r.status_since!).toISOString(),
+            tags: tagsByRef.get(r.ref_id!) ?? [],
           })),
       };
     }),

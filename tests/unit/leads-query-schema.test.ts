@@ -9,7 +9,8 @@ const parse = (input: Record<string, unknown>) => LeadsQuerySchema.parse(input);
 describe("LeadsQuerySchema", () => {
   it("applies defaults: page 1, pageSize 20, received-desc sort, empty filters", () => {
     // D3: dateFrom/dateTo ride the shared dateParam() — missing/invalid → undefined (was "").
-    expect(parse({})).toEqual({ q: "", page: 1, pageSize: 20, partnerId: null, state: "", statuses: [], hot: false, source: "", dateFrom: undefined, dateTo: undefined, sort: "received", dir: "desc" });
+    // TAG-03: `tags` defaults to the empty any-of set (no tag filter).
+    expect(parse({})).toEqual({ q: "", page: 1, pageSize: 20, partnerId: null, state: "", statuses: [], hot: false, source: "", tags: [], dateFrom: undefined, dateTo: undefined, sort: "received", dir: "desc" });
   });
 
   it("SCR: parses the hot-only flag from truthy tokens, else false", () => {

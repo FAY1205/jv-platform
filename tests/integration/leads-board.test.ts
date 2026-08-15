@@ -283,7 +283,8 @@ suite("WP-KAN-1: leads board endpoint (KAN-02/03/08/09)", () => {
   it("KAN-03: the card payload shape is locked — no field rides along silently", async () => {
     const anyCard = col(await board(), "New").cards[0];
     expect(Object.keys(anyCard).sort()).toEqual(
-      ["city", "hot", "partner", "refId", "scoreTotal", "seller", "state", "statusSince"],
+      // TAG-04 added `tags` (the card's chips) — the only field this WP put on a card.
+      ["city", "hot", "partner", "refId", "scoreTotal", "seller", "state", "statusSince", "tags"],
     );
   });
 
