@@ -15,6 +15,12 @@ export type DueChipTone = "danger" | "warn" | "neutral";
 export interface DueChip {
   tone: DueChipTone;
   label: string;
+  /** The formatted date fragment WITHIN `label` (e.g. "Aug 14" inside "Overdue · Aug 14"),
+   *  present whenever the label carries a date. The mockup's chips are plain sans text —
+   *  only this fragment is meant to render `num` (tabular mono) for alignment; the rest of
+   *  `label` ("Overdue · ", "Done · ") stays plain (design F-3). Undefined for the two
+   *  date-less labels, "Due today" and "No due date". */
+  dateText?: string;
 }
 
 const LOCALE = "en-US";
@@ -33,15 +39,22 @@ function humanDate(iso: string): string {
  * "YYYY-MM-DD" string, the same shape `groupByDue` takes.
  */
 export function dueChipFor(dueOn: string | null | undefined, doneAt: string | null | undefined, today: string): DueChip {
-  if (doneAt) return { tone: "neutral", label: `Done · ${humanDate(doneAt.slice(0, 10))}` };
+  if (doneAt) {
+    const d = humanDate(doneAt.slice(0, 10));
+    return { tone: "neutral", label: `Done · ${d}`, dateText: d };
+  }
 
   switch (groupByDue(dueOn, today)) {
-    case "overdue":
-      return { tone: "danger", label: `Overdue · ${humanDate(dueOn as string)}` };
+    case "overdue": {
+      const d = humanDate(dueOn as string);
+      return { tone: "danger", label: `Overdue · ${d}`, dateText: d };
+    }
     case "today":
       return { tone: "warn", label: "Due today" };
-    case "upcoming":
-      return { tone: "neutral", label: humanDate(dueOn as string) };
+    case "upcoming": {
+      const d = humanDate(dueOn as string);
+      return { tone: "neutral", label: d, dateText: d };
+    }
     case "none":
     default:
       return { tone: "neutral", label: "No due date" };

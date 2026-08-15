@@ -55,14 +55,44 @@ const TONE_CLASS: Record<DueChipTone, string> = {
   neutral: "border-border bg-surface text-text-2",
 };
 
+// pr F-2: a shared `useMutation` per-row pending flag can't be read off `.isPending` /
+// `.variables` alone — those reflect only the LAST call, so mutating row B while row A's
+// PATCH is still in flight makes row A's `variables` stale and its control re-enables
+// early. These two tiny set helpers back a local `Set<id>` instead, updated in
+// onMutate/onSettled, so every row's pending state is independently correct.
+function withAdded<T>(set: ReadonlySet<T>, id: T): ReadonlySet<T> {
+  if (set.has(id)) return set;
+  const next = new Set(set);
+  next.add(id);
+  return next;
+}
+function withRemoved<T>(set: ReadonlySet<T>, id: T): ReadonlySet<T> {
+  if (!set.has(id)) return set;
+  const next = new Set(set);
+  next.delete(id);
+  return next;
+}
+
+// Design F-3: the mockup's chips are plain sans text — only the date fragment (if any)
+// renders tabular/mono, not the whole label ("Overdue · ", "Done · " stay plain).
 function DueChip({ dueOn, doneAt, today }: { dueOn: string | null; doneAt: string | null; today: string }) {
   const chip = dueChipFor(dueOn, doneAt, today);
-  return <span className={cn("num rounded-md border px-2 py-0.5 text-xs font-semibold whitespace-nowrap", TONE_CLASS[chip.tone])}>{chip.label}</span>;
+  const prefix = chip.dateText ? chip.label.slice(0, chip.label.length - chip.dateText.length) : chip.label;
+  return (
+    <span className={cn("rounded-md border px-2 py-0.5 text-xs font-semibold whitespace-nowrap", TONE_CLASS[chip.tone])}>
+      {prefix}
+      {chip.dateText && <span className="num">{chip.dateText}</span>}
+    </span>
+  );
 }
 
 export function TasksPanel({ leadRef, today, onTaskChanged }: TasksPanelProps) {
   const qc = useQueryClient();
   const toast = useToast();
+  // Namespaces the per-row checkbox DOM id (design F-2's hit-area label needs an id to
+  // point `htmlFor` at) so two TasksPanel instances on one page — the gallery renders
+  // several — can never collide even if their demo task ids happen to match.
+  const panelId = React.useId();
   const key = React.useMemo(() => ["lead-tasks", leadRef], [leadRef]);
   const todayStr = today ?? utcDateString(new Date());
 
@@ -75,10 +105,14 @@ export function TasksPanel({ leadRef, today, onTaskChanged }: TasksPanelProps) {
     onTaskChanged?.();
   };
 
+  const [pendingToggleIds, setPendingToggleIds] = React.useState<ReadonlySet<string>>(new Set());
+  const [pendingDeleteIds, setPendingDeleteIds] = React.useState<ReadonlySet<string>>(new Set());
+
   // TSK-04: optimistic complete/reopen, rolled back + toasted on failure.
   const toggle = useMutation({
     mutationFn: (t: LeadTask) => apiMutate(`/api/tasks/${t.id}`, "PATCH", { action: t.doneAt ? "reopen" : "complete" }),
     onMutate: async (t: LeadTask) => {
+      setPendingToggleIds((s) => withAdded(s, t.id));
       await qc.cancelQueries({ queryKey: key });
       const prev = qc.getQueryData<{ tasks: LeadTask[] }>(key);
       qc.setQueryData<{ tasks: LeadTask[] }>(key, (old) =>
@@ -90,14 +124,20 @@ export function TasksPanel({ leadRef, today, onTaskChanged }: TasksPanelProps) {
       if (ctx?.prev) qc.setQueryData(key, ctx.prev);
       toast.toast(err instanceof Error ? err.message : "Could not update the task.", "danger");
     },
-    onSettled: settle,
+    onSettled: (_data, _err, t) => {
+      setPendingToggleIds((s) => withRemoved(s, t.id));
+      settle();
+    },
   });
 
   // TSK-05: delete — author-only + open-only, enforced server-side; a rejection (403/404/409)
-  // surfaces as a toast (WP-TSK-4 spec: "surface the 404/error as a toast").
+  // surfaces as a toast (WP-TSK-4 spec: "surface the 404/error as a toast"). pr F-1: gated
+  // behind a two-click inline confirm (Delete → Confirm/Cancel in the same row) — matches
+  // the house convention every other ownership/data-loss action in this app follows.
   const del = useMutation({
     mutationFn: (id: string) => apiMutate(`/api/tasks/${id}`, "DELETE"),
     onMutate: async (id: string) => {
+      setPendingDeleteIds((s) => withAdded(s, id));
       await qc.cancelQueries({ queryKey: key });
       const prev = qc.getQueryData<{ tasks: LeadTask[] }>(key);
       qc.setQueryData<{ tasks: LeadTask[] }>(key, (old) => (old ? { tasks: old.tasks.filter((x) => x.id !== id) } : old));
@@ -107,10 +147,22 @@ export function TasksPanel({ leadRef, today, onTaskChanged }: TasksPanelProps) {
       if (ctx?.prev) qc.setQueryData(key, ctx.prev);
       toast.toast(err instanceof Error ? err.message : "Could not delete the task.", "danger");
     },
-    onSettled: settle,
+    onSettled: (_data, _err, id) => {
+      setPendingDeleteIds((s) => withRemoved(s, id));
+      settle();
+    },
   });
+  const [confirmDeleteId, setConfirmDeleteId] = React.useState<string | null>(null);
 
   const [adding, setAdding] = React.useState(false);
+  // pr F-5: focus returns to the "+ Add a task" trigger on cancel AND after a successful
+  // add, since the form that had focus just unmounted. The trigger only re-enters the DOM
+  // once `adding` flips back to `false` (a re-render away), so the focus call is queued for
+  // the next paint rather than fired synchronously here.
+  const addTriggerRef = React.useRef<HTMLButtonElement>(null);
+  const returnFocusToAddTrigger = () => {
+    requestAnimationFrame(() => addTriggerRef.current?.focus());
+  };
 
   return (
     <div className="rounded-xl border border-border-soft bg-surface-2 p-4">
@@ -131,31 +183,66 @@ export function TasksPanel({ leadRef, today, onTaskChanged }: TasksPanelProps) {
       ) : (
         <ul className="flex flex-col">
           {tasks.map((t) => {
-            const isToggling = toggle.isPending && toggle.variables?.id === t.id;
-            const isDeleting = del.isPending && del.variables === t.id;
+            const isToggling = pendingToggleIds.has(t.id);
+            const isDeleting = pendingDeleteIds.has(t.id);
+            const checkboxId = `${panelId}-task-${t.id}`;
             return (
-              <li key={t.id} className="flex items-start gap-2.5 border-t border-border-soft py-2.5 first:border-t-0 first:pt-0">
-                <Checkbox
-                  checked={Boolean(t.doneAt)}
-                  onCheckedChange={() => toggle.mutate(t)}
-                  disabled={isToggling || isDeleting}
-                  ariaLabel={t.doneAt ? `Reopen "${t.title}"` : `Mark "${t.title}" done`}
-                  className="mt-0.5"
-                />
-                <div className="min-w-0 flex-1">
+              <li key={t.id} className="flex items-start gap-2 border-t border-border-soft first:border-t-0">
+                {/* Design F-2 (WP-N floor): a 44x44 hit area around the 16px visual box —
+                    a native `<label for>` targeting the Checkbox's underlying button, so no
+                    extra click-handling is needed; the visual box itself stays desktop-dense. */}
+                <label htmlFor={checkboxId} className="-ml-2 grid h-11 w-11 shrink-0 cursor-pointer place-items-center rounded-md">
+                  <Checkbox
+                    id={checkboxId}
+                    checked={Boolean(t.doneAt)}
+                    onCheckedChange={() => toggle.mutate(t)}
+                    disabled={isToggling || isDeleting}
+                    ariaLabel={t.doneAt ? `Reopen "${t.title}"` : `Mark "${t.title}" done`}
+                  />
+                </label>
+                <div className="min-w-0 flex-1 py-2.5">
                   <div className={cn("text-sm font-medium text-text", t.doneAt && "text-text-3 line-through")}>{t.title}</div>
                   <div className="mt-1 flex flex-wrap items-center gap-2">
                     <DueChip dueOn={t.dueOn} doneAt={t.doneAt} today={todayStr} />
-                    {!t.doneAt && (
-                      <button
-                        type="button"
-                        onClick={() => del.mutate(t.id)}
-                        disabled={isDeleting || isToggling}
-                        className="rounded text-xs font-semibold text-text-3 underline-offset-2 outline-none transition-colors hover:text-danger hover:underline focus-visible:ring-1 focus-visible:ring-brand-ink disabled:pointer-events-none disabled:opacity-50"
-                      >
-                        Delete
-                      </button>
-                    )}
+                    {!t.doneAt &&
+                      (confirmDeleteId === t.id ? (
+                        <span className="inline-flex items-center gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setConfirmDeleteId(null);
+                              del.mutate(t.id);
+                            }}
+                            disabled={isDeleting}
+                            aria-label={`Confirm delete "${t.title}"`}
+                            className="rounded text-xs font-semibold text-danger underline-offset-2 outline-none transition-[color,transform] hover:underline focus-visible:ring-1 focus-visible:ring-brand-ink active:scale-[.97] disabled:pointer-events-none disabled:opacity-50"
+                          >
+                            Confirm
+                          </button>
+                          <span className="text-text-3" aria-hidden="true">
+                            ·
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => setConfirmDeleteId(null)}
+                            disabled={isDeleting}
+                            aria-label={`Cancel delete "${t.title}"`}
+                            className="rounded text-xs font-semibold text-text-3 underline-offset-2 outline-none transition-[color,transform] hover:text-text-2 hover:underline focus-visible:ring-1 focus-visible:ring-brand-ink active:scale-[.97] disabled:pointer-events-none disabled:opacity-50"
+                          >
+                            Cancel
+                          </button>
+                        </span>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => setConfirmDeleteId(t.id)}
+                          disabled={isToggling}
+                          aria-label={`Delete "${t.title}"`}
+                          className="rounded text-xs font-semibold text-text-3 underline-offset-2 outline-none transition-[color,transform] hover:text-danger hover:underline focus-visible:ring-1 focus-visible:ring-brand-ink active:scale-[.97] disabled:pointer-events-none disabled:opacity-50"
+                        >
+                          Delete
+                        </button>
+                      ))}
                   </div>
                 </div>
               </li>
@@ -167,17 +254,22 @@ export function TasksPanel({ leadRef, today, onTaskChanged }: TasksPanelProps) {
       {!q.isPending && !q.isError && (adding ? (
         <AddTaskForm
           leadRef={leadRef}
-          onCancel={() => setAdding(false)}
+          onCancel={() => {
+            setAdding(false);
+            returnFocusToAddTrigger();
+          }}
           onAdded={() => {
             setAdding(false);
             settle();
+            returnFocusToAddTrigger();
           }}
         />
       ) : (
         <button
+          ref={addTriggerRef}
           type="button"
           onClick={() => setAdding(true)}
-          className="mt-2.5 flex w-full items-center gap-2 rounded-lg border border-dashed border-border-strong px-3 py-2 text-left text-sm text-text-3 outline-none transition-colors hover:border-brand-line hover:text-text-2 focus-visible:ring-1 focus-visible:ring-brand-ink"
+          className="mt-2.5 flex min-h-11 w-full items-center gap-2 rounded-lg border border-dashed border-border-strong px-3 py-2 text-left text-sm text-text-3 outline-none transition-colors hover:border-brand-line hover:text-text-2 focus-visible:ring-1 focus-visible:ring-brand-ink"
         >
           <span className="text-base leading-none text-brand-ink" aria-hidden="true">
             +

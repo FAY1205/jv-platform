@@ -64,7 +64,7 @@ export function Timeline({ activity }: { activity: TimelineEntry[] }) {
   return (
     <div className="rounded-xl border border-border-soft bg-surface-2 p-4">
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-        <h3 className="text-step-1 font-semibold uppercase tracking-wide text-text-3">Timeline</h3>
+        <h3 className="text-step-1 font-semibold uppercase tracking-wide text-brand-ink">Timeline</h3>
         <div role="group" aria-label="Filter timeline" className="flex flex-wrap gap-1.5">
           {FILTERS.map((f) => (
             <FilterPill key={f.value} active={filter === f.value} onClick={() => setFilter(f.value)}>

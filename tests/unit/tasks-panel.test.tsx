@@ -107,6 +107,75 @@ describe("TSK-04: checkbox toggle is optimistic and rolls back on failure", () =
   });
 });
 
+// ── TSK-05: two-click delete confirm, optimistic + rollback ─────────────────────
+describe("TSK-05: delete is a two-click inline confirm (pr F-1)", () => {
+  it("TSK-05: delete removes the row", async () => {
+    const user = userEvent.setup();
+    // A mutable backing list, not a static response — onSettled invalidates + refetches,
+    // so the GET handler must actually reflect the delete or the refetch would silently
+    // put the "optimistically removed" row right back (a test-mock bug, not a component one).
+    let serverTasks = [TASK];
+    const fetchSpy = vi.fn((url: string, opts?: RequestInit) => {
+      const method = opts?.method ?? "GET";
+      if (method === "GET") return jsonRes({ tasks: serverTasks });
+      if (method === "DELETE") {
+        serverTasks = serverTasks.filter((t) => `/api/tasks/${t.id}` !== url);
+        return jsonRes({ code: "ok", message: "Task deleted." });
+      }
+      throw new Error(`unexpected ${method} ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchSpy as unknown as typeof fetch);
+
+    wrap(<TasksPanel leadRef="LD-26-00001" today="2026-08-15" />);
+    await screen.findByText("Call seller");
+
+    // First click only reveals the inline confirm — no DELETE yet.
+    await user.click(screen.getByRole("button", { name: /^delete "call seller"$/i }));
+    expect(fetchSpy).not.toHaveBeenCalledWith("/api/tasks/t1", expect.objectContaining({ method: "DELETE" }));
+    expect(screen.getByRole("button", { name: /^confirm delete "call seller"$/i })).toBeInTheDocument();
+
+    // Second click (Confirm) sends the DELETE and the row disappears.
+    await user.click(screen.getByRole("button", { name: /^confirm delete "call seller"$/i }));
+    await waitFor(() => expect(fetchSpy).toHaveBeenCalledWith("/api/tasks/t1", expect.objectContaining({ method: "DELETE" })));
+    await waitFor(() => expect(screen.queryByText("Call seller")).toBeNull());
+
+    vi.unstubAllGlobals();
+  });
+
+  it("TSK-05: a rejected delete rolls back and toasts", async () => {
+    const user = userEvent.setup();
+    let resolveDelete!: (v: unknown) => void;
+    const deletePromise = new Promise((resolve) => {
+      resolveDelete = resolve;
+    });
+    const fetchSpy = vi.fn((url: string, opts?: RequestInit) => {
+      const method = opts?.method ?? "GET";
+      if (method === "GET") return jsonRes({ tasks: [TASK] });
+      if (method === "DELETE") return deletePromise;
+      throw new Error(`unexpected ${method} ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchSpy as unknown as typeof fetch);
+
+    wrap(<TasksPanel leadRef="LD-26-00001" today="2026-08-15" />);
+    await screen.findByText("Call seller");
+
+    await user.click(screen.getByRole("button", { name: /^delete "call seller"$/i }));
+    await user.click(screen.getByRole("button", { name: /^confirm delete "call seller"$/i }));
+
+    // Optimistic: the row is gone before the DELETE has resolved at all.
+    await waitFor(() => expect(screen.queryByText("Call seller")).toBeNull());
+
+    // The DELETE comes back a failure — the row reappears and a toast explains why
+    // (scoped to the visible stack — see the toggle-rollback test above for why).
+    resolveDelete({ ok: false, json: () => Promise.resolve({ message: "Could not delete task." }) });
+    const toastStack = screen.getByTestId("toast-stack");
+    expect(await within(toastStack).findByText(/could not delete task/i)).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText("Call seller")).toBeInTheDocument());
+
+    vi.unstubAllGlobals();
+  });
+});
+
 // ── add-task validation ──────────────────────────────────────────────────────
 describe("TSK-01: add-task validation and submission", () => {
   it("Add task stays disabled until a title is entered, and rejects a title over 200 chars", async () => {
