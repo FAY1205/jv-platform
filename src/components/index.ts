@@ -68,6 +68,7 @@ export { HotLeadIcon, HotLeadMark, type HotLeadIconProps, type HotLeadMarkProps 
 export { ProfileMenu } from "./ProfileMenu";
 export { PortalProfileMenu } from "./PortalProfileMenu";
 export { ListingBadge, type ListingStatus } from "./ListingBadge";
+export { GlobalSearchTrigger, GlobalSearchOverlay, SEARCH_DEBOUNCE_MS } from "./GlobalSearch";
 export { AppShell } from "./AppShell";
 export { PortalShell } from "./PortalShell";
 export { PageHeaderProvider, PageHeaderSlot, usePageHeader } from "./PageHeader";

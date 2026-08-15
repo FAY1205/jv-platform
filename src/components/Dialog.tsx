@@ -27,6 +27,12 @@ export interface DialogProps {
    * `useDirty` (or a simple emptiness check). Default false keeps the drop-in behavior.
    */
   confirmClose?: boolean;
+  /**
+   * SRCH-02: drop the default body padding so `children` fill the panel edge-to-edge —
+   * for command-palette style content that owns its own rows and separators. Purely
+   * presentational; focus trap, Esc and return-focus are unchanged.
+   */
+  bare?: boolean;
 }
 
 const SIZES: Record<NonNullable<DialogProps["size"]>, string> = {
@@ -36,7 +42,7 @@ const SIZES: Record<NonNullable<DialogProps["size"]>, string> = {
   xl: "max-w-3xl",
 };
 
-export function Dialog({ open, onClose, title, children, footer, ariaLabel, size = "md", confirmClose = false }: DialogProps) {
+export function Dialog({ open, onClose, title, children, footer, ariaLabel, size = "md", confirmClose = false, bare = false }: DialogProps) {
   // FRM-02a: a dismiss gesture on a dirty form raises this in-dialog confirmation instead of
   // closing; only an explicit "Discard" (or a pristine form) actually closes.
   const [confirming, setConfirming] = React.useState(false);
@@ -90,7 +96,7 @@ export function Dialog({ open, onClose, title, children, footer, ariaLabel, size
               // Radix requires a Title for a11y; hide it visually when none is provided.
               <RadixDialog.Title className="sr-only">{ariaLabel ?? "Dialog"}</RadixDialog.Title>
             )}
-            <div className="p-5">{children}</div>
+            <div className={bare ? undefined : "p-5"}>{children}</div>
             {footer && (
               <div className="flex items-center justify-end gap-2 border-t border-border-soft px-5 py-4">{footer}</div>
             )}

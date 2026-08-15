@@ -65,6 +65,15 @@ function LeadsBody({ initialQ, initialOpenRef = null, initialHot = false }: { in
   const [pageSize, setPageSize] = React.useState<number>(DEFAULT_PAGE_SIZE);
   // Seed the open dialog from ?open=<ref> (P-1 deep link); user opens/closes take over after.
   const [openRef, setOpenRef] = React.useState<string | null>(initialOpenRef);
+  // SRCH-02: the deep link can also arrive while this page is ALREADY mounted — the global
+  // search overlay pushes /leads?open=<ref> from /leads itself, which re-renders this view
+  // with a new prop instead of remounting it. Re-seed on a CHANGE of the prop only (the
+  // `resetKey` idiom above), so closing the dialog isn't immediately undone.
+  const [seededOpenRef, setSeededOpenRef] = React.useState(initialOpenRef);
+  if (seededOpenRef !== initialOpenRef) {
+    setSeededOpenRef(initialOpenRef);
+    setOpenRef(initialOpenRef);
+  }
 
   const filterKey = `${filters.q}|${filters.partnerId}|${filters.state}|${filters.source}|${filters.statuses.join(",")}|${filters.hot}|${filters.dateFrom}|${filters.dateTo}|${sort}|${dir}`;
   const [resetKey, setResetKey] = React.useState(filterKey);

@@ -13,6 +13,7 @@ import { ThemeToggle } from "./ThemeToggle";
 import { ToastProvider } from "./Toast";
 import { IconButton } from "./IconButton";
 import { NavIcon, type NavIconName } from "./NavIcon";
+import { GlobalSearchTrigger } from "./GlobalSearch";
 import { usePreferences, setPreferences, useApplyTheme } from "@/lib/preferences";
 
 // The admin app shell (DSN): a minimal sidebar + a clean top bar. Every admin page
@@ -232,6 +233,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </IconButton>
           <PageHeaderSlot />
           <div className="ml-auto flex items-center gap-1.5">
+            {/* SRCH-02: the topbar affordance for the Ctrl-K overlay. The overlay itself is
+                mounted by the (admin) layout — this only asks it to open. */}
+            <GlobalSearchTrigger />
             <NotificationBell />
             <ThemeToggle />
           </div>
