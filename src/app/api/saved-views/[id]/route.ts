@@ -7,7 +7,16 @@ import {
   updateSavedView, deleteSavedView, SavedViewNotFoundError, DuplicateSavedViewNameError,
 } from "@/modules/saved-views/saved-views";
 import { UpdateSavedViewSchema } from "@/modules/saved-views/schema";
+import { pgErrorInfo } from "@/lib/db/pg-error";
 import { jsonOk, jsonError, jsonServerError } from "@/lib/http";
+
+/** SEC-05 (audit-tenancy F-9): never `e.message` in a 500 detail — a driver error quotes the
+ *  offending row, and `filters.q` is free text an admin types seller names into. See the
+ *  collection route for the full reasoning. */
+function failureDetail(e: unknown): Record<string, unknown> {
+  const { code, constraint } = pgErrorInfo(e);
+  return { pgCode: code ?? null, constraint: constraint ?? null, name: e instanceof Error ? e.name : typeof e };
+}
 
 // SV-03 — one saved view: PATCH renames and/or re-saves the filters (this is the
 // overwrite-on-save path), DELETE removes it. Admin-only + CSRF, like the collection route.
@@ -40,9 +49,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   } catch (e) {
     return (
       savedViewErrorResponse(e) ??
-      jsonServerError("saved_view_update_failed", "Failed to save the view.", {
-        message: e instanceof Error ? e.message : String(e),
-      })
+      jsonServerError("saved_view_update_failed", "Failed to save the view.", failureDetail(e))
     );
   }
 }
@@ -62,9 +69,7 @@ export async function DELETE(request: Request, { params }: { params: Promise<{ i
   } catch (e) {
     return (
       savedViewErrorResponse(e) ??
-      jsonServerError("saved_view_delete_failed", "Failed to delete the view.", {
-        message: e instanceof Error ? e.message : String(e),
-      })
+      jsonServerError("saved_view_delete_failed", "Failed to delete the view.", failureDetail(e))
     );
   }
 }

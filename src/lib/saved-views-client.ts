@@ -1,7 +1,7 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { apiGet, apiMutate } from "@/lib/api";
+import { apiGet, apiMutate, ApiError } from "@/lib/api";
 import type { SavedViewFilters } from "@/modules/saved-views/schema";
 
 // WP-SV-1 (SV-02/SV-03) — the client side of saved views. The roster query and the three
@@ -53,19 +53,21 @@ export function useSavedViewMutations() {
   const qc = useQueryClient();
   const invalidate = () => qc.invalidateQueries({ queryKey: SAVED_VIEWS_KEY });
 
-  const create = useMutation({
-    mutationFn: (v: CreateSavedViewVars) => apiMutate<{ id: string; name: string }>("/api/saved-views", "POST", v),
+  // The mutations declare `ApiError` as their error type (pr-review F-1) so a caller can branch
+  // on the server's `code` — a stable contract — instead of pattern-matching the human message,
+  // which is copy that will be reworded.
+  const create = useMutation<{ id: string; name: string }, ApiError, CreateSavedViewVars>({
+    mutationFn: (v) => apiMutate<{ id: string; name: string }>("/api/saved-views", "POST", v),
     onSuccess: invalidate,
   });
 
-  const update = useMutation({
-    mutationFn: ({ id, ...patch }: UpdateSavedViewVars) =>
-      apiMutate<{ code: string }>(`/api/saved-views/${id}`, "PATCH", patch),
+  const update = useMutation<{ code: string }, ApiError, UpdateSavedViewVars>({
+    mutationFn: ({ id, ...patch }) => apiMutate<{ code: string }>(`/api/saved-views/${id}`, "PATCH", patch),
     onSuccess: invalidate,
   });
 
-  const remove = useMutation({
-    mutationFn: (id: string) => apiMutate<{ code: string }>(`/api/saved-views/${id}`, "DELETE"),
+  const remove = useMutation<{ code: string }, ApiError, string>({
+    mutationFn: (id) => apiMutate<{ code: string }>(`/api/saved-views/${id}`, "DELETE"),
     onSuccess: invalidate,
   });
 

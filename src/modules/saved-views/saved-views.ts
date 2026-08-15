@@ -1,7 +1,7 @@
-import { and, desc, eq, sql } from "drizzle-orm";
+import { and, count, desc, eq, sql } from "drizzle-orm";
 import { getDb } from "@/db";
 import * as schema from "@/db/schema";
-import { tenantWhere, type ScopeContext } from "@/lib/scope";
+import { ownerWhere, type ScopeContext } from "@/lib/scope";
 import { pgErrorInfo } from "@/lib/db/pg-error";
 import { SavedViewFiltersSchema, EMPTY_SAVED_VIEW_FILTERS, type SavedViewFilters } from "./schema";
 import type { CreateSavedViewInput, UpdateSavedViewInput } from "./schema";
@@ -19,6 +19,10 @@ import type { CreateSavedViewInput, UpdateSavedViewInput } from "./schema";
 // per-user pin used by exactly one module is not a shared rule, and hoisting it would suggest
 // other tables carry the axis. The RLS policy `saved_views_scope` (migration 0043) carries the
 // identical predicate on BOTH halves — keep the two in lockstep.
+//
+// ADR-0045 records the whole shape of this — in particular the trigger: if the per-user pin is
+// ever relaxed (shared/team views, partner views), a ROLE arm must land in `saved_views_scope`
+// in the same migration, and `assertAdmin` below becomes a role arm rather than a deletion.
 //
 // ADMIN-ONLY in v1, enforced HERE as well as at the route (the tags/tasks house standard).
 // The reasoning: the routes' `requireAdminResponse` is the product gate, but a saved view is
@@ -65,10 +69,28 @@ export class SavedViewScopeError extends Error {
   }
 }
 
-/** The whole visibility rule: this tenant AND this user. Exported so tests can probe the
- *  predicate directly (the tags/tasks precedent). */
+/** The whole visibility rule: this tenant AND this user — the shared per-user builder
+ *  (lib/scope `ownerWhere`, audit-tenancy F-3), not a local copy of it. Still exported under
+ *  its own name so the predicate itself stays directly probeable (the tags/tasks precedent). */
 export function savedViewWhere(scope: ScopeContext) {
-  return and(tenantWhere(schema.savedViews, scope), eq(schema.savedViews.userId, scope.userId))!;
+  return ownerWhere(schema.savedViews, schema.savedViews.userId, scope);
+}
+
+/**
+ * SV-01 (audit-tenancy F-1 / pr F-5): how many views ONE user may keep. Not a product limit
+ * anybody will meet — it is the bound that keeps a menu (and the payload behind it) finite when
+ * something automates the endpoint. Enforced at CREATE, where the count is cheap and the
+ * message can be honest; `listSavedViews` also caps its read, so even a roster that predates
+ * this rule cannot return an unbounded page.
+ */
+export const SAVED_VIEWS_MAX = 100;
+
+/** SV-02: the per-user view budget is spent. A user-facing condition, not a programming error. */
+export class SavedViewLimitError extends Error {
+  constructor() {
+    super(`You already have ${SAVED_VIEWS_MAX} saved views — delete one to save another.`);
+    this.name = "SavedViewLimitError";
+  }
 }
 
 /** The admin gate, in the module (see the header for why it is not the route's job alone). */
@@ -108,7 +130,11 @@ function asDuplicate(e: unknown, name: string | undefined): unknown {
  */
 function readFilters(raw: unknown): SavedViewFilters {
   const parsed = SavedViewFiltersSchema.safeParse(raw);
-  return parsed.success ? parsed.data : EMPTY_SAVED_VIEW_FILTERS;
+  // A CLONE, never the shared constant (audit-tenancy F-8). The fallback value travels out to
+  // callers who may push onto `statuses`/`tags`; handing every degraded row the same
+  // process-lifetime object means the first mutation corrupts the default for every request
+  // this process serves afterwards. Cheap object, no reason to share it.
+  return parsed.success ? parsed.data : structuredClone(EMPTY_SAVED_VIEW_FILTERS);
 }
 
 /** SV-02 — the caller's OWN views, newest-touched first (a re-saved view floats to the top of
@@ -124,7 +150,11 @@ export async function listSavedViews(scope: ScopeContext): Promise<SavedViewRow[
     })
     .from(schema.savedViews)
     .where(savedViewWhere(scope))
-    .orderBy(desc(schema.savedViews.updatedAt), sql`lower(${schema.savedViews.name})`);
+    .orderBy(desc(schema.savedViews.updatedAt), sql`lower(${schema.savedViews.name})`)
+    // Defensive, not a paging story: the create path caps the roster at SAVED_VIEWS_MAX, so a
+    // user cannot reach this — but rows written before the cap existed (or by anything that
+    // isn't this module) must still not turn the menu into an unbounded payload.
+    .limit(SAVED_VIEWS_MAX);
   return rows.map((r) => ({
     id: r.id,
     name: r.name,
@@ -133,13 +163,25 @@ export async function listSavedViews(scope: ScopeContext): Promise<SavedViewRow[
   }));
 }
 
-/** SV-02 — save the current filters under a new name. tenant_id and user_id come from the
- *  scope; the body cannot carry either (the Zod contract is strict). */
+/**
+ * SV-02 — save the current filters under a new name. tenant_id and user_id come from the
+ * scope; the body cannot carry either (the Zod contract is strict).
+ *
+ * The per-user cap is a COUNT-first check rather than a DB constraint: Postgres has no cheap
+ * "at most N rows per user" constraint, and the failure mode of a race here is one extra row
+ * over the cap for one user — a bound, not an invariant. The unique-name index remains the one
+ * thing that must be exact, which is why THAT is enforced in the DB and this is not.
+ */
 export async function createSavedView(
   scope: ScopeContext,
   input: CreateSavedViewInput,
 ): Promise<{ id: string; name: string }> {
   assertAdmin(scope);
+  const [{ n }] = await getDb()
+    .select({ n: count() })
+    .from(schema.savedViews)
+    .where(savedViewWhere(scope));
+  if (Number(n) >= SAVED_VIEWS_MAX) throw new SavedViewLimitError();
   try {
     const [row] = await getDb()
       .insert(schema.savedViews)

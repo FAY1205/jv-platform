@@ -6,7 +6,7 @@ import * as schema from "@/db/schema";
 import type { ScopeContext } from "@/lib/scope";
 import {
   listSavedViews, createSavedView, updateSavedView, deleteSavedView,
-  DuplicateSavedViewNameError, SavedViewNotFoundError,
+  DuplicateSavedViewNameError, SavedViewNotFoundError, SavedViewLimitError, SAVED_VIEWS_MAX,
 } from "@/modules/saved-views/saved-views";
 import { CreateSavedViewSchema, EMPTY_SAVED_VIEW_FILTERS, savedViewKey } from "@/modules/saved-views/schema";
 
@@ -146,6 +146,47 @@ suite("WP-SV-1: saved-view commands", () => {
     expect(read.filters.tags).toEqual([deletedTagId]); // the malformed one was dropped at write
     await updateSavedView(scope, made.id, { filters: EMPTY_SAVED_VIEW_FILTERS }); // and it re-saves cleanly
     expect((await listSavedViews(scope))[0].filters.tags).toEqual([]);
+  });
+
+  it("SV-01/tenancy F-1: the per-user view budget is a real bound", async () => {
+    await reset();
+    // Seeded directly: the cap is what is under test, not 100 round trips through the command.
+    await db.insert(schema.savedViews).values(
+      Array.from({ length: SAVED_VIEWS_MAX }, (_, i) => ({
+        tenantId,
+        userId,
+        name: `Bulk ${i}`,
+        filters: EMPTY_SAVED_VIEW_FILTERS,
+      })),
+    );
+    await expect(createSavedView(scope, { name: "One too many", filters: EMPTY_SAVED_VIEW_FILTERS }))
+      .rejects.toBeInstanceOf(SavedViewLimitError);
+    // Refused, not silently dropped — and nothing was written.
+    const after = await db.select({ id: schema.savedViews.id }).from(schema.savedViews).where(eq(schema.savedViews.userId, userId));
+    expect(after).toHaveLength(SAVED_VIEWS_MAX);
+
+    // The read is capped too, so even a roster that predates the rule stays a bounded payload.
+    expect(await listSavedViews(scope)).toHaveLength(SAVED_VIEWS_MAX);
+
+    // Deleting one frees the budget — the message tells the truth.
+    await deleteSavedView(scope, after[0].id);
+    const made = await createSavedView(scope, { name: "One too many", filters: EMPTY_SAVED_VIEW_FILTERS });
+    expect(made.id).toBeTruthy();
+  });
+
+  it("tenancy F-8: the degraded-blob fallback is a CLONE, never a shared singleton", async () => {
+    await reset();
+    await db.insert(schema.savedViews).values({ tenantId, userId, name: "Junk", filters: "garbage" });
+    const [first] = await listSavedViews(scope);
+    // What a caller is free to do with a returned array — and what would corrupt the default
+    // for every later request in this process if the fallback were the module-level constant.
+    first.filters.statuses.push("Mutated");
+    first.filters.tags.push("mutated");
+
+    const [second] = await listSavedViews(scope);
+    expect(second.filters.statuses).not.toContain("Mutated");
+    expect(second.filters.tags).toEqual([]);
+    expect(EMPTY_SAVED_VIEW_FILTERS.statuses).not.toContain("Mutated");
   });
 
   it("SV-03: the menu orders by most-recently-saved first", async () => {

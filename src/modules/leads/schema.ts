@@ -32,9 +32,32 @@ export function isDefaultStatuses(statuses: readonly string[]): boolean {
 const SORT_FIELDS = ["lead", "received", "modified", "seller"] as const;
 export type LeadSortField = (typeof SORT_FIELDS)[number];
 
+/**
+ * How many comma-separated segments a csv param is split into before ANY validation
+ * (audit-tenancy F-1, the `tagsParam` treatment applied one param over). The allow-list below
+ * bounds the RESULT, but not the parse: `?statuses=` accepts an arbitrary query string from an
+ * untrusted URL, and `"a,".repeat(500_000).split(",")` materialises half a million strings
+ * before `includes()` ever runs. A generous multiple of the longest allow-list, so a
+ * legitimate request can never reach the bound.
+ */
+const CSV_MAX_SEGMENTS = 64;
+
+/** A comma-separated (or array) param narrowed to an allow-list. Bounded split, de-duplicated,
+ *  and bounded on the array branch too — a crafted URL cannot widen the IN-list either. */
 const csv = (v: unknown, allowed: readonly string[]): string[] => {
-  const raw = typeof v === "string" ? v.split(",") : Array.isArray(v) ? v.map(String) : [];
-  return raw.map((s) => s.trim()).filter((s) => allowed.includes(s));
+  const raw =
+    typeof v === "string"
+      ? // The limit argument bounds the ARRAY, not just the result — the whole point.
+        v.split(",", CSV_MAX_SEGMENTS)
+      : Array.isArray(v)
+        ? v.slice(0, CSV_MAX_SEGMENTS).map(String)
+        : [];
+  const seen = new Set<string>();
+  for (const s of raw) {
+    const value = s.trim();
+    if (allowed.includes(value)) seen.add(value);
+  }
+  return [...seen];
 };
 
 export const LeadsQuerySchema = z.object({

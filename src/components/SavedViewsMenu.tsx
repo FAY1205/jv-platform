@@ -128,7 +128,7 @@ export function SavedViewsMenu({ filters, onApply, className }: SavedViewsMenuPr
             setSaveOpen(false);
             toast("View saved.", "success");
           },
-          onError: (e: Error) => setSaveError(e.message || "Couldn't save the view."),
+          onError: (e) => setSaveError(e.message || "Couldn't save the view."),
         },
       );
       return;
@@ -137,13 +137,13 @@ export function SavedViewsMenu({ filters, onApply, className }: SavedViewsMenuPr
       { name, filters },
       {
         onSuccess: (d) => { setActive({ id: d.id, name, filters }); setSaveOpen(false); toast("View saved.", "success"); },
-        onError: (e: Error) => {
+        onError: (e) => {
           // The DB is the only duplicate authority: a name created in another tab since this
-          // menu was read still 409s. Turn it into the same overwrite prompt rather than a
-          // dead end — the roster refetch below is what makes the retry resolve to an id.
-          const dup = e instanceof Error && /already have a view/i.test(e.message);
+          // menu was read still 409s. Refetch so the retry can resolve that name to an id and
+          // offer the overwrite, rather than dead-ending. Branch on the server's `code` — the
+          // stable contract — never on the message text (pr-review F-1).
           setSaveError(e.message || "Couldn't save the view.");
-          if (dup) void viewsQ.refetch();
+          if (e.code === "duplicate_view") void viewsQ.refetch();
         },
       },
     );
@@ -158,7 +158,7 @@ export function SavedViewsMenu({ filters, onApply, className }: SavedViewsMenuPr
         setConfirmDelete(null);
         toast("View deleted.", "success");
       },
-      onError: (e: Error) => toast(e.message || "Couldn't delete the view.", "danger"),
+      onError: (e) => toast(e.message || "Couldn't delete the view.", "danger"),
     });
   };
 

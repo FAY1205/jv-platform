@@ -5,6 +5,7 @@ import { getDb } from "@/db";
 import * as schema from "@/db/schema";
 import type { ScopeContext } from "@/lib/scope";
 import type * as ScopeContextModule from "@/lib/scope-context";
+import { EMPTY_SAVED_VIEW_FILTERS } from "@/modules/saved-views/schema";
 import { APP_ORIGIN, adminScope, jsonRequest, routeParams, scopeContextMock, setRouteScope } from "./_route-harness";
 
 // getServerScope is injected at its module seam so the routes run as a real caller without a
@@ -21,17 +22,23 @@ import { PATCH as patchRoute, DELETE as deleteRoute } from "@/app/api/saved-view
 const url = process.env.DATABASE_URL;
 const suite = url ? describe : describe.skip;
 const SLUG = "test-route-saved-views";
+const SLUG_B = "test-route-saved-views-b";
 
 suite("WP-SV-1: saved-view route contract (status + error envelope + admin gate)", () => {
   let db: ReturnType<typeof getDb>;
   let tenantId: string;
+  let tenantBId: string;
   const adminUserId = randomUUID();
   const otherAdminUserId = randomUUID();
+  const adminUserBId = randomUUID();
   const partnerUserId = randomUUID();
   let partnerId: string;
 
   async function cleanup() {
-    const t = await db.select({ id: schema.tenants.id }).from(schema.tenants).where(eq(schema.tenants.slug, SLUG));
+    const t = await db
+      .select({ id: schema.tenants.id })
+      .from(schema.tenants)
+      .where(inArray(schema.tenants.slug, [SLUG, SLUG_B]));
     const tids = t.map((x) => x.id);
     if (tids.length === 0) return;
     await db.delete(schema.savedViews).where(inArray(schema.savedViews.tenantId, tids));
@@ -45,6 +52,8 @@ suite("WP-SV-1: saved-view route contract (status + error envelope + admin gate)
     await cleanup();
     const [t] = await db.insert(schema.tenants).values({ name: "Route Views", slug: SLUG }).returning({ id: schema.tenants.id });
     tenantId = t.id;
+    const [tb] = await db.insert(schema.tenants).values({ name: "Route Views B", slug: SLUG_B }).returning({ id: schema.tenants.id });
+    tenantBId = tb.id;
     const [p] = await db
       .insert(schema.partners)
       .values({ tenantId, refId: "JV-931", name: "Route Partner", color: "#123456", status: "active" })
@@ -54,6 +63,7 @@ suite("WP-SV-1: saved-view route contract (status + error envelope + admin gate)
       { id: adminUserId, tenantId, email: "admin@route-views.test", role: "admin" as const },
       { id: otherAdminUserId, tenantId, email: "admin2@route-views.test", role: "admin" as const },
       { id: partnerUserId, tenantId, email: "px@route-views.test", role: "partner" as const, partnerId: p.id },
+      { id: adminUserBId, tenantId: tenantBId, email: "admin@route-views-b.test", role: "admin" as const },
     ]);
     setRouteScope(adminScope(tenantId, adminUserId));
   });
@@ -150,6 +160,84 @@ suite("WP-SV-1: saved-view route contract (status + error envelope + admin gate)
     expect(views.map((v) => v.id)).not.toContain(theirs.id);
     const [still] = await db.select({ name: schema.savedViews.name }).from(schema.savedViews).where(eq(schema.savedViews.id, theirs.id));
     expect(still.name).toBe("Their view");
+  });
+
+  it("SV-02/SCP-01: another TENANT's view id is a 404 on PATCH and DELETE over HTTP", async () => {
+    // The cross-USER leg above shares a tenant; this one crosses the tenant boundary with an
+    // equally REAL row, so neither half of the predicate can be the one carrying the query.
+    const [foreign] = await db
+      .insert(schema.savedViews)
+      .values({ tenantId: tenantBId, userId: adminUserBId, name: "Tenant B view", filters: {} })
+      .returning({ id: schema.savedViews.id });
+
+    const patched = await patchRoute(
+      jsonRequest("PATCH", `/api/saved-views/${foreign.id}`, { name: "stolen" }),
+      routeParams({ id: foreign.id }),
+    );
+    expect(patched.status).toBe(404);
+    expect((await body(patched)).code).toBe("not_found");
+    const removed = await deleteRoute(jsonRequest("DELETE", `/api/saved-views/${foreign.id}`), routeParams({ id: foreign.id }));
+    expect(removed.status).toBe(404);
+
+    const [still] = await db.select({ name: schema.savedViews.name }).from(schema.savedViews).where(eq(schema.savedViews.id, foreign.id));
+    expect(still.name).toBe("Tenant B view");
+  });
+
+  it("SV-01/SCP-01: the name namespace is per user — tenant B's admin may reuse tenant A's name", async () => {
+    await createOk("Shared name");
+    setRouteScope(adminScope(tenantBId, adminUserBId));
+    try {
+      const res = await createRoute(jsonRequest("POST", "/api/saved-views", { name: "Shared name", filters: {} }));
+      // A 409 here would mean the unique index (or the predicate) had lost its user column and
+      // every admin everywhere shared one namespace.
+      expect(res.status).toBe(200);
+      // …and B's menu holds ONLY B's own rows — none of tenant A's, by name.
+      const listed = (await body(await listRoute())).views as { name: string }[];
+      expect(listed.map((v) => v.name).sort()).toEqual(["Shared name", "Tenant B view"]);
+      expect(listed.map((v) => v.name)).not.toContain("Route Unique");
+    } finally {
+      setRouteScope(adminScope(tenantId, adminUserId));
+    }
+  });
+
+  it("SV-02: PATCH cannot smuggle an owner either (the strict body applies to both verbs)", async () => {
+    const id = await createOk("Patch smuggle");
+    const res = await patchRoute(
+      jsonRequest("PATCH", `/api/saved-views/${id}`, { name: "Renamed", userId: otherAdminUserId }),
+      routeParams({ id }),
+    );
+    expect(res.status).toBe(400);
+    expect((await body(res)).code).toBe("invalid_input");
+    // Neither the rename nor the ownership change took effect — a strict body is all-or-nothing.
+    const [row] = await db
+      .select({ name: schema.savedViews.name, userId: schema.savedViews.userId })
+      .from(schema.savedViews)
+      .where(eq(schema.savedViews.id, id));
+    expect(row).toEqual({ name: "Patch smuggle", userId: adminUserId });
+  });
+
+  it("SV-02 (pr F-2): a NON-OBJECT stored blob degrades over HTTP instead of 500-ing the menu", async () => {
+    // A jsonb column accepts a bare JSON string. No app path writes one — the point is that the
+    // read side does not assume the write side was the only writer.
+    const [junk] = await db
+      .insert(schema.savedViews)
+      .values({ tenantId, userId: adminUserId, name: "Junk blob", filters: "garbage" })
+      .returning({ id: schema.savedViews.id });
+
+    const listed = await listRoute();
+    expect(listed.status).toBe(200);
+    const views = (await body(listed)).views as { id: string; filters: Record<string, unknown> }[];
+    const row = views.find((v) => v.id === junk.id);
+    // The fallback is the page's OPENING state (EMPTY_SAVED_VIEW_FILTERS), not an empty object:
+    // a degraded view opens the leads page as if freshly loaded, which is the usable answer.
+    expect(row!.filters).toEqual(EMPTY_SAVED_VIEW_FILTERS);
+
+    // …and the degraded view is still fully usable: it re-saves like any other.
+    const patched = await patchRoute(
+      jsonRequest("PATCH", `/api/saved-views/${junk.id}`, { filters: { hot: true } }),
+      routeParams({ id: junk.id }),
+    );
+    expect(patched.status).toBe(200);
   });
 
   it("Zod-validates every body (missing/over-long name, non-object blob, empty patch, bad id)", async () => {

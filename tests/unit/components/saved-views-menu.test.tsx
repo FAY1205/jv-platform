@@ -192,16 +192,36 @@ describe("SV-03: save current filters", () => {
 
   it("SV-03: a server-side duplicate (the 409 race) is reported in the dialog, not swallowed", async () => {
     const user = userEvent.setup();
-    apiMutate.mockRejectedValue(new Error("You already have a view called “Race”."));
+    // The envelope's CODE is what the client branches on (pr-review F-1) — the message is copy.
+    const dup = Object.assign(new Error("You already have a view called “Race”."), { code: "duplicate_view" });
+    apiMutate.mockRejectedValue(dup);
     wrap();
     await openMenu(user);
     await user.click(await screen.findByRole("menuitem", { name: /save current filters/i }));
     await user.type(await screen.findByRole("textbox", { name: /view name/i }), "Race");
+    const reads = apiGet.mock.calls.length;
     await user.click(screen.getByRole("button", { name: /save view/i }));
 
     expect(await screen.findByText(/already have a view called/i)).toBeInTheDocument();
     // The dialog stays open with the draft intact, so the operator can rename and retry.
     expect(screen.getByRole("textbox", { name: /view name/i })).toHaveValue("Race");
+    // …and the roster is re-read, so the retry can resolve that name to an id and offer the
+    // overwrite instead of 409-ing forever.
+    await waitFor(() => expect(apiGet.mock.calls.length).toBeGreaterThan(reads));
+  });
+
+  it("SV-03: a NON-duplicate failure is reported WITHOUT a pointless roster refetch", async () => {
+    const user = userEvent.setup();
+    apiMutate.mockRejectedValue(Object.assign(new Error("Failed to save the view."), { code: "saved_view_create_failed" }));
+    wrap();
+    await openMenu(user);
+    await user.click(await screen.findByRole("menuitem", { name: /save current filters/i }));
+    await user.type(await screen.findByRole("textbox", { name: /view name/i }), "Boom");
+    const reads = apiGet.mock.calls.length;
+    await user.click(screen.getByRole("button", { name: /save view/i }));
+
+    expect(await screen.findByText(/failed to save the view/i)).toBeInTheDocument();
+    expect(apiGet.mock.calls.length).toBe(reads);
   });
 
   it("SV-03: the save box pre-fills with the APPLIED view's name (re-saving is the common gesture)", async () => {

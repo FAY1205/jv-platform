@@ -24,12 +24,22 @@ CREATE INDEX "saved_views_tenant_idx" ON "saved_views" USING btree ("tenant_id")
 -- naming ANOTHER user as its owner — planting a view in a colleague's menu — or UPDATE its own
 -- row's user_id to hand it away. Pinning the writer on both halves closes both.
 --
+-- The tenant/user PAIR is app-enforced, not FK-enforced (audit-tenancy F-6). Nothing in the
+-- schema says `user_id` must belong to `tenant_id`: that would need a composite FK, which in
+-- turn needs a UNIQUE (id, tenant_id) on `users` — a schema change reaching a table every other
+-- table already references. It is not needed, because a row's two columns come from ONE
+-- `ScopeContext` on the single write path (modules/saved-views), and `savedViewWhere` AND-s
+-- both halves on every read: a mismatched pair, however it arrived, matches NOTHING rather
+-- than matching the wrong person. It fails closed. Revisit only if a second writer appears.
+--
 -- Deliberately NOT pinned here: `app_current_role() = 'admin'`. Admin-only is a v1 PRODUCT gate
 -- (a partner's portal has no leads-page filter state to save), enforced at the route AND in the
 -- module — it is not a data-VISIBILITY rule, and the per-user pin above already means no
 -- session can read or write a row that isn't its own whatever its role. Writing the role in
 -- would have to be RELAXED (not extended) the day partner views ship, and a policy you expect
--- to loosen is a policy that gets loosened carelessly. App-layer writes run as table owner and
+-- to loosen is a policy that gets loosened carelessly. ADR-0045 records that decision and its
+-- trigger: relaxing the user pin (shared/team views, partner views) REQUIRES a role arm landing
+-- in this policy in the SAME migration. App-layer writes run as table owner and
 -- bypass RLS (ADR-0013); the module revalidates all of this in code. RLS enable is explicit
 -- (0001 style) even though the ensure_rls trigger (0039) also fires.
 

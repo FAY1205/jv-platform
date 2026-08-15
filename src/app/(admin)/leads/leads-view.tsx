@@ -139,9 +139,15 @@ function LeadsBody({ initialQ, initialOpenRef = null, initialHot = false }: { in
   return (
     <>
       <div className="mb-3 flex items-center justify-between gap-3">
-        {/* SV-03 (mockup screen 1): the views dropdown sits at the head of the page. The
-            mockup draws it beside the "Leads" title, which in this app lives in the SHELL
-            topbar (WP-E) — so it takes the leading edge of the page's own first row. */}
+        {/* SV-03 (mockup screen 1): the views dropdown sits at the head of the page. The mockup
+            draws it beside the "Leads" title, which in this app lives in the SHELL topbar
+            (WP-E), so it takes the leading edge of the page's own first row instead.
+            usePageHeader DOES have an `actions` slot that would accept it (pr-review F-3) — the
+            reason it isn't used is that NO page passes `actions` today, so this would be the
+            first, and the slot has an identity contract a first user must establish: the header
+            effect depends on the node, so a fresh element per render re-registers on its own
+            update. A stateful control there needs a memoized node. Worth doing when a second
+            page wants topbar actions; not on this WP's budget. */}
         <SavedViewsMenu filters={currentView} onApply={applyView} />
         <SegmentedControl<LeadsViewPref>
           ariaLabel="Leads view"

@@ -2,9 +2,23 @@ import { getDb } from "@/db";
 import { getServerScope } from "@/lib/scope-context";
 import { assertCsrf, authErrorResponse, requireAdminResponse } from "@/lib/auth/guard";
 import { requireTosResponse } from "@/lib/auth/tos-guard";
-import { listSavedViews, createSavedView, DuplicateSavedViewNameError } from "@/modules/saved-views/saved-views";
+import {
+  listSavedViews, createSavedView, DuplicateSavedViewNameError, SavedViewLimitError,
+} from "@/modules/saved-views/saved-views";
 import { CreateSavedViewSchema } from "@/modules/saved-views/schema";
+import { pgErrorInfo } from "@/lib/db/pg-error";
 import { jsonOk, jsonError, jsonServerError } from "@/lib/http";
+
+/**
+ * SEC-05 (audit-tenancy F-9): what a 500 may carry into the logs. NOT `e.message` — a driver
+ * error quotes the offending row, and `filters.q` is a free-text search box an admin types
+ * seller names and phone numbers into. The pg code + constraint name are the two facts that
+ * actually help diagnose one of these, and neither is data.
+ */
+function failureDetail(e: unknown): Record<string, unknown> {
+  const { code, constraint } = pgErrorInfo(e);
+  return { pgCode: code ?? null, constraint: constraint ?? null, name: e instanceof Error ? e.name : typeof e };
+}
 
 // SV-02 — the caller's OWN saved views. GET powers the leads-page views dropdown; POST is
 // "Save current filters…" and is always a CREATE (the overwrite path is PATCH on the resolved
@@ -24,9 +38,7 @@ export async function GET() {
   } catch (e) {
     return (
       authErrorResponse(e) ??
-      jsonServerError("saved_views_failed", "Failed to load saved views.", {
-        message: e instanceof Error ? e.message : String(e),
-      })
+      jsonServerError("saved_views_failed", "Failed to load saved views.", failureDetail(e))
     );
   }
 }
@@ -49,8 +61,9 @@ export async function POST(request: Request) {
     if (authResp) return authResp;
     // Narrow, constraint-gated 409: only the name index produces this (the tags F-6 lesson).
     if (e instanceof DuplicateSavedViewNameError) return jsonError("duplicate_view", e.message, 409);
-    return jsonServerError("saved_view_create_failed", "Failed to save the view.", {
-      message: e instanceof Error ? e.message : String(e),
-    });
+    // 409, not 400: the request is well-formed, it conflicts with the state of the collection
+    // — the same reading as the duplicate name, and the message says how to resolve it.
+    if (e instanceof SavedViewLimitError) return jsonError("view_limit_reached", e.message, 409);
+    return jsonServerError("saved_view_create_failed", "Failed to save the view.", failureDetail(e));
   }
 }

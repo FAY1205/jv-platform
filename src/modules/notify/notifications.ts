@@ -2,7 +2,7 @@ import { and, desc, eq, isNull, sql } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import { getDb } from "@/db";
 import * as schema from "@/db/schema";
-import { tenantWhere, type ScopeContext } from "@/lib/scope";
+import { ownerWhere, type ScopeContext } from "@/lib/scope";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // In-app notification center (NTF-04). Notifications are per USER (a partner's
@@ -43,9 +43,11 @@ export async function createNotification(db: DB, input: CreateNotificationInput)
   });
 }
 
-/** Scope: notifications for THIS user in THIS tenant (never anyone else's). */
+/** Scope: notifications for THIS user in THIS tenant (never anyone else's). The predicate is
+ *  the shared per-user builder (audit-tenancy F-3) — this table and `saved_views` had grown
+ *  identical hand-rolled copies of the same rule. */
 function mine(scope: ScopeContext) {
-  return and(tenantWhere(schema.notifications, scope), eq(schema.notifications.userId, scope.userId));
+  return ownerWhere(schema.notifications, schema.notifications.userId, scope);
 }
 
 export async function listNotifications(scope: ScopeContext, limit = 30): Promise<NotificationRow[]> {
