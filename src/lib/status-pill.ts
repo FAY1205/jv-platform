@@ -22,3 +22,20 @@ const PILL_BASE = "inline-flex items-center rounded-full px-2.5 py-0.5 text-xs f
 export function statusPillClass(status: string, extra?: string): string {
   return cn(PILL_BASE, STATUS_PILL[status] ?? "bg-surface-3 text-text-2", extra);
 }
+
+// KAN-01: the board's column dot + the "Move to…" menu bullets. Same vocabulary as the
+// pills above (one status → one hue everywhere), just the solid fill instead of the
+// soft pair. Decorative ONLY — every dot sits beside its status word (PRN-14).
+const STATUS_DOT: Record<string, string> = {
+  New: "bg-text-3",
+  Contacted: "bg-brand",
+  Appointment: "bg-warn",
+  "Under contract": "bg-prev",
+  Closed: "bg-success",
+  Dead: "bg-danger",
+};
+
+/** Tailwind background utility for a status's dot (neutral fallback for an unknown status). */
+export function statusDotClass(status: string): string {
+  return STATUS_DOT[status] ?? "bg-text-3";
+}

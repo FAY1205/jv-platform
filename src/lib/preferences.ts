@@ -11,6 +11,10 @@ import * as React from "react";
 export type ThemePref = "system" | "light" | "dark";
 export const THEME_PREFS: readonly ThemePref[] = ["system", "light", "dark"];
 
+/** KAN-01: how the admin Leads page is shown. A pure UI preference — the leads
+ *  themselves are server data and never live here. */
+export type LeadsViewPref = "list" | "board";
+
 export interface Preferences {
   theme: ThemePref;
   navCollapsed: boolean;
@@ -18,9 +22,11 @@ export interface Preferences {
    *  apps in one browser (the owner's testing setup) shouldn't collapse both rails
    *  with one click. Admin keeps `navCollapsed`. */
   navCollapsedPortal: boolean;
+  /** KAN-01: List vs Board on the admin Leads page. Defaults to the list (PRN-11). */
+  leadsView: LeadsViewPref;
 }
 
-export const DEFAULT_PREFERENCES: Preferences = { theme: "system", navCollapsed: false, navCollapsedPortal: false };
+export const DEFAULT_PREFERENCES: Preferences = { theme: "system", navCollapsed: false, navCollapsedPortal: false, leadsView: "list" };
 
 const STORAGE_KEY = "jv.prefs";
 
@@ -37,6 +43,7 @@ export function parsePreferences(raw: string | null): Preferences {
       theme: isThemePref(o.theme) ? o.theme : DEFAULT_PREFERENCES.theme,
       navCollapsed: o.navCollapsed === true,
       navCollapsedPortal: o.navCollapsedPortal === true,
+      leadsView: o.leadsView === "board" ? "board" : DEFAULT_PREFERENCES.leadsView,
     };
   } catch {
     return DEFAULT_PREFERENCES;
