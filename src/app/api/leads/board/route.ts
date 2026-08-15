@@ -2,7 +2,7 @@ import { getServerScope } from "@/lib/scope-context";
 import { authErrorResponse, requireAdminResponse } from "@/lib/auth/guard";
 import { BoardQuerySchema } from "@/modules/leads/schema";
 import { listLeadsBoard } from "@/modules/leads/queries";
-import { jsonOk, jsonError } from "@/lib/http";
+import { jsonOk, jsonServerError } from "@/lib/http";
 
 // ADM · KAN-02: the Leads board read. Same leads as GET /api/leads, bucketed by their
 // current status, kept + non-deleted only (KAN-08). Admin-only like its sibling list
@@ -19,9 +19,14 @@ export async function GET(request: Request) {
     const query = BoardQuerySchema.parse(params);
     return jsonOk(await listLeadsBoard(scope, query));
   } catch (e) {
+    // F-42 / audit-tenancy F-5: the client gets a STATIC message plus the traceId, and
+    // the real reason (which can carry query params, i.e. seller data) is logged
+    // server-side under that same id — never echoed into the response body.
     return (
       authErrorResponse(e) ??
-      jsonError("leads_board_failed", e instanceof Error ? e.message : "Failed to load the board", 500)
+      jsonServerError("leads_board_failed", "Could not load the board.", {
+        message: e instanceof Error ? e.message : String(e),
+      })
     );
   }
 }

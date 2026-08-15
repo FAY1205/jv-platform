@@ -55,15 +55,20 @@ export interface GlobalLeadsPage {
 // changed, per lead. Indexed by lead_status_history(lead_id).
 // Scope-aware builders (ADR-0013 defence-in-depth, WP-F1): each caller passes the
 // live ScopeContext so the subqueries below carry their own explicit tenant predicate.
+// Both order by `created_at desc, id desc` — the SAME deliberate tie-break the write
+// path uses (portal/status-update.ts). Two rows can share a created_at (one clock tick,
+// or a scripted backfill); without the id leg Postgres is free to pick either, so a lead
+// could read as "Contacted" in the list and "Closed" on the board on consecutive
+// requests (audit-tenancy F-5). One definition of "latest", everywhere.
 function latestStatus(scope: ScopeContext) {
   // self-scoped (ADR-0013 defence-in-depth): correlation key leads.id is globally unique, but
   // carry an explicit tenant predicate too so no single dropped predicate can widen scope.
-  return sql`(select status from lead_status_history where lead_id = ${schema.leads.id} and ${tenantWhere(schema.leadStatusHistory, scope)} order by created_at desc limit 1)`;
+  return sql`(select status from lead_status_history where lead_id = ${schema.leads.id} and ${tenantWhere(schema.leadStatusHistory, scope)} order by created_at desc, id desc limit 1)`;
 }
 function latestAt(scope: ScopeContext) {
   // self-scoped (ADR-0013 defence-in-depth): correlation key leads.id is globally unique, but
   // carry an explicit tenant predicate too so no single dropped predicate can widen scope.
-  return sql`(select created_at from lead_status_history where lead_id = ${schema.leads.id} and ${tenantWhere(schema.leadStatusHistory, scope)} order by created_at desc limit 1)`;
+  return sql`(select created_at from lead_status_history where lead_id = ${schema.leads.id} and ${tenantWhere(schema.leadStatusHistory, scope)} order by created_at desc, id desc limit 1)`;
 }
 // The displayed status: removed leads read "Removed MLS"; else current or New.
 function statusExpr(scope: ScopeContext) {
@@ -235,7 +240,22 @@ type BoardRow = {
  * column for its "Load more"). ONE round trip: a window over the scoped lead set gives
  * both the per-column true totals and the requested slice.
  */
+export class BoardScopeError extends Error {
+  constructor() {
+    super("The leads board is admin-only.");
+    this.name = "BoardScopeError";
+  }
+}
+
 export async function listLeadsBoard(scope: ScopeContext, query: BoardQuery): Promise<LeadsBoard> {
+  // Admin-only in v1 (owner decision; the route gates this too — this is the module's own
+  // guard, audit-tenancy F-7). It is NOT cosmetic: statusExpr/latestAt resolve the GLOBAL
+  // latest status row, without the R-22 `ownStatusAuthorScope` predicate the portal's own
+  // reads carry. A partner board would therefore bucket a re-routed lead by a PRIOR
+  // owner's status change. Any future portal board must thread that predicate through
+  // these subqueries FIRST — not relax this guard.
+  if (scope.role !== "admin") throw new BoardScopeError();
+
   const db = getDb();
   const wanted = query.status ? [query.status] : [...BOARD_COLUMNS];
   const offset = (query.page - 1) * BOARD_PAGE_SIZE;
@@ -281,9 +301,13 @@ export async function listLeadsBoard(scope: ScopeContext, query: BoardQuery): Pr
       from leads
       -- R-65: the partner must be same-tenant, or a mis-set partner_id resolves to NULL
       -- (card reads "Unmatched") rather than surfacing another tenant's name/colour.
+      -- Built from drizzle column refs + tenantWhere — the same predicate builder every
+      -- other join uses — so this join can never drift from the guard (audit-tenancy F-1).
+      -- It stays in the ON clause: moved to WHERE it would degrade the LEFT join and drop
+      -- unmatched leads from the board entirely.
       left join partners
-        on partners.id = coalesce(leads.manual_partner_id, leads.partner_id)
-       and partners.tenant_id = ${scope.tenantId}
+        on ${schema.partners.id} = coalesce(${schema.leads.manualPartnerId}, ${schema.leads.partnerId})
+       and ${tenantWhere(schema.partners, scope)}
       where ${where}
     ),
     ranked as (

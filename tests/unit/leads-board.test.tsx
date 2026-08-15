@@ -9,6 +9,24 @@ import { LeadsBoard } from "@/app/(admin)/leads/leads-board";
 
 vi.mock("@/lib/csrf-client", () => ({ csrfHeaders: () => ({ "x-csrf-token": "t" }) }));
 
+// KAN-10 instrumentation (pr F-3): count how many times each COLUMN renders. The column
+// header's dot and the cards are no good as probes — cards are memoized too, and the
+// ⋯ menu builds a dot per status on every card render. An EMPTY column's <EmptyState>,
+// though, is rendered by the column and nothing else, and its description carries the
+// status — so one counter per description == one counter per column render.
+const { emptyStateRenders } = vi.hoisted(() => ({ emptyStateRenders: {} as Record<string, number> }));
+vi.mock("@/components", async (orig) => {
+  const actual = await orig<typeof import("@/components")>();
+  return {
+    ...actual,
+    EmptyState: (props: React.ComponentProps<typeof actual.EmptyState>) => {
+      const key = String(props.description ?? props.title);
+      emptyStateRenders[key] = (emptyStateRenders[key] ?? 0) + 1;
+      return actual.EmptyState(props);
+    },
+  };
+});
+
 // WP-KAN-1 component coverage: the board's own behaviour — drag = the EXISTING status
 // endpoint, optimistic with rollback (KAN-04), the same-column no-op, the keyboard
 // "Move to…" path (KAN-05), click-vs-drag (KAN-06), per-column load more (KAN-02) and
@@ -200,6 +218,51 @@ describe("KAN-04: dragging a card moves it via POST /api/leads/{ref}/status", ()
     expect(calls.filter((c) => c.method === "POST")).toHaveLength(0);
     // The source column never lights up as a drop target either.
     expect(column("New")).not.toHaveAttribute("data-over");
+  });
+});
+
+// ── KAN-10: a move re-renders only the two columns it touches ────────────────
+describe("KAN-10: moving a card does not re-render the whole board", () => {
+  it("KAN-10: the four untouched columns do not re-render while a card moves between the other two", async () => {
+    let resolvePost!: (v: unknown) => void;
+    const pending = new Promise((r) => { resolvePost = r; });
+    vi.stubGlobal("fetch", vi.fn((url: string, opts?: RequestInit) => {
+      if ((opts?.method ?? "GET") === "GET") {
+        return json(payload({
+          New: { cards: [card("LD-26-00001"), card("LD-26-00002")] },
+          Contacted: { cards: [card("LD-26-00003")] },
+        }));
+      }
+      return pending as ReturnType<typeof json>;
+    }) as unknown as typeof fetch);
+
+    wrap(<LeadsBoard filters={noFilters} onOpen={() => {}} now={NOW} />);
+    await screen.findByTestId("board-card-LD-26-00001");
+
+    // Baseline AFTER the first paint has settled — the four empty columns each rendered.
+    const untouched = ["Appointment", "Under contract", "Closed", "Dead"];
+    const before = Object.fromEntries(untouched.map((s) => [s, emptyStateRenders[`Nothing is in ${s} yet.`] ?? 0]));
+    expect(Object.values(before).every((n) => n > 0)).toBe(true); // the probe really is wired up
+
+    fireEvent.dragStart(screen.getByTestId("board-card-LD-26-00001"));
+    fireEvent.drop(column("Contacted"));
+
+    // The move landed (both touched columns re-rendered — the card left one and joined
+    // the other)…
+    await waitFor(() => expect(within(column("Contacted")).getByTestId("board-card-LD-26-00001")).toBeInTheDocument());
+    expect(within(column("New")).getByTestId("board-card-LD-26-00002")).toBeInTheDocument();
+
+    // …while every other column's subtree was skipped entirely: the optimistic cache
+    // update hands back the SAME column object for anything it didn't touch, so
+    // React.memo bails out. The POST is still in flight, so no refetch has muddied this.
+    // (Verified non-vacuous: dropping the React.memo wrapper takes each of these 1 → 2.)
+    for (const s of untouched) {
+      expect(emptyStateRenders[`Nothing is in ${s} yet.`] ?? 0, `${s} re-rendered during the move`).toBe(before[s]);
+    }
+
+    resolvePost({ ok: true, status: 200, json: () => Promise.resolve({ refId: "LD-26-00001", status: "Contacted" }) });
+    const toastStack = screen.getByTestId("toast-stack");
+    expect(await within(toastStack).findByText("LD-26-00001 → Contacted")).toBeInTheDocument();
   });
 });
 

@@ -6,7 +6,7 @@ import * as schema from "@/db/schema";
 import { listLeadsBoard } from "@/modules/leads/queries";
 import { BoardQuerySchema } from "@/modules/leads/schema";
 import { updateLeadStatus } from "@/modules/portal/status-update";
-import { BOARD_PAGE_SIZE } from "@/modules/leads/board";
+import { BOARD_COLUMNS, BOARD_PAGE_SIZE } from "@/modules/leads/board";
 import type { ScopeContext } from "@/lib/scope";
 import type * as ScopeContextModule from "@/lib/scope-context";
 import { adminScope, jsonRequest, scopeContextMock, setRouteScope } from "./_route-harness";
@@ -115,8 +115,30 @@ suite("WP-KAN-1: leads board endpoint (KAN-02/03/08/09)", () => {
     // ── Tenant B: must never appear in A's board (TST-01 probe) ─────────────
     const [tB] = await db.insert(schema.tenants).values({ name: "Board B", slug: SLUG_B }).returning({ id: schema.tenants.id });
     id.tenantB = tB.id;
-    const bAdmin = randomUUID();
+    id.adminB = randomUUID();
+    const bAdmin = id.adminB;
     await db.insert(schema.users).values({ id: bAdmin, tenantId: tB.id, email: "admin@board-b.test", role: "admin" as const });
+    const [pB] = await db
+      .insert(schema.partners)
+      .values({ tenantId: tB.id, refId: "JV-899", name: "Foreign Partner", color: "#B23A48", status: "active" })
+      .returning({ id: schema.partners.id });
+    id.partnerB = pB.id;
+    // A SECOND tenant-B partner that no tenant-A row references — the clean probe for the
+    // BOLA leg below (pB itself is deliberately mis-referenced by the R-65 fixture).
+    const [pB2] = await db
+      .insert(schema.partners)
+      .values({ tenantId: tB.id, refId: "JV-898", name: "Foreign Partner 2", color: "#4C1553", status: "active" })
+      .returning({ id: schema.partners.id });
+    id.partnerB2 = pB2.id;
+
+    // R-65 leg (audit-tenancy F-2): a tenant-A lead whose partner_id points at tenant B's
+    // partner. The FK is global, so this is insertable — the JOIN's tenant predicate is the
+    // only thing that stops B's name/colour appearing on A's board.
+    await db.insert(schema.leads).values(
+      lead("LD-26-80905", { sellerFirst: "Cross", sellerLast: "Tenant", city: "Reno", state: "NV", partnerId: pB.id, matchMethod: "zip", createdAt: ago(40 * MIN) }),
+    );
+    await updateLeadStatus(seedScope, "LD-26-80905", "Closed");
+
     const [upB] = await db.insert(schema.uploads).values({ tenantId: tB.id, refId: "IM-26-802", filename: "b.csv", status: "processed" }).returning({ id: schema.uploads.id });
     await db.insert(schema.leads).values({
       tenantId: tB.id, refId: "LD-26-80999", uploadId: upB.id, dedupeKey: randomUUID(), rawJson: {},
@@ -144,7 +166,9 @@ suite("WP-KAN-1: leads board endpoint (KAN-02/03/08/09)", () => {
     expect(col(b, "Contacted").total).toBe(2);
     expect(col(b, "Appointment").total).toBe(1);
     expect(col(b, "Under contract").total).toBe(0);
-    expect(col(b, "Closed").cards).toEqual([]);
+    expect(col(b, "Under contract").cards).toEqual([]);
+    expect(col(b, "Closed").total).toBe(1);
+    expect(col(b, "Dead").total).toBe(0);
     expect(b.pageSize).toBe(BOARD_PAGE_SIZE);
   });
 
@@ -183,7 +207,7 @@ suite("WP-KAN-1: leads board endpoint (KAN-02/03/08/09)", () => {
     const all = b.columns.flatMap((c) => c.cards.map((x) => x.refId));
     expect(all).not.toContain("LD-26-80903"); // removed
     expect(all).not.toContain("LD-26-80904"); // soft-deleted
-    expect(b.columns.reduce((n, c) => n + c.total, 0)).toBe(29); // 26 + 2 + 1
+    expect(b.columns.reduce((n, c) => n + c.total, 0)).toBe(30); // 26 New + 2 Contacted + 1 Appointment + 1 Closed
   });
 
   it("KAN-03/KAN-08: the card payload carries seller, city/state, partner or null, hot + score, and statusSince", async () => {
@@ -220,6 +244,79 @@ suite("WP-KAN-1: leads board endpoint (KAN-02/03/08/09)", () => {
     const b = await board();
     expect(b.columns.flatMap((c) => c.cards.map((x) => x.refId))).not.toContain("LD-26-80999");
     expect(col(b, "Appointment").total).toBe(1); // not 2 — B's Appointment lead is out of scope
+  });
+
+  it("R-65: a lead pointing at ANOTHER tenant's partner renders unmatched — never that partner's name or colour", async () => {
+    const cross = col(await board(), "Closed").cards.find((c) => c.refId === "LD-26-80905")!;
+    expect(cross).toBeDefined(); // the lead itself is A's, so it stays on A's board…
+    expect(cross.partner).toBeNull(); // …but the foreign partner resolves to NULL (join tenant predicate)
+    expect(JSON.stringify(cross)).not.toContain("Foreign Partner");
+    expect(JSON.stringify(cross)).not.toContain("JV-899");
+    expect(JSON.stringify(cross)).not.toContain("#B23A48");
+  });
+
+  it("PRN-08 (BOLA): a partnerId belonging to ANOTHER tenant filters to nothing — indistinguishable from an empty in-tenant partner", async () => {
+    // Probed with the UNREFERENCED foreign partner. The filter is `leadWhere(scope) AND
+    // partnerOwnsLead(id)`, so a foreign id can only ever match the caller's OWN rows —
+    // and it matches none unless one of them carries a mis-set FK (the R-65 fixture above,
+    // which is still the tenant's own lead and still renders no foreign partner).
+    const foreign = await board({ partnerId: id.partnerB2 });
+    expect(foreign.columns.map((c) => c.status)).toHaveLength(6);
+    expect(foreign.columns.every((c) => c.total === 0 && c.cards.length === 0)).toBe(true);
+
+    // The same shape an in-tenant partner with no leads produces — no oracle for "does
+    // this id exist in another tenant?".
+    const [emptyPartner] = await db
+      .insert(schema.partners)
+      .values({ tenantId: id.tenantA, refId: "JV-803", name: "Empty Partner", color: "#123456", status: "active" })
+      .returning({ id: schema.partners.id });
+    const empty = await board({ partnerId: emptyPartner.id });
+    expect(empty.columns).toEqual(foreign.columns);
+  });
+
+  it("TST-01: the reverse probe — tenant B's board holds only B's own lead", async () => {
+    const bBoard = await listLeadsBoard({ tenantId: id.tenantB, role: "admin", userId: id.adminB }, BoardQuerySchema.parse({}));
+    expect(bBoard.columns.flatMap((c) => c.cards.map((x) => x.refId))).toEqual(["LD-26-80999"]);
+    expect(bBoard.columns.reduce((n, c) => n + c.total, 0)).toBe(1);
+  });
+
+  it("KAN-03: the card payload shape is locked — no field rides along silently", async () => {
+    const anyCard = col(await board(), "New").cards[0];
+    expect(Object.keys(anyCard).sort()).toEqual(
+      ["city", "hot", "partner", "refId", "scoreTotal", "seller", "state", "statusSince"],
+    );
+  });
+
+  it("KAN-02: a partner scope is refused by the module itself, not just the route (R-22 author scope is missing here)", async () => {
+    await expect(
+      listLeadsBoard({ tenantId: id.tenantA, role: "partner", partnerId: id.partnerA, userId: partnerUserId }, BoardQuerySchema.parse({})),
+    ).rejects.toThrow(/admin-only/i);
+  });
+
+  it("KAN-08: a non-column status param (incl. the read-only 'Removed MLS' verdict) degrades to the full board", async () => {
+    for (const status of ["Removed MLS", "New ", "nonsense", ""]) {
+      const b = await board({ status });
+      expect(b.columns.map((c) => c.status), `status=${status}`).toEqual([...BOARD_COLUMNS]);
+      // "Removed MLS" can never become a seventh column.
+      expect(b.columns.map((c) => c.status)).not.toContain("Removed MLS");
+    }
+  });
+
+  it("KAN-02: `page` without `status` is normalized away — page 1 of every column, not an offset board", async () => {
+    const deep = await board({ page: "3" });
+    expect(deep.columns.every((c) => c.page === 1)).toBe(true);
+    expect(col(deep, "New").cards).toHaveLength(25);
+    expect(col(deep, "New").cards.map((c) => c.refId)).toEqual(col(await board(), "New").cards.map((c) => c.refId));
+  });
+
+  it("KAN-02: an absurd page clamps instead of erroring — 200 with empty slices and true totals", async () => {
+    const huge = await board({ status: "New", page: "1e308" });
+    expect(huge.columns[0].cards).toEqual([]);
+    expect(huge.columns[0].total).toBe(26);
+    expect(huge.columns[0].page).toBeLessThanOrEqual(10_000);
+
+    const res = await getBoard(jsonRequest("GET", "/api/leads/board?status=New&page=1e308"));
+    expect(res.status).toBe(200);
   });
 
   it("KAN-09: the partner and hot filters narrow every column", async () => {

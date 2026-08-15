@@ -433,7 +433,10 @@ interface MoveVars {
 }
 
 /** Move `refId` between columns in one cached board page. Untouched columns keep their
- *  IDENTITY so the memoized column views don't re-render (KAN-10). */
+ *  IDENTITY so the memoized column views don't re-render (KAN-10). TanStack's structural
+ *  sharing would restore identity for a deep-equal clone anyway — returning `c` says the
+ *  intent out loud and doesn't rely on that behaviour. The memo wrapper is what the
+ *  KAN-10 test actually pins: without it the untouched columns re-render regardless. */
 function applyMove(data: BoardPayload, vars: MoveVars, carried: BoardCardData | null): BoardPayload {
   return {
     ...data,

@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { pageParam, pageSizeParam, dateParam } from "@/lib/query-params";
 import { SEED_LEAD_STATUSES } from "@/modules/portal/statuses";
+import { BOARD_MAX_PAGE } from "./board";
 
 // Global leads list query params (ADM). Zod-normalizes everything to canonical
 // values so the query layer never sees raw user input; invalid shapes fall back
@@ -64,13 +65,22 @@ export type LeadsQuery = z.infer<typeof LeadsQuerySchema>;
 // that column's 1-based page. Same graceful contract as the list: a nonsense param
 // degrades to the default instead of 400-ing.
 
-export const BoardQuerySchema = z.object({
-  /** One of the six workflow statuses → load more for that column only; else the whole board. */
-  status: z.unknown().optional().transform((v) => ((SEED_LEAD_STATUSES as readonly string[]).includes(v as string) ? (v as string) : null)),
-  page: pageParam(),
-  partnerId: z.unknown().optional().transform((v) => (typeof v === "string" && UUID_RE.test(v) ? v : v === "unmatched" ? "unmatched" : null)),
-  hot: z.unknown().optional().transform((v) => v === "1" || v === "true" || v === true),
-});
+export const BoardQuerySchema = z
+  .object({
+    /** One of the six workflow statuses → load more for that column only; else the whole board.
+     *  Anything else (including the read-only "Removed MLS" verdict) degrades to null: the
+     *  removed verdict is not a column and can never become one (KAN-08). */
+    status: z.unknown().optional().transform((v) => ((SEED_LEAD_STATUSES as readonly string[]).includes(v as string) ? (v as string) : null)),
+    // Clamped (tenancy F-4): an absurd `?page=1e308` would otherwise multiply into a
+    // non-finite offset and blow up in the driver instead of degrading.
+    page: pageParam({ max: BOARD_MAX_PAGE }),
+    partnerId: z.unknown().optional().transform((v) => (typeof v === "string" && UUID_RE.test(v) ? v : v === "unmatched" ? "unmatched" : null)),
+    hot: z.unknown().optional().transform((v) => v === "1" || v === "true" || v === true),
+  })
+  // `page` is a per-COLUMN cursor: it only means anything alongside `status` (pr F-1).
+  // Without one it is normalized away, so `?page=3` returns page 1 of every column and
+  // the echoed `page` stays truthful rather than paging all six columns at once.
+  .transform((q) => (q.status ? q : { ...q, page: 1 }));
 
 export type BoardQuery = z.infer<typeof BoardQuerySchema>;
 

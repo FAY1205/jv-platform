@@ -13,6 +13,11 @@ export const STALE_DAYS = 14;
 /** Cards fetched per column, per page (KAN-02/KAN-10 — server-side per-column paging). */
 export const BOARD_PAGE_SIZE = 25;
 
+/** Upper bound on the per-column page cursor. A column can never hold 250k leads, so
+ *  this only bounds pathological `?page=<huge>` input — which must degrade, not reach
+ *  the driver as a non-finite offset (audit-tenancy F-4). */
+export const BOARD_MAX_PAGE = 10_000;
+
 /** KAN-06: pointer travel (px) above which a press is a DRAG, not a click — so
  *  releasing a drag never also opens the lead dialog. */
 export const DRAG_CLICK_THRESHOLD_PX = 5;
