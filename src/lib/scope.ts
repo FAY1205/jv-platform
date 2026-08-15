@@ -42,6 +42,27 @@ export function tenantIdWhere<T extends { tenantId: PgColumn }>(table: T, tenant
   return eq(table.tenantId, tenantId);
 }
 
+/**
+ * PER-USER scope: this tenant AND rows owned by the CALLING user (audit-tenancy F-3). The
+ * owner column is passed in because it is named differently per table (`notifications.user_id`,
+ * `saved_views.user_id`, and any future `*_user_id`) — what is shared is the RULE, not the name:
+ * a tenant pin AND-ed with the caller's identity, never one without the other.
+ *
+ * This is R-24's argument one axis over. `tenantIdWhere` exists because hand-rolled
+ * `eq(table.tenantId, id)` copies would miss a future change to tenant filtering; the per-user
+ * pin had grown its own independent copies for exactly the same reason, and it is the axis
+ * where a dropped half is least visible — a user-scoped table shares its tenant with every
+ * colleague, so losing the user pin leaks sideways WITHIN a tenant, which no cross-tenant probe
+ * would ever catch. One definition, so a change reaches every caller.
+ */
+export function ownerWhere<T extends { tenantId: PgColumn }>(
+  table: T,
+  ownerColumn: PgColumn,
+  scope: ScopeContext,
+): SQL {
+  return and(eq(table.tenantId, scope.tenantId), eq(ownerColumn, scope.userId))!;
+}
+
 /** A partner "owns" a lead if it is their EFFECTIVE owner: the manual overlay when
  *  present, else the pipeline snapshot — i.e. coalesce(manualPartnerId, partnerId) = me.
  *  Re-routing a MATCHED lead to another partner (editLead "set") REVOKES the original

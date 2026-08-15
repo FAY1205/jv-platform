@@ -475,6 +475,44 @@ export const leadTags = pgTable(
   ],
 );
 
+// WP-SV-1 (SV-01): a saved leads-page view — a NAME over the whole filter state. Per USER,
+// not per tenant: two admins in one tenant work different books, and a view is a personal
+// bookmark (the owner decision at mockup sign-off — shared/team views are explicitly out of
+// v1). That per-user pin is the table's whole visibility rule and it is enforced three times
+// over: the module predicate (modules/saved-views), the RLS policy's BOTH halves (0043), and
+// the fact that `user_id` is only ever written from the server scope.
+//
+// `filters` is jsonb, validated against modules/saved-views/schema before it is ever written
+// (SV-02) — the blob is composed from the leads list's own query validators, so it can hold
+// nothing the list cannot apply. Deliberately NOT normalized into columns: the filter state is
+// a UI shape that will keep growing, and a column per filter would make every new filter a
+// migration for data that is only ever read as a whole.
+export const savedViews = pgTable(
+  "saved_views",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenants.id),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id),
+    name: text("name").notNull(),
+    filters: jsonb("filters").notNull(),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [
+    // SV-01: unique per USER, case-insensitively (the tags precedent — "Hot in AZ" and
+    // "hot in az" are one view). Expression index, so the DB is the only duplicate check and
+    // two concurrent saves cannot race past a pre-read. It also LEADS with user_id, which is
+    // both the FK-covering index for user_id (db-linter 0001) and the list read's own index.
+    uniqueIndex("saved_views_user_name_idx").on(t.userId, sql`lower(${t.name})`),
+    // FK-covering index for tenant_id.
+    index("saved_views_tenant_idx").on(t.tenantId),
+  ],
+);
+
 export const leadStatusHistory = pgTable(
   "lead_status_history",
   {

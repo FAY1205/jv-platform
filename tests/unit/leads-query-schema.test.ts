@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { LeadsQuerySchema, DEFAULT_STATUS_FILTERS, isDefaultStatuses } from "@/modules/leads/schema";
+import { LeadsQuerySchema, DEFAULT_STATUS_FILTERS, LEAD_STATUS_FILTERS, isDefaultStatuses } from "@/modules/leads/schema";
 
 // ADM/FEP-03: the global leads list — every query param is Zod-validated and
 // normalized so the query layer only ever sees safe, canonical values.
@@ -56,6 +56,20 @@ describe("LeadsQuerySchema", () => {
   it("keeps only valid statuses from a comma list", () => {
     expect(parse({ statuses: "New,Closed,Bogus,Removed MLS" }).statuses).toEqual(["New", "Closed", "Removed MLS"]);
     expect(parse({ statuses: "" }).statuses).toEqual([]);
+  });
+
+  it("DM-11/tenancy F-1: the statuses param is BOUNDED and de-duplicated before it can widen a query", () => {
+    // The allow-list bounds the RESULT; this bounds the PARSE. An unbounded split materialises
+    // the crafted string before `includes()` ever runs (the `tagsParam` lesson, one param over).
+    const flood = `${"New,".repeat(5_000)}Closed`;
+    const parsed = parse({ statuses: flood });
+    // De-duplicated: one "New" survives, and the tail past the segment cap never reaches the query.
+    expect(parsed.statuses).toEqual(["New"]);
+    expect(parsed.statuses).not.toContain("Closed");
+    // Same bound on the ARRAY branch (`?statuses=a&statuses=b` arrives as an array).
+    expect(parse({ statuses: Array(5_000).fill("New").concat("Closed") }).statuses).toEqual(["New"]);
+    // A legitimate request — every status at once — is nowhere near the bound.
+    expect(parse({ statuses: LEAD_STATUS_FILTERS.join(",") }).statuses).toEqual([...LEAD_STATUS_FILTERS]);
   });
 
   it("validates date range as a REAL YYYY-MM-DD date, else no filter (shared dateParam, D3)", () => {
