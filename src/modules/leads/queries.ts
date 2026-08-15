@@ -4,6 +4,7 @@ import * as schema from "@/db/schema";
 import { tenantWhere, partnerOwnsLead, leadWhere, type ScopeContext } from "@/lib/scope";
 import { SEED_LEAD_STATUSES, currentStatus } from "@/modules/portal/statuses";
 import type { ScoreGroup, ScoreStatus, ScoreBreakdown } from "@/modules/pipeline/score";
+import { noteAndTaskActivity, sortNewestFirst, type LeadActivity } from "./timeline";
 import type { LeadsQuery } from "./schema";
 
 /** Currently-unmatched = kept, not pipeline-routed, not yet manually assigned.
@@ -198,13 +199,12 @@ export interface AdminLeadPartner {
   color: string;
 }
 
-export interface AdminLeadActivity {
-  kind: "imported" | "routed" | "assigned" | "status";
-  at: string;
-  label: string;
-  actor: string | null;
-  status?: string;
-}
+/** The admin timeline entry (TSK-06): the shared read-model's shape, so the admin and
+ *  portal feeds carry one kind union. Kept as a named alias because this API contract has
+ *  been `AdminLeadActivity` since ADM. Nothing client-side imports it — the lead dialog
+ *  re-declares its own subset of the shape, per the leads-view convention, so a kind added
+ *  here must be mirrored there (its `Activity` union + ACTIVITY_DOT map). */
+export type AdminLeadActivity = LeadActivity;
 
 export interface AdminLeadDetail {
   refId: string;
@@ -265,7 +265,10 @@ export async function getAdminLeadDetail(scope: ScopeContext, refId: string): Pr
   const hist = await db
     .select({ status: schema.leadStatusHistory.status, at: schema.leadStatusHistory.createdAt, actor: schema.users.email })
     .from(schema.leadStatusHistory)
-    .leftJoin(schema.users, eq(schema.users.id, schema.leadStatusHistory.changedByUserId))
+    // R-65 / ADR-0013 defence-in-depth: the actor join carries its own tenant predicate, so a
+    // mis-set changed_by_user_id resolves to NULL (no actor) rather than surfacing another
+    // tenant's email. The timeline's note/task author joins are built the same way.
+    .leftJoin(schema.users, and(eq(schema.users.id, schema.leadStatusHistory.changedByUserId), tenantWhere(schema.users, scope)))
     .where(and(tenantWhere(schema.leadStatusHistory, scope), eq(schema.leadStatusHistory.leadId, lead.id)))
     .orderBy(asc(schema.leadStatusHistory.createdAt));
 
@@ -309,7 +312,10 @@ export async function getAdminLeadDetail(scope: ScopeContext, refId: string): Pr
   for (const h of hist) {
     activity.push({ kind: "status", status: h.status, at: h.at.toISOString(), actor: h.actor, label: `Status set to ${h.status}` });
   }
-  activity.sort((a, b) => b.at.localeCompare(a.at));
+  // TSK-06: the admin stream's notes and tasks join the same array — scoped by
+  // noteWhere/taskWhere, so the partner streams stay invisible here (PRN-13).
+  activity.push(...(await noteAndTaskActivity(db, scope, lead.id)));
+  sortNewestFirst(activity);
 
   const modifiedAt = hist.length ? hist[hist.length - 1].at : lead.manualAssignedAt;
 

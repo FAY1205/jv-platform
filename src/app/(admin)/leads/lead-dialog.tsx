@@ -40,11 +40,19 @@ interface DetailPartner {
   color: string;
 }
 interface Activity {
-  kind: "imported" | "routed" | "assigned" | "status";
+  // TSK-06: the server merges notes and task events into this one feed. Mirror of the
+  // module's LeadActivity kind union (modules/leads/timeline) — a kind added there must
+  // be added here and to ACTIVITY_DOT. The rendering below is a STOPGAP so this feed is
+  // legible before WP-TSK-4 designs the timeline properly.
+  kind: "imported" | "routed" | "assigned" | "status" | "note" | "task_created" | "task_completed";
   at: string;
   label: string;
   actor: string | null;
   status?: string;
+  /** kind "note" — the note body. */
+  body?: string;
+  /** kinds "task_created" / "task_completed" — the task title. */
+  title?: string;
 }
 export interface LeadDetail {
   refId: string;
@@ -145,6 +153,13 @@ const ACTIVITY_DOT: Record<Activity["kind"], string> = {
   routed: "bg-brand",
   assigned: "bg-prev",
   status: "bg-warn",
+  // TSK-06 stopgap: semantic tokens only (PRN-12) — a note reuses the taupe "prev" dot,
+  // both task events the solid success fill (a "-soft" dot at 8px reads as no dot at all;
+  // created vs completed is carried by the label, never by color alone — PRN-14).
+  // WP-TSK-4 owns the final treatment (distinct icons + filter chips).
+  note: "bg-prev",
+  task_created: "bg-success",
+  task_completed: "bg-success",
 };
 
 export function LeadDialog({ refId, onClose }: { refId: string; onClose: () => void }) {
@@ -403,6 +418,11 @@ function ActivityLog({ activity }: { activity: Activity[] }) {
               <span className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${ACTIVITY_DOT[a.kind]}`} aria-hidden="true" />
               <div className="flex flex-1 flex-col">
                 <span className="text-sm text-text">{a.label}</span>
+                {/* TSK-06 stopgap: the note body / task title the entry carries, muted under
+                    its label. File-sourced free text is DATA — rendered as text, never HTML
+                    (PRN-10). WP-TSK-4 replaces this with the designed timeline. */}
+                {a.body ? <ClampedText lines={3} className="mt-0.5">{a.body}</ClampedText> : null}
+                {a.title ? <span className="mt-0.5 text-sm text-text-2">{a.title}</span> : null}
                 <span className="num text-xs text-text-3">
                   {fmtDateTime(a.at)}
                   {a.actor ? ` · ${a.actor}` : ""}
