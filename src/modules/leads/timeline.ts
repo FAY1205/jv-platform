@@ -1,4 +1,4 @@
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, sql } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import * as schema from "@/db/schema";
 import { noteWhere, taskWhere, tenantWhere, type ScopeContext } from "@/lib/scope";
@@ -51,9 +51,10 @@ export interface LeadActivity {
  * Payload bound (FEP): the detail activity array was bounded by construction before
  * (3 system events + a lead's status history); notes and tasks are unbounded per lead,
  * so each contributes at most its most-recent N rows. A completed task contributes two
- * entries, so the task stream tops out at 2N. Both streams are ordered by created_at
- * desc, i.e. an old task completed today can fall outside the window — the per-lead
- * Tasks panel (WP-TSK-4) is the complete list; the timeline is a recent-history feed.
+ * entries, so the task stream tops out at 2N. Notes take the newest by created_at; tasks
+ * take the newest by LAST TOUCH — greatest(created_at, done_at) — so completing a
+ * long-open task pulls it back into the window instead of leaving the newest entry on the
+ * timeline invisible. The per-lead Tasks panel (WP-TSK-4) remains the complete list.
  */
 export const TIMELINE_STREAM_LIMIT = 100;
 
@@ -90,7 +91,9 @@ export async function noteAndTaskActivity(db: DB, scope: ScopeContext, leadId: s
       .from(schema.leadTasks)
       .leftJoin(schema.users, and(eq(schema.users.id, schema.leadTasks.authorUserId), tenantWhere(schema.users, scope)))
       .where(and(taskWhere(scope, db), eq(schema.leadTasks.leadId, leadId)))
-      .orderBy(desc(schema.leadTasks.createdAt))
+      // Last touch, not creation: a task created long ago but completed today still belongs
+      // in the window it just produced an entry for. done_at is nullable, hence the coalesce.
+      .orderBy(desc(sql`greatest(${schema.leadTasks.createdAt}, coalesce(${schema.leadTasks.doneAt}, ${schema.leadTasks.createdAt}))`))
       .limit(TIMELINE_STREAM_LIMIT),
   ]);
 

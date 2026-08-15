@@ -200,8 +200,10 @@ export interface AdminLeadPartner {
 }
 
 /** The admin timeline entry (TSK-06): the shared read-model's shape, so the admin and
- *  portal feeds carry one kind union. Kept as a named alias — the dialog and the API
- *  contract have referred to `AdminLeadActivity` since ADM. */
+ *  portal feeds carry one kind union. Kept as a named alias because this API contract has
+ *  been `AdminLeadActivity` since ADM. Nothing client-side imports it — the lead dialog
+ *  re-declares its own subset of the shape, per the leads-view convention, so a kind added
+ *  here must be mirrored there (its `Activity` union + ACTIVITY_DOT map). */
 export type AdminLeadActivity = LeadActivity;
 
 export interface AdminLeadDetail {
@@ -263,7 +265,10 @@ export async function getAdminLeadDetail(scope: ScopeContext, refId: string): Pr
   const hist = await db
     .select({ status: schema.leadStatusHistory.status, at: schema.leadStatusHistory.createdAt, actor: schema.users.email })
     .from(schema.leadStatusHistory)
-    .leftJoin(schema.users, eq(schema.users.id, schema.leadStatusHistory.changedByUserId))
+    // R-65 / ADR-0013 defence-in-depth: the actor join carries its own tenant predicate, so a
+    // mis-set changed_by_user_id resolves to NULL (no actor) rather than surfacing another
+    // tenant's email. The timeline's note/task author joins are built the same way.
+    .leftJoin(schema.users, and(eq(schema.users.id, schema.leadStatusHistory.changedByUserId), tenantWhere(schema.users, scope)))
     .where(and(tenantWhere(schema.leadStatusHistory, scope), eq(schema.leadStatusHistory.leadId, lead.id)))
     .orderBy(asc(schema.leadStatusHistory.createdAt));
 

@@ -7,6 +7,9 @@ import type { RunDetail } from "@/modules/run/queries";
 // field (notes, reasonForSelling, motivation, timeToSell, activity) are excluded:
 // free text is both the injection channel and an unscannable PII carrier. These are
 // allowlist PROJECTIONS (explicit field picks), never delete-from-copies.
+// TSK-06 raised the stakes on `activity`: the timeline now carries note bodies and task
+// titles (human free text), not just system labels — so it stays excluded here and in
+// BANNED_KEYS, and any future tool that reaches for a lead's timeline must project it.
 
 export const BANNED_KEYS = ["seller", "address", "notes", "reasonForSelling", "motivation", "timeToSell", "activity", "leads", "email", "phone", "reason"] as const;
 
