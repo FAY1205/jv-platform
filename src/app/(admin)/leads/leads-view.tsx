@@ -8,13 +8,17 @@ import { fmtDate } from "@/lib/dates";
 import { LEAD_STATUS_FILTERS, DEFAULT_STATUS_FILTERS, isDefaultStatuses, type LeadSortField } from "@/modules/leads/schema";
 import {
   AppShell, Card, Table, THead, TBody, Th, Tr, Td, PartnerTag, EmptyState, QueryErrorState, Skeleton,
-  Input, Combobox, DateRangePicker, Pagination, RowOpenButton, StatusSelect,
+  Input, Combobox, DateRangePicker, Pagination, RowOpenButton, StatusSelect, SegmentedControl,
   DEFAULT_PAGE_SIZE, usePageHeader, FilterPill, Tooltip, HotLeadMark, HotLeadIcon,
 } from "@/components";
 import { US_STATES } from "@/lib/us-states";
 import { googleSearchUrl } from "@/lib/search-links";
+import { setPreferences, usePreferences, type LeadsViewPref } from "@/lib/preferences";
 
 const LeadDialog = dynamic(() => import("./lead-dialog").then((m) => m.LeadDialog), { ssr: false });
+// KAN-01: the board is a second view of the SAME page — code-split like the dialog so
+// list-only sessions never pay for it.
+const LeadsBoard = dynamic(() => import("./leads-board").then((m) => m.LeadsBoard), { ssr: false });
 
 // ADM: the global leads list. The filter bar is isolated from the table so search
 // keystrokes don't reconcile the body (F-54); rows open via a keyboard button (F-14);
@@ -71,22 +75,41 @@ function LeadsBody({ initialQ, initialOpenRef = null, initialHot = false }: { in
     else { setSort(field); setDir(DEFAULT_DIR[field]); }
   };
 
+  // KAN-01: List/Board lives in the ONE small UI-preferences store (§6.17) — a view
+  // choice is a preference, not server data, and it survives a reload and other tabs.
+  const view = usePreferences().leadsView;
+
   return (
     <>
-      <LeadsFilterBar seedQ={initialQ} seedHot={initialHot} onChange={setFilters} />
+      <div className="mb-3 flex items-center justify-end">
+        <SegmentedControl<LeadsViewPref>
+          ariaLabel="Leads view"
+          value={view}
+          onValueChange={(v) => setPreferences({ leadsView: v })}
+          options={[{ value: "list", label: "List" }, { value: "board", label: "Board" }]}
+        />
+      </div>
 
-      <LeadsTable
-        filterKey={filterKey}
-        filters={filters}
-        sort={sort}
-        dir={dir}
-        page={page}
-        pageSize={pageSize}
-        onSort={onSort}
-        onOpen={setOpenRef}
-        onPageChange={setPage}
-        onPageSizeChange={(n) => { setPageSize(n); setPage(1); }}
-      />
+      <LeadsFilterBar seedQ={initialQ} seedHot={initialHot} view={view} onChange={setFilters} />
+
+      {view === "board" ? (
+        // KAN-09: the board carries the partner + hot filters only (the filter bar hides
+        // the rest in board mode, so nothing on screen is silently ignored).
+        <LeadsBoard filters={{ partnerId: filters.partnerId, hot: filters.hot }} onOpen={setOpenRef} />
+      ) : (
+        <LeadsTable
+          filterKey={filterKey}
+          filters={filters}
+          sort={sort}
+          dir={dir}
+          page={page}
+          pageSize={pageSize}
+          onSort={onSort}
+          onOpen={setOpenRef}
+          onPageChange={setPage}
+          onPageSizeChange={(n) => { setPageSize(n); setPage(1); }}
+        />
+      )}
 
       {openRef && <LeadDialog refId={openRef} onClose={() => setOpenRef(null)} />}
     </>
@@ -94,7 +117,12 @@ function LeadsBody({ initialQ, initialOpenRef = null, initialHot = false }: { in
 }
 
 // ── Filter bar (isolated; owns raw text + debounce, lifts committed filters) ──
-const LeadsFilterBar = React.memo(function LeadsFilterBar({ seedQ, seedHot = false, onChange }: { seedQ: string; seedHot?: boolean; onChange: (f: Filters) => void }) {
+const LeadsFilterBar = React.memo(function LeadsFilterBar({ seedQ, seedHot = false, view = "list", onChange }: { seedQ: string; seedHot?: boolean; view?: LeadsViewPref; onChange: (f: Filters) => void }) {
+  // KAN-09: the board honours the partner + hot filters. The rest (search, source,
+  // state, received range, status) are list-only for v1, so board mode HIDES them
+  // rather than showing controls that quietly do nothing. Their state is kept, so
+  // switching back to the list restores exactly what was set.
+  const listOnly = view === "list";
   const [qInput, setQInput] = React.useState(seedQ);
   // Partner / Source / State are ALL searchable Comboboxes (owner: make them match) — one
   // control shape, "" = the "All …" placeholder, selection commits directly (no debounce).
@@ -139,15 +167,17 @@ const LeadsFilterBar = React.memo(function LeadsFilterBar({ seedQ, seedHot = fal
   return (
     <>
       <div className="mb-3 flex flex-wrap items-end gap-2.5">
-        <div className="w-full max-w-[300px]">
-          <Input
-            value={qInput}
-            onChange={(e) => setQInput(e.target.value)}
-            onClear={() => { setQInput(""); setQCommitted(""); }}
-            placeholder="Search seller, address, ZIP, lead ID…"
-            aria-label="Search leads"
-          />
-        </div>
+        {listOnly && (
+          <div className="w-full max-w-[300px]">
+            <Input
+              value={qInput}
+              onChange={(e) => setQInput(e.target.value)}
+              onClear={() => { setQInput(""); setQCommitted(""); }}
+              placeholder="Search seller, address, ZIP, lead ID…"
+              aria-label="Search leads"
+            />
+          </div>
+        )}
         <div className="w-48">
           <Combobox
             ariaLabel="Filter by partner"
@@ -160,27 +190,31 @@ const LeadsFilterBar = React.memo(function LeadsFilterBar({ seedQ, seedHot = fal
             ]}
           />
         </div>
-        <div className="w-48">
-          <Combobox
-            ariaLabel="Filter by source"
-            placeholder="All sources"
-            value={source}
-            onValueChange={setSource}
-            options={(sourcesQ.data?.sources ?? []).map((s) => ({ value: s, label: s }))}
-          />
-        </div>
-        <div className="w-48">
-          <Combobox
-            ariaLabel="Filter by state"
-            placeholder="All states"
-            value={state}
-            onValueChange={setState}
-            options={US_STATES.map((s) => ({ value: s.code, label: `${s.name} (${s.code})` }))}
-          />
-        </div>
-        <div className="w-52">
-          <DateRangePicker value={range} onChange={setRange} placeholder="Received range" />
-        </div>
+        {listOnly && (
+          <>
+            <div className="w-48">
+              <Combobox
+                ariaLabel="Filter by source"
+                placeholder="All sources"
+                value={source}
+                onValueChange={setSource}
+                options={(sourcesQ.data?.sources ?? []).map((s) => ({ value: s, label: s }))}
+              />
+            </div>
+            <div className="w-48">
+              <Combobox
+                ariaLabel="Filter by state"
+                placeholder="All states"
+                value={state}
+                onValueChange={setState}
+                options={US_STATES.map((s) => ({ value: s.code, label: `${s.name} (${s.code})` }))}
+              />
+            </div>
+            <div className="w-52">
+              <DateRangePicker value={range} onChange={setRange} placeholder="Received range" />
+            </div>
+          </>
+        )}
         {/* Clear all holds a fixed slot at the row's end (ml-auto) — no more jumping as
             filters appear/disappear; disabled until there's something to clear. */}
         <button
@@ -200,13 +234,19 @@ const LeadsFilterBar = React.memo(function LeadsFilterBar({ seedQ, seedHot = fal
         <FilterPill active={hot} onClick={() => setHot((v) => !v)}>
           <span className="inline-flex items-center gap-1"><HotLeadIcon size={12} />Hot</span>
         </FilterPill>
-        <span className="mx-1 h-4 w-px bg-border" aria-hidden="true" />
-        <span className="mr-1 text-xs font-semibold text-text-3">Status</span>
-        {LEAD_STATUS_FILTERS.map((s) => (
-          <FilterPill key={s} active={statuses.includes(s)} onClick={() => toggleStatus(s)}>
-            {s}
-          </FilterPill>
-        ))}
+        {/* Status is what the board's COLUMNS already express — hiding the pills there
+            keeps one answer to "which statuses am I looking at". */}
+        {listOnly && (
+          <>
+            <span className="mx-1 h-4 w-px bg-border" aria-hidden="true" />
+            <span className="mr-1 text-xs font-semibold text-text-3">Status</span>
+            {LEAD_STATUS_FILTERS.map((s) => (
+              <FilterPill key={s} active={statuses.includes(s)} onClick={() => toggleStatus(s)}>
+                {s}
+              </FilterPill>
+            ))}
+          </>
+        )}
       </div>
     </>
   );

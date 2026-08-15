@@ -16,7 +16,15 @@ describe("parsePreferences", () => {
   });
 
   it("fills missing keys from defaults", () => {
-    expect(parsePreferences(JSON.stringify({ theme: "dark" }))).toEqual({ theme: "dark", navCollapsed: false, navCollapsedPortal: false });
+    expect(parsePreferences(JSON.stringify({ theme: "dark" }))).toEqual({ theme: "dark", navCollapsed: false, navCollapsedPortal: false, leadsView: "list" });
+  });
+
+  it("KAN-01: the Leads view choice round-trips, defaulting to the list (PRN-11)", () => {
+    expect(DEFAULT_PREFERENCES.leadsView).toBe("list");
+    expect(parsePreferences(JSON.stringify({ leadsView: "board" })).leadsView).toBe("board");
+    // Anything else — an old payload, a typo, a future value — degrades to the list.
+    expect(parsePreferences(JSON.stringify({ leadsView: "kanban" })).leadsView).toBe("list");
+    expect(parsePreferences(JSON.stringify({ navCollapsed: true })).leadsView).toBe("list");
   });
 
   it("falls back to the default theme when the stored value isn't a valid ThemePref", () => {

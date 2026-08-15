@@ -5,7 +5,8 @@ import { tenantWhere, partnerOwnsLead, leadWhere, type ScopeContext } from "@/li
 import { SEED_LEAD_STATUSES, currentStatus } from "@/modules/portal/statuses";
 import type { ScoreGroup, ScoreStatus, ScoreBreakdown } from "@/modules/pipeline/score";
 import { noteAndTaskActivity, sortNewestFirst, type LeadActivity } from "./timeline";
-import type { LeadsQuery } from "./schema";
+import { BOARD_COLUMNS, BOARD_PAGE_SIZE } from "./board";
+import type { BoardQuery, LeadsQuery } from "./schema";
 
 /** Currently-unmatched = kept, not pipeline-routed, not yet manually assigned.
  *  Exported for the bulk-assign command's shared eligibility guard (S6/ASN-03). */
@@ -173,6 +174,168 @@ export async function listLeads(scope: ScopeContext, query: LeadsQuery): Promise
     page: query.page,
     pageSize: query.pageSize,
     total: Number(totalRows[0]?.n ?? 0),
+  };
+}
+
+// ── Board view (KAN-02) ───────────────────────────────────────────────────────
+// The same leads the list serves, bucketed by their CURRENT status. It reuses the
+// module's own correlated latest-status subqueries (statusExpr/latestAt) rather than
+// re-deriving "what status is this lead in" (PRN-15), so a lead reads identically in
+// both views. Kept + non-deleted only (KAN-08); scoped through leadWhere (PRN-08).
+
+export interface BoardCard {
+  refId: string;
+  seller: string;
+  city: string | null;
+  state: string | null;
+  /** Effective owner (manual overlay, else pipeline routing); null ⇒ render "Unmatched" (KAN-08). */
+  partner: { name: string; refId: string; color: string } | null;
+  /** SCR: hot group flag + its score, for the HotLeadMark. */
+  hot: boolean;
+  scoreTotal: number | null;
+  /** ISO of the latest status row, else the lead's createdAt (KAN-03 feeds boardAge). */
+  statusSince: string;
+}
+
+export interface BoardColumn {
+  status: string;
+  /** TRUE total for the column, not the page length (KAN-02). */
+  total: number;
+  cards: BoardCard[];
+  /** Which page of this column `cards` is (1-based). */
+  page: number;
+}
+
+export interface LeadsBoard {
+  columns: BoardColumn[];
+  pageSize: number;
+}
+
+/** One result row: the column's true total, plus (when the requested slice covers it)
+ *  a card. A column whose slice is empty still returns its totals row with a null
+ *  ref_id, so the true count survives even on an out-of-range page. */
+type BoardRow = {
+  ref_id: string | null;
+  seller_first: string | null;
+  seller_last: string | null;
+  city: string | null;
+  state: string | null;
+  score_total: number | null;
+  score_group: string | null;
+  p_name: string | null;
+  p_ref: string | null;
+  p_color: string | null;
+  col_status: string;
+  status_since: string | Date | null;
+  col_total: number;
+};
+
+/**
+ * KAN-02 — one page of every column (or, with `query.status`, one page of that single
+ * column for its "Load more"). ONE round trip: a window over the scoped lead set gives
+ * both the per-column true totals and the requested slice.
+ */
+export async function listLeadsBoard(scope: ScopeContext, query: BoardQuery): Promise<LeadsBoard> {
+  const db = getDb();
+  const wanted = query.status ? [query.status] : [...BOARD_COLUMNS];
+  const offset = (query.page - 1) * BOARD_PAGE_SIZE;
+
+  const conds: SQL[] = [
+    leadWhere(scope),
+    isNull(schema.leads.deletedAt) as unknown as SQL,
+    // KAN-08: removed-from-MLS leads never appear on the board (and recalled ones are
+    // already excluded by deleted_at above).
+    eq(schema.leads.mlsStatus, "kept"),
+  ];
+  // KAN-09: the two list filters the board carries over.
+  if (query.partnerId === "unmatched") {
+    conds.push(and(isNull(schema.leads.partnerId), isNull(schema.leads.manualPartnerId))!);
+  } else if (query.partnerId) {
+    conds.push(partnerOwnsLead(query.partnerId)); // effective owner
+  }
+  if (query.hot) conds.push(eq(schema.leads.scoreGroup, "hot"));
+  const where = and(...conds)!;
+
+  // Reused, not re-derived (PRN-15): the same scope-aware correlated subqueries the
+  // list view resolves current status / last-change with (ADR-0013 defence-in-depth).
+  const sExpr = statusExpr(scope);
+  const sinceExpr = sql`coalesce(${latestAt(scope)}, ${schema.leads.createdAt})`;
+  const wantedList = sql.join(wanted.map((s) => sql`${s}`), sql`, `);
+
+  const rows = (await db.execute(sql`
+    with base as (
+      select
+        ${schema.leads.refId} as ref_id,
+        ${schema.leads.sellerFirst} as seller_first,
+        ${schema.leads.sellerLast} as seller_last,
+        ${schema.leads.city} as city,
+        ${schema.leads.state} as state,
+        ${schema.leads.scoreTotal} as score_total,
+        ${schema.leads.scoreGroup} as score_group,
+        ${schema.partners.name} as p_name,
+        ${schema.partners.refId} as p_ref,
+        ${schema.partners.color} as p_color,
+        ${sExpr} as col_status,
+        ${sinceExpr} as status_since,
+        ${schema.leads.createdAt} as created_at
+      from leads
+      -- R-65: the partner must be same-tenant, or a mis-set partner_id resolves to NULL
+      -- (card reads "Unmatched") rather than surfacing another tenant's name/colour.
+      left join partners
+        on partners.id = coalesce(leads.manual_partner_id, leads.partner_id)
+       and partners.tenant_id = ${scope.tenantId}
+      where ${where}
+    ),
+    ranked as (
+      select base.*, row_number() over (partition by col_status order by status_since desc, created_at desc) as rn
+      from base
+    ),
+    totals as (select col_status as status, count(*)::int as col_total from base group by 1)
+    select totals.status as col_status, totals.col_total,
+           ranked.ref_id, ranked.seller_first, ranked.seller_last, ranked.city, ranked.state,
+           ranked.score_total, ranked.score_group, ranked.p_name, ranked.p_ref, ranked.p_color,
+           ranked.status_since
+    from totals
+    -- LEFT join: a column whose requested page is past its end still reports its true
+    -- total (one row, null card) instead of silently reading as empty.
+    left join ranked
+      on ranked.col_status = totals.status
+     and ranked.rn > ${offset} and ranked.rn <= ${offset + BOARD_PAGE_SIZE}
+    where totals.status in (${wantedList})
+    order by totals.status, ranked.rn
+  `)) as unknown as BoardRow[];
+
+  const byStatus = new Map<string, BoardRow[]>();
+  for (const r of rows) {
+    const list = byStatus.get(r.col_status);
+    if (list) list.push(r);
+    else byStatus.set(r.col_status, [r]);
+  }
+
+  return {
+    columns: wanted.map((status) => {
+      const own = byStatus.get(status) ?? [];
+      return {
+        status,
+        // Every row of a column carries its true total (a status absent from `base`
+        // has no row at all, so it is genuinely empty).
+        total: own.length ? Number(own[0].col_total) : 0,
+        page: query.page,
+        cards: own
+          .filter((r) => r.ref_id !== null)
+          .map((r) => ({
+            refId: r.ref_id!,
+            seller: `${r.seller_first ?? ""} ${r.seller_last ?? ""}`.trim() || "—",
+            city: r.city,
+            state: r.state,
+            partner: r.p_name ? { name: r.p_name, refId: r.p_ref!, color: r.p_color! } : null,
+            hot: r.score_group === "hot",
+            scoreTotal: r.score_total === null ? null : Number(r.score_total),
+            statusSince: new Date(r.status_since!).toISOString(),
+          })),
+      };
+    }),
+    pageSize: BOARD_PAGE_SIZE,
   };
 }
 

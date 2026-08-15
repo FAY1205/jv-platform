@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { pageParam, pageSizeParam, dateParam } from "@/lib/query-params";
+import { SEED_LEAD_STATUSES } from "@/modules/portal/statuses";
 
 // Global leads list query params (ADM). Zod-normalizes everything to canonical
 // values so the query layer never sees raw user input; invalid shapes fall back
@@ -56,6 +57,22 @@ export const LeadsQuerySchema = z.object({
 });
 
 export type LeadsQuery = z.infer<typeof LeadsQuerySchema>;
+
+// ── Board view (KAN-02) — GET /api/leads/board query params ───────────────────
+// The board carries over exactly two of the list's filters (KAN-09: partner + hot);
+// `status` narrows the response to ONE column's next page ("Load more"), `page` is
+// that column's 1-based page. Same graceful contract as the list: a nonsense param
+// degrades to the default instead of 400-ing.
+
+export const BoardQuerySchema = z.object({
+  /** One of the six workflow statuses → load more for that column only; else the whole board. */
+  status: z.unknown().optional().transform((v) => ((SEED_LEAD_STATUSES as readonly string[]).includes(v as string) ? (v as string) : null)),
+  page: pageParam(),
+  partnerId: z.unknown().optional().transform((v) => (typeof v === "string" && UUID_RE.test(v) ? v : v === "unmatched" ? "unmatched" : null)),
+  hot: z.unknown().optional().transform((v) => v === "1" || v === "true" || v === true),
+});
+
+export type BoardQuery = z.infer<typeof BoardQuerySchema>;
 
 // ── Admin lead edit (ADM) — PATCH /api/leads/[ref] input contract ──────────────
 // Canonical field corrections + an optional partner re-routing intent. The partner
