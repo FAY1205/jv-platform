@@ -36,6 +36,28 @@ describe("notification prefs", () => {
     expect(keys).toContain("partner.new_leads");
   });
 
+  it("TSK-08: the task_due event exists for both roles and defaults fully on", () => {
+    expect(resolvePref(DEFAULT_NOTIFICATION_PREFS, "admin", "task_due")).toEqual({ email: true, inApp: true });
+    expect(resolvePref(DEFAULT_NOTIFICATION_PREFS, "partner", "task_due")).toEqual({ email: true, inApp: true });
+    // The settings UI renders straight off the catalog, so presence here IS the UI wiring.
+    const keys = NOTIFICATION_EVENTS.map((e) => `${e.role}.${e.key}`);
+    expect(keys).toContain("admin.task_due");
+    expect(keys).toContain("partner.task_due");
+  });
+
+  it("TSK-08: a stored value that predates task_due still resolves it (never drops a nudge)", () => {
+    // The realistic case: a tenant saved prefs before this event existed, so their row has
+    // no task_due key at all. Resolution must fall back to the default, not to "off".
+    const merged = mergeNotificationPrefs({ admin: { status_change: { email: true } }, partner: { new_leads: { email: false } } });
+    expect(resolvePref(merged, "admin", "task_due")).toEqual({ email: true, inApp: true });
+    expect(resolvePref(merged, "partner", "task_due")).toEqual({ email: true, inApp: true });
+    // …and a partial task_due value keeps the untouched channel at its default.
+    expect(resolvePref(mergeNotificationPrefs({ partner: { task_due: { email: false } } }), "partner", "task_due")).toEqual({
+      email: false,
+      inApp: true,
+    });
+  });
+
   it("SCR-12: hot-lead alerts default fully on (email + in-app) for both roles", () => {
     expect(resolvePref(DEFAULT_NOTIFICATION_PREFS, "admin", "hot_leads")).toEqual({ email: true, inApp: true });
     expect(resolvePref(DEFAULT_NOTIFICATION_PREFS, "partner", "hot_leads")).toEqual({ email: true, inApp: true });

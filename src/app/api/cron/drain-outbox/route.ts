@@ -3,6 +3,8 @@ import * as schema from "@/db/schema";
 import { env } from "@/lib/env";
 import { isAuthorizedCron } from "@/lib/auth/cron-auth";
 import { drainOutbox, releaseDueImports } from "@/modules/notify/outbox";
+import { remindDueTasks } from "@/modules/notify/task-reminders";
+import { utcDateString } from "@/modules/tasks/dates";
 import { logError } from "@/lib/observability";
 import { jsonOk, jsonError, jsonServerError } from "@/lib/http";
 import { CRON_MONITORS, withCronMonitor } from "@/lib/cron-monitors";
@@ -34,9 +36,15 @@ export async function GET(request: Request) {
     async () => {
       const db = getDb();
       const tenants: { id: string }[] = await db.select({ id: schema.tenants.id }).from(schema.tenants);
+      // TSK-10: ONE clock for the whole run, read here at the adapter boundary — the sweep's
+      // module logic never calls Date.now(), and every tenant in a tick sees the same "today"
+      // (so a run straddling midnight UTC can't nudge one tenant on two different calendars).
+      const now = new Date();
+      const today = utcDateString(now);
       let sent = 0;
       let failed = 0;
       let released = 0;
+      let tasksReminded = 0;
       let drained = 0;
       for (const t of tenants) {
         // Distribution hold: release imports past their 5-min window (enqueues their digests). Kept in
@@ -55,8 +63,24 @@ export async function GET(request: Request) {
           // Best-effort per tenant: one tenant's failure must not stop the others.
           logError("cron_drain_tenant_failed", { tenantId: t.id, message: e instanceof Error ? e.message : String(e) });
         }
+        // TSK-08: due-task nudges. Same shape as the release duty, in its OWN try so a sweep
+        // failure never blocks that tenant's mail. Runs AFTER the drain (audit-tenancy F-3):
+        // the sweep is the only unbounded duty here, so a slow or starved one must not delay
+        // delivery of already-queued mail or push this job past its check-in — this cron has a
+        // false-alarm history (ADR-0032 / the drain-outbox monitor). The cost is that a nudge
+        // enqueued now ships on the NEXT tick, which for a once-ever reminder is immaterial.
+        try {
+          tasksReminded += (
+            await remindDueTasks(db, { tenantId: t.id, appBaseUrl: env.APP_URL, today, now })
+          ).reminded;
+        } catch (e) {
+          logError("cron_task_reminders_tenant_failed", { tenantId: t.id, message: e instanceof Error ? e.message : String(e) });
+        }
       }
-      return { tenants: drained, released, sent, failed };
+      // `tasksReminded` counts tasks CLAIMED by the sweep, not messages delivered: a task whose
+      // recipient has both channels switched off is consumed silently, so this number can exceed
+      // the mail actually sent. Read it as "due tasks processed", never as a delivery metric.
+      return { tenants: drained, released, tasksReminded, sent, failed };
     },
   ).then(
     (r) => jsonOk({ code: "ok", ...r }),

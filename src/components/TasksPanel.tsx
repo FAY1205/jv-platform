@@ -5,9 +5,10 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiGet, apiMutate } from "@/lib/api";
 import { utcDateString } from "@/modules/tasks/dates";
 import { TASK_TITLE_MAX } from "@/modules/tasks/schema";
-import { dueChipFor, type DueChipTone } from "@/lib/task-due-chip";
+import { withAdded, withRemoved } from "@/lib/pending-set";
 import { cn } from "@/lib/cn";
 import { Badge } from "./Badge";
+import { DueChip } from "./DueChip";
 import { Checkbox } from "./Checkbox";
 import { Input } from "./Input";
 import { DatePicker } from "./DatePicker";
@@ -47,43 +48,6 @@ export interface TasksPanelProps {
   /** Fires after any task add/toggle/delete settles, so the host can refresh its own
    *  lead-detail query (the Timeline's activity[] lives there, not in this panel's data). */
   onTaskChanged?: () => void;
-}
-
-const TONE_CLASS: Record<DueChipTone, string> = {
-  danger: "border-danger/45 bg-danger-soft text-danger",
-  warn: "border-warn/45 bg-warn-soft text-warn",
-  neutral: "border-border bg-surface text-text-2",
-};
-
-// pr F-2: a shared `useMutation` per-row pending flag can't be read off `.isPending` /
-// `.variables` alone — those reflect only the LAST call, so mutating row B while row A's
-// PATCH is still in flight makes row A's `variables` stale and its control re-enables
-// early. These two tiny set helpers back a local `Set<id>` instead, updated in
-// onMutate/onSettled, so every row's pending state is independently correct.
-function withAdded<T>(set: ReadonlySet<T>, id: T): ReadonlySet<T> {
-  if (set.has(id)) return set;
-  const next = new Set(set);
-  next.add(id);
-  return next;
-}
-function withRemoved<T>(set: ReadonlySet<T>, id: T): ReadonlySet<T> {
-  if (!set.has(id)) return set;
-  const next = new Set(set);
-  next.delete(id);
-  return next;
-}
-
-// Design F-3: the mockup's chips are plain sans text — only the date fragment (if any)
-// renders tabular/mono, not the whole label ("Overdue · ", "Done · " stay plain).
-function DueChip({ dueOn, doneAt, today }: { dueOn: string | null; doneAt: string | null; today: string }) {
-  const chip = dueChipFor(dueOn, doneAt, today);
-  const prefix = chip.dateText ? chip.label.slice(0, chip.label.length - chip.dateText.length) : chip.label;
-  return (
-    <span className={cn("rounded-md border px-2 py-0.5 text-xs font-semibold whitespace-nowrap", TONE_CLASS[chip.tone])}>
-      {prefix}
-      {chip.dateText && <span className="num">{chip.dateText}</span>}
-    </span>
-  );
 }
 
 export function TasksPanel({ leadRef, today, onTaskChanged }: TasksPanelProps) {

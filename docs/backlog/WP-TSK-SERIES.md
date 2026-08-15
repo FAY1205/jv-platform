@@ -47,6 +47,24 @@ call/meeting/lunch activity types, no participants, no files, no recurrence.
   new event `task_due` for both roles, defaults on/on), to the assignee (fallback:
   author), then stamp `reminded_at`. Exactly one nudge per task, ever. Email content:
   lead ref + city/state + task title — never seller name/phone/email (SEC-05).
+
+  **Recorded decisions (WP-TSK-6 implementation, 2026-08-15).** Three judgment calls the
+  requirement did not settle; all three are pinned by tests:
+  - *Recalled leads are excluded for BOTH roles*, not just partners. The requirement only
+    implies it for partners (via the hold/ownership gate), but a void has already replaced
+    the task title with `REDACTED_TASK_TITLE`, so an admin nudge would carry a sentinel and
+    point at a dead lead. The admin arm of `taskWhere` is lead-blind, so the sweep's own
+    `isNull(leads.deletedAt)` is the only guard on that path — hence its own test. Note the
+    UI is unchanged: an admin can still open and close out a voided lead's tasks; they
+    simply are not *nudged* about them.
+  - *A task whose recipient cannot be resolved is skipped WITHOUT stamping.* Neither the
+    assignee nor the author can read it (a re-route, typically), so there is no one to tell;
+    leaving `reminded_at` NULL keeps it eligible should ownership ever return. The cost is
+    that such a task is re-probed every tick forever — tracked as C-14 / WP-TSK-6a.
+  - *A task whose recipient has BOTH channels switched off is still consumed* (stamped, with
+    nothing sent). The alternative — leaving it unstamped — grows the overdue scan set without
+    bound for a tenant that has simply turned the event off. Consequence: `tasksReminded` in
+    the cron response counts tasks *claimed*, not messages delivered.
 - **TSK-09 — Scoping proof.** Every read/write passes the scope guard (PRN-08) via a
   new `taskWhere()`; Postgres RLS policy carries the identical predicate (SEC-01,
   both halves). TST-01-style isolation tests prove: cross-tenant, cross-partner,
