@@ -54,16 +54,6 @@ export async function GET(request: Request) {
         } catch (e) {
           logError("cron_release_tenant_failed", { tenantId: t.id, message: e instanceof Error ? e.message : String(e) });
         }
-        // TSK-08: due-task nudges. Same shape as the release duty — its OWN try, so a sweep
-        // failure never blocks that tenant's pending mail — and run BEFORE the drain so a
-        // reminder enqueued now goes out on this same tick instead of waiting for the next.
-        try {
-          tasksReminded += (
-            await remindDueTasks(db, { tenantId: t.id, appBaseUrl: env.APP_URL, today, now })
-          ).reminded;
-        } catch (e) {
-          logError("cron_task_reminders_tenant_failed", { tenantId: t.id, message: e instanceof Error ? e.message : String(e) });
-        }
         try {
           const r = await drainOutbox(db, { tenantId: t.id });
           sent += r.sent;
@@ -73,7 +63,23 @@ export async function GET(request: Request) {
           // Best-effort per tenant: one tenant's failure must not stop the others.
           logError("cron_drain_tenant_failed", { tenantId: t.id, message: e instanceof Error ? e.message : String(e) });
         }
+        // TSK-08: due-task nudges. Same shape as the release duty, in its OWN try so a sweep
+        // failure never blocks that tenant's mail. Runs AFTER the drain (audit-tenancy F-3):
+        // the sweep is the only unbounded duty here, so a slow or starved one must not delay
+        // delivery of already-queued mail or push this job past its check-in — this cron has a
+        // false-alarm history (ADR-0032 / the drain-outbox monitor). The cost is that a nudge
+        // enqueued now ships on the NEXT tick, which for a once-ever reminder is immaterial.
+        try {
+          tasksReminded += (
+            await remindDueTasks(db, { tenantId: t.id, appBaseUrl: env.APP_URL, today, now })
+          ).reminded;
+        } catch (e) {
+          logError("cron_task_reminders_tenant_failed", { tenantId: t.id, message: e instanceof Error ? e.message : String(e) });
+        }
       }
+      // `tasksReminded` counts tasks CLAIMED by the sweep, not messages delivered: a task whose
+      // recipient has both channels switched off is consumed silently, so this number can exceed
+      // the mail actually sent. Read it as "due tasks processed", never as a delivery metric.
       return { tenants: drained, released, tasksReminded, sent, failed };
     },
   ).then(

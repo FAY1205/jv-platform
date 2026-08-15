@@ -17,6 +17,15 @@ describe("distribution hold window (ING-09 follow-on)", () => {
     expect(HOLD_WINDOW_MS).toBe(5 * 60 * 1000);
   });
 
+  it("TSK-08: the void window never exceeds the hold window", () => {
+    // The due-task reminder's partner arm (src/modules/notify/task-reminders.ts) gates on
+    // releasedLeads(), i.e. the HOLD window — and relies on a released lead no longer being
+    // voidable, so a partner is never emailed about a lead that can still be recalled. That
+    // holds only while the void window is no wider than the hold window. The two are aliases
+    // today; this pins the direction so decoupling them can't silently open the gap.
+    expect(VOID_WINDOW_MS).toBeLessThanOrEqual(HOLD_WINDOW_MS);
+  });
+
   it("a lead is held within its window and released strictly after it (boundary held)", () => {
     expect(isHeld(imported, at(0))).toBe(true);
     expect(isHeld(imported, at(3 * 60 * 1000))).toBe(true);

@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray, isNotNull, isNull, lte } from "drizzle-orm";
+import { and, asc, eq, inArray, isNotNull, isNull, lte, sql } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import * as schema from "@/db/schema";
 import { tenantIdWhere, type ScopeContext } from "@/lib/scope";
@@ -29,6 +29,11 @@ import { loadNotificationPrefs, resolvePref } from "./prefs";
 // re-routed, mis-assigned or cross-stream recipient cannot read the task, so they are
 // not told about it; the author is tried next, and if nobody can read it the sweep
 // logs (ids only, SEC-05) and skips without stamping.
+//
+// The partner arm's "never nudge a held lead" guarantee rests on HOLD_WINDOW_MS ===
+// VOID_WINDOW_MS (hold-window.ts): a lead becomes partner-visible at the exact moment it
+// stops being voidable, so no partner is ever emailed about a lead that can still be
+// recalled. Pinned by "TSK-08: the void window never exceeds the hold window".
 // ─────────────────────────────────────────────────────────────────────────────
 
 type DB = PostgresJsDatabase<typeof schema>;
@@ -70,7 +75,12 @@ export async function remindDueTasks(db: DB, opts: RemindDueTasksOptions): Promi
       state: schema.leads.state,
     })
     .from(schema.leadTasks)
-    .innerJoin(schema.leads, eq(schema.leads.id, schema.leadTasks.leadId))
+    // R-65 / ADR-0013: the join carries its OWN tenant predicate rather than trusting the FK
+    // to keep a task and its lead in one tenant (audit-tenancy F-5).
+    .innerJoin(
+      schema.leads,
+      and(eq(schema.leads.id, schema.leadTasks.leadId), tenantIdWhere(schema.leads, opts.tenantId)),
+    )
     .where(
       and(
         tenantIdWhere(schema.leadTasks, opts.tenantId),
@@ -119,13 +129,50 @@ export async function remindDueTasks(db: DB, opts: RemindDueTasksOptions): Promi
         continue;
       }
       const channel = resolvePref(prefs, recipient.role, "task_due");
-      const overdue = (task.dueOn as string) < opts.today;
-      const leadPath =
-        recipient.role === "admin"
-          ? `/leads?open=${encodeURIComponent(task.leadRefId)}`
-          : `/portal/leads/${encodeURIComponent(task.leadRefId)}`;
 
       const nudged = await db.transaction(async (tx) => {
+        // The SAME per-tenant lock key voidUpload / persistRun / releaseDueImports take, so a
+        // void cannot interleave with a claim (audit-tenancy F-1). Without it the title and
+        // location selected above could already be pre-redaction values by the time this
+        // transaction commits — i.e. we would email the very seller text the void just purged.
+        await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${opts.tenantId})::bigint)`);
+
+        // Re-read under the lock, re-validating the SAME eligibility predicate as the sweep's
+        // select. This is the authoritative content: a lead voided since selection is gone from
+        // this result (its task title is now the redaction sentinel), and so is a task completed
+        // or re-dated in the meantime. Abort WITHOUT stamping — nothing has been written yet, so
+        // the task stays eligible if it legitimately comes back into scope.
+        const [fresh] = await tx
+          .select({
+            title: schema.leadTasks.title,
+            dueOn: schema.leadTasks.dueOn,
+            leadRefId: schema.leads.refId,
+            city: schema.leads.city,
+            state: schema.leads.state,
+          })
+          .from(schema.leadTasks)
+          .innerJoin(
+            schema.leads,
+            and(eq(schema.leads.id, schema.leadTasks.leadId), tenantIdWhere(schema.leads, opts.tenantId)),
+          )
+          .where(
+            and(
+              tenantIdWhere(schema.leadTasks, opts.tenantId),
+              eq(schema.leadTasks.id, task.id),
+              isNull(schema.leadTasks.doneAt),
+              isNotNull(schema.leadTasks.dueOn),
+              lte(schema.leadTasks.dueOn, opts.today),
+              isNull(schema.leads.deletedAt),
+            ),
+          );
+        if (!fresh) return false;
+
+        const overdue = (fresh.dueOn as string) < opts.today;
+        const leadPath =
+          recipient.role === "admin"
+            ? `/leads?open=${encodeURIComponent(fresh.leadRefId)}`
+            : `/portal/leads/${encodeURIComponent(fresh.leadRefId)}`;
+
         // The whole idempotency guarantee, in one statement: claim the row by flipping a
         // NULL reminded_at. Zero rows affected = another tick (or another instance) already
         // nudged this task, so nothing is sent. `updated_at` is deliberately NOT touched —
@@ -148,20 +195,20 @@ export async function remindDueTasks(db: DB, opts: RemindDueTasksOptions): Promi
             tenantId: opts.tenantId,
             userId: recipient.id,
             type: "task_due",
-            title: `Task due: ${task.title}`,
-            body: `Lead ${task.leadRefId} — ${overdue ? `overdue since ${task.dueOn}` : "due today"}.`,
+            title: `Task due: ${fresh.title}`,
+            body: `Lead ${fresh.leadRefId} — ${overdue ? `overdue since ${fresh.dueOn}` : "due today"}.`,
             deepLink: leadPath,
           });
         }
         if (channel.email) {
           const content = buildTaskDueReminder({
             appName: APP_NAME,
-            taskTitle: task.title,
-            dueOn: task.dueOn as string,
+            taskTitle: fresh.title,
+            dueOn: fresh.dueOn as string,
             overdue,
-            leadRef: task.leadRefId,
-            city: task.city,
-            state: task.state,
+            leadRef: fresh.leadRefId,
+            city: fresh.city,
+            state: fresh.state,
             leadUrl: `${opts.appBaseUrl}${leadPath}`,
           });
           await enqueueEmail(tx, {
@@ -171,7 +218,7 @@ export async function remindDueTasks(db: DB, opts: RemindDueTasksOptions): Promi
             body: content.body,
             html: content.html,
             kind: "task_due",
-            meta: { leadRef: task.leadRefId },
+            meta: { leadRef: fresh.leadRefId },
           });
         }
         return true;

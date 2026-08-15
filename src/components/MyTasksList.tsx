@@ -5,10 +5,11 @@ import Link from "next/link";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiGet, apiMutate } from "@/lib/api";
 import { utcDateString, groupByDue, DUE_GROUPS, type DueGroup } from "@/modules/tasks/dates";
-import { dueChipFor, type DueChipTone } from "@/lib/task-due-chip";
+import { withAdded, withRemoved } from "@/lib/pending-set";
 import { cn } from "@/lib/cn";
 import { Card, CardHeader, CardTitle, CardBody } from "./Card";
 import { Badge } from "./Badge";
+import { DueChip } from "./DueChip";
 import { Checkbox } from "./Checkbox";
 import { SegmentedControl } from "./SegmentedControl";
 import { Skeleton } from "./Skeleton";
@@ -75,41 +76,6 @@ const GROUP_TEXT_CLASS: Record<DueGroup, string> = {
   upcoming: "text-text-3",
   none: "text-text-3",
 };
-const TONE_CLASS: Record<DueChipTone, string> = {
-  danger: "border-danger/45 bg-danger-soft text-danger",
-  warn: "border-warn/45 bg-warn-soft text-warn",
-  neutral: "border-border bg-surface text-text-2",
-};
-
-// Same two set helpers TasksPanel uses (pr F-2): a shared useMutation's `.isPending` /
-// `.variables` only reflect the LAST call, so toggling row B while row A is still in
-// flight would misreport row A. A local `Set<id>` keeps every row's pending state correct.
-function withAdded<T>(set: ReadonlySet<T>, id: T): ReadonlySet<T> {
-  if (set.has(id)) return set;
-  const next = new Set(set);
-  next.add(id);
-  return next;
-}
-function withRemoved<T>(set: ReadonlySet<T>, id: T): ReadonlySet<T> {
-  if (!set.has(id)) return set;
-  const next = new Set(set);
-  next.delete(id);
-  return next;
-}
-
-// Design F-3 (mirrors TasksPanel's DueChip): the mockup's chips are plain sans text — only
-// the date fragment (if any) renders tabular/mono, not the whole label.
-function DueChip({ dueOn, doneAt, today }: { dueOn: string | null; doneAt: string | null; today: string }) {
-  const chip = dueChipFor(dueOn, doneAt, today);
-  const prefix = chip.dateText ? chip.label.slice(0, chip.label.length - chip.dateText.length) : chip.label;
-  return (
-    <span className={cn("shrink-0 rounded-md border px-2 py-0.5 text-xs font-semibold whitespace-nowrap", TONE_CLASS[chip.tone])}>
-      {prefix}
-      {chip.dateText && <span className="num">{chip.dateText}</span>}
-    </span>
-  );
-}
-
 const STATUS_OPTIONS = [
   { value: "open", label: "Open" },
   { value: "done", label: "Done" },
@@ -298,7 +264,7 @@ function TaskRow({
           </Link>
         </div>
       </div>
-      <DueChip dueOn={task.dueOn} doneAt={task.doneAt} today={today} />
+      <DueChip dueOn={task.dueOn} doneAt={task.doneAt} today={today} className="shrink-0" />
     </li>
   );
 }

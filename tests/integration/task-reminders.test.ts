@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
 import { drizzle, type PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 import { and, eq, inArray } from "drizzle-orm";
@@ -20,6 +20,24 @@ const suite = url ? describe : describe.skip;
 
 const SLUG = "test-task-reminders";
 const SLUG_PREFS = "test-task-reminders-prefs";
+const SLUG_SCOPE = "test-task-reminders-scope";
+const SLUG_SCOPE_B = "test-task-reminders-scope-b";
+const SLUG_MECH = "test-task-reminders-mech";
+
+// The transactionality case (audit-tenancy F-6.5) needs one notification insert to fail INSIDE
+// the claim transaction. The flag is inert (straight passthrough) for every other case in this
+// file, so the mock cannot perturb the suites above.
+const mockState = vi.hoisted(() => ({ failNotifications: false }));
+vi.mock("@/modules/notify/notifications", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/modules/notify/notifications")>();
+  return {
+    ...actual,
+    createNotification: async (...args: Parameters<typeof actual.createNotification>) => {
+      if (mockState.failNotifications) throw new Error("notification insert exploded");
+      return actual.createNotification(...args);
+    },
+  };
+});
 
 const APP_URL = "https://app.test";
 const now = new Date();
@@ -49,6 +67,7 @@ async function dropTenants(db: PostgresJsDatabase<typeof schema>, slugs: string[
 suite("WP-TSK-6: due-task reminders (TSK-08)", () => {
   let client: ReturnType<typeof postgres>;
   let db: PostgresJsDatabase<typeof schema>;
+  let updatedAtBefore: Date;
   const id: Record<string, string> = {};
 
   const REF_A = "LD-26-30001"; // admin-worked lead, owned by PX, released
@@ -141,15 +160,20 @@ suite("WP-TSK-6: due-task reminders (TSK-08)", () => {
         { ...pxTask, leadId: leadId.get(REF_HELD)!, title: "Held lead", dueOn: YESTERDAY },
         // 7 — partner task on a RECALLED (soft-deleted) lead.
         { ...pxTask, leadId: leadId.get(REF_RECALLED)!, title: "Recalled lead", dueOn: YESTERDAY },
-        // 8/9/10 — never swept: future-dated, undated, already done.
+        // 8 — ADMIN task on the same recalled lead. taskWhere's admin arm is lead-blind, so the
+        //     due-select's deletedAt filter is the ONLY thing standing between a voided lead and
+        //     an email carrying its (now sentinelled) title — pinned by its own case below.
+        { ...adminTask, leadId: leadId.get(REF_RECALLED)!, title: "Admin recalled", dueOn: YESTERDAY },
+        // 9/10/11 — never swept: future-dated, undated, already done.
         { ...adminTask, leadId: leadId.get(REF_A)!, title: "Future", dueOn: TOMORROW },
         { ...adminTask, leadId: leadId.get(REF_A)!, title: "Undated", dueOn: null },
         { ...adminTask, leadId: leadId.get(REF_A)!, title: "Done", dueOn: YESTERDAY, doneAt: new Date() },
       ])
-      .returning({ id: schema.leadTasks.id, title: schema.leadTasks.title });
+      .returning({ id: schema.leadTasks.id, title: schema.leadTasks.title, updatedAt: schema.leadTasks.updatedAt });
     for (const row of inserted) id[`task:${row.title}`] = row.id;
     id.tAdmin = id[`task:${TITLE_ADMIN}`];
     id.tPartner = id[`task:${TITLE_PARTNER}`];
+    updatedAtBefore = inserted.find((r) => r.title === TITLE_ADMIN)!.updatedAt;
   });
 
   afterAll(async () => {
@@ -217,6 +241,24 @@ suite("WP-TSK-6: due-task reminders (TSK-08)", () => {
       expect(px.some((n) => n.title === `Task due: ${title}`)).toBe(false);
       expect((await dueEmails()).some((e) => e.body.includes(title))).toBe(false);
     }
+  });
+
+  it("TSK-08: an admin task on a recalled lead is never nudged", async () => {
+    // The admin arm of taskWhere is lead-blind by design, so this leg has exactly ONE guard:
+    // the due-select's isNull(leads.deletedAt). A void has already replaced the title with the
+    // redaction sentinel, so a nudge here would be both useless and a PII-adjacent email.
+    expect((await taskRow(id["task:Admin recalled"])).remindedAt).toBeNull();
+    const admin = await notificationsFor(id.admin);
+    expect(admin.some((n) => n.title === "Task due: Admin recalled")).toBe(false);
+    expect((await dueEmails()).some((e) => e.body.includes("Admin recalled"))).toBe(false);
+    expect((await dueEmails()).some((e) => e.subject.includes(REF_RECALLED))).toBe(false);
+  });
+
+  it("TSK-08: a system stamp never touches updated_at", async () => {
+    // reminded_at is a system marker, not a user edit: bumping updated_at would reorder
+    // "recently changed" views and make the sweep look like someone edited the task.
+    const after = (await taskRow(id.tAdmin)).updatedAt;
+    expect(after.getTime()).toBe(updatedAtBefore.getTime());
   });
 
   it("TSK-08: undated, future-dated and completed tasks are never swept", async () => {
@@ -301,5 +343,222 @@ suite("TSK-08: notification prefs gate each channel independently", () => {
     // Both were still consumed exactly once — a suppressed channel is not a retry signal.
     const tasks = await db.select().from(schema.leadTasks).where(eq(schema.leadTasks.tenantId, id.tenant));
     expect(tasks.every((t) => t.remindedAt !== null)).toBe(true);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Isolation + recipient-resolution edges (audit-tenancy F-4, F-6.2, F-6.4). Two tenants:
+// A holds every task, B exists only to prove nothing reaches it. Recipients here are all
+// people the guard must REFUSE, so each case's expected outcome is "the author gets it".
+// ─────────────────────────────────────────────────────────────────────────────
+suite("TSK-09: reminder sweep isolation + recipient refusal", () => {
+  let client: ReturnType<typeof postgres>;
+  let db: PostgresJsDatabase<typeof schema>;
+  const id: Record<string, string> = {};
+
+  const sweepA = () => remindDueTasks(db, { tenantId: id.tenantA, appBaseUrl: APP_URL, today, now });
+  const taskRow = async (taskId: string) =>
+    (await db.select().from(schema.leadTasks).where(eq(schema.leadTasks.id, taskId)))[0];
+  const notificationsFor = (userId: string) =>
+    db.select().from(schema.notifications).where(eq(schema.notifications.userId, userId));
+
+  beforeAll(async () => {
+    client = postgres(url!, { prepare: false, max: 1 });
+    db = drizzle(client, { schema });
+    await dropTenants(db, [SLUG_SCOPE, SLUG_SCOPE_B]);
+
+    const [ta] = await db.insert(schema.tenants).values({ name: "TR Scope A", slug: SLUG_SCOPE }).returning({ id: schema.tenants.id });
+    const [tb] = await db.insert(schema.tenants).values({ name: "TR Scope B", slug: SLUG_SCOPE_B }).returning({ id: schema.tenants.id });
+    id.tenantA = ta.id;
+    id.tenantB = tb.id;
+
+    const [px] = await db.insert(schema.partners).values({ tenantId: ta.id, refId: "JV-001", name: "PX", color: "#111111", status: "active" }).returning({ id: schema.partners.id });
+    const [py] = await db.insert(schema.partners).values({ tenantId: ta.id, refId: "JV-002", name: "PY", color: "#222222", status: "active" }).returning({ id: schema.partners.id });
+    const [pb] = await db.insert(schema.partners).values({ tenantId: tb.id, refId: "JV-001", name: "PB", color: "#333333", status: "active" }).returning({ id: schema.partners.id });
+
+    id.adminA = randomUUID();
+    id.pxUser = randomUUID();
+    id.pyUser = randomUUID();
+    id.orphanUser = randomUUID(); // role=partner, partner_id NULL — cannot be scoped at all
+    id.adminB = randomUUID();
+    await db.insert(schema.users).values([
+      { id: id.adminA, tenantId: ta.id, email: "admin@tr-scope.test", role: "admin" as const },
+      { id: id.pxUser, tenantId: ta.id, email: "px@tr-scope.test", role: "partner" as const, partnerId: px.id },
+      { id: id.pyUser, tenantId: ta.id, email: "py@tr-scope.test", role: "partner" as const, partnerId: py.id },
+      { id: id.orphanUser, tenantId: ta.id, email: "orphan@tr-scope.test", role: "partner" as const, partnerId: null },
+      { id: id.adminB, tenantId: tb.id, email: "admin@tr-scope-b.test", role: "admin" as const },
+    ]);
+
+    const [upA] = await db.insert(schema.uploads).values({ tenantId: ta.id, refId: "IM-26-310", filename: "a.xlsx", status: "processed" }).returning({ id: schema.uploads.id });
+    const [upB] = await db.insert(schema.uploads).values({ tenantId: tb.id, refId: "IM-26-311", filename: "b.xlsx", status: "processed" }).returning({ id: schema.uploads.id });
+    const [leadA] = await db
+      .insert(schema.leads)
+      .values({ tenantId: ta.id, refId: "LD-26-30201", uploadId: upA.id, dedupeKey: "sa|1", rawJson: {}, partnerId: px.id, city: "Boise", state: "ID", matchMethod: "zip", mlsStatus: "kept" })
+      .returning({ id: schema.leads.id });
+    const [leadB] = await db
+      .insert(schema.leads)
+      .values({ tenantId: tb.id, refId: "LD-26-30301", uploadId: upB.id, dedupeKey: "sb|1", rawJson: {}, partnerId: pb.id, city: "Fargo", state: "ND", matchMethod: "zip", mlsStatus: "kept" })
+      .returning({ id: schema.leads.id });
+    id.leadA = leadA.id;
+    await releaseTenantLeads(db, ta.id);
+    await releaseTenantLeads(db, tb.id);
+
+    const inserted = await db
+      .insert(schema.leadTasks)
+      .values([
+        // Assignee lives in ANOTHER TENANT entirely (the FK permits it — no tenant constraint).
+        { tenantId: ta.id, leadId: leadA.id, title: "Cross-tenant assignee", authorRole: "admin", authorUserId: id.adminA, assignedToUserId: id.adminB, dueOn: YESTERDAY },
+        // Assignee is a partner user of ANOTHER ORG in the same tenant.
+        { tenantId: ta.id, leadId: leadA.id, title: "Cross-org assignee", authorRole: "partner", authorUserId: id.pxUser, assignedToUserId: id.pyUser, dueOn: YESTERDAY },
+        // Assignee is a partner-role user with no org — unscopeable, must fail closed.
+        { tenantId: ta.id, leadId: leadA.id, title: "Orphan assignee", authorRole: "partner", authorUserId: id.pxUser, assignedToUserId: id.orphanUser, dueOn: YESTERDAY },
+        // Tenant B's own due task: tenant A's sweep must not see, stamp, or mail it.
+        { tenantId: tb.id, leadId: leadB.id, title: "Tenant B task", authorRole: "admin", authorUserId: id.adminB, assignedToUserId: id.adminB, dueOn: YESTERDAY },
+      ])
+      .returning({ id: schema.leadTasks.id, title: schema.leadTasks.title });
+    for (const row of inserted) id[`task:${row.title}`] = row.id;
+  });
+
+  afterAll(async () => {
+    await dropTenants(db, [SLUG_SCOPE, SLUG_SCOPE_B]);
+    await client.end();
+  });
+
+  it("TSK-09/TST-01: tenant A's sweep never stamps, notifies, or emails tenant B", async () => {
+    // Three of A's tasks are nudged (each via its author); B's is untouched.
+    expect((await sweepA()).reminded).toBe(3);
+
+    expect((await taskRow(id["task:Tenant B task"])).remindedAt).toBeNull();
+    const bNotifs = await db.select().from(schema.notifications).where(eq(schema.notifications.tenantId, id.tenantB));
+    expect(bNotifs).toHaveLength(0);
+    const bEmails = await db.select().from(schema.emailOutbox).where(eq(schema.emailOutbox.tenantId, id.tenantB));
+    expect(bEmails).toHaveLength(0);
+    // …and nothing addressed to B's user was written into A's outbox either.
+    const aEmails = await db.select().from(schema.emailOutbox).where(eq(schema.emailOutbox.tenantId, id.tenantA));
+    expect(aEmails.some((e) => e.toAddress === "admin@tr-scope-b.test")).toBe(false);
+  });
+
+  it("TSK-09: a cross-tenant assigned_to_user_id falls back to the author, never delivers", async () => {
+    expect(await notificationsFor(id.adminB)).toHaveLength(0);
+    const author = await notificationsFor(id.adminA);
+    expect(author.filter((n) => n.title === "Task due: Cross-tenant assignee")).toHaveLength(1);
+    expect((await taskRow(id["task:Cross-tenant assignee"])).remindedAt).not.toBeNull();
+  });
+
+  it("TSK-09: a cross-org assignee is refused and the authoring org's author is nudged instead", async () => {
+    // PY can read neither PX's tasks nor a lead PX owns — two independent reasons to refuse.
+    expect((await notificationsFor(id.pyUser)).some((n) => n.title === "Task due: Cross-org assignee")).toBe(false);
+    expect((await notificationsFor(id.pxUser)).filter((n) => n.title === "Task due: Cross-org assignee")).toHaveLength(1);
+  });
+
+  it("TSK-09: a partner-role user with no partner_id is skipped, not thrown on", async () => {
+    // The fail-closed branch: an unscopeable user is treated as "cannot see" rather than
+    // reaching requirePartner, which would throw and abort the whole task.
+    expect(await notificationsFor(id.orphanUser)).toHaveLength(0);
+    expect((await notificationsFor(id.pxUser)).filter((n) => n.title === "Task due: Orphan assignee")).toHaveLength(1);
+    expect((await taskRow(id["task:Orphan assignee"])).remindedAt).not.toBeNull();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Sweep mechanics: the batch limit (pr F-1), transaction atomicity (tenancy F-6.5), and the
+// consume-without-notify decision (pr F-2). Own tenant — the prefs case rewrites settings.
+// ─────────────────────────────────────────────────────────────────────────────
+suite("TSK-08: sweep mechanics — limit, atomicity, silent consume", () => {
+  let client: ReturnType<typeof postgres>;
+  let db: PostgresJsDatabase<typeof schema>;
+  const id: Record<string, string> = {};
+
+  const sweep = (limit?: number) =>
+    remindDueTasks(db, { tenantId: id.tenant, appBaseUrl: APP_URL, today, now, ...(limit ? { limit } : {}) });
+  const tasksNamed = async (prefix: string) =>
+    (await db.select().from(schema.leadTasks).where(eq(schema.leadTasks.tenantId, id.tenant))).filter((t) =>
+      t.title.startsWith(prefix),
+    );
+  const emails = () => db.select().from(schema.emailOutbox).where(eq(schema.emailOutbox.tenantId, id.tenant));
+
+  beforeAll(async () => {
+    client = postgres(url!, { prepare: false, max: 1 });
+    db = drizzle(client, { schema });
+    await dropTenants(db, [SLUG_MECH]);
+
+    const [t] = await db.insert(schema.tenants).values({ name: "TR Mechanics", slug: SLUG_MECH }).returning({ id: schema.tenants.id });
+    id.tenant = t.id;
+    const [px] = await db.insert(schema.partners).values({ tenantId: t.id, refId: "JV-001", name: "PX", color: "#111111", status: "active" }).returning({ id: schema.partners.id });
+    id.admin = randomUUID();
+    await db.insert(schema.users).values({ id: id.admin, tenantId: t.id, email: "admin@tr-mech.test", role: "admin" });
+    const [up] = await db.insert(schema.uploads).values({ tenantId: t.id, refId: "IM-26-320", filename: "m.xlsx", status: "processed" }).returning({ id: schema.uploads.id });
+    const [lead] = await db
+      .insert(schema.leads)
+      .values({ tenantId: t.id, refId: "LD-26-30401", uploadId: up.id, dedupeKey: "mm|1", rawJson: {}, partnerId: px.id, city: "Ogden", state: "UT", matchMethod: "zip", mlsStatus: "kept" })
+      .returning({ id: schema.leads.id });
+    id.lead = lead.id;
+    await releaseTenantLeads(db, id.tenant);
+  });
+
+  afterAll(async () => {
+    await dropTenants(db, [SLUG_MECH]);
+    await client.end();
+  });
+
+  const addTask = async (title: string) => {
+    const [row] = await db
+      .insert(schema.leadTasks)
+      .values({ tenantId: id.tenant, leadId: id.lead, title, authorRole: "admin", authorUserId: id.admin, assignedToUserId: id.admin, dueOn: YESTERDAY })
+      .returning({ id: schema.leadTasks.id });
+    return row.id;
+  };
+
+  it("TSK-08: the batch limit caps one sweep and the remainder is picked up next run", async () => {
+    await addTask("Limit 1");
+    await addTask("Limit 2");
+    await addTask("Limit 3");
+
+    expect((await sweep(2)).reminded).toBe(2);
+    let rows = await tasksNamed("Limit ");
+    expect(rows.filter((r) => r.remindedAt !== null)).toHaveLength(2);
+    expect(rows.filter((r) => r.remindedAt === null)).toHaveLength(1);
+
+    // The straggler is not lost — the next tick claims it, and a third finds nothing.
+    expect((await sweep(2)).reminded).toBe(1);
+    rows = await tasksNamed("Limit ");
+    expect(rows.every((r) => r.remindedAt !== null)).toBe(true);
+    expect((await sweep(2)).reminded).toBe(0);
+  });
+
+  it("TSK-08: a failed notification rolls the stamp back — reminded_at stays NULL", async () => {
+    const taskId = await addTask("Atomic");
+    const emailsBefore = (await emails()).length;
+    mockState.failNotifications = true;
+    try {
+      expect((await sweep()).reminded).toBe(0);
+    } finally {
+      mockState.failNotifications = false;
+    }
+    // Nothing was consumed and nothing was queued: stamp + notification + enqueue are one unit.
+    const [row] = await db.select().from(schema.leadTasks).where(eq(schema.leadTasks.id, taskId));
+    expect(row.remindedAt).toBeNull();
+    expect(await emails()).toHaveLength(emailsBefore);
+
+    // …and once the failure clears, the very same task is nudged normally.
+    expect((await sweep()).reminded).toBe(1);
+    expect((await db.select().from(schema.leadTasks).where(eq(schema.leadTasks.id, taskId)))[0].remindedAt).not.toBeNull();
+  });
+
+  it("TSK-08: both channels off still stamps reminded_at exactly once", async () => {
+    await saveNotificationPrefs(db, { tenantId: id.tenant, role: "admin", userId: id.admin }, {
+      admin: { task_due: { email: false, inApp: false } },
+    });
+    const taskId = await addTask("Silent");
+    const emailsBefore = (await emails()).length;
+    const notifsBefore = (await db.select().from(schema.notifications).where(eq(schema.notifications.tenantId, id.tenant))).length;
+
+    // Consumed, deliberately: the nudge decision was made and spent, so the task cannot
+    // accumulate in the overdue set forever waiting for a channel that is switched off.
+    expect((await sweep()).reminded).toBe(1);
+    expect((await db.select().from(schema.leadTasks).where(eq(schema.leadTasks.id, taskId)))[0].remindedAt).not.toBeNull();
+    expect(await emails()).toHaveLength(emailsBefore);
+    expect(await db.select().from(schema.notifications).where(eq(schema.notifications.tenantId, id.tenant))).toHaveLength(notifsBefore);
+    expect((await sweep()).reminded).toBe(0);
   });
 });
