@@ -18,6 +18,8 @@ const GROUPS: { label: string; items: NavItem[] }[] = [
     { href: "/settings/appearance", label: "Appearance" },
   ] },
   { label: "Organization", items: [
+    // TAG-06: the tag manager sits with the other workspace-wide data settings.
+    { href: "/settings/tags", label: "Tags" },
     { href: "/settings/data", label: "Data & Export" },
     { href: "/settings/billing", label: "Billing" },
     { href: "/settings/ai", label: "AI assistant" },

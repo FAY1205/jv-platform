@@ -10,11 +10,13 @@ import { LEAD_STATUS_FILTERS, DEFAULT_STATUS_FILTERS, isDefaultStatuses, type Le
 import {
   AppShell, Card, Table, THead, TBody, Th, Tr, Td, PartnerTag, EmptyState, QueryErrorState, Skeleton,
   Input, Combobox, DateRangePicker, Pagination, RowOpenButton, StatusSelect, SegmentedControl,
-  DEFAULT_PAGE_SIZE, usePageHeader, FilterPill, Tooltip, HotLeadMark, HotLeadIcon,
+  DEFAULT_PAGE_SIZE, usePageHeader, FilterPill, Tooltip, HotLeadIcon,
+  LeadTags, TagChip, TagPicker, type LeadTagView,
 } from "@/components";
 import { US_STATES } from "@/lib/us-states";
 import { googleSearchUrl } from "@/lib/search-links";
 import { setPreferences, usePreferences, type LeadsViewPref } from "@/lib/preferences";
+import { useTags, useLeadTagMutations } from "@/lib/tags-client";
 
 const LeadDialog = dynamic(() => import("./lead-dialog").then((m) => m.LeadDialog), { ssr: false });
 // KAN-01: the board is a second view of the SAME page — code-split like the dialog so
@@ -32,15 +34,19 @@ interface LeadRow {
   scoreTotal: number | null; scoreGroup: "hot" | "warm" | "nurture" | null;
   partner: { id: string; name: string; refId: string; color: string } | null;
   receivedAt: string; modifiedAt: string | null;
+  /** TAG-04: the row's chips, ordered by lower(name) server-side. */
+  tags: LeadTagView[];
 }
 interface LeadsPage { leads: LeadRow[]; page: number; pageSize: number; total: number }
 interface Partner { id: string; refId: string; name: string; color: string }
 
 export interface Filters {
   q: string; partnerId: string; state: string; source: string; statuses: string[]; hot: boolean; dateFrom: string; dateTo: string;
+  /** TAG-03: selected tag ids — OR / any-of. */
+  tags: string[];
 }
 // Opens with all workflow statuses selected but Removed MLS off (owner decision).
-const EMPTY: Filters = { q: "", partnerId: "", state: "", source: "", statuses: [...DEFAULT_STATUS_FILTERS], hot: false, dateFrom: "", dateTo: "" };
+const EMPTY: Filters = { q: "", partnerId: "", state: "", source: "", statuses: [...DEFAULT_STATUS_FILTERS], hot: false, dateFrom: "", dateTo: "", tags: [] };
 
 const DEFAULT_DIR: Record<LeadSortField, "asc" | "desc"> = { lead: "desc", received: "desc", modified: "desc", seller: "asc" };
 // "" = no partner filter (all). The pipeline treats the "unmatched" sentinel specially.
@@ -91,7 +97,7 @@ function LeadsBody({ initialQ, initialOpenRef = null, initialHot = false }: { in
     router.replace(`${url.pathname}${url.search}`, { scroll: false });
   }, [router]);
 
-  const filterKey = `${filters.q}|${filters.partnerId}|${filters.state}|${filters.source}|${filters.statuses.join(",")}|${filters.hot}|${filters.dateFrom}|${filters.dateTo}|${sort}|${dir}`;
+  const filterKey = `${filters.q}|${filters.partnerId}|${filters.state}|${filters.source}|${filters.statuses.join(",")}|${filters.hot}|${filters.tags.join(",")}|${filters.dateFrom}|${filters.dateTo}|${sort}|${dir}`;
   const [resetKey, setResetKey] = React.useState(filterKey);
   if (filterKey !== resetKey) { setResetKey(filterKey); setPage(1); }
 
@@ -118,9 +124,9 @@ function LeadsBody({ initialQ, initialOpenRef = null, initialHot = false }: { in
       <LeadsFilterBar seedQ={initialQ} seedHot={initialHot} view={view} onChange={setFilters} />
 
       {view === "board" ? (
-        // KAN-09: the board carries the partner + hot filters only (the filter bar hides
-        // the rest in board mode, so nothing on screen is silently ignored).
-        <LeadsBoard filters={{ partnerId: filters.partnerId, hot: filters.hot }} onOpen={setOpenRef} />
+        // KAN-09 + TAG-03: the board carries the partner, hot AND tag filters (the filter bar
+        // hides the rest in board mode, so nothing on screen is silently ignored).
+        <LeadsBoard filters={{ partnerId: filters.partnerId, hot: filters.hot, tags: filters.tags }} onOpen={setOpenRef} />
       ) : (
         <LeadsTable
           filterKey={filterKey}
@@ -156,6 +162,8 @@ const LeadsFilterBar = React.memo(function LeadsFilterBar({ seedQ, seedHot = fal
   const [source, setSource] = React.useState("");
   const [statuses, setStatuses] = React.useState<string[]>([...DEFAULT_STATUS_FILTERS]);
   const [hot, setHot] = React.useState(seedHot);
+  // TAG-03: selected tag ids (any-of). Carried in BOTH modes — the board honours them too.
+  const [tagIds, setTagIds] = React.useState<string[]>([]);
   const [range, setRange] = React.useState<{ from: string | null; to: string | null }>({ from: null, to: null });
 
   // Committed (debounced) search text, held as state so "Clear all" can reset it
@@ -171,23 +179,28 @@ const LeadsFilterBar = React.memo(function LeadsFilterBar({ seedQ, seedHot = fal
 
   const roster = useQuery({ queryKey: ["partners"], queryFn: () => apiGet<{ partners: Partner[] }>("/api/admin/partners") });
   const sourcesQ = useQuery({ queryKey: ["lead-sources"], queryFn: () => apiGet<{ sources: string[] }>("/api/leads/sources") });
+  // The tag roster is fetched ONCE per page and shared with every row's picker (§6.17: the
+  // query cache is the store — the rows don't each fetch it).
+  const tagsQ = useTags();
+  const allTags = tagsQ.data?.tags ?? [];
+  const selectedTags = tagIds.map((id) => allTags.find((t) => t.id === id)).filter((t): t is (typeof allTags)[number] => Boolean(t));
 
   const clearAll = () => {
     setQInput(""); setQCommitted("");
     setState("");
-    setPartnerId(""); setSource(""); setStatuses([...DEFAULT_STATUS_FILTERS]); setHot(false); setRange({ from: null, to: null });
+    setPartnerId(""); setSource(""); setStatuses([...DEFAULT_STATUS_FILTERS]); setHot(false); setTagIds([]); setRange({ from: null, to: null });
   };
 
   // Commit filters upward whenever a committed value changes. On "Clear all" the committed
   // text is reset in the same batch, so this fires once with the default (not empty) set.
   React.useEffect(() => {
-    onChange({ q: qCommitted, state, partnerId, source, statuses, hot, dateFrom: range.from ?? "", dateTo: range.to ?? "" });
+    onChange({ q: qCommitted, state, partnerId, source, statuses, hot, tags: tagIds, dateFrom: range.from ?? "", dateTo: range.to ?? "" });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [qCommitted, state, partnerId, source, statuses.join(","), hot, range.from, range.to]);
+  }, [qCommitted, state, partnerId, source, statuses.join(","), hot, tagIds.join(","), range.from, range.to]);
 
   const toggleStatus = (s: string) => setStatuses((prev) => (prev.includes(s) ? prev.filter((x) => x !== s) : [...prev, s]));
   // "Filters active" ignores the default status selection — only a change from it counts.
-  const hasFilters = Boolean(qInput || state || partnerId || source || hot || !isDefaultStatuses(statuses) || range.from);
+  const hasFilters = Boolean(qInput || state || partnerId || source || hot || tagIds.length || !isDefaultStatuses(statuses) || range.from);
 
   return (
     <>
@@ -256,9 +269,31 @@ const LeadsFilterBar = React.memo(function LeadsFilterBar({ seedQ, seedHot = fal
           portal leads table — FRONTEND_STANDARDS §2 promotion rule). */}
       <div className="mb-4 flex flex-wrap items-center gap-1.5">
         {/* Hot-leads quick filter (SCR) — the target mark ties it to the row icon. */}
-        <FilterPill active={hot} onClick={() => setHot((v) => !v)}>
+        {/* TAG-05: Hot is presented in the same chip vocabulary as the tag filters (target
+            icon, "Hot"), but it is a SMART tag — a toggle over the existing `hot` param, with
+            no ✕ and no tag-manager presence, because it is derived from score_group. */}
+        <FilterPill active={hot} onClick={() => setHot((v) => !v)} title="Derived from the lead's score — not an editable tag">
           <span className="inline-flex items-center gap-1"><HotLeadIcon size={12} />Hot</span>
         </FilterPill>
+        {/* TAG-03: the selected tag filters, as removable chips in their own colors, plus the
+            picker. Create-inline is deliberately OFF here — a filter can only select a tag
+            that exists (creating one from a filter row would match zero leads). */}
+        {selectedTags.map((t) => (
+          <TagChip
+            key={t.id}
+            name={t.name}
+            color={t.color}
+            onRemove={() => setTagIds((prev) => prev.filter((id) => id !== t.id))}
+          />
+        ))}
+        <TagPicker
+          variant="chip"
+          triggerLabel="Tag filter"
+          placeholder="Filter by tag…"
+          options={allTags}
+          selectedIds={tagIds}
+          onSelect={(id) => setTagIds((prev) => (prev.includes(id) ? prev : [...prev, id]))}
+        />
         {/* Status is what the board's COLUMNS already express — hiding the pills there
             keeps one answer to "which statuses am I looking at". */}
         {listOnly && (
@@ -293,14 +328,19 @@ function LeadsTable({
       if (filters.source) params.set("source", filters.source);
       if (filters.statuses.length) params.set("statuses", filters.statuses.join(","));
       if (filters.hot) params.set("hot", "1");
+      if (filters.tags.length) params.set("tags", filters.tags.join(","));
       if (filters.dateFrom) params.set("dateFrom", filters.dateFrom);
       if (filters.dateTo) params.set("dateTo", filters.dateTo);
       return apiGet<LeadsPage>(`/api/leads?${params.toString()}`);
     },
   });
   const data = leadsQ.data;
-  const hasFilters = Boolean(filters.q || filters.partnerId || filters.state || filters.source || filters.hot || !isDefaultStatuses(filters.statuses) || filters.dateFrom);
+  const hasFilters = Boolean(filters.q || filters.partnerId || filters.state || filters.source || filters.hot || filters.tags.length || !isDefaultStatuses(filters.statuses) || filters.dateFrom);
   const sortDir = (f: LeadSortField) => (sort === f ? dir : null);
+  // The SAME cache entry the filter bar reads (TAGS_KEY) — one roster fetch for the page,
+  // handed to every row's picker.
+  const allTags = useTags().data?.tags ?? [];
+  const { attach, detach, createAndAttach, busy } = useLeadTagMutations();
 
   return (
     <>
@@ -329,6 +369,7 @@ function LeadsTable({
                 <Th sortable sortDir={sortDir("seller")} onSort={() => onSort("seller")}>Seller</Th>
                 <Th>Property</Th>
                 <Th>Partner</Th>
+                <Th>Tags</Th>
                 <Th sortable sortDir={sortDir("received")} onSort={() => onSort("received")} align="right">Received</Th>
                 <Th sortable sortDir={sortDir("modified")} onSort={() => onSort("modified")} align="right">Modified</Th>
                 <Th>Status</Th>
@@ -340,10 +381,6 @@ function LeadsTable({
                   <Td>
                     <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
                       <RowOpenButton className="text-xs" onClick={() => onOpen(l.refId)}>{l.refId}</RowOpenButton>
-                      {/* Hot mark AFTER the ref, only for KEPT hot leads (removed/MLS-listed shows none). */}
-                      {l.mlsStatus === "kept" && l.scoreGroup === "hot" && l.scoreTotal !== null && (
-                        <HotLeadMark score={l.scoreTotal} />
-                      )}
                     </span>
                   </Td>
                   <Td><span className="text-sm text-text">{l.seller}</span></Td>
@@ -359,6 +396,22 @@ function LeadsTable({
                     {l.partner ? <PartnerTag size="sm" name={l.partner.name} color={l.partner.color} refId={l.partner.refId} />
                       : l.mlsStatus === "kept" ? <span className="text-xs font-semibold text-warn">Unmatched</span>
                       : <span className="text-xs text-text-3">—</span>}
+                  </Td>
+                  {/* TAG-04/TAG-05: uncapped on the list (there is room); the Hot smart tag
+                      renders from the row's own score fields, for KEPT leads only — the same
+                      rule the HotLeadMark beside the ref follows. */}
+                  <Td>
+                    <LeadTags
+                      editable
+                      tags={l.tags}
+                      hot={l.mlsStatus === "kept" && l.scoreGroup === "hot"}
+                      hotScore={l.scoreTotal}
+                      options={allTags}
+                      busy={busy}
+                      onAttach={(tagId) => attach.mutate({ refId: l.refId, tagId })}
+                      onDetach={(tagId) => detach.mutate({ refId: l.refId, tagId })}
+                      onCreate={(name) => createAndAttach.mutate({ refId: l.refId, name })}
+                    />
                   </Td>
                   <Td align="right"><span className="num text-xs text-text-3 tabular-nums">{fmtDate(l.receivedAt)}</span></Td>
                   <Td align="right"><span className="num text-xs text-text-3 tabular-nums">{l.modifiedAt ? fmtDate(l.modifiedAt) : "—"}</span></Td>

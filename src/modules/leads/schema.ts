@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { pageParam, pageSizeParam, dateParam } from "@/lib/query-params";
 import { SEED_LEAD_STATUSES } from "@/modules/portal/statuses";
+import { tagsParam } from "@/modules/tags/schema";
 import { BOARD_MAX_PAGE } from "./board";
 
 // Global leads list query params (ADM). Zod-normalizes everything to canonical
@@ -46,6 +47,9 @@ export const LeadsQuerySchema = z.object({
   statuses: z.unknown().optional().transform((v) => csv(v, LEAD_STATUS_FILTERS)),
   /** Hot-leads-only filter (SCR). Shows only kept leads whose score group is Hot. */
   hot: z.unknown().optional().transform((v) => v === "1" || v === "true" || v === true),
+  /** TAG-03: OR / any-of tag filter (comma-separated tag ids). Shared parser with the
+   *  board, so `?tags=` means exactly one thing across both endpoints. */
+  tags: tagsParam(),
   /** Lead-source / campaign exact match. */
   source: z.unknown().optional().transform((v) => (typeof v === "string" ? v.trim().slice(0, 80) : "")),
   // D3: the shared dateParam() (lib/query-params) — same YYYY-MM-DD shape check plus
@@ -76,6 +80,9 @@ export const BoardQuerySchema = z
     page: pageParam({ max: BOARD_MAX_PAGE }),
     partnerId: z.unknown().optional().transform((v) => (typeof v === "string" && UUID_RE.test(v) ? v : v === "unmatched" ? "unmatched" : null)),
     hot: z.unknown().optional().transform((v) => v === "1" || v === "true" || v === true),
+    /** KAN-09 + TAG-03: the board now carries THREE of the list's filters — partner, hot,
+     *  and tags. Same shared parser as the list (one meaning for `?tags=`). */
+    tags: tagsParam(),
   })
   // `page` is a per-COLUMN cursor: it only means anything alongside `status` (pr F-1).
   // Without one it is normalized away, so `?page=3` returns page 1 of every column and

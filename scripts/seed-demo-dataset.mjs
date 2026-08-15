@@ -40,6 +40,10 @@ async function wipe() {
   await sql`delete from lead_notes where tenant_id=${T}`;
   // WP-TSK-4: lead_tasks references leads — must go before the leads wipe below.
   await sql`delete from lead_tasks where tenant_id=${T}`;
+  // WP-TAG-1: the junction references BOTH leads and tags, so it goes first; tags
+  // themselves reference only the tenant and can go with it.
+  await sql`delete from lead_tags where tenant_id=${T}`;
+  await sql`delete from tags where tenant_id=${T}`;
   await sql`delete from listing_checks where tenant_id=${T}`;
   await sql`delete from events where tenant_id=${T}`;
   // audit_log is append-only evidence (ACT-04 / F-05) — the seeder never deletes it.
@@ -263,6 +267,43 @@ for (let i = 0; i < leads.length; i++) {
 }
 for (let i = 0; i < history.length; i += 300) {
   await sql`insert into lead_status_history ${sql(history.slice(i, i + 300), "tenant_id","lead_id","status","created_at")}`;
+}
+
+// ── demo tags (WP-TAG-1 / TAG-01) ────────────────────────────────────────────────
+// Three workflow labels an operator would plausibly keep, spread across a slice of the
+// kept leads so the chips, the "+n" cap on board cards, and the tag filter all have
+// something real to show. Colors are PALETTE KEYS (lib/tokens TAG_PALETTE), never hex —
+// the chip renderer resolves them to semantic tokens (PRN-12). `added_by_user_id` needs a
+// real user, so the whole block is skipped (loudly) when the tenant has no admin.
+const DEMO_TAGS = [
+  { name: "Probate", color: "teal", every: 7 },      // ~14% of kept leads
+  { name: "Follow-up", color: "blue", every: 5 },    // ~20%
+  { name: "Cash buyer ask", color: "plum", every: 11 }, // ~9%
+];
+if (ADMIN_ID) {
+  const tagIds = [];
+  for (const t of DEMO_TAGS) {
+    const [row] = await sql`
+      insert into tags (tenant_id, name, color) values (${tenant.id}, ${t.name}, ${t.color}) returning id`;
+    tagIds.push(row.id);
+  }
+  // Deterministic spread (every Nth kept lead) rather than random, so a reseed produces the
+  // same demo — the same discipline the rest of this script's seeded RNG follows.
+  const attachRows = [];
+  for (let i = 0; i < leads.length; i++) {
+    if (!leadMeta[i].kept) continue;
+    DEMO_TAGS.forEach((t, k) => {
+      if (i % t.every === 0) {
+        attachRows.push({ tenant_id: tenant.id, lead_id: leadIds[i], tag_id: tagIds[k], added_by_user_id: ADMIN_ID });
+      }
+    });
+  }
+  for (let i = 0; i < attachRows.length; i += 300) {
+    await sql`insert into lead_tags ${sql(attachRows.slice(i, i + 300), "tenant_id", "lead_id", "tag_id", "added_by_user_id")}`;
+  }
+  console.log(`seeded ${DEMO_TAGS.length} demo tags across ${attachRows.length} lead attachments`);
+} else {
+  console.log("skipped demo tags — no admin user for this tenant (lead_tags.added_by_user_id)");
 }
 
 // ── demo lead tasks (WP-TSK-4 DoD, amended from WP-TSK-1) ────────────────────────
