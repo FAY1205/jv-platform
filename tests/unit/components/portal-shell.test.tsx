@@ -71,6 +71,17 @@ describe("PortalShell", () => {
     }
   });
 
+  it("WP-TSK-5: renders the Tasks tab (5th bottom tab / rail item) linking to /portal/tasks", () => {
+    mockPath = "/portal/tasks";
+    renderShell();
+    const links = screen.getAllByRole("link", { name: "Tasks" });
+    expect(links.length).toBeGreaterThan(0);
+    for (const link of links) {
+      expect(link).toHaveAttribute("href", "/portal/tasks");
+      expect(link).toHaveAttribute("aria-current", "page");
+    }
+  });
+
   it("hides the shell chrome on the pre-auth login route", () => {
     mockPath = "/portal/login";
     renderShell();

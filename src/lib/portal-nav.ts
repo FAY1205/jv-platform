@@ -11,6 +11,7 @@ export function portalTitleForPath(pathname: string): string | null {
   if (p === "/portal/dashboard") return "Dashboard";
   if (p === "/portal/leads") return "Leads";
   if (p.startsWith("/portal/activity")) return "Activity";
+  if (p.startsWith("/portal/tasks")) return "Tasks";
   if (p.startsWith("/portal/devices")) return "Devices";
   if (p === "/portal") return "Account";
   return null;
