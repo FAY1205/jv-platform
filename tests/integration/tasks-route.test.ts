@@ -27,8 +27,10 @@ const REF = "LD-26-91001";
 suite("WP-TSK-2: task route contract (status + error envelope)", () => {
   let db: ReturnType<typeof getDb>;
   let tenantId: string;
-  let adminUserId: string;
-  let partnerUserId: string;
+  // randomUUID()'s branded return type is what adminScope's default parameter expects —
+  // declaring these as plain `string` breaks the call site (tsc, not vitest, catches it).
+  const adminUserId = randomUUID();
+  const partnerUserId = randomUUID();
 
   async function cleanup() {
     const t = await db.select({ id: schema.tenants.id }).from(schema.tenants).where(eq(schema.tenants.slug, SLUG));
@@ -52,8 +54,6 @@ suite("WP-TSK-2: task route contract (status + error envelope)", () => {
       .insert(schema.partners)
       .values({ tenantId, refId: "JV-911", name: "Route Partner", color: "#123456", status: "active" })
       .returning({ id: schema.partners.id });
-    adminUserId = randomUUID();
-    partnerUserId = randomUUID();
     await db.insert(schema.users).values([
       { id: adminUserId, tenantId, email: "admin@route-tasks.test", role: "admin" as const },
       { id: partnerUserId, tenantId, email: "px@route-tasks.test", role: "partner" as const, partnerId: p.id },
@@ -107,11 +107,38 @@ suite("WP-TSK-2: task route contract (status + error envelope)", () => {
   });
 
   it("Zod-validates the create body (empty title, over-long title, bad due date)", async () => {
-    for (const payload of [{}, { title: "   " }, { title: "x".repeat(201) }, { title: "ok", dueOn: "2026-02-31" }]) {
+    const payloads = [
+      {},
+      { title: "   " },
+      { title: "x".repeat(201) },
+      { title: "ok", dueOn: "2026-02-31" }, // rolls forward to Mar 3 — not a real Feb date
+      // Regex-valid but UNREAL month/day: these built an Invalid Date whose .toISOString()
+      // threw RangeError straight out of safeParse — a raw 500, outside the envelope
+      // (pr-review HIGH). They must be plain 400s.
+      { title: "ok", dueOn: "2026-13-01" },
+      { title: "ok", dueOn: "2026-00-05" },
+      { title: "ok", dueOn: "2026-01-00" },
+    ];
+    for (const payload of payloads) {
       const res = await createTask(jsonRequest("POST", `/api/leads/${REF}/tasks`, payload), routeParams({ ref: REF }));
-      expect(res.status).toBe(400);
+      expect(res.status, `payload ${JSON.stringify(payload)}`).toBe(400);
+      const env = await body(res);
+      expect(env.code).toBe("invalid_input");
+      expect(env.traceId).toEqual(expect.any(String)); // uniform envelope, not a framework 500
+    }
+  });
+
+  it("rejects an unknown key in either PATCH body shape (strict)", async () => {
+    const id = await createOk({ title: "strictness" });
+    for (const payload of [{ titel: "typo" }, { action: "complete", title: "mixed" }]) {
+      const res = await patchTask(jsonRequest("PATCH", `/api/tasks/${id}`, payload), routeParams({ id }));
+      expect(res.status, `payload ${JSON.stringify(payload)}`).toBe(400);
       expect((await body(res)).code).toBe("invalid_input");
     }
+    // …and the task is untouched by the rejected requests.
+    const [row] = await db.select({ title: schema.leadTasks.title, doneAt: schema.leadTasks.doneAt }).from(schema.leadTasks).where(eq(schema.leadTasks.id, id));
+    expect(row.title).toBe("strictness");
+    expect(row.doneAt).toBeNull();
   });
 
   it("TSK-03: a cross-stream assignee is refused with 400 invalid_assignee", async () => {

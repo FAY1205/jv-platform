@@ -1,8 +1,8 @@
-import { and, asc, count, eq, isNotNull, isNull, or, sql } from "drizzle-orm";
+import { and, asc, count, eq, inArray, isNotNull, isNull, or, sql } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import { getDb } from "@/db";
 import * as schema from "@/db/schema";
-import { leadWhere, taskWhere, requirePartner, type ScopeContext } from "@/lib/scope";
+import { leadWhere, taskWhere, tenantWhere, requirePartner, type ScopeContext } from "@/lib/scope";
 import { releasedLeads } from "../run/hold-filter";
 import { maskAuditValue } from "@/modules/audit/redact";
 import { groupByDue, utcDateString, type DueGroup } from "./dates";
@@ -13,6 +13,44 @@ import { MY_TASKS_PAGE_SIZE, type MyTasksQuery } from "./schema";
 // at lead resolution (audit F-7) — the one place a partner's lead reachability is decided.
 const partnerLive = (scope: ScopeContext) =>
   scope.role === "partner" ? and(isNull(schema.leads.deletedAt), releasedLeads()) : undefined;
+
+/**
+ * The same hold rule for task paths that DON'T resolve a lead first — mutation by task id
+ * (resolveTask) and the cross-lead My Tasks list (audit-tenancy F-3). `taskWhere`'s partner
+ * arm filters ownership and soft-deletes but is hold-BLIND, so those two paths would still
+ * reach a task sitting on a lead the partner cannot yet see. Partner-only: an admin is never
+ * hold-gated. Expressed as a leadId subquery because there is no lead join to hang it on.
+ *
+ * Belongs in `taskWhere` eventually so app + RLS carry it in lockstep — tracked as C-8 /
+ * WP-TSK-2a; it lives here now because this WP may not touch lib/scope.ts or migration 0041.
+ */
+function partnerHoldGate(scope: ScopeContext, db: DB) {
+  if (scope.role !== "partner") return undefined;
+  return inArray(
+    schema.leadTasks.leadId,
+    db
+      .select({ id: schema.leads.id })
+      .from(schema.leads)
+      .where(and(tenantWhere(schema.leads, scope), releasedLeads())),
+  );
+}
+
+/**
+ * My Tasks drops tasks whose lead was RECALLED (soft-deleted), for BOTH roles (audit-tenancy
+ * F-7, owner default): a personal work list of items on dead leads is noise, and the void
+ * path has already sentinelled those titles. Deliberately NOT applied to resolveTask — an
+ * admin keeps access to a voided lead in the import history, so closing out its tasks stays
+ * possible; a partner never sees them anyway (taskWhere's own-leads subquery excludes them).
+ */
+function liveLeadGate(scope: ScopeContext, db: DB) {
+  return inArray(
+    schema.leadTasks.leadId,
+    db
+      .select({ id: schema.leads.id })
+      .from(schema.leads)
+      .where(and(tenantWhere(schema.leads, scope), isNull(schema.leads.deletedAt))),
+  );
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Two-stream lead tasks (TSK-01..07, ADR-0044) — the notes module's shape, applied to
@@ -160,20 +198,26 @@ async function resolveLead(db: DB, scope: ScopeContext, leadRefId: string) {
  */
 async function resolveAssignee(db: DB, scope: ScopeContext, assignedToUserId?: string | null): Promise<string> {
   const target = assignedToUserId ?? scope.userId;
+  // The partner arm checks role AND org (audit-tenancy F-4): `users.partner_id` carries no
+  // role invariant — nothing stops an ADMIN row from holding one — so org membership alone
+  // would let an admin be assigned a partner task and cross the PRN-13 wall.
   const stream =
     scope.role === "admin"
       ? eq(schema.users.role, "admin")
-      : eq(schema.users.partnerId, requirePartner(scope));
+      : and(eq(schema.users.role, "partner"), eq(schema.users.partnerId, requirePartner(scope)));
   const [user] = await db
     .select({ id: schema.users.id })
     .from(schema.users)
-    .where(and(eq(schema.users.tenantId, scope.tenantId), eq(schema.users.id, target), stream));
+    // The guard's own tenant builder, not a hand-rolled eq (audit-tenancy F-1): a future
+    // change to tenant filtering reaches this path instead of missing a private copy (R-24).
+    .where(and(tenantWhere(schema.users, scope), eq(schema.users.id, target), stream));
   if (!user) throw new InvalidAssigneeError();
   return user.id;
 }
 
-/** Re-resolve a task through the scope guard. `taskWhere ∩ id` is the whole authorization:
- *  a task id from another tenant, org, or stream simply does not resolve (PRN-08). */
+/** Re-resolve a task through the scope guard. `taskWhere ∩ id` (+ the partner hold gate) is
+ *  the whole authorization: a task id from another tenant, org, or stream — or on a lead the
+ *  partner cannot see yet — simply does not resolve (PRN-08). */
 async function resolveTask(db: DB, scope: ScopeContext, taskId: string) {
   const [task] = await db
     .select({
@@ -186,9 +230,16 @@ async function resolveTask(db: DB, scope: ScopeContext, taskId: string) {
       doneAt: schema.leadTasks.doneAt,
     })
     .from(schema.leadTasks)
-    .where(and(taskWhere(scope, db), eq(schema.leadTasks.id, taskId)));
+    .where(and(taskWhere(scope, db), eq(schema.leadTasks.id, taskId), partnerHoldGate(scope, db)));
   if (!task) throw new TaskNotFoundError(taskId);
   return task;
+}
+
+/** The authorization predicate a task WRITE statement carries, so the UPDATE/DELETE is itself
+ *  scoped rather than trusting the preceding SELECT (defence in depth: the code's contract is
+ *  "taskWhere ∩ id on every mutation" — this makes the SQL say so too). */
+function taskWriteWhere(scope: ScopeContext, db: DB, taskId: string) {
+  return and(taskWhere(scope, db), eq(schema.leadTasks.id, taskId), partnerHoldGate(scope, db));
 }
 
 /** The caller's own task stream for one lead (admin stream OR partner stream). */
@@ -270,7 +321,15 @@ export async function editLeadTask(
       set.assignedToUserId = await resolveAssignee(tx, scope, patch.assignedToUserId);
     }
 
-    await tx.update(schema.leadTasks).set(set).where(eq(schema.leadTasks.id, taskId));
+    // Scoped write (not a bare id): guarded by taskWhere ∩ id, and by done_at IS NULL so a
+    // concurrent completion between the SELECT and here cannot be edited over.
+    const updated = await tx
+      .update(schema.leadTasks)
+      .set(set)
+      .where(and(taskWriteWhere(scope, tx, taskId), isNull(schema.leadTasks.doneAt)))
+      .returning({ id: schema.leadTasks.id });
+    if (updated.length === 0) throw new TaskClosedError(taskId);
+
     await tx.insert(schema.auditLog).values({
       tenantId: task.tenantId,
       actorUserId: scope.userId,
@@ -302,22 +361,34 @@ export async function reopenLeadTask(scope: ScopeContext, taskId: string, traceI
 async function setDone(scope: ScopeContext, taskId: string, done: boolean, traceId?: string): Promise<void> {
   const db = getDb();
   await db.transaction(async (tx) => {
+    // Resolve for authorization + the audit payload; the state check is NOT made here.
     const task = await resolveTask(tx, scope, taskId);
-    const isDone = task.doneAt !== null;
-    if (isDone === done) return; // already in the requested state — TSK-04 no-op
 
     const now = new Date();
-    await tx
+    // ATOMIC toggle (TSK-04): the current-state predicate lives IN the UPDATE, so the
+    // transition is decided by the write, not by a preceding read. Check-then-act let two
+    // concurrent completions both observe done_at IS NULL and both write an audit row —
+    // a duplicate timeline event for one real transition. Zero rows affected now means
+    // "already in the requested state", i.e. the idempotent no-op, and nothing is audited.
+    const changed = await tx
       .update(schema.leadTasks)
       .set({ doneAt: done ? now : null, updatedAt: now })
-      .where(eq(schema.leadTasks.id, taskId));
+      .where(
+        and(
+          taskWriteWhere(scope, tx, taskId),
+          done ? isNull(schema.leadTasks.doneAt) : isNotNull(schema.leadTasks.doneAt),
+        ),
+      )
+      .returning({ id: schema.leadTasks.id });
+    if (changed.length === 0) return; // no-op — TSK-04 idempotence
+
     await tx.insert(schema.auditLog).values({
       tenantId: task.tenantId,
       actorUserId: scope.userId,
       action: done ? "task.completed" : "task.reopened",
       entityType: "lead_task",
       entityRef: taskId,
-      before: { done: isDone },
+      before: { done: !done },
       after: { done, title: maskAuditValue(task.title) },
       traceId: traceId ?? null,
     });
@@ -336,9 +407,22 @@ export async function deleteLeadTask(scope: ScopeContext, taskId: string, traceI
     // Author-only: indistinguishable from "not found" on purpose — a caller learns
     // nothing about rows they may not act on.
     if (task.authorUserId !== scope.userId) throw new TaskNotFoundError(taskId);
-    if (task.doneAt !== null) throw new TaskClosedError(taskId);
 
-    await tx.delete(schema.leadTasks).where(eq(schema.leadTasks.id, taskId));
+    // ATOMIC + fully scoped: authorship, the stream guard, and open-ness are all conditions
+    // ON THE DELETE, so a task completed concurrently with this call cannot be removed, and
+    // the audit row is written only if a row really went away (no phantom task.deleted).
+    const removed = await tx
+      .delete(schema.leadTasks)
+      .where(
+        and(
+          taskWriteWhere(scope, tx, taskId),
+          eq(schema.leadTasks.authorUserId, scope.userId),
+          isNull(schema.leadTasks.doneAt),
+        ),
+      )
+      .returning({ id: schema.leadTasks.id });
+    if (removed.length === 0) throw new TaskClosedError(taskId);
+
     await tx.insert(schema.auditLog).values({
       tenantId: task.tenantId,
       actorUserId: scope.userId,
@@ -372,12 +456,23 @@ export async function listMyTasks(
   const pageSize = query.pageSize ?? MY_TASKS_PAGE_SIZE;
   const mine = or(
     eq(schema.leadTasks.assignedToUserId, scope.userId),
+    // No module write path produces a NULL assignee today — resolveAssignee always resolves
+    // one, defaulting to the creator (TSK-03). This branch is the fallback for rows written
+    // outside the module (a seed, a backfill, a future bulk import): an unassigned task still
+    // belongs in its author's list rather than vanishing from every view. Mirrors TSK-08's
+    // reminder-recipient rule (assignee, falling back to author), so the two never disagree.
     and(isNull(schema.leadTasks.assignedToUserId), eq(schema.leadTasks.authorUserId, scope.userId)),
   );
+  // ONE predicate feeds both the page query and the count, so `total` can never drift from
+  // the rows it counts (audit-tenancy F-7). That is also why the lead-liveness and hold rules
+  // are leadId subqueries rather than filters on the row query's join — a join-only filter
+  // would apply to the rows and silently miss the count.
   const where = and(
     taskWhere(scope, db),
     mine,
     query.status === "done" ? isNotNull(schema.leadTasks.doneAt) : isNull(schema.leadTasks.doneAt),
+    partnerHoldGate(scope, db),
+    liveLeadGate(scope, db),
   );
 
   const [rows, totals] = await Promise.all([

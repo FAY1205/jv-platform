@@ -13,11 +13,21 @@ export const TASK_TITLE_MAX = 200;
 export const MY_TASKS_PAGE_SIZE = 20;
 
 /** A calendar date as the `date` column round-trips it (TSK-10 — UTC semantics). The
- *  round-trip check rejects impossible dates ("2026-02-31") that the regex alone allows. */
+ *  round-trip check rejects impossible dates ("2026-02-31" rolls forward to Mar 3) that the
+ *  regex alone allows.
+ *
+ *  The NaN guard is load-bearing, not defensive noise (pr-review HIGH): a regex-valid but
+ *  unreal month/day ("2026-13-01", "2026-00-05", "2026-01-00") makes an INVALID Date, and
+ *  `.toISOString()` on one THROWS RangeError — out of `safeParse`, past the route's
+ *  `!parsed.success` branch, into a raw 500 instead of the uniform 400 envelope. Same
+ *  shape as `dateParam()` in lib/query-params. */
 export const DueOnSchema = z
   .string()
   .regex(/^\d{4}-\d{2}-\d{2}$/, "A due date must be YYYY-MM-DD.")
-  .refine((v) => new Date(`${v}T00:00:00Z`).toISOString().slice(0, 10) === v, "Not a real calendar date.");
+  .refine((v) => {
+    const d = new Date(`${v}T00:00:00Z`);
+    return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === v;
+  }, "Not a real calendar date.");
 
 export const TaskTitleSchema = z.string().trim().min(1).max(TASK_TITLE_MAX);
 
@@ -29,17 +39,23 @@ export const CreateTaskSchema = z.object({
   assignedToUserId: z.string().uuid().nullish(),
 });
 
-/** PATCH edit body — at least one field, and a present key with `null` CLEARS that field. */
+/** PATCH edit body — at least one field, and a present key with `null` CLEARS that field.
+ *  STRICT (pr-review F-5): an unknown key is a client bug or a probe, not something to
+ *  silently drop — a typo'd `titel` should 400, not report success having changed nothing.
+ *  Strictness only rejects UNKNOWN keys, so the undefined-vs-null patch semantics are
+ *  untouched (pinned by the partial-edit case in tasks-api.test.ts). */
 export const EditTaskSchema = z
-  .object({
+  .strictObject({
     title: TaskTitleSchema.optional(),
     dueOn: DueOnSchema.nullish(),
     assignedToUserId: z.string().uuid().nullish(),
   })
   .refine((v) => Object.keys(v).length > 0, "Nothing to change.");
 
-/** PATCH action body — the complete/reopen half of the same endpoint (TSK-04). */
-export const TaskActionSchema = z.object({ action: z.enum(["complete", "reopen"]) });
+/** PATCH action body — the complete/reopen half of the same endpoint (TSK-04). Strict for
+ *  the same reason: `{action:"complete", title:"x"}` is an ambiguous request, not an edit
+ *  plus a completion, and must be refused rather than half-honoured. */
+export const TaskActionSchema = z.strictObject({ action: z.enum(["complete", "reopen"]) });
 
 export const MyTasksQuerySchema = z.object({
   status: z.unknown().optional().transform((v): "open" | "done" => (v === "done" ? "done" : "open")),

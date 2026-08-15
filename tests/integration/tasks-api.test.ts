@@ -88,9 +88,16 @@ suite("WP-TSK-2: lead tasks module (TSK-01..07)", () => {
       { id: id.pyUser, tenantId: t.id, email: "py@tasks-api.test", role: "partner" as const, partnerId: py.id },
     ]);
 
-    // Tenant B: an admin user used as a cross-tenant assignee probe.
+    // Tenant B: an admin user (cross-tenant assignee probe) plus a lead to hang a foreign
+    // task off, for the cross-tenant mutation-by-id case.
     id.adminUserB = randomUUID();
     await db.insert(schema.users).values({ id: id.adminUserB, tenantId: tb.id, email: "admin@tasks-api-b.test", role: "admin" });
+    const [upB] = await db.insert(schema.uploads).values({ tenantId: tb.id, refId: "IM-26-202", filename: "b.xlsx", status: "processed" }).returning({ id: schema.uploads.id });
+    const [leadB] = await db
+      .insert(schema.leads)
+      .values({ tenantId: tb.id, refId: "LD-26-20099", uploadId: upB.id, dedupeKey: "tb|9", rawJson: {}, matchMethod: "none", mlsStatus: "kept" })
+      .returning({ id: schema.leads.id });
+    id.leadB = leadB.id;
 
     const [up] = await db.insert(schema.uploads).values({ tenantId: t.id, refId: "IM-26-201", filename: "a.xlsx", status: "processed" }).returning({ id: schema.uploads.id });
     await db.insert(schema.leads).values([
@@ -174,6 +181,54 @@ suite("WP-TSK-2: lead tasks module (TSK-01..07)", () => {
     expect(row.title).toBe("admin private");
   });
 
+  it("TSK-02: a tenant-B task id is inert against every mutation from tenant A (both roles)", async () => {
+    // A task in tenant B, written directly (tenant A has no API that could create it).
+    const [foreign] = await db
+      .insert(schema.leadTasks)
+      .values({ tenantId: id.tenantB, leadId: id.leadB, authorUserId: id.adminUserB, authorRole: "admin", title: "tenant B private work" })
+      .returning({ id: schema.leadTasks.id });
+
+    for (const scope of [admin(), partnerX()]) {
+      await expect(editLeadTask(scope, foreign.id, { title: "hijacked" })).rejects.toBeInstanceOf(TaskNotFoundError);
+      await expect(completeLeadTask(scope, foreign.id)).rejects.toBeInstanceOf(TaskNotFoundError);
+      await expect(reopenLeadTask(scope, foreign.id)).rejects.toBeInstanceOf(TaskNotFoundError);
+      await expect(deleteLeadTask(scope, foreign.id)).rejects.toBeInstanceOf(TaskNotFoundError);
+    }
+
+    // The row is byte-for-byte untouched — no partial write slipped through.
+    const [row] = await db.select().from(schema.leadTasks).where(eq(schema.leadTasks.id, foreign.id));
+    expect(row.title).toBe("tenant B private work");
+    expect(row.doneAt).toBeNull();
+    expect(row.tenantId).toBe(id.tenantB);
+  });
+
+  it("TSK-02: a held lead's task is invisible in My Tasks and unmutatable by id", async () => {
+    // Written directly: the API refuses to create it (proven above), so the row can only come
+    // from outside the module — which is exactly the case the hold gate must still catch.
+    const [held] = await db
+      .select({ id: schema.leads.id })
+      .from(schema.leads)
+      .where(and(eq(schema.leads.tenantId, id.tenant), eq(schema.leads.refId, REF_HELD)));
+    const [task] = await db
+      .insert(schema.leadTasks)
+      .values({ tenantId: id.tenant, leadId: held.id, authorUserId: id.pxUser, authorRole: "partner", title: "held-lead task" })
+      .returning({ id: schema.leadTasks.id });
+
+    const mine = await listMyTasks(partnerX(), { status: "open", page: 1 }, new Date("2026-08-15T12:00:00Z"));
+    expect(mine.items.map((t) => t.title)).not.toContain("held-lead task");
+    expect(mine.total).toBe(mine.items.length); // count and rows agree under the same predicate
+
+    await expect(editLeadTask(partnerX(), task.id, { title: "peek" })).rejects.toBeInstanceOf(TaskNotFoundError);
+    await expect(completeLeadTask(partnerX(), task.id)).rejects.toBeInstanceOf(TaskNotFoundError);
+    await expect(deleteLeadTask(partnerX(), task.id)).rejects.toBeInstanceOf(TaskNotFoundError);
+
+    const [row] = await db.select({ title: schema.leadTasks.title, doneAt: schema.leadTasks.doneAt }).from(schema.leadTasks).where(eq(schema.leadTasks.id, task.id));
+    expect(row.title).toBe("held-lead task");
+    expect(row.doneAt).toBeNull();
+
+    await db.delete(schema.leadTasks).where(eq(schema.leadTasks.id, task.id));
+  });
+
   // ── TSK-03: assignee stream/tenant validation ─────────────────────────────
 
   it("TSK-03: a task cannot be assigned outside the author's stream/tenant", async () => {
@@ -252,6 +307,40 @@ suite("WP-TSK-2: lead tasks module (TSK-01..07)", () => {
     await expect(deleteLeadTask(admin(), taskId)).rejects.toBeInstanceOf(TaskClosedError);
     const [row] = await db.select({ title: schema.leadTasks.title }).from(schema.leadTasks).where(eq(schema.leadTasks.id, taskId));
     expect(row.title).toBe("closed work");
+  });
+
+  it("TSK-04: a same-stream colleague can edit and complete a task they did not author", async () => {
+    // The DELIBERATE divergence from notes (ADR-0044 / TSK-11): a task is the ORG's work
+    // item, so edit/complete/reopen are stream-scoped, not author-scoped — only delete is
+    // author-only. This case exists so a future author-check copy-pasted from notes.ts
+    // (where every mutation IS author-only) fails a test instead of silently shipping.
+    const { id: taskId } = await addLeadTask(partnerX(), REF_X, { title: "team work item" });
+    const colleague: ScopeContext = { tenantId: id.tenant, role: "partner", userId: id.pxUser2, partnerId: id.px };
+
+    await editLeadTask(colleague, taskId, { title: "colleague retitled it", dueOn: "2026-09-15" });
+    const [edited] = await db.select({ title: schema.leadTasks.title, dueOn: schema.leadTasks.dueOn }).from(schema.leadTasks).where(eq(schema.leadTasks.id, taskId));
+    expect(edited.title).toBe("colleague retitled it");
+    expect(edited.dueOn).toBe("2026-09-15");
+
+    await completeLeadTask(colleague, taskId);
+    const [done] = await db.select({ doneAt: schema.leadTasks.doneAt }).from(schema.leadTasks).where(eq(schema.leadTasks.id, taskId));
+    expect(done.doneAt).not.toBeNull();
+
+    await reopenLeadTask(colleague, taskId);
+    const [reopened] = await db.select({ doneAt: schema.leadTasks.doneAt }).from(schema.leadTasks).where(eq(schema.leadTasks.id, taskId));
+    expect(reopened.doneAt).toBeNull();
+
+    // The colleague's actions are audited under THEIR user id, not the author's (DM-04).
+    const audits = await auditFor("task.edited", taskId);
+    expect(audits).toHaveLength(1);
+    const [actor] = await db
+      .select({ actorUserId: schema.auditLog.actorUserId })
+      .from(schema.auditLog)
+      .where(and(eq(schema.auditLog.action, "task.edited"), eq(schema.auditLog.entityRef, taskId)));
+    expect(actor.actorUserId).toBe(id.pxUser2);
+
+    // …but delete stays author-only (the boundary this test brackets).
+    await expect(deleteLeadTask(colleague, taskId)).rejects.toBeInstanceOf(TaskNotFoundError);
   });
 
   // ── TSK-05: author-only delete ────────────────────────────────────────────
