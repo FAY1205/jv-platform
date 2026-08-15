@@ -157,6 +157,18 @@ suite("WP-TAG-1: tag commands", () => {
     expect(entries[0].after).toMatchObject({ name: "Probate lead", color: "plum" });
   });
 
+  it("TAG-06: a COLOR-only patch never reports a name clash (asDuplicate is index-scoped)", async () => {
+    // Regression (audit-tenancy F-6): asDuplicate used to map ANY 23505 to
+    // DuplicateTagNameError with `patch.name ?? ""`, so a colour-only PATCH could surface
+    // `A tag called "" already exists.` Colours are not unique — two tags may share one.
+    const a = await createTag(scope, { name: "Alpha", color: "teal" });
+    const b = await createTag(scope, { name: "Beta", color: "blue" });
+    await updateTag(scope, b.id, { color: "teal" });
+    const rows = await listTags(scope);
+    expect(rows.find((t) => t.id === a.id)?.color).toBe("teal");
+    expect(rows.find((t) => t.id === b.id)).toMatchObject({ name: "Beta", color: "teal" });
+  });
+
   it("TAG-02: an unknown tag id or lead ref is refused rather than silently ignored", async () => {
     const tag = await createTag(scope, { name: "Probate" });
     await expect(attachTag(scope, REF, randomUUID())).rejects.toBeInstanceOf(TagNotFoundError);

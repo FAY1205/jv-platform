@@ -1,10 +1,15 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import { inArray, sql } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import { getDb } from "@/db";
 import * as schema from "@/db/schema";
 import type { ScopeContext } from "@/lib/scope";
-import { tagWhere, leadTagWhere, listTags, attachTag, TagNotFoundError, LeadNotFoundError } from "@/modules/tags/tags";
+import {
+  tagWhere, leadTagWhere, listTags, listLeadTags, tagsByLeadRef, createTag, updateTag, deleteTag,
+  attachTag, detachTag, TagNotFoundError, LeadNotFoundError, TagScopeError,
+} from "@/modules/tags/tags";
+import { listLeads } from "@/modules/leads/queries";
+import { LeadsQuerySchema } from "@/modules/leads/schema";
 import { purgeAuditLog } from "../helpers/audit";
 
 // WP-TAG-1 / TAG-02 (live): the tags isolation matrix (TST-01 shape). Cross-tenant tags are
@@ -35,6 +40,7 @@ suite("TAG-02: tag isolation + the RLS backstop", () => {
     await db.delete(schema.leads).where(inArray(schema.leads.tenantId, tids));
     await db.delete(schema.uploads).where(inArray(schema.uploads.tenantId, tids));
     await db.delete(schema.users).where(inArray(schema.users.tenantId, tids));
+    await db.delete(schema.partners).where(inArray(schema.partners.tenantId, tids));
     await db.delete(schema.tenants).where(inArray(schema.tenants.id, tids));
   }
 
@@ -51,6 +57,15 @@ suite("TAG-02: tag isolation + the RLS backstop", () => {
     id.adminUserB = randomUUID();
     await db.insert(schema.users).values({ id: id.adminUser, tenantId: t.id, email: "admin@tags.test", role: "admin" });
     await db.insert(schema.users).values({ id: id.adminUserB, tenantId: tb.id, email: "admin@tags-b.test", role: "admin" });
+    // A partner org in tenant A, purely so a real partner ScopeContext exists for the
+    // module-level admin-gate probe (tags have no partner surface by design).
+    const [pa] = await db
+      .insert(schema.partners)
+      .values({ tenantId: t.id, refId: "JV-201", name: "PA", color: "#111", status: "active" })
+      .returning({ id: schema.partners.id });
+    id.partner = pa.id;
+    id.partnerUser = randomUUID();
+    await db.insert(schema.users).values({ id: id.partnerUser, tenantId: t.id, email: "px@tags.test", role: "partner", partnerId: pa.id });
 
     const [up] = await db.insert(schema.uploads).values({ tenantId: t.id, refId: "IM-26-201", filename: "a.xlsx", status: "processed" }).returning({ id: schema.uploads.id });
     const [upB] = await db.insert(schema.uploads).values({ tenantId: tb.id, refId: "IM-26-202", filename: "b.xlsx", status: "processed" }).returning({ id: schema.uploads.id });
@@ -121,6 +136,97 @@ suite("TAG-02: tag isolation + the RLS backstop", () => {
     const bTags = await listTags(adminB());
     expect(bTags).toHaveLength(1);
     expect(bTags[0]).toMatchObject({ name: "B-Probate", leadCount: 1 });
+  });
+
+  // ── the isolation legs a randomUUID probe cannot reach (audit-tenancy F-3) ─────────
+  // A non-existent id proves an id is REJECTED; it cannot tell "rejected because it is
+  // another tenant's" from "rejected because it is nobody's". Every leg below uses a REAL
+  // row belonging to the other tenant, which is the only oracle for the tenant column.
+
+  it("TAG-01/SCP-01: the unique name index is PER TENANT — B's name is free in A (non-oracle)", async () => {
+    // The leg that guards the index's tenant_id column: without it this would 409 instead of
+    // creating, and every tenant would silently share one namespace.
+    const made = await createTag(adminA(), { name: "B-Probate", color: "gold" });
+    expect(made.id).toBeTruthy();
+    expect((await listTags(adminA())).map((t) => t.name).sort()).toEqual(["A-Probate", "B-Probate"]);
+    // …and B still has exactly its own one row (the create landed in A, not B).
+    expect(await listTags(adminB())).toHaveLength(1);
+    await deleteTag(adminA(), made.id); // restore the single-tag baseline for later legs
+  });
+
+  it("TAG-02/SCP-01: every WRITE against a REAL foreign tag is refused", async () => {
+    // rename / recolor / delete / detach — the four mutations that take a tag id directly.
+    await expect(updateTag(adminA(), id.tagB, { name: "stolen" })).rejects.toBeInstanceOf(TagNotFoundError);
+    await expect(updateTag(adminA(), id.tagB, { color: "rose" })).rejects.toBeInstanceOf(TagNotFoundError);
+    await expect(deleteTag(adminA(), id.tagB)).rejects.toBeInstanceOf(TagNotFoundError);
+    await expect(detachTag(adminA(), "LD-26-20001", id.tagB)).rejects.toBeInstanceOf(TagNotFoundError);
+    // B's tag is untouched by any of it.
+    const [row] = await db.select({ name: schema.tags.name, color: schema.tags.color }).from(schema.tags).where(eq(schema.tags.id, id.tagB));
+    expect(row).toEqual({ name: "B-Probate", color: "blue" });
+  });
+
+  it("TAG-02/SCP-01: detach is refused ACROSS the boundary in both directions", async () => {
+    // foreign tag + in-tenant lead (above) and in-tenant tag + foreign lead (here).
+    await expect(detachTag(adminA(), "LD-26-20002", id.tagA)).rejects.toBeInstanceOf(LeadNotFoundError);
+    await expect(detachTag(adminB(), "LD-26-20001", id.tagB)).rejects.toBeInstanceOf(LeadNotFoundError);
+    // B's own attachment (written directly in the previous test) survived both attempts.
+    expect(await db.select({ id: schema.leadTags.id }).from(schema.leadTags).where(leadTagWhere(adminB()))).toHaveLength(1);
+  });
+
+  it("TAG-02/SCP-01: a foreign lead ref is refused by the per-lead reads too", async () => {
+    await expect(listLeadTags(adminA(), "LD-26-20002")).rejects.toBeInstanceOf(LeadNotFoundError);
+    // The batch loader takes refs FROM A CALLER, so it is probed with a MIXED array: only the
+    // in-tenant ref comes back keyed, the foreign one is simply absent (not an error, since a
+    // page's refs are already scope-derived — but never resolved either).
+    const byRef = await tagsByLeadRef(db, adminA(), ["LD-26-20001", "LD-26-20002"]);
+    expect([...byRef.keys()]).toEqual(["LD-26-20001"]);
+  });
+
+  it("TAG-02/audit-tenancy F-2: tagsByLeadRef refuses a PARTNER scope in the module itself", async () => {
+    // Its callers include listLeads, which is not a tags route — so the admin gate cannot be
+    // the routes' job alone (the listLeadsBoard precedent).
+    const partner: ScopeContext = { tenantId: id.tenant, role: "partner", userId: id.partnerUser, partnerId: id.partner };
+    await expect(tagsByLeadRef(db, partner, ["LD-26-20001"])).rejects.toBeInstanceOf(TagScopeError);
+  });
+
+  it("TAG-03/SCP-01: the ?tags= filter with a REAL foreign tag id returns nothing and changes nothing", async () => {
+    // The leg that guards taggedWithAny's tenant predicate: B's tag IS attached to B's lead,
+    // so a dropped tenant filter would surface a cross-tenant row rather than an empty set.
+    const foreign = await listLeads(adminA(), LeadsQuerySchema.parse({ tags: id.tagB }));
+    expect(foreign.leads).toHaveLength(0);
+    expect(foreign.total).toBe(0);
+    // …and A's own filter still works, i.e. the predicate wasn't just broken outright.
+    const own = await listLeads(adminA(), LeadsQuerySchema.parse({ tags: id.tagA }));
+    expect(own.leads.map((l) => l.refId)).toEqual(["LD-26-20001"]);
+    // A mixed list is still any-of over the caller's OWN tags only.
+    const mixed = await listLeads(adminA(), LeadsQuerySchema.parse({ tags: `${id.tagA},${id.tagB}` }));
+    expect(mixed.leads.map((l) => l.refId)).toEqual(["LD-26-20001"]);
+    expect(mixed.total).toBe(1);
+  });
+
+  it("TAG-06/ADR-0013: a MIS-TENANTED junction row cannot inflate a usage count", async () => {
+    // Pins the deliberate defence-in-depth: listTags' leadTags join carries its OWN tenant
+    // predicate, so a row whose tenant_id disagrees with its lead/tag is invisible to both
+    // tenants rather than counted by the one that owns the tag. Written raw — no app path
+    // produces this, which is exactly why the guard is worth pinning. A FRESH tag, so the
+    // count under test starts at a known zero (leadA already carries tagA legitimately).
+    const orphanTag = await createTag(adminA(), { name: "A-Orphan", color: "rose" });
+    await db.insert(schema.leadTags).values({
+      tenantId: id.tenantB, // ← the lie: B's tenant on A's lead + A's tag
+      leadId: id.leadA,
+      tagId: orphanTag.id,
+      addedByUserId: id.adminUserB,
+    });
+    try {
+      // Invisible to the tag's OWN tenant (the join's tenant predicate rejects it)…
+      expect((await listTags(adminA())).find((t) => t.id === orphanTag.id)?.leadCount).toBe(0);
+      // …and to the tenant it falsely claims (which cannot see the tag at all).
+      expect((await listTags(adminB())).map((t) => t.id)).toEqual([id.tagB]);
+      expect((await listTags(adminB())).find((t) => t.id === id.tagB)?.leadCount).toBe(1); // unchanged
+    } finally {
+      await db.delete(schema.leadTags).where(eq(schema.leadTags.tagId, orphanTag.id));
+      await db.delete(schema.tags).where(and(tagWhere(adminA()), eq(schema.tags.id, orphanTag.id)));
+    }
   });
 
   it("TAG-02/SEC-01: BOTH tags_scope policy halves pin tenant AND the admin role", async () => {

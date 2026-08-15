@@ -20,14 +20,21 @@ import type { BoardQuery, LeadsQuery } from "./schema";
  * is already tenant-scoped, but a junction row is only reachable through its own tenant.
  * Written as a raw fragment so the ORM builder path (list) and the raw CTE (board) share
  * ONE definition — `leads.id` resolves identically in both.
+ *
+ * The tenant leg is `tenantWhere(schema.leadTags, …)`, not a hand-rolled `eq` (audit-tenancy
+ * F-1, the same rule the partners join two functions below already follows): a future change
+ * to tenant filtering reaches this predicate instead of missing a private copy (R-24). That
+ * is also why the subquery is UNALIASED — the drizzle column refs render the TABLE name
+ * (`"lead_tags"."tenant_id"`), so an alias would put the fragments out of scope. Nothing in
+ * either outer query references `lead_tags`, so unaliased is unambiguous.
  */
 function taggedWithAny(scope: ScopeContext, tagIds: readonly string[]): SQL {
   const ids = sql.join(tagIds.map((id) => sql`${id}::uuid`), sql`, `);
   return sql`exists (
-    select 1 from lead_tags lt
-    where lt.lead_id = ${schema.leads.id}
-      and lt.tenant_id = ${scope.tenantId}
-      and lt.tag_id in (${ids})
+    select 1 from lead_tags
+    where ${schema.leadTags.leadId} = ${schema.leads.id}
+      and ${tenantWhere(schema.leadTags, scope)}
+      and ${schema.leadTags.tagId} in (${ids})
   )`;
 }
 

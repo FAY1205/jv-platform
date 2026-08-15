@@ -10,8 +10,11 @@ import type { RunDetail } from "@/modules/run/queries";
 // TSK-06 raised the stakes on `activity`: the timeline now carries note bodies and task
 // titles (human free text), not just system labels — so it stays excluded here and in
 // BANNED_KEYS, and any future tool that reaches for a lead's timeline must project it.
+// TAG-04 added `tags` to the leads-list row: chip names are operator free text, so the
+// allowlist projections below already drop them — `tags` joins BANNED_KEYS so the leak test
+// fails loudly if a future tool hands the model a raw row instead of a masked one.
 
-export const BANNED_KEYS = ["seller", "address", "notes", "reasonForSelling", "motivation", "timeToSell", "activity", "leads", "email", "phone", "reason"] as const;
+export const BANNED_KEYS = ["seller", "address", "notes", "reasonForSelling", "motivation", "timeToSell", "activity", "leads", "email", "phone", "reason", "tags"] as const;
 
 export interface MaskedPartnerRef { name: string; refId: string }
 const partnerRef = (p: { name: string; refId: string } | null): MaskedPartnerRef | null =>

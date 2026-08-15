@@ -62,6 +62,18 @@ describe("TAG-03: the shared ?tags= parser", () => {
     expect(p.parse(many.join(",")).length).toBeLessThanOrEqual(TAG_FILTER_MAX);
   });
 
+  it("bounds the SPLIT itself, not just the result (audit-tenancy F-7)", () => {
+    // The post-parse cap runs after `split`, so an unbounded split would still materialise
+    // half a million strings from an untrusted URL before the first uuid test.
+    expect(p.parse(",".repeat(500_000))).toEqual([]);
+    // A huge array param is sliced the same way, and a valid id BEYOND the segment bound is
+    // not reached — the bound is real, not decorative.
+    expect(p.parse([...Array.from({ length: 500_000 }, () => "x"), a])).toEqual([]);
+    // …while a legitimate over-long request still degrades rather than erroring (the 50
+    // copies of `a` collapse to one, and `b` is inside the segment bound).
+    expect(p.parse([...Array.from({ length: 50 }, () => a), b])).toEqual([a, b]);
+  });
+
   it("TAG-03: the LIST and the BOARD embed the SAME parser — `?tags=` means one thing", () => {
     expect(LeadsQuerySchema.parse({ tags: `${a},${b}` }).tags).toEqual([a, b]);
     expect(BoardQuerySchema.parse({ tags: `${a},${b}` }).tags).toEqual([a, b]);

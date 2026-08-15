@@ -3,7 +3,7 @@ import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import { getDb } from "@/db";
 import * as schema from "@/db/schema";
 import { leadWhere, tenantWhere, type ScopeContext } from "@/lib/scope";
-import { pgErrorCode } from "@/lib/db/pg-error";
+import { pgErrorInfo } from "@/lib/db/pg-error";
 import { nextTagColor, type TagColor } from "@/lib/tokens/tokens";
 import type { CreateTagInput, UpdateTagInput } from "./schema";
 
@@ -39,6 +39,12 @@ import type { CreateTagInput, UpdateTagInput } from "./schema";
 // bodies and task titles which are masked (SEC-05, ADR-0031). The lead's ref id travels
 // with attach/detach entries for the same reason it does on tasks: it is the audit's
 // human-readable handle, and it is already all over the admin surface.
+//
+// "Not PII" is NOT "not user-originated" (audit-tenancy F-9). A tag name is free text an
+// operator typed, so any FUTURE surface that renders it into a spreadsheet or an email must
+// treat it like every other user cell: run it through `sanitizeCell` before it reaches a
+// CSV/Excel cell (SEC-06 formula injection), and escape it in HTML mail. No export or email
+// path carries tags today — this line exists so the one that does starts from the rule.
 // ─────────────────────────────────────────────────────────────────────────────
 
 type DB = PostgresJsDatabase<typeof schema>;
@@ -60,6 +66,14 @@ export class DuplicateTagNameError extends Error {
   constructor(name: string) {
     super(`A tag called "${name}" already exists.`);
     this.name = "DuplicateTagNameError";
+  }
+}
+/** TAG-02: tags are admin-only in v1 — a partner scope reaching a tag read is a programming
+ *  error (the routes 403 first), not a user-facing condition. */
+export class TagScopeError extends Error {
+  constructor() {
+    super("Tags are admin-only.");
+    this.name = "TagScopeError";
   }
 }
 
@@ -84,10 +98,21 @@ export interface TagWithUsage extends TagView {
   leadCount: number;
 }
 
-/** The unique index is the ONLY duplicate check (TAG-01): a read-then-write pre-check races
- *  two concurrent creates into two rows differing only in case. Map the 23505 instead. */
-function asDuplicate(e: unknown, name: string): unknown {
-  return pgErrorCode(e) === "23505" ? new DuplicateTagNameError(name) : e;
+/** The index the case-insensitive name rule is enforced by (migration 0042). */
+const TAG_NAME_INDEX = "tags_tenant_name_idx";
+
+/**
+ * The unique index is the ONLY duplicate check (TAG-01): a read-then-write pre-check races
+ * two concurrent creates into two rows differing only in case. Map the 23505 instead — but
+ * ONLY the one the NAME index raised (audit-tenancy F-6). `lead_tags_lead_tag_idx` also
+ * raises 23505, and a blanket mapping would have reported an unrelated junction conflict as
+ * `A tag called "" already exists.` — a wrong, and on a color-only PATCH nonsensical,
+ * message. Anything else propagates as the 500 it is.
+ */
+function asDuplicate(e: unknown, name: string | undefined): unknown {
+  const info = pgErrorInfo(e);
+  if (info.code !== "23505" || info.constraint !== TAG_NAME_INDEX || name === undefined) return e;
+  return new DuplicateTagNameError(name);
 }
 
 /**
@@ -126,8 +151,14 @@ export async function listTags(scope: ScopeContext): Promise<TagWithUsage[]> {
 
 /**
  * TAG-03/TAG-04 — create a tag. `color` omitted means "the next palette color, round-robin"
- * (the picker's create-inline path sends a name only). The count that drives the round-robin
- * is read INSIDE the transaction so two concurrent creates don't both pick the same slot.
+ * (the picker's create-inline path sends a name only).
+ *
+ * The round-robin is BEST-EFFORT. The count is read inside the transaction, but under READ
+ * COMMITTED two concurrent creates can still both observe the same count and pick the same
+ * slot. That is deliberate: the consequence is cosmetic — two tags sharing a hue — and it is
+ * NOT an information problem, because a chip always renders its name (PRN-14) and the color
+ * can be changed in Settings (TAG-06). Serializing tag creation behind a lock to make a
+ * color choice unique would be a real cost for a decorative guarantee.
  */
 export async function createTag(
   scope: ScopeContext,
@@ -216,7 +247,9 @@ export async function updateTag(
       });
     });
   } catch (e) {
-    throw asDuplicate(e, patch.name ?? "");
+    // `patch.name` undefined ⇒ a color-only PATCH, which cannot collide on the name index:
+    // asDuplicate passes such an error straight through rather than inventing a name clash.
+    throw asDuplicate(e, patch.name);
   }
 }
 
@@ -331,12 +364,21 @@ export async function listLeadTags(scope: ScopeContext, leadRefId: string): Prom
  * loader. Tenant-scoped on every table in the join (ADR-0013 defence-in-depth); ordering is
  * by lower(name) so a row's chips (and therefore which two survive the card's cap) are
  * stable between renders.
+ *
+ * ADMIN-ONLY, enforced HERE and not only at the route (audit-tenancy F-2). Every other
+ * function in this module resolves its own inputs from the tenant-scoped tables; this one
+ * takes lead refs FROM A CALLER, so its safety cannot rest on the tag routes' admin gates —
+ * it is called from `listLeads`, which is not a tags route at all. `listLeadsBoard` sets the
+ * precedent: a module whose read is admin-only says so itself rather than trusting every
+ * present and future caller to have been gated. Revisit only if a partner-facing tag stream
+ * is decided — at which point this needs a partner arm, not a relaxed guard.
  */
 export async function tagsByLeadRef(
   db: DB,
   scope: ScopeContext,
   leadRefIds: readonly string[],
 ): Promise<Map<string, TagView[]>> {
+  if (scope.role !== "admin") throw new TagScopeError();
   const byRef = new Map<string, TagView[]>();
   if (leadRefIds.length === 0) return byRef;
   const rows = await db

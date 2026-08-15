@@ -50,6 +50,15 @@ export interface CreateAndAttachVars {
   name: string;
 }
 
+/** The half-done state of create-inline: the tag WAS created, only the attach failed. A
+ *  distinct type (not just a string) so the hook can also refresh the roster on this path. */
+export class CreateAndAttachPartialError extends Error {
+  constructor(name: string) {
+    super(`“${name}” was created but couldn't be added to this lead — pick it from the list.`);
+    this.name = "CreateAndAttachPartialError";
+  }
+}
+
 /**
  * Attach / detach / create-then-attach for ONE lead. Deliberately NOT optimistic: a tag
  * chip's truth includes a server-assigned color (create-inline) and a server-side
@@ -73,16 +82,43 @@ export function useLeadTagMutations() {
     onError: (e: Error) => toast(e.message || "Couldn't remove the tag.", "danger"),
   });
 
+  /**
+   * TAG-04 create-inline is TWO calls behind ONE gesture, so it has a partial-failure state
+   * the other mutations don't: the tag can be created and the attach still fail. Reporting
+   * "Couldn't create the tag" there is simply FALSE — the tag exists, it is in the picker,
+   * and the operator's next click would hit a duplicate-name 409 (pr-review F-2).
+   *
+   * So: retry the attach ONCE with the id we already hold (attach is idempotent, so a retry
+   * is free and cannot double-attach), and if it still fails, throw a distinct error naming
+   * the real state. `CreateAndAttachPartialError` carries that message to onError, which is
+   * why onError reports `e.message` rather than one blanket string.
+   */
   const createAndAttach = useMutation({
     mutationFn: async (v: CreateAndAttachVars) => {
-      // Two calls, one gesture (TAG-04 create-inline). The color is chosen SERVER-side
-      // (next palette slot, round-robin) so the client never invents one off-palette.
+      // The color is chosen SERVER-side (next palette slot, round-robin) so the client never
+      // invents one off-palette.
       const tag = await apiMutate<{ id: string }>("/api/tags", "POST", { name: v.name });
-      await apiMutate<{ attached: boolean }>(`/api/leads/${v.refId}/tags`, "POST", { tagId: tag.id });
+      const attach = () =>
+        apiMutate<{ attached: boolean }>(`/api/leads/${v.refId}/tags`, "POST", { tagId: tag.id });
+      try {
+        await attach();
+      } catch {
+        try {
+          await attach();
+        } catch {
+          throw new CreateAndAttachPartialError(v.name);
+        }
+      }
       return tag;
     },
+    // The roster is refreshed on BOTH paths: after a partial failure the tag really does
+    // exist, so the picker must show it (otherwise create-inline is the only way back to it,
+    // and that now 409s).
     onSuccess: (_d, v) => invalidateTagSurfaces(qc, v.refId),
-    onError: (e: Error) => toast(e.message || "Couldn't create the tag.", "danger"),
+    onError: (e: Error) => {
+      if (e instanceof CreateAndAttachPartialError) invalidateTagSurfaces(qc);
+      toast(e.message || "Couldn't create the tag.", "danger");
+    },
   });
 
   return {

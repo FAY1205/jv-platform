@@ -41,6 +41,16 @@ export const AttachTagSchema = z.strictObject({ tagId: z.string().uuid() });
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
+ * How many comma-separated segments the raw param is split into before ANY validation. The
+ * cap above matters only after parsing; this one bounds the parse itself (audit-tenancy
+ * F-7). `?tags=` accepts up to 120 characters of query string per segment from an untrusted
+ * URL, and `"a,".repeat(500_000).split(",")` materialises half a million strings before the
+ * uuid test ever runs. A generous multiple of TAG_FILTER_MAX, so a legitimate over-long
+ * request still degrades to the cap rather than erroring.
+ */
+const TAG_PARAM_MAX_SEGMENTS = TAG_FILTER_MAX * 10;
+
+/**
  * The shared `?tags=` filter parser for BOTH the list and the board (TAG-03: v1 is OR /
  * any-of). Comma-separated uuids; anything unparseable is dropped rather than 400-ing, an
  * empty result means "no tag filter", and the list is de-duplicated + capped so a crafted
@@ -52,7 +62,14 @@ export const tagsParam = () =>
     .unknown()
     .optional()
     .transform((v): string[] => {
-      const raw = typeof v === "string" ? v.split(",") : Array.isArray(v) ? v.map(String) : [];
+      const raw =
+        typeof v === "string"
+          ? // Bounded split: the limit argument makes the ARRAY size bounded, not just the
+            // result — the whole point of the cap (a 500k-segment string is a URL, not a filter).
+            v.split(",", TAG_PARAM_MAX_SEGMENTS)
+          : Array.isArray(v)
+            ? v.slice(0, TAG_PARAM_MAX_SEGMENTS).map(String)
+            : [];
       const seen = new Set<string>();
       for (const s of raw) {
         const id = s.trim().toLowerCase();
