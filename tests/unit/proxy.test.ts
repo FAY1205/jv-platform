@@ -149,4 +149,18 @@ describe("proxy: getUser() failure handling (ADR-0032 — keep benign session-en
     expect(res.headers.get("location")).toBeNull();
     expect(res.headers.get("Cache-Control")).toBe("no-store");
   });
+
+  // WP-TSK-5: the admin My Tasks page is a new protected page prefix — pages don't
+  // self-guard (API routes do, via getServerScope), so this proxy list is the only gate.
+  it("WP-TSK-5: an unauthenticated request to /tasks (new admin prefix) redirects to /login", async () => {
+    const res = await proxy(req("/tasks"));
+    expect(res.status).toBe(307);
+    expect(res.headers.get("location")).toContain("/login");
+  });
+
+  it("WP-TSK-5: an unauthenticated request to /portal/tasks redirects to /portal/login (already covered by the /portal prefix)", async () => {
+    const res = await proxy(req("/portal/tasks"));
+    expect(res.status).toBe(307);
+    expect(res.headers.get("location")).toContain("/portal/login");
+  });
 });

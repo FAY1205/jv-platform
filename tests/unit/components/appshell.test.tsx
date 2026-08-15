@@ -9,8 +9,9 @@ describe("F-63: shell nav", () => {
     expect(NAV_SECTIONS.map((s) => s.label)).toEqual(["Route", "Review", "Network", "Admin"]);
   });
 
-  it("F-63: Route holds Dashboard + Leads; Review holds Unmatched + Imports", () => {
-    expect(NAV_SECTIONS[0].items.map((i) => i.href)).toEqual(["/dashboard", "/leads"]);
+  it("F-63: Route holds Dashboard + Leads + Tasks; Review holds Unmatched + Imports", () => {
+    // WP-TSK-5: Tasks joins Route (today's work), after Leads.
+    expect(NAV_SECTIONS[0].items.map((i) => i.href)).toEqual(["/dashboard", "/leads", "/tasks"]);
     expect(NAV_SECTIONS[1].items.map((i) => i.href)).toEqual(["/unmatched", "/imports"]);
   });
 

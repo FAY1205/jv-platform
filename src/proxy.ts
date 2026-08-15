@@ -19,7 +19,11 @@ import { logError } from "@/lib/observability";
 // "/portal/login", static assets.
 // "/runs" stays listed defensively: next.config redirects it to /imports (old
 // notification deep links, bookmarks), and the prefix guard is belt-and-braces.
-const PROTECTED_PAGE_PREFIXES = ["/dashboard", "/tos", "/imports", "/runs", "/upload", "/account", "/portal", "/leads", "/unmatched", "/dev", "/partners", "/coverage", "/settings", "/rules", "/activity"];
+// WP-TSK-5: "/tasks" (admin My Tasks) is a new page and needs its own entry — API routes
+// self-guard (getServerScope) but pages don't. "/portal/tasks" needs no separate entry: it
+// already falls under the "/portal" prefix below (prefix match, not exact), same as every
+// other /portal/* page.
+const PROTECTED_PAGE_PREFIXES = ["/dashboard", "/tos", "/imports", "/runs", "/upload", "/account", "/portal", "/leads", "/unmatched", "/dev", "/partners", "/coverage", "/settings", "/rules", "/activity", "/tasks"];
 const PUBLIC_EXCEPTIONS = ["/portal/login"];
 
 function isProtectedPage(pathname: string): boolean {

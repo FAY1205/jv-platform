@@ -36,6 +36,7 @@ export const NAV_SECTIONS: { label: string; items: NavItem[] }[] = [
   { label: "Route", items: [
     { href: "/dashboard", label: "Dashboard", icon: "dashboard" },
     { href: "/leads", label: "Leads", icon: "leads", badge: "leads" },
+    { href: "/tasks", label: "Tasks", icon: "tasks" },
   ]},
   { label: "Review", items: [
     { href: "/unmatched", label: "Unmatched", icon: "unmatched", badge: "unmatched" },

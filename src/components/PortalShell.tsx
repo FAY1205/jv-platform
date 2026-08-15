@@ -42,6 +42,8 @@ const TABS: Tab[] = [
   { href: "/portal/dashboard", label: "Dashboard", icon: "dashboard", active: (p) => p === "/portal/dashboard" },
   { href: "/portal/leads", label: "Leads", icon: "leads", badge: true, active: (p) => p.startsWith("/portal/leads") },
   { href: "/portal/activity", label: "Activity", icon: "activity", active: (p) => p.startsWith("/portal/activity") },
+  // WP-TSK-5 (TSK-07): the 5th bottom tab / rail item — My Tasks, portal-scoped.
+  { href: "/portal/tasks", label: "Tasks", icon: "tasks", active: (p) => p.startsWith("/portal/tasks") },
   { href: "/portal", label: "Account", icon: "account", active: (p) => p === "/portal" || p.startsWith("/portal/devices") },
 ];
 
