@@ -38,6 +38,8 @@ async function wipe() {
   const T = tenant.id;
   await sql`delete from lead_status_history where tenant_id=${T}`;
   await sql`delete from lead_notes where tenant_id=${T}`;
+  // WP-TSK-4: lead_tasks references leads — must go before the leads wipe below.
+  await sql`delete from lead_tasks where tenant_id=${T}`;
   await sql`delete from listing_checks where tenant_id=${T}`;
   await sql`delete from events where tenant_id=${T}`;
   // audit_log is append-only evidence (ACT-04 / F-05) — the seeder never deletes it.
@@ -261,6 +263,61 @@ for (let i = 0; i < leads.length; i++) {
 }
 for (let i = 0; i < history.length; i += 300) {
   await sql`insert into lead_status_history ${sql(history.slice(i, i + 300), "tenant_id","lead_id","status","created_at")}`;
+}
+
+// ── demo lead tasks (WP-TSK-4 DoD, amended from WP-TSK-1) ────────────────────────
+// Both streams get one overdue, one due-today, and one done task, attached to existing
+// demo leads (never invented rows) — the same "both streams" shape the tenancy tests use.
+// Admin tasks belong to the tenant's admin (ADMIN_ID, already resolved above). Partner
+// tasks need a real Supabase-auth-backed portal user (users.id mirrors the auth user id
+// — this script, unlike the app, cannot fabricate one), so they only seed when a partner
+// portal login was already provisioned for this tenant (scripts/provision-partner.ts);
+// otherwise they're skipped with a console note rather than faked.
+const ownedKeptIdx = [];
+for (let i = leads.length - 1; i >= 0 && ownedKeptIdx.length < 24; i--) {
+  const m = leadMeta[i];
+  if (m.kept && m.effPartner) ownedKeptIdx.push(i);
+}
+
+async function seedTaskTrio(authorUserId, authorRole, leadIdxs, titles) {
+  // [dueOffsetDays, doneOffsetDaysOrNull] — overdue / due-today / done, in that order.
+  const PLAN = [[-3, null], [0, null], [-2, -1]];
+  for (let i = 0; i < PLAN.length; i++) {
+    const [dueOffset, doneOffset] = PLAN[i];
+    const dueOn = new Date(NOW + dueOffset * DAY).toISOString().slice(0, 10);
+    const doneAt = doneOffset === null ? null : new Date(NOW + doneOffset * DAY).toISOString();
+    await sql`
+      insert into lead_tasks (tenant_id, lead_id, author_user_id, author_role, assigned_to_user_id, title, due_on, done_at)
+      values (${tenant.id}, ${leadIds[leadIdxs[i]]}, ${authorUserId}, ${authorRole}, ${authorUserId}, ${titles[i]}, ${dueOn}, ${doneAt})`;
+  }
+}
+
+if (ADMIN_ID && ownedKeptIdx.length >= 3) {
+  await seedTaskTrio(ADMIN_ID, "admin", ownedKeptIdx.slice(0, 3), [
+    "Call seller to schedule walkthrough",
+    "Send comps + preliminary offer range",
+    "Initial contact — left voicemail",
+  ]);
+  console.log("seeded 3 admin-stream demo tasks");
+} else {
+  console.log("skipped admin-stream demo tasks — no admin user or no owned/kept leads");
+}
+
+const [partnerUser] = await sql`select id, partner_id from users where tenant_id=${tenant.id} and role='partner' order by created_at limit 1`;
+if (partnerUser) {
+  const partnerLeadIdx = ownedKeptIdx.filter((i) => leadMeta[i].effPartner === partnerUser.partner_id).slice(0, 3);
+  if (partnerLeadIdx.length >= 3) {
+    await seedTaskTrio(partnerUser.id, "partner", partnerLeadIdx, [
+      "Follow up on signed access agreement",
+      "Re-check MLS status before offer",
+      "Confirm access window with seller",
+    ]);
+    console.log("seeded 3 partner-stream demo tasks");
+  } else {
+    console.log("skipped partner-stream demo tasks — the provisioned partner user owns fewer than 3 kept leads");
+  }
+} else {
+  console.log("skipped partner-stream demo tasks — no partner portal user provisioned for this tenant (run scripts/provision-partner.ts)");
 }
 
 await sql.end();

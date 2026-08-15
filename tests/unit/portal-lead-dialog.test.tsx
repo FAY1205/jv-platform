@@ -17,12 +17,17 @@ const LEAD = {
   receivedAt: "2026-08-04T15:33:00.000Z",
   status: "New",
   history: [{ status: "New", changedAt: "2026-08-04T15:33:00.000Z" }],
+  // TSK-06: the unified timeline — WP-TSK-4 added TasksPanel + Timeline to this dialog,
+  // both of which read this array (Timeline directly; TasksPanel via its own endpoint).
+  activity: [{ kind: "imported", at: "2026-08-04T15:33:00.000Z", label: "Lead received", actor: null }],
   availableStatuses: ["New", "Contacted", "Closed"],
   listing: { status: "no", link: null },
 };
 
 vi.mock("@/lib/api", () => ({
-  apiGet: vi.fn(async (url: string) => (url.includes("/notes") ? { notes: [] } : LEAD)),
+  // TasksPanel's GET (/api/leads/[ref]/tasks) is a different endpoint from the lead
+  // detail/notes fetches this fixture already stubs — route it to an empty list too.
+  apiGet: vi.fn(async (url: string) => (url.includes("/notes") ? { notes: [] } : url.includes("/tasks") ? { tasks: [] } : LEAD)),
 }));
 
 import { ToastProvider } from "@/components";
