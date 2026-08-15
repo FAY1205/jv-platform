@@ -17,8 +17,16 @@ export async function GET(request: Request) {
     const { q } = SearchQuerySchema.parse(params);
     return jsonOk(await globalSearch(scope, q));
   } catch (e) {
-    // SEC-05: the query text is user data — the 500 envelope carries a traceId, not the
-    // failure detail or the search terms.
-    return authErrorResponse(e) ?? jsonServerError("search_failed", "Search failed.");
+    // F-42 / the board route's precedent: the CLIENT gets a static message plus the
+    // traceId, and the real reason goes to the server log under that same id —
+    // jsonServerError passes `detail` to logError (scrubbed) and never into the response
+    // body, so a driver error's bound params can't be echoed back. The query text itself
+    // is deliberately not in `detail` (SEC-05: it can be a seller's phone or name).
+    return (
+      authErrorResponse(e) ??
+      jsonServerError("search_failed", "Search failed.", {
+        message: e instanceof Error ? e.message : String(e),
+      })
+    );
   }
 }

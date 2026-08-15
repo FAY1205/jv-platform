@@ -12,8 +12,14 @@ import {
   requestGlobalSearch,
 } from "@/lib/global-search";
 import { statusPillClass } from "@/lib/status-pill";
-import { SEARCH_MIN_CHARS, isSearchable } from "@/modules/search/schema";
-import type { SearchLeadRow, SearchPartnerRow, SearchResults } from "@/modules/search/queries";
+import {
+  SEARCH_MIN_CHARS,
+  isSearchable,
+  normalizeSearchTerm,
+  type SearchLeadRow,
+  type SearchPartnerRow,
+  type SearchResults,
+} from "@/modules/search/schema";
 import { Dialog } from "./Dialog";
 import { EmptyState } from "./EmptyState";
 import { HotLeadIcon } from "./HotLeadMark";
@@ -101,8 +107,8 @@ function SearchIcon({ size = 14 }: { size?: number }) {
 
 /**
  * The overlay itself. Mounted ONCE (the (admin) layout); opens on Ctrl/⌘-K or on the
- * topbar trigger's event. Focus trap, Esc-to-close and return-focus-to-opener come
- * from the Dialog primitive (Radix), not hand-rolled.
+ * topbar trigger's event. The focus TRAP and Esc-to-close come from the Dialog primitive
+ * (Radix); return-focus-to-opener is hand-rolled here — see `openerRef` below.
  */
 export function GlobalSearchOverlay() {
   const router = useRouter();
@@ -120,17 +126,27 @@ export function GlobalSearchOverlay() {
     const t = setTimeout(() => setCommitted(q), SEARCH_DEBOUNCE_MS);
     return () => clearTimeout(t);
   }, [q, committed]);
-  const ready = isSearchable(committed);
+  // The term that is actually SENT — normalized with the endpoint's own rule, so the
+  // echo check below compares like with like. Comparing the raw committed text against
+  // the server's normalized echo would never match for a trailing space or an over-long
+  // paste, leaving the overlay on a permanent skeleton (audit-tenancy F-3).
+  const term = normalizeSearchTerm(committed);
+  const ready = isSearchable(term);
 
-  // Who to hand focus back to on close. Radix returns focus to its own <Trigger>, and
-  // this overlay has none (it opens from a hotkey or a window event), so focus would
-  // otherwise land on <body> — remembering the opener ourselves keeps the keyboard where
-  // the user left it: the topbar trigger, or whatever they were on when they hit Ctrl-K.
+  // Who to hand focus back to on close. Radix supplies the focus TRAP and Esc handling;
+  // return-focus is hand-rolled because it restores to a Radix <Dialog.Trigger>, and this
+  // overlay has none — it opens from a hotkey or a window event, so focus would otherwise
+  // land on <body> (verified in jsdom, with and without the input's autoFocus). Recording
+  // the opener ourselves keeps the keyboard where the user left it: the topbar trigger, or
+  // whatever they were on when they hit Ctrl-K.
   const openerRef = React.useRef<HTMLElement | null>(null);
 
   // Global hotkey + the topbar trigger's event. One listener pair for the whole app.
   React.useEffect(() => {
     const openFresh = () => {
+      // Re-entrant Ctrl-K (or a second trigger click) while the overlay is already open is
+      // a NO-OP — wiping a half-typed term mid-query would be a hostile surprise.
+      if (open) return;
       openerRef.current = document.activeElement as HTMLElement | null;
       setQ("");
       setCommitted("");
@@ -149,18 +165,18 @@ export function GlobalSearchOverlay() {
       window.removeEventListener("keydown", onKey);
       window.removeEventListener(GLOBAL_SEARCH_OPEN_EVENT, onRequest);
     };
-  }, []);
+  }, [open]);
 
   const query = useQuery({
-    queryKey: ["global-search", committed],
-    queryFn: () => apiGet<SearchResults>(`/api/search?q=${encodeURIComponent(committed)}`),
+    queryKey: ["global-search", term],
+    queryFn: () => apiGet<SearchResults>(`/api/search?q=${encodeURIComponent(term)}`),
     enabled: open && ready,
     staleTime: 30_000,
   });
 
   // Only trust a payload that belongs to the CURRENT query text — while a new term is
   // in flight, the previous term's rows must not stay arrow-selectable underneath it.
-  const data = query.data?.q === committed ? query.data : undefined;
+  const data = query.data?.q === term ? query.data : undefined;
 
   const items: SearchItem[] = React.useMemo(() => {
     if (!data) return [];
@@ -172,9 +188,9 @@ export function GlobalSearchOverlay() {
 
   // Reset the cursor when the result set changes — adjusting state during render (the
   // React-recommended alternative to an effect; the `seeded` pattern used elsewhere).
-  const [syncedKey, setSyncedKey] = React.useState(committed);
-  if (syncedKey !== committed) {
-    setSyncedKey(committed);
+  const [syncedKey, setSyncedKey] = React.useState(term);
+  if (syncedKey !== term) {
+    setSyncedKey(term);
     if (active !== 0) setActive(0);
   }
   const cursor = items.length === 0 ? -1 : Math.min(active, items.length - 1);
@@ -273,7 +289,7 @@ export function GlobalSearchOverlay() {
                     i === cursor ? "bg-brand-soft text-text" : "text-text hover:bg-surface-2",
                   )}
                 >
-                  {item.kind === "lead" ? <LeadRow row={item.row} q={committed} /> : <PartnerRow row={item.row} q={committed} />}
+                  {item.kind === "lead" ? <LeadRow row={item.row} q={term} /> : <PartnerRow row={item.row} q={term} />}
                 </li>
               </React.Fragment>
             ))}
@@ -344,8 +360,18 @@ function PartnerRow({ row, q }: { row: SearchPartnerRow; q: string }) {
       {/* PRN-14: the swatch is decorative — the partner NAME and reference ID are always
           present beside it, never color alone. */}
       <span aria-hidden="true" className="h-2.5 w-2.5 shrink-0 rounded-[3px]" style={{ background: row.color }} />
-      <span className="min-w-0 flex-1 truncate font-medium">
-        <Highlight text={row.name} query={q} />
+      <span className="min-w-0 flex-1 truncate">
+        <span className="font-medium">
+          <Highlight text={row.name} query={q} />
+        </span>
+        {/* The email is shown because it is one of the matched fields — a hit on
+            "ops@…" with nothing visible to explain it reads as a bug. */}
+        {row.email && (
+          <span className="text-text-3">
+            {" · "}
+            <Highlight text={row.email} query={q} />
+          </span>
+        )}
       </span>
       <span className="num ml-auto shrink-0 text-step-0 text-text-3">
         <Highlight text={row.refId} query={q} />

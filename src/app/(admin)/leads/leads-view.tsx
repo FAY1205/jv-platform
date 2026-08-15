@@ -3,6 +3,7 @@
 import * as React from "react";
 import { useQuery } from "@tanstack/react-query";
 import dynamic from "next/dynamic";
+import { useRouter } from "next/navigation";
 import { apiGet } from "@/lib/api";
 import { fmtDate } from "@/lib/dates";
 import { LEAD_STATUS_FILTERS, DEFAULT_STATUS_FILTERS, isDefaultStatuses, type LeadSortField } from "@/modules/leads/schema";
@@ -75,6 +76,21 @@ function LeadsBody({ initialQ, initialOpenRef = null, initialHot = false }: { in
     setOpenRef(initialOpenRef);
   }
 
+  const router = useRouter();
+  // Closing drops ?open= from the URL (other params kept). Two reasons: the address bar
+  // stops advertising a dialog that isn't there, and — because the re-seed above keys on a
+  // CHANGE — searching for the SAME lead again is then a real null→ref transition instead
+  // of a silent no-op (pr-reviewer F-1). `replace`, not `push`: closing a dialog should not
+  // add a history entry.
+  const closeDialog = React.useCallback(() => {
+    setOpenRef(null);
+    if (typeof window === "undefined") return;
+    const url = new URL(window.location.href);
+    if (!url.searchParams.has("open")) return;
+    url.searchParams.delete("open");
+    router.replace(`${url.pathname}${url.search}`, { scroll: false });
+  }, [router]);
+
   const filterKey = `${filters.q}|${filters.partnerId}|${filters.state}|${filters.source}|${filters.statuses.join(",")}|${filters.hot}|${filters.dateFrom}|${filters.dateTo}|${sort}|${dir}`;
   const [resetKey, setResetKey] = React.useState(filterKey);
   if (filterKey !== resetKey) { setResetKey(filterKey); setPage(1); }
@@ -120,7 +136,7 @@ function LeadsBody({ initialQ, initialOpenRef = null, initialHot = false }: { in
         />
       )}
 
-      {openRef && <LeadDialog refId={openRef} onClose={() => setOpenRef(null)} />}
+      {openRef && <LeadDialog refId={openRef} onClose={closeDialog} />}
     </>
   );
 }

@@ -52,7 +52,7 @@ const LEAD_JANET = {
   hot: false,
   scoreTotal: null,
 };
-const PARTNER = { id: "p-1", name: "Cedar Ridge", refId: "PR-004", color: "#2F6DB0" };
+const PARTNER = { id: "p-1", name: "Cedar Ridge", refId: "PR-004", color: "#2F6DB0", email: "ops@cedarridge.test" };
 
 function full(): Payload {
   return { leads: { total: 2, rows: [LEAD_MARCUS, LEAD_JANET] }, partners: { total: 1, rows: [PARTNER] } };
@@ -114,6 +114,30 @@ describe("SRCH-02: global search overlay", () => {
     expect(apiGet).toHaveBeenCalledWith("/api/search?q=whitf");
   });
 
+  it("SRCH-02: a PADDED query still resolves — the client sends the term the server echoes", async () => {
+    const { user, trigger } = setup();
+    await user.click(trigger);
+    // A trailing space (or an over-long paste) is normalized client-side with the
+    // endpoint's own rule; comparing the raw text to the normalized echo would strand
+    // the overlay on a permanent skeleton (audit-tenancy F-3).
+    await user.type(input(), "  whitf  ");
+    await waitFor(() => expect(apiGet).toHaveBeenCalledWith("/api/search?q=whitf"));
+    await waitFor(() => expect(options()).toHaveLength(3));
+    expect(screen.queryByText(/type at least 2 characters/i)).toBeNull();
+  });
+
+  it("SRCH-02: Ctrl-K while the overlay is OPEN is a no-op — a half-typed query survives", async () => {
+    const { user, trigger } = setup();
+    await user.click(trigger);
+    await user.type(input(), "whitf");
+    await waitFor(() => expect(options()).toHaveLength(3));
+
+    await user.keyboard("{Control>}k{/Control}");
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+    expect(input()).toHaveValue("whitf");
+    expect(options()).toHaveLength(3);
+  });
+
   it("SRCH-02: a query below the minimum length never reaches the server", async () => {
     const { user, trigger } = setup();
     await user.click(trigger);
@@ -137,6 +161,8 @@ describe("SRCH-02: global search overlay", () => {
     expect(selected()).toHaveTextContent("LD-25-01847");
     await user.keyboard("{ArrowUp}"); // wrap backwards onto the partner
     expect(selected()).toHaveTextContent("Cedar Ridge");
+    // The partner row shows the matched email, so a hit on it has a visible reason.
+    expect(selected()).toHaveTextContent("ops@cedarridge.test");
 
     await user.keyboard("{Enter}");
     expect(push).toHaveBeenCalledWith("/partners/p-1");

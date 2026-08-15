@@ -17,16 +17,76 @@ export const SEARCH_PHONE_MIN_DIGITS = 4;
 /** Hard cap on the accepted query length (mirrors the leads list's `q`). */
 export const SEARCH_MAX_CHARS = 120;
 
+/**
+ * The ONE normalization the query text goes through. The client applies it before it
+ * builds the request URL and before it compares the server's echoed `q`; the endpoint
+ * applies it (through SearchQuerySchema) to whatever actually arrives. Two copies of
+ * this rule would strand the overlay on a permanent skeleton the moment they disagreed
+ * — e.g. a trailing space or an over-long paste, where the echo would never equal the
+ * raw term the client was waiting on (audit-tenancy F-3).
+ */
+export function normalizeSearchTerm(raw: string): string {
+  return raw.trim().slice(0, SEARCH_MAX_CHARS);
+}
+
 /** GET /api/search?q= — same graceful contract as the leads list: a nonsense param
  *  degrades to an empty query (⇒ empty result, 200) instead of a 400. */
 export const SearchQuerySchema = z.object({
   q: z
     .unknown()
     .optional()
-    .transform((v) => (typeof v === "string" ? v.trim().slice(0, SEARCH_MAX_CHARS) : "")),
+    .transform((v) => (typeof v === "string" ? normalizeSearchTerm(v) : "")),
 });
 
 export type SearchQuery = z.infer<typeof SearchQuerySchema>;
+
+// ─── Payload shapes ──────────────────────────────────────────────────────────
+// The result types live HERE, in the pure module, not beside the query builders:
+// the overlay is a client component, and a type-only import that resolves into a
+// module which pulls in `@/db` is one refactor away from dragging the server DB
+// client into the client bundle (this repo has shipped that crash before).
+// `modules/search/queries` re-exports them for server callers.
+
+export interface SearchLeadRow {
+  refId: string;
+  /** "First Last", or "—" when the source carried no name (same as the list row). */
+  seller: string;
+  address: string | null;
+  city: string | null;
+  state: string | null;
+  /** The SAME derived status the list/board show — "Removed MLS" for a removed lead. */
+  status: string;
+  /** The MLS verdict, so the overlay can badge a removed lead (it is still findable). */
+  mlsStatus: "kept" | "removed";
+  /** SCR: the smart-tag Hot flag (kept leads only) + its score, for the HotLeadIcon chip. */
+  hot: boolean;
+  scoreTotal: number | null;
+}
+
+export interface SearchPartnerRow {
+  id: string;
+  name: string;
+  refId: string;
+  color: string;
+  /** The partner's BUSINESS contact address — deliberately in the payload: it is one of
+   *  the three fields the query matches on, and a hit with no visible reason reads as a
+   *  bug. Admin-only surface, and the partners list already shows it. This is not seller
+   *  PII, which never appears here (SRCH-04). */
+  email: string | null;
+}
+
+export interface SearchGroup<T> {
+  /** True total behind the capped rows (the overlay renders "Leads · 12"). */
+  total: number;
+  rows: T[];
+}
+
+export interface SearchResults {
+  /** Echoed back so the client can ignore a response that lost the race with typing. */
+  q: string;
+  leads: SearchGroup<SearchLeadRow>;
+  partners: SearchGroup<SearchPartnerRow>;
+}
 
 /**
  * Escape the LIKE/ILIKE metacharacters in user input so the query text is matched
