@@ -24,14 +24,16 @@ const partnerLive = (scope: ScopeContext) =>
  * Belongs in `taskWhere` eventually so app + RLS carry it in lockstep — tracked as C-8 /
  * WP-TSK-2a; it lives here now because this WP may not touch lib/scope.ts or migration 0041.
  */
-function partnerHoldGate(scope: ScopeContext, db: DB) {
+function partnerHoldGate(scope: ScopeContext, db: DB, now?: Date) {
   if (scope.role !== "partner") return undefined;
   return inArray(
     schema.leadTasks.leadId,
     db
       .select({ id: schema.leads.id })
       .from(schema.leads)
-      .where(and(tenantWhere(schema.leads, scope), releasedLeads())),
+      // `now` is injected by callers that already hold a clock (the TSK-08 reminder sweep
+      // takes one at the route boundary); request paths keep releasedLeads()'s own default.
+      .where(and(tenantWhere(schema.leads, scope), releasedLeads(now))),
   );
 }
 
@@ -233,6 +235,23 @@ async function resolveTask(db: DB, scope: ScopeContext, taskId: string) {
     .where(and(taskWhere(scope, db), eq(schema.leadTasks.id, taskId), partnerHoldGate(scope, db)));
   if (!task) throw new TaskNotFoundError(taskId);
   return task;
+}
+
+/**
+ * TSK-08 (WP-TSK-1 tenancy audit F-2, BINDING): can THIS scope read THIS task? The reminder
+ * sweep's recipient gate — a nudge is addressed to a person, so the person's own visibility
+ * decides whether they may receive it. Deliberately the SAME predicate `resolveTask` uses
+ * (`taskWhere ∩ id`, plus the partner hold gate), never a raw `assigned_to_user_id` join:
+ * an assignee whose org was re-routed away from the lead, or who sits on the other side of
+ * the PRN-13 stream wall, resolves to nothing here and gets no email about work they cannot
+ * open. Exported (rather than inlined in the sweep) so app and reminder never drift apart.
+ */
+export async function taskVisibleTo(db: DB, scope: ScopeContext, taskId: string, now?: Date): Promise<boolean> {
+  const [row] = await db
+    .select({ id: schema.leadTasks.id })
+    .from(schema.leadTasks)
+    .where(and(taskWhere(scope, db), eq(schema.leadTasks.id, taskId), partnerHoldGate(scope, db, now)));
+  return row !== undefined;
 }
 
 /** The authorization predicate a task WRITE statement carries, so the UPDATE/DELETE is itself

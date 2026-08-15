@@ -25,37 +25,45 @@ export const NOTIFICATION_EVENTS = [
   { role: "admin", key: "run_summary", label: "Run summary after each upload" },
   { role: "admin", key: "hot_leads", label: "A hot lead is found in an upload" },
   { role: "admin", key: "status_change", label: "A partner updates a lead's status" },
+  { role: "admin", key: "task_due", label: "A task is due or overdue" },
   { role: "partner", key: "hot_leads", label: "A hot lead is routed to you" },
   { role: "partner", key: "new_leads", label: "New leads distributed to you" },
+  { role: "partner", key: "task_due", label: "A task is due or overdue" },
 ] as const;
 
 export type NotifEvent = (typeof NOTIFICATION_EVENTS)[number]["key"];
 
 export interface NotificationPrefs {
-  admin: { run_summary: NotifChannel; hot_leads: NotifChannel; status_change: NotifChannel };
-  partner: { hot_leads: NotifChannel; new_leads: NotifChannel };
+  admin: { run_summary: NotifChannel; hot_leads: NotifChannel; status_change: NotifChannel; task_due: NotifChannel };
+  partner: { hot_leads: NotifChannel; new_leads: NotifChannel; task_due: NotifChannel };
 }
 
 // SET-03: "Digests on; alerts off" — digests email on; the status-change alert email
 // off by default (still shown in-app so the notification center stays useful). Hot-lead
 // alerts default fully on (email + in-app) for both roles: they're the highest-signal event.
+// TSK-08: the due-task nudge fires exactly once per task, ever — a one-shot signal about
+// the recipient's own committed work, so it defaults fully on for both roles too.
 export const DEFAULT_NOTIFICATION_PREFS: NotificationPrefs = {
   admin: {
     run_summary: { email: true, inApp: true },
     hot_leads: { email: true, inApp: true },
     status_change: { email: false, inApp: true },
+    task_due: { email: true, inApp: true },
   },
   partner: {
     hot_leads: { email: true, inApp: true },
     new_leads: { email: true, inApp: true },
+    task_due: { email: true, inApp: true },
   },
 };
 
 const ChannelSchema = z.object({ email: z.boolean(), inApp: z.boolean() }).partial();
 export const NotificationPrefsSchema = z
   .object({
-    admin: z.object({ run_summary: ChannelSchema, hot_leads: ChannelSchema, status_change: ChannelSchema }).partial(),
-    partner: z.object({ hot_leads: ChannelSchema, new_leads: ChannelSchema }).partial(),
+    admin: z
+      .object({ run_summary: ChannelSchema, hot_leads: ChannelSchema, status_change: ChannelSchema, task_due: ChannelSchema })
+      .partial(),
+    partner: z.object({ hot_leads: ChannelSchema, new_leads: ChannelSchema, task_due: ChannelSchema }).partial(),
   })
   .partial();
 export type NotificationPrefsInput = z.infer<typeof NotificationPrefsSchema>;
@@ -80,10 +88,12 @@ export function mergeNotificationPrefs(stored: NotificationPrefsInput | null | u
       run_summary: ch(d.admin.run_summary, s.admin?.run_summary),
       hot_leads: ch(d.admin.hot_leads, s.admin?.hot_leads),
       status_change: ch(d.admin.status_change, s.admin?.status_change),
+      task_due: ch(d.admin.task_due, s.admin?.task_due),
     },
     partner: {
       hot_leads: ch(d.partner.hot_leads, s.partner?.hot_leads),
       new_leads: ch(d.partner.new_leads, s.partner?.new_leads),
+      task_due: ch(d.partner.task_due, s.partner?.task_due),
     },
   };
 }

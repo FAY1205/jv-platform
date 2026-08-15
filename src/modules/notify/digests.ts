@@ -219,6 +219,62 @@ export function buildAdminHotAlert(input: AdminHotAlertInput): DigestContent {
   };
 }
 
+// ── Task due reminder (TSK-08) ────────────────────────────────────────────────
+// SEC-05, and narrower than every other builder here: a due-task nudge carries the
+// lead reference, coarse location, and the task's own title — nothing else off the
+// lead. Seller name/phone/email never enter this template, and there is no field
+// through which they could: the input type simply has no seat for them.
+
+export interface TaskDueReminderInput {
+  appName: string;
+  /** The task's own title — free text a teammate typed (escaped, never executed: PRN-10). */
+  taskTitle: string;
+  /** "YYYY-MM-DD" (TSK-10 calendar date). */
+  dueOn: string;
+  /** Past its due date rather than due today — decided by the caller's injected clock. */
+  overdue: boolean;
+  leadRef: string;
+  city: string | null;
+  state: string | null;
+  /** Deep link to the lead, per role (admin `/leads?open=…`, partner `/portal/leads/…`). */
+  leadUrl: string;
+}
+
+/** TSK-08: the one-shot due/overdue nudge for a task's recipient. */
+export function buildTaskDueReminder(input: TaskDueReminderInput): DigestContent {
+  const C = EMAIL_COLORS;
+  const F = EMAIL_FONTS;
+  const when = input.overdue ? "overdue" : "due today";
+  const location = locationOf({ refId: input.leadRef, city: input.city, state: input.state });
+  const heading = input.overdue ? "Task overdue" : "Task due today";
+  const content =
+    `<p style="font-family:${F.body};color:${C.text2};font-size:15px">Your task is ${when} ` +
+    `(<span style="font-family:${F.mono}">${escapeHtml(input.dueOn)}</span>).</p>` +
+    `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse">` +
+    `<tr><td style="padding:12px 0;border-bottom:1px solid ${C.border};font-family:${F.body};color:${C.text};font-size:15px">` +
+    `${escapeHtml(input.taskTitle)}</td></tr>` +
+    `<tr><td style="padding:12px 0;border-bottom:1px solid ${C.border};font-family:${F.body}">` +
+    `<span style="font-family:${F.mono};font-weight:600;color:${C.text}">${escapeHtml(input.leadRef)}</span>` +
+    `<span style="color:${C.text3};font-size:14px"> · ${escapeHtml(location)}</span></td></tr>` +
+    `</table>` +
+    `<div style="margin-top:22px">${emailButton({ href: input.leadUrl, label: "Open the lead →" })}</div>`;
+  const body =
+    `Your task is ${when} (${input.dueOn}):\n\n` +
+    `  • ${input.taskTitle}\n` +
+    `  • ${input.leadRef} — ${location}\n\n` +
+    `Open the lead:\n${input.leadUrl}\n\n— ${input.appName}`;
+  return {
+    subject: `Task ${when}: ${input.leadRef} — ${input.appName}`,
+    body,
+    html: renderEmailDocument({
+      title: `Task ${when} — ${input.leadRef}`,
+      preheader: `Task ${when} on ${input.leadRef}`,
+      heading,
+      contentHtml: content,
+    }),
+  };
+}
+
 /** NTF-02: the admin run-summary email. */
 export function buildAdminRunSummary(input: AdminSummaryInput): DigestContent {
   const s = input.summary;

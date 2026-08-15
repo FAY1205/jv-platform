@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildPartnerDigest, buildAdminRunSummary, buildPartnerHotAlert, buildAdminHotAlert } from "@/modules/notify/digests";
+import { buildPartnerDigest, buildAdminRunSummary, buildPartnerHotAlert, buildAdminHotAlert, buildTaskDueReminder } from "@/modules/notify/digests";
 import { backoffMs, MAX_OUTBOX_ATTEMPTS } from "@/modules/notify/outbox";
 import { lightColors } from "@/lib/tokens/tokens";
 
@@ -153,6 +153,46 @@ describe("SCR-12: hot-lead alerts", () => {
   it("SCR-12/SEC-05: hot alerts never leak seller PII (no email addresses)", () => {
     expect(buildPartnerHotAlert({ appName: "JV Platform", partnerName: "Randy Wolfe", partnerRef: "JV-001", partnerColor: "#B4623F", portalUrl: "https://app.test/portal/leads", leads }).body).not.toMatch(/@/);
     expect(buildAdminHotAlert({ appName: "JV Platform", uploadRef: "IM-26-014", leads }).body).not.toMatch(/@/);
+  });
+});
+
+// TSK-08 / SEC-05: the due-task nudge. Narrowest content of any builder here — lead ref,
+// coarse location, and the task's own title. Nothing else off the lead may appear.
+describe("buildTaskDueReminder (TSK-08)", () => {
+  const input = {
+    appName: "JV Platform",
+    taskTitle: "Call back about the roof quote",
+    dueOn: "2026-08-10",
+    overdue: true,
+    leadRef: "LD-26-00007",
+    city: "Austin",
+    state: "TX",
+    leadUrl: "https://app.test/leads?open=LD-26-00007",
+  };
+
+  it("TSK-08: carries the lead ref, city/state and the task title, and links to the lead", () => {
+    const { subject, body, html } = buildTaskDueReminder(input);
+    expect(subject).toContain("LD-26-00007");
+    expect(body).toContain("LD-26-00007");
+    expect(body).toContain("Austin, TX");
+    expect(body).toContain("Call back about the roof quote");
+    expect(body).toContain("https://app.test/leads?open=LD-26-00007");
+    expect(html).toMatch(/^<!DOCTYPE html>/i);
+  });
+
+  it("TSK-08: overdue vs due-today wording comes from the caller's clock, never its own", () => {
+    expect(buildTaskDueReminder(input).subject).toMatch(/overdue/i);
+    expect(buildTaskDueReminder({ ...input, overdue: false }).subject).toMatch(/due today/i);
+  });
+
+  it("TSK-08: a title containing markup is escaped, never rendered (PRN-10 — typed text is data)", () => {
+    const { html } = buildTaskDueReminder({ ...input, taskTitle: "<img src=x onerror=alert(1)>" });
+    expect(html).not.toContain("<img");
+    expect(html).toContain("&lt;img");
+  });
+
+  it("TSK-08/SEC-05: the nudge has no seat for seller PII (no email addresses in the body)", () => {
+    expect(buildTaskDueReminder(input).body).not.toMatch(/@/);
   });
 });
 
