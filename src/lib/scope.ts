@@ -10,7 +10,7 @@ import * as schema from "@/db/schema";
 // the RLS policies (0001 migration) are the database half. TST-01 proves both.
 // ─────────────────────────────────────────────────────────────────────────────
 
-const { leads, leadNotes, users } = schema;
+const { leads, leadNotes, leadTasks, users } = schema;
 type DB = PostgresJsDatabase<typeof schema>;
 
 export interface ScopeContext {
@@ -87,6 +87,41 @@ export function noteWhere(scope: ScopeContext, db: DB): SQL {
     eq(leadNotes.authorRole, "partner"),
     inArray(leadNotes.leadId, ownLeads),
     inArray(leadNotes.authorUserId, ownAuthors),
+  )!;
+}
+
+/**
+ * Lead tasks visibility (TSK-02, ADR-0044): the two-stream notes model, not the
+ * status-history model. Admin sees only admin tasks; a partner sees only tasks authored
+ * by their own org on leads they currently own. Lead ownership MOVES on re-route
+ * (partnerOwnsLead), so "tasks on leads I own" alone would hand the previous partner's
+ * tasks to the new owner — the own-org author predicate closes that, exactly as
+ * noteWhere does for notes. The RLS policy lead_tasks_scope (migration 0041) carries
+ * the identical READ predicate, and its WITH CHECK additionally pins author identity,
+ * stream, and in-tenant references on writes (SEC-01; audit-tenancy F-1) — keep both
+ * halves in lockstep with this builder.
+ */
+export function taskWhere(scope: ScopeContext, db: DB): SQL {
+  const base = eq(leadTasks.tenantId, scope.tenantId);
+  if (scope.role === "admin") {
+    return and(base, eq(leadTasks.authorRole, "admin"))!;
+  }
+  const me = requirePartner(scope);
+  const ownLeads = db
+    .select({ id: leads.id })
+    .from(leads)
+    // DM-09b: recalled (soft-deleted) leads drop out of the owned set here, so task reads
+    // never rely on a parent join to filter deletes (same discipline as noteWhere).
+    .where(and(eq(leads.tenantId, scope.tenantId), partnerOwnsLead(me), isNull(leads.deletedAt)));
+  const ownAuthors = db
+    .select({ id: users.id })
+    .from(users)
+    .where(and(eq(users.tenantId, scope.tenantId), eq(users.partnerId, me)));
+  return and(
+    base,
+    eq(leadTasks.authorRole, "partner"),
+    inArray(leadTasks.leadId, ownLeads),
+    inArray(leadTasks.authorUserId, ownAuthors),
   )!;
 }
 
