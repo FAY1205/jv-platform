@@ -11,8 +11,9 @@ import {
   AppShell, Card, Table, THead, TBody, Th, Tr, Td, PartnerTag, EmptyState, QueryErrorState, Skeleton,
   Input, Combobox, DateRangePicker, Pagination, RowOpenButton, StatusSelect, SegmentedControl,
   DEFAULT_PAGE_SIZE, usePageHeader, FilterPill, Tooltip, HotLeadIcon,
-  LeadTags, TagChip, TagPicker, type LeadTagView,
+  LeadTags, TagChip, TagPicker, SavedViewsMenu, type LeadTagView,
 } from "@/components";
+import type { SavedViewFilters } from "@/modules/saved-views/schema";
 import { US_STATES } from "@/lib/us-states";
 import { googleSearchUrl } from "@/lib/search-links";
 import { setPreferences, usePreferences, type LeadsViewPref } from "@/lib/preferences";
@@ -40,13 +41,24 @@ interface LeadRow {
 interface LeadsPage { leads: LeadRow[]; page: number; pageSize: number; total: number }
 interface Partner { id: string; refId: string; name: string; color: string }
 
-export interface Filters {
-  q: string; partnerId: string; state: string; source: string; statuses: string[]; hot: boolean; dateFrom: string; dateTo: string;
-  /** TAG-03: selected tag ids — OR / any-of. */
-  tags: string[];
-}
+/**
+ * The committed filter state. Defined as the saved-view blob MINUS the view mode (which is a
+ * preference, not a filter), so the two can never drift: SV-01 says a view captures "the exact
+ * filter-state shape the leads page serializes", and this is that sentence in the type system —
+ * a new filter added to the blob fails to compile here until it is wired, and vice versa.
+ * Fields: q · partnerId · state · source · statuses · hot · tags (TAG-03, OR/any-of) ·
+ * dateFrom · dateTo.
+ */
+export type Filters = Omit<SavedViewFilters, "viewMode">;
 // Opens with all workflow statuses selected but Removed MLS off (owner decision).
 const EMPTY: Filters = { q: "", partnerId: "", state: "", source: "", statuses: [...DEFAULT_STATUS_FILTERS], hot: false, dateFrom: "", dateTo: "", tags: [] };
+
+/** SV-04: a view application, carried to the filter bar. The nonce (not the object) is what
+ *  marks "this is a NEW application", so re-applying the SAME view still resets the bar. */
+interface AppliedView {
+  n: number;
+  filters: SavedViewFilters;
+}
 
 const DEFAULT_DIR: Record<LeadSortField, "asc" | "desc"> = { lead: "desc", received: "desc", modified: "desc", seller: "asc" };
 // "" = no partner filter (all). The pipeline treats the "unmatched" sentinel specially.
@@ -110,9 +122,27 @@ function LeadsBody({ initialQ, initialOpenRef = null, initialHot = false }: { in
   // choice is a preference, not server data, and it survives a reload and other tabs.
   const view = usePreferences().leadsView;
 
+  // SV-01: what a saved view captures — the committed filters PLUS the mode. Memoized so the
+  // menu's divergence comparison isn't handed a fresh object on every unrelated render.
+  const currentView = React.useMemo<SavedViewFilters>(() => ({ ...filters, viewMode: view }), [filters, view]);
+
+  // SV-04: applying REPLACES the whole state. The mode goes to the preferences store (it is a
+  // preference wherever it came from) and the filters are pushed down to the bar, which owns
+  // the uncommitted inputs — the bar re-seeds itself from this and commits back up, so there
+  // is still exactly ONE path by which `filters` changes.
+  const [applied, setApplied] = React.useState<AppliedView | null>(null);
+  const applyView = React.useCallback((f: SavedViewFilters) => {
+    setPreferences({ leadsView: f.viewMode });
+    setApplied((prev) => ({ n: (prev?.n ?? 0) + 1, filters: f }));
+  }, []);
+
   return (
     <>
-      <div className="mb-3 flex items-center justify-end">
+      <div className="mb-3 flex items-center justify-between gap-3">
+        {/* SV-03 (mockup screen 1): the views dropdown sits at the head of the page. The
+            mockup draws it beside the "Leads" title, which in this app lives in the SHELL
+            topbar (WP-E) — so it takes the leading edge of the page's own first row. */}
+        <SavedViewsMenu filters={currentView} onApply={applyView} />
         <SegmentedControl<LeadsViewPref>
           ariaLabel="Leads view"
           value={view}
@@ -121,7 +151,7 @@ function LeadsBody({ initialQ, initialOpenRef = null, initialHot = false }: { in
         />
       </div>
 
-      <LeadsFilterBar seedQ={initialQ} seedHot={initialHot} view={view} onChange={setFilters} />
+      <LeadsFilterBar seedQ={initialQ} seedHot={initialHot} view={view} applied={applied} onChange={setFilters} />
 
       {view === "board" ? (
         // KAN-09 + TAG-03: the board carries the partner, hot AND tag filters (the filter bar
@@ -148,7 +178,7 @@ function LeadsBody({ initialQ, initialOpenRef = null, initialHot = false }: { in
 }
 
 // ── Filter bar (isolated; owns raw text + debounce, lifts committed filters) ──
-const LeadsFilterBar = React.memo(function LeadsFilterBar({ seedQ, seedHot = false, view = "list", onChange }: { seedQ: string; seedHot?: boolean; view?: LeadsViewPref; onChange: (f: Filters) => void }) {
+const LeadsFilterBar = React.memo(function LeadsFilterBar({ seedQ, seedHot = false, view = "list", applied = null, onChange }: { seedQ: string; seedHot?: boolean; view?: LeadsViewPref; applied?: AppliedView | null; onChange: (f: Filters) => void }) {
   // KAN-09: the board honours the partner + hot filters. The rest (search, source,
   // state, received range, status) are list-only for v1, so board mode HIDES them
   // rather than showing controls that quietly do nothing. Their state is kept, so
@@ -177,6 +207,21 @@ const LeadsFilterBar = React.memo(function LeadsFilterBar({ seedQ, seedHot = fal
   const [seeded, setSeeded] = React.useState(seedQ);
   if (seedQ !== seeded) { setSeeded(seedQ); setQInput(seedQ); setQCommitted(seedQ.trim()); }
 
+  // SV-04: applying a saved view REPLACES every control here — including the ones board mode
+  // hides, so switching back to the list shows the view, not a leftover. Keyed on the NONCE
+  // (the `seeded` idiom above), so re-applying the same view still resets an edited bar; the
+  // committed text is set alongside the input so the trailing debounce can't re-commit the
+  // pre-apply search. The commit effect below then lifts the whole set upward in one pass.
+  const [appliedNonce, setAppliedNonce] = React.useState(applied?.n ?? 0);
+  if (applied && applied.n !== appliedNonce) {
+    setAppliedNonce(applied.n);
+    const f = applied.filters;
+    setQInput(f.q); setQCommitted(f.q);
+    setState(f.state); setPartnerId(f.partnerId); setSource(f.source);
+    setStatuses([...f.statuses]); setHot(f.hot); setTagIds([...f.tags]);
+    setRange({ from: f.dateFrom || null, to: f.dateTo || null });
+  }
+
   const roster = useQuery({ queryKey: ["partners"], queryFn: () => apiGet<{ partners: Partner[] }>("/api/admin/partners") });
   const sourcesQ = useQuery({ queryKey: ["lead-sources"], queryFn: () => apiGet<{ sources: string[] }>("/api/leads/sources") });
   // The tag roster is fetched ONCE per page and shared with every row's picker (§6.17: the
@@ -184,6 +229,13 @@ const LeadsFilterBar = React.memo(function LeadsFilterBar({ seedQ, seedHot = fal
   const tagsQ = useTags();
   const allTags = tagsQ.data?.tags ?? [];
   const selectedTags = tagIds.map((id) => allTags.find((t) => t.id === id)).filter((t): t is (typeof allTags)[number] => Boolean(t));
+  // SV-05: a saved view can carry a tag that was deleted after it was saved. The id is still
+  // uuid-shaped, so it survives the `?tags=` validator and simply matches no leads — which
+  // would otherwise be an EMPTY list with an INVISIBLE filter (the chip row only knows how to
+  // draw tags that still exist). Draw it as a neutral, removable chip instead: the filter is
+  // never silently narrowing the page. Only once the roster has actually loaded.
+  const knownTagIds = new Set(allTags.map((t) => t.id));
+  const missingTagIds = tagsQ.isSuccess ? tagIds.filter((id) => !knownTagIds.has(id)) : [];
 
   const clearAll = () => {
     setQInput(""); setQCommitted("");
@@ -284,6 +336,15 @@ const LeadsFilterBar = React.memo(function LeadsFilterBar({ seedQ, seedHot = fal
             name={t.name}
             color={t.color}
             onRemove={() => setTagIds((prev) => prev.filter((id) => id !== t.id))}
+          />
+        ))}
+        {missingTagIds.map((id) => (
+          <TagChip
+            key={id}
+            name="Deleted tag"
+            color="" // unknown key ⇒ the neutral chip (lib/tag-chip degrades by design)
+            title="This tag no longer exists, so it matches no leads. Remove it to widen the filter."
+            onRemove={() => setTagIds((prev) => prev.filter((x) => x !== id))}
           />
         ))}
         <TagPicker
