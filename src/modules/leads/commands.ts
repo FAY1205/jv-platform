@@ -5,17 +5,14 @@ import { tenantWhere, type ScopeContext } from "@/lib/scope";
 import { computeDedupeKey, normalizeAddress } from "@/modules/pipeline/normalize";
 import { isAuditPiiLeadField, maskAuditValue } from "@/modules/audit/redact";
 import { unmatchedCoverageLeadRefs } from "./queries";
+import { LeadNotFoundError } from "./errors";
 
 // ADM / ASN-03 write side. Manual assignment is ADDITIVE (PRN-05: the import
 // snapshot — partnerId / matchMethod — is never rewritten). Only a currently
 // UNMATCHED lead can be manually assigned; the action is audited (DM-04).
 
-export class LeadNotFoundError extends Error {
-  constructor() {
-    super("Lead not found.");
-    this.name = "LeadNotFoundError";
-  }
-}
+// LeadNotFoundError is shared (C-5) — re-export the one class so every route's instanceof matches.
+export { LeadNotFoundError };
 export class LeadNotUnmatchedError extends Error {
   constructor() {
     super("Only an unmatched lead can be manually assigned.");

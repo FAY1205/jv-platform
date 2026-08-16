@@ -1,4 +1,5 @@
 import { and, asc, count, eq, inArray, isNotNull, isNull, or, sql } from "drizzle-orm";
+import { LeadNotFoundError } from "@/modules/leads/errors";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import { getDb } from "@/db";
 import * as schema from "@/db/schema";
@@ -72,12 +73,8 @@ function liveLeadGate(scope: ScopeContext, db: DB) {
 
 type DB = PostgresJsDatabase<typeof schema>;
 
-export class LeadNotFoundError extends Error {
-  constructor(refId: string) {
-    super(`Lead ${refId} not found.`);
-    this.name = "LeadNotFoundError";
-  }
-}
+// LeadNotFoundError is shared (C-5) — re-export the one class so every route's instanceof matches.
+export { LeadNotFoundError };
 export class TaskNotFoundError extends Error {
   constructor(id: string) {
     super(`Task ${id} not found.`);

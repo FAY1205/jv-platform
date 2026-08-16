@@ -1,4 +1,5 @@
 import { and, asc, count, eq, inArray, isNull, sql } from "drizzle-orm";
+import { LeadNotFoundError } from "@/modules/leads/errors";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import { getDb } from "@/db";
 import * as schema from "@/db/schema";
@@ -55,12 +56,8 @@ export class TagNotFoundError extends Error {
     this.name = "TagNotFoundError";
   }
 }
-export class LeadNotFoundError extends Error {
-  constructor(refId: string) {
-    super(`Lead ${refId} not found.`);
-    this.name = "LeadNotFoundError";
-  }
-}
+// LeadNotFoundError is shared (C-5) — re-export the one class so every route's instanceof matches.
+export { LeadNotFoundError };
 /** TAG-01: names are unique per tenant, case-insensitively. */
 export class DuplicateTagNameError extends Error {
   constructor(name: string) {

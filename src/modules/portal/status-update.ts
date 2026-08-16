@@ -1,4 +1,5 @@
 import { and, desc, eq, isNull } from "drizzle-orm";
+import { LeadNotFoundError } from "@/modules/leads/errors";
 import { getDb } from "@/db";
 import * as schema from "@/db/schema";
 import { leadWhere, ownStatusAuthorScope, tenantWhere, type ScopeContext } from "@/lib/scope";
@@ -11,12 +12,8 @@ import { isValidStatus, DEFAULT_STATUS } from "./statuses";
 // are untouched — this only appends status history. (WS-9/ADR-0020: the redundant
 // `events` write was removed with the events table.)
 
-export class LeadNotFoundError extends Error {
-  constructor(refId: string) {
-    super(`Lead ${refId} not found.`);
-    this.name = "LeadNotFoundError";
-  }
-}
+// LeadNotFoundError is shared (C-5) — re-export the one class so every route's instanceof matches.
+export { LeadNotFoundError };
 export class InvalidStatusError extends Error {
   constructor(status: string) {
     super(`Unknown status: ${status}`);
