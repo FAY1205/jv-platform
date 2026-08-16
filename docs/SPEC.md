@@ -97,6 +97,7 @@ Tables: `tenants, users, partners, coverage_zips, state_rules, mls_patterns, sou
 | DM-09 | Soft-delete with restore for partners and leads; hard delete only via retention policy or account deletion. |
 | DM-10 | `lead_notes`: lead_id, author_user_id, author_role (admin|partner), body, timestamps; visibility per PRN-13. |
 | DM-11 | Indexes exist for every list/query path shipped: `leads(tenant_id, upload_id)`, `leads(tenant_id, partner_id, created_at)`, `leads(tenant_id, dedupe_key)`, `coverage_zips(tenant_id, zip5)` unique-current, `lead_notes(lead_id)`. New list endpoints ship with their index in the same migration. _Amended:_ `leads(tenant_id, dedupe_key)` is a **plain (non-unique)** index (ADR-0038 retired the dedup collapse); the `events(tenant_id, created_at)` index was dropped with the `events` table (ADR-0020, migration 0015). |
+| DM-12 | **Bounded params.** Every query parameter that is split, expanded, or turned into an IN-list is bounded BEFORE validation, not only after it — the bound applies to the PARSE (segment count) as well as the RESULT (allow-list or cap), because an unbounded split materialises the attacker's string before any filter runs. Shipped in `tagsParam` (TAG_PARAM_MAX_SEGMENTS), `csv` (CSV_MAX_SEGMENTS), and `pageParam`'s clamp; the next param author inherits the rule rather than rediscovering it. |
 
 ## 6. Functional requirements
 
@@ -367,6 +368,38 @@ into every run's rules snapshot (DM-08).
 | BIL-02 | Server-side entitlements as one plan matrix; UI shows locked + upgrade; the server refuses regardless of UI. |
 | BIL-03 | Dunning → grace → read-only; data never deleted for nonpayment. |
 | BIL-04 | AI usage metered per tenant with plan allowances (AIA-06). |
+
+### 6.23 Lead tags (TAG) — CRM slice 3, shipped (WP-TAG-1, migration 0042)
+
+| ID | Requirement |
+| -- | ----------- |
+| TAG-01 | Model: `tags` (id, tenant_id, name ≤40 unique-per-tenant case-insensitive, color from the fixed chip-safe palette, created_at) + `lead_tags` junction (tenant_id, lead_id, tag_id, added_by_user_id, created_at). Migration + two-half RLS + FK-covering indexes + demo seed together. |
+| TAG-02 | Scope: admin-only v1 — every query tenant-scoped; the API layer gates non-admin. Partners never see tags (the notes-isolation instinct). |
+| TAG-03 | API: tags CRUD (create inline from the picker; rename/recolor/delete in Settings) + attach/detach on a lead. |
+| TAG-04 | Chips UI on list rows + board cards (cap 2 + "+n" on cards), text always present (PRN-14); a picker to attach/create. |
+| TAG-05 | Smart tag **Hot**: rendered from `score_group`/`score_total` (the pure scorer stays the single source of truth, PRN-15), filterable alongside tags — never stored, not editable, absent from the manager. |
+| TAG-06 | Settings → Tags manager: list with usage counts, rename, recolor, delete. `TAG_PALETTE` is append-only by contract (rows store the key). |
+| TAG-07 | Attach/detach do NOT write timeline entries in v1 (noise). |
+
+### 6.24 Global admin search (SRCH) — CRM slice 3, shipped (WP-SRCH-1)
+
+| ID | Requirement |
+| -- | ----------- |
+| SRCH-01 | Endpoint `GET /api/search?q=` admin-gated; min 2 chars; matches leads (name/address/city/zip/ref/phone_norm) + partners (name/ref/email); removed-MLS leads findable with a verdict. |
+| SRCH-02 | Ctrl/⌘-K overlay (and a topbar trigger) from anywhere in (admin); `?open=<ref>` cleared on close so the same ref reopens. |
+| SRCH-03 | Purity/perf: no new extension/dependency (boring ILIKE), server-side + debounced. |
+| SRCH-04 | Security: no PII beyond what the admin list already shows; uniform error envelope. |
+| SRCH-05 | Tests: tenant probe, admin gate, phone normalization, normalized-echo race guard. |
+
+### 6.25 Saved views (SV) — CRM slice 3, shipped (WP-SV-1, migration 0043, ADR-0045)
+
+| ID | Requirement |
+| -- | ----------- |
+| SV-01 | Model: `saved_views` (id, tenant_id, user_id, name ≤60, filters jsonb, sort/dir columns OUTSIDE the blob, created_at, updated_at). |
+| SV-02 | API: CRUD, per-user scoped — a user sees only their own views (visibility pin `tenant_id AND user_id`, both app + RLS; ADR-0045). Admin-only is a product gate at the route, NOT the visibility rule. |
+| SV-03 | UI: views dropdown — apply on click (replaces current filter state), save-current, a "Modified" indicator, delete. |
+| SV-04 | Semantics: applying a view REPLACES filter state; subsequent edits mark it Modified. No live result counts in v1. |
+| SV-05 | Tests: cross-user isolation (TST-01-style), blob validation strips unknown keys. |
 
 ## 7. Functional requirements — administration (ADM / CVG)
 

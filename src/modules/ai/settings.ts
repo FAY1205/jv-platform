@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { getDb } from "@/db";
 import * as schema from "@/db/schema";
 import { tenantWhere, type ScopeContext } from "@/lib/scope";
@@ -28,5 +28,5 @@ export async function loadAiSettings(scope: ScopeContext): Promise<{ enabled: bo
 
 export async function saveAiSettings(scope: ScopeContext, v: { enabled: boolean }): Promise<void> {
   await getDb().insert(schema.settings).values({ tenantId: scope.tenantId, key: AI_ENABLED_KEY, value: v.enabled })
-    .onConflictDoUpdate({ target: [schema.settings.tenantId, schema.settings.key], set: { value: v.enabled, updatedAt: new Date() } });
+    .onConflictDoUpdate({ target: [schema.settings.tenantId, schema.settings.key], set: { value: v.enabled, updatedAt: sql`now()` } });
 }

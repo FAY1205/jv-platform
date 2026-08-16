@@ -1,4 +1,4 @@
-import { and, desc, eq, isNull } from "drizzle-orm";
+import { and, desc, eq, isNull, sql } from "drizzle-orm";
 import { LeadNotFoundError } from "@/modules/leads/errors";
 import { getDb } from "@/db";
 import * as schema from "@/db/schema";
@@ -109,7 +109,7 @@ export async function editLeadNote(
       .where(and(noteWhere(scope, tx), eq(schema.leadNotes.id, noteId)));
     if (!note || note.authorUserId !== scope.userId) throw new NoteNotFoundError(noteId);
 
-    await tx.update(schema.leadNotes).set({ body, updatedAt: new Date() }).where(eq(schema.leadNotes.id, noteId));
+    await tx.update(schema.leadNotes).set({ body, updatedAt: sql`now()` }).where(eq(schema.leadNotes.id, noteId));
     await tx.insert(schema.auditLog).values({
       tenantId: note.tenantId,
       actorUserId: scope.userId,

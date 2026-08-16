@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { getDb } from "@/db";
 import * as schema from "@/db/schema";
 import { tenantWhere, type ScopeContext } from "@/lib/scope";
@@ -41,7 +41,7 @@ export async function saveColorCoding(scope: ScopeContext, value: boolean): Prom
     .values({ tenantId: scope.tenantId, key: COLOR_CODING_KEY, value })
     .onConflictDoUpdate({
       target: [schema.settings.tenantId, schema.settings.key],
-      set: { value, updatedAt: new Date() },
+      set: { value, updatedAt: sql`now()` },
     });
 }
 

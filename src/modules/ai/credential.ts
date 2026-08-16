@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { getDb } from "@/db";
 import * as schema from "@/db/schema";
 import { tenantWhere, type ScopeContext } from "@/lib/scope";
@@ -52,7 +52,7 @@ export async function saveAiCredential(scope: ScopeContext, input: { provider: A
   await getDb()
     .insert(schema.settings)
     .values({ tenantId: scope.tenantId, key: AI_CREDENTIAL_KEY, value })
-    .onConflictDoUpdate({ target: [schema.settings.tenantId, schema.settings.key], set: { value, updatedAt: new Date() } });
+    .onConflictDoUpdate({ target: [schema.settings.tenantId, schema.settings.key], set: { value, updatedAt: sql`now()` } });
 }
 
 /** Change ONLY the model on an existing credential (no re-entering the key). No-op if unset. */
@@ -62,7 +62,7 @@ export async function setAiCredentialModel(scope: ScopeContext, model: string): 
   const value: StoredCredential = { ...row, model };
   await getDb()
     .update(schema.settings)
-    .set({ value, updatedAt: new Date() })
+    .set({ value, updatedAt: sql`now()` })
     .where(and(tenantWhere(schema.settings, scope), eq(schema.settings.key, AI_CREDENTIAL_KEY)));
   return true;
 }
