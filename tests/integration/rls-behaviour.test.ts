@@ -4,7 +4,7 @@ import postgres from "postgres";
 import { eq, inArray, sql } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import * as schema from "@/db/schema";
-import { asRole, probeWrite, type RlsClaims } from "../helpers/rls";
+import { asRole, probeWrite, IS_SUPABASE_DB, type RlsClaims } from "../helpers/rls";
 
 // WP-SEC-1 / RLSB-01..05 (ADR-0046): the RLS ENFORCEMENT oracle. Unlike the *-scope
 // suites (which read pg_policies text), this runs reads/writes as the non-owner
@@ -15,7 +15,7 @@ import { asRole, probeWrite, type RlsClaims } from "../helpers/rls";
 // known-good policy before WP-SEC-2 leans on it to prove the fixed policies.
 // Self-skips without DATABASE_URL; run with node --env-file=.env.local.
 const url = process.env.DATABASE_URL;
-const suite = url ? describe : describe.skip;
+const suite = IS_SUPABASE_DB ? describe : describe.skip;
 
 const SLUG = "test-rls-beh";
 const SLUG_B = "test-rls-beh-b";
@@ -190,25 +190,26 @@ suite("RLSB: RLS enforcement oracle (non-owner role)", () => {
     expect(legit.effected).toBe(1);
   });
 
-  it("RLSB-05: every tenant-scoped policy table has RLS ENABLED and at least one policy", async () => {
-    // The ADR-0043 auto-enable trigger is the mechanism; this is the test that fails loudly
-    // if a future table ships a *_scope policy but its ENABLE ROW LEVEL SECURITY is missing.
-    const rows = await db.execute<{ tablename: string; relrowsecurity: boolean; npolicies: number }>(sql`
-      select c.relname as tablename,
-             c.relrowsecurity,
-             count(p.policyname)::int as npolicies
-      from pg_class c
+  it("RLSB-05: every table carrying a *_scope policy has RLS ENABLED (derived, not hardcoded)", async () => {
+    // The ADR-0043 auto-enable trigger is the mechanism; this fails loudly if a FUTURE table
+    // ships a *_scope policy but forgets ENABLE ROW LEVEL SECURITY. The table set is derived
+    // from pg_policies (audit-security F-4) so a new scoped table is covered automatically.
+    const rows = await db.execute<{ tablename: string; relrowsecurity: boolean }>(sql`
+      select distinct c.relname as tablename, c.relrowsecurity
+      from pg_policies p
+      join pg_class c on c.relname = p.tablename
       join pg_namespace n on n.oid = c.relnamespace and n.nspname = 'public'
-      left join pg_policies p on p.schemaname = 'public' and p.tablename = c.relname
-      where c.relkind = 'r'
-        and c.relname in ('leads','lead_notes','lead_tasks','lead_status_history','listing_checks')
-      group by c.relname, c.relrowsecurity
+      where p.schemaname = 'public' and p.policyname ~ '_scope$'
       order by c.relname
     `);
-    expect(rows.length).toBe(5);
+    expect(rows.length, "at least the five lead-family scoped tables exist").toBeGreaterThanOrEqual(5);
     for (const r of rows) {
-      expect(r.relrowsecurity, `${r.tablename} has RLS enabled`).toBe(true);
-      expect(r.npolicies, `${r.tablename} has >=1 policy`).toBeGreaterThanOrEqual(1);
+      expect(r.relrowsecurity, `${r.tablename} (carries a *_scope policy) has RLS enabled`).toBe(true);
+    }
+    // Sanity: the five lead-family tables are among the derived set (guards the derivation itself).
+    const names = rows.map((r) => r.tablename);
+    for (const t of ["leads", "lead_notes", "lead_tasks", "lead_status_history", "listing_checks"]) {
+      expect(names, `${t} carries a *_scope policy`).toContain(t);
     }
   });
 });

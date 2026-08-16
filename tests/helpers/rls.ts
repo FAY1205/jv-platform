@@ -32,6 +32,16 @@ export interface RlsClaims {
 /** SQLSTATE Postgres raises when a WITH CHECK clause rejects a new/updated row. */
 export const POLICY_VIOLATION = "42501";
 
+/**
+ * The RLS ENFORCEMENT suites drive the Supabase `authenticated`/PostgREST role+grant surface
+ * (`set role authenticated`, table grants), which a vanilla Postgres — the CI integration service
+ * container — does not have (`role "authenticated" does not exist`). Gate those suites on a
+ * Supabase DB so CI stays green while the oracle runs in the local/dev loop against the real
+ * surface. The pg_policies TEXT assertions in the other suites still run everywhere. Making CI
+ * run the oracle (provision Supabase-like roles/grants, or a Supabase branch DB) is C-30.
+ */
+export const IS_SUPABASE_DB = !!process.env.DATABASE_URL && /supabase\./i.test(process.env.DATABASE_URL);
+
 /** Internal sentinel: thrown to force the always-rollback, distinguished from real errors. */
 class Rollback extends Error {}
 
@@ -110,6 +120,14 @@ export async function probeWrite(
         // Back to the table owner (RLS bypassed) to observe TRUE persistence, not a
         // RETURNING/USING-filtered view. `set local role` reverts on rollback regardless.
         await tx.execute(sql`reset role`);
+        // Positive control (audit-security F-3): the persistence count is only truthful if the
+        // effect query runs as the RLS-bypassing owner. If a future env connected as a non-owner
+        // role, `reset role` would land on a role still under RLS and a persisted write could be
+        // miscounted 0 → false "denied". Fail loudly instead of silently masking a real hole.
+        const [{ role }] = await tx.execute<{ role: string }>(sql`select current_user as role`);
+        if (role === "authenticated") {
+          throw new Error("probeWrite: reset role did not restore the owner — persistence count would be RLS-filtered and untrustworthy");
+        }
         effected = await effect(tx as unknown as DB);
       }
       throw new Rollback();

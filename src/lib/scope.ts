@@ -99,10 +99,14 @@ export function noteWhere(scope: ScopeContext, db: DB): SQL {
   // A note belongs to the partner org that wrote it (PRN-08/PRN-13): lead ownership MOVES
   // on re-route (partnerOwnsLead), so "notes on leads I own" alone would hand the previous
   // partner's notes to the new one. Restrict to notes authored by the reading partner's own org.
+  // SCP-01 (C-15, ADR-0046): pin role='partner'. users.partner_id carries no role invariant, so
+  // an admin row with a stray partner_id must not be counted into this org's authored set — the
+  // RLS counterpart (0044) carries the same predicate. (ownStatusAuthorScope keeps role='admin'
+  // OR partner_id=me deliberately: admin status changes stay visible to the current owner.)
   const ownAuthors = db
     .select({ id: users.id })
     .from(users)
-    .where(and(eq(users.tenantId, scope.tenantId), eq(users.partnerId, me)));
+    .where(and(eq(users.tenantId, scope.tenantId), eq(users.partnerId, me), eq(users.role, "partner")));
   return and(
     base,
     eq(leadNotes.authorRole, "partner"),
@@ -134,10 +138,14 @@ export function taskWhere(scope: ScopeContext, db: DB): SQL {
     // DM-09b: recalled (soft-deleted) leads drop out of the owned set here, so task reads
     // never rely on a parent join to filter deletes (same discipline as noteWhere).
     .where(and(eq(leads.tenantId, scope.tenantId), partnerOwnsLead(me), isNull(leads.deletedAt)));
+  // SCP-01 (C-15, ADR-0046): pin role='partner'. users.partner_id carries no role invariant, so
+  // an admin row with a stray partner_id must not be counted into this org's authored set — the
+  // RLS counterpart (0044) carries the same predicate. (ownStatusAuthorScope keeps role='admin'
+  // OR partner_id=me deliberately: admin status changes stay visible to the current owner.)
   const ownAuthors = db
     .select({ id: users.id })
     .from(users)
-    .where(and(eq(users.tenantId, scope.tenantId), eq(users.partnerId, me)));
+    .where(and(eq(users.tenantId, scope.tenantId), eq(users.partnerId, me), eq(users.role, "partner")));
   return and(
     base,
     eq(leadTasks.authorRole, "partner"),

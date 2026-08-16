@@ -65,8 +65,11 @@ enforcement.
   lead (no `deleted_at` filter on the admin read arm); admin status entries stay visible to the
   current lead owner.
 - The service-role write path. System-authored rows (`lead_status_history.changed_by_user_id
-  IS NULL`, `listing_checks`) are written as the owner and bypass RLS; the new WITH CHECK arms
-  admit them via a null-author arm rather than forbidding them.
+  IS NULL`, `listing_checks`) are written as the owner and bypass RLS. The `lead_status_history`
+  WITH CHECK admits a null author only under the ADMIN arm (a partner write must pin
+  `changed_by_user_id = app_current_user()`), so an authenticated partner cannot forge a
+  system-authored status row on the grant surface — the only legitimate null-author writer is the
+  service role, which bypasses RLS entirely (audit-security F-2 / audit-tenancy F-4).
 - C-8 (folding the distribution hold into `taskWhere`'s partner arm and RLS) — a behavioural
   change to the hold gate's location, tracked separately.
 
