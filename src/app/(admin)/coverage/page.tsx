@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
 import { apiGet } from "@/lib/api";
 import { AppShell, CountyCoverageMap, PartnerTag, QueryErrorState, Skeleton, usePageHeader } from "@/components";
-import { MapHatch } from "@/components/map";
+import { UncoveredKey } from "@/components/map";
 import type { StateCoverage, CoveragePartner, CountyCoverage } from "@/modules/coverage/map";
 
 // MAP-01. Read-only coverage overview: the county map colors each state by its
@@ -51,7 +51,6 @@ function CoverageBody() {
   });
   const [selected, setSelected] = React.useState<string | null>(null);
   const toggle = (id: string | null) => setSelected((prev) => (prev === id ? null : id));
-  const hatchId = React.useId();
 
   // Topbar carries the title only — the "Manage partners" action was dropped
   // (owner testing note #8, 2026-07-15); Partners is one click away in the nav.
@@ -87,16 +86,9 @@ function CoverageBody() {
                 caption={{ title: "US coverage", subtitle: `${data!.coveredCount}/51 states · ${data!.zipCoverageCount} ZIP overrides` }}
               />
               <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-step-1 text-text-3">
-                <span className="inline-flex items-center gap-1.5">
-                  {/* Legend swatch reuses the map's amber hatch (MapHatch) — exact parity, texture not color alone (PRN-14). */}
-                  <span className="inline-flex h-3.5 w-3.5 overflow-hidden rounded-[3px] border border-border">
-                    <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true">
-                      <MapHatch id={hatchId} />
-                      <rect width="14" height="14" fill={`url(#${hatchId})`} />
-                    </svg>
-                  </span>
-                  Uncovered
-                </span>
+                {/* WP-UX-4: the shared UncoveredKey — exact hatch parity with the map (PRN-14),
+                    one recipe with the dashboard's legend. */}
+                <UncoveredKey />
                 <span className="text-text-3">Counties a partner covers by ZIP show at county level; the rest follow their state&apos;s partner · scroll or use +/− to zoom, drag to pan · click to highlight a partner. Prefer the keyboard? Use the Partners list to highlight and open each territory.</span>
               </div>
             </section>

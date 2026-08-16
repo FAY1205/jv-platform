@@ -32,4 +32,25 @@ describe("WP-PW-2 HeroKpi", () => {
     expect(container.querySelector(".px-3")).toBeTruthy();
     expect(container.querySelector(".px-4")).toBeNull();
   });
+
+  // WP-UX-4 (audit D-3): delta sentiment. Colour never rides alone — the arrow + number
+  // stay in the text either way (PRN-14); polarity only decides the ink.
+  it("UX4-01: a delta in the GOOD direction takes success ink; the bad direction danger", () => {
+    const { container, rerender } = render(<HeroKpi label="Leads in" value={86} delta={5} good="up" />);
+    expect(container.querySelector(".text-success")?.textContent).toContain("↑ 5");
+    rerender(<HeroKpi label="Leads in" value={86} delta={-5} good="up" />);
+    expect(container.querySelector(".text-danger")?.textContent).toContain("↓ 5");
+    // Inverted polarity: unmatched going DOWN is the good direction.
+    rerender(<HeroKpi label="Unmatched" value={1} delta={-3} good="down" />);
+    expect(container.querySelector(".text-success")?.textContent).toContain("↓ 3");
+  });
+
+  it("UX4-02: no polarity ⇒ neutral ink; zero delta reads “— no change” (the dangling middot is gone)", () => {
+    const { container, rerender } = render(<HeroKpi label="Partners" value={13} delta={2} />);
+    expect(container.querySelector(".text-success")).toBeNull();
+    expect(container.querySelector(".text-danger")).toBeNull();
+    rerender(<HeroKpi label="Partners" value={13} delta={0} good="up" />);
+    expect(screen.getByText("— no change")).toBeTruthy();
+    expect(screen.queryByText(/·/)).toBeNull();
+  });
 });

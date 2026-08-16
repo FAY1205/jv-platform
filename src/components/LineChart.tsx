@@ -32,7 +32,10 @@ export function LineChart({ data, series, xKey, height = 280, yTickFormatter }: 
         <XAxis dataKey={xKey} stroke={CHART_AXIS} tickLine={false} axisLine={{ stroke: CHART_GRID }} fontSize={12} />
         <YAxis stroke={CHART_AXIS} tickLine={false} axisLine={false} width={40} fontSize={12} tickFormatter={yTickFormatter} />
         <Tooltip content={<ChartTooltip />} cursor={{ stroke: CHART_GRID }} />
-        <Legend iconType="plainline" wrapperStyle={{ fontSize: 12 }} />
+        {/* WP-UX-4 (audit D-5): legend at the top, beside the chart's header line — below
+            the plot it fell under the fold on desktop, leaving a series discoverable only
+            by accident. */}
+        <Legend verticalAlign="top" align="right" iconType="plainline" wrapperStyle={{ fontSize: 12, paddingBottom: 10 }} />
         {series.map((s) => (
           <Line
             key={s.key}
