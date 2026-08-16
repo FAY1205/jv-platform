@@ -29,7 +29,8 @@ export interface RlsClaims {
   partnerId?: string;
 }
 
-/** SQLSTATE Postgres raises when a WITH CHECK clause rejects a new/updated row. */
+/** SQLSTATE Postgres raises when a WITH CHECK clause rejects a new/updated row — also raised for
+ *  a table-privilege (grant) denial, which is why the WP-SEC-3 grant-revoke tests key on it too. */
 export const POLICY_VIOLATION = "42501";
 
 /**
@@ -41,6 +42,11 @@ export const POLICY_VIOLATION = "42501";
  * run the oracle (provision Supabase-like roles/grants, or a Supabase branch DB) is C-30.
  */
 export const IS_SUPABASE_DB = !!process.env.DATABASE_URL && /supabase\./i.test(process.env.DATABASE_URL);
+
+/** The lead-family tables whose write DML is revoked from anon/authenticated (WP-SEC-3, migration
+ *  0045). Single source of truth shared by the oracle's in-txn grant and the rls-grants tests —
+ *  keep in lockstep with 0045's REVOKE list. */
+export const LEAD_FAMILY_TABLES = ["leads", "lead_notes", "lead_tasks", "lead_status_history", "listing_checks"] as const;
 
 /** Internal sentinel: thrown to force the always-rollback, distinguished from real errors. */
 class Rollback extends Error {}
@@ -108,6 +114,13 @@ export async function probeWrite(
   let effected = 0;
   try {
     await db.transaction(async (tx) => {
+      // WP-SEC-3: base-state INSERT/UPDATE/DELETE grants are revoked from `authenticated`
+      // (migration 0045), so the WITH CHECK layer is only reachable WITH a grant. Grant it back
+      // inside this rolled-back transaction (as owner, before the role switch) so probeWrite keeps
+      // exercising the RLS policy as defense-in-depth; the rollback reverts the grant, leaving the
+      // base state revoked. Idempotent if 0045 has not been applied yet (grant already present).
+      // The real revoked write surface is tested separately via asRole (which grants nothing).
+      await tx.execute(sql.raw(`grant insert, update, delete on ${LEAD_FAMILY_TABLES.join(", ")} to authenticated`));
       await tx.execute(sql`select set_config('request.jwt.claims', ${claimsJson(claims)}, true)`);
       await tx.execute(sql`set local role authenticated`);
       try {

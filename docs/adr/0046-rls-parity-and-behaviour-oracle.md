@@ -59,6 +59,17 @@ enforcement.
    `coalesce(manual_partner_id, partner_id)` is exercised re-route → revert, the leg a naive
    "ownership follows the lead" regression breaks (the WP-TSK / ADR-0044 precedent).
 
+6. **Where a tenant table carries table-level DML grants to `anon`/`authenticated`, those grants
+   are REVOKEd** (WP-SEC-3, migration 0045). WITH CHECK parity is necessary but *cannot* gate
+   `DELETE` (USING alone decides which rows a DELETE touches) or column scope (WITH CHECK re-checks
+   only the pinned columns). The app connects as the owner (ADR-0013) and never uses these grants —
+   verified: no client-side `supabase.from()` exists. Revoking write DML makes RLS pure
+   defense-in-depth rather than the sole, partial gate. SELECT is retained (the read policies stay
+   the gate; revoking read is a separate, larger claim). **The WITH CHECK layer stays testable
+   after the revoke:** the WP-SEC-1 oracle's `probeWrite` grants the DML back inside its
+   rolled-back transaction, so it still exercises the policy as defense-in-depth, while `asRole`
+   (which grants nothing) exercises the real, revoked write surface.
+
 ### What this ADR does NOT change
 
 - The admin arms' deliberate asymmetries: admin keeps its own work items visible on a recalled
