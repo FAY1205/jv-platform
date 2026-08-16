@@ -160,9 +160,21 @@ function LeadsBody({ initialQ, initialOpenRef = null, initialHot = false }: { in
       <LeadsFilterBar seedQ={initialQ} seedHot={initialHot} view={view} applied={applied} onChange={setFilters} />
 
       {view === "board" ? (
-        // KAN-09 + TAG-03: the board carries the partner, hot AND tag filters (the filter bar
-        // hides the rest in board mode, so nothing on screen is silently ignored).
-        <LeadsBoard filters={{ partnerId: filters.partnerId, hot: filters.hot, tags: filters.tags }} onOpen={setOpenRef} />
+        // WP-UX-3 (audit 2.3): the board carries the WHOLE committed filter set — one filter
+        // bar, two views. `statuses` alone stays list-only (the columns are the status filter).
+        <LeadsBoard
+          filters={{
+            partnerId: filters.partnerId,
+            hot: filters.hot,
+            tags: filters.tags,
+            q: filters.q,
+            state: filters.state,
+            source: filters.source,
+            dateFrom: filters.dateFrom,
+            dateTo: filters.dateTo,
+          }}
+          onOpen={setOpenRef}
+        />
       ) : (
         <LeadsTable
           filterKey={filterKey}
@@ -185,10 +197,10 @@ function LeadsBody({ initialQ, initialOpenRef = null, initialHot = false }: { in
 
 // ── Filter bar (isolated; owns raw text + debounce, lifts committed filters) ──
 const LeadsFilterBar = React.memo(function LeadsFilterBar({ seedQ, seedHot = false, view = "list", applied = null, onChange }: { seedQ: string; seedHot?: boolean; view?: LeadsViewPref; applied?: AppliedView | null; onChange: (f: Filters) => void }) {
-  // KAN-09: the board honours the partner + hot filters. The rest (search, source,
-  // state, received range, status) are list-only for v1, so board mode HIDES them
-  // rather than showing controls that quietly do nothing. Their state is kept, so
-  // switching back to the list restores exactly what was set.
+  // WP-UX-3 (audit 2.3): the board now honours the WHOLE filter set, so every control
+  // stays visible in both modes. The one exception: the status pills are list-only —
+  // the board's columns already express status, and two answers to "which statuses am
+  // I looking at" would be worse than one.
   const listOnly = view === "list";
   const [qInput, setQInput] = React.useState(seedQ);
   // Partner / Source / State are ALL searchable Comboboxes (owner: make them match) — one
@@ -263,17 +275,15 @@ const LeadsFilterBar = React.memo(function LeadsFilterBar({ seedQ, seedHot = fal
   return (
     <>
       <div className="mb-3 flex flex-wrap items-end gap-2.5">
-        {listOnly && (
-          <div className="w-full max-w-[300px]">
-            <Input
-              value={qInput}
-              onChange={(e) => setQInput(e.target.value)}
-              onClear={() => { setQInput(""); setQCommitted(""); }}
-              placeholder="Search seller, address, ZIP, lead ID…"
-              aria-label="Search leads"
-            />
-          </div>
-        )}
+        <div className="w-full max-w-[300px]">
+          <Input
+            value={qInput}
+            onChange={(e) => setQInput(e.target.value)}
+            onClear={() => { setQInput(""); setQCommitted(""); }}
+            placeholder="Search seller, address, ZIP, lead ID…"
+            aria-label="Search leads"
+          />
+        </div>
         <div className="w-48">
           <Combobox
             ariaLabel="Filter by partner"
@@ -286,31 +296,27 @@ const LeadsFilterBar = React.memo(function LeadsFilterBar({ seedQ, seedHot = fal
             ]}
           />
         </div>
-        {listOnly && (
-          <>
-            <div className="w-48">
-              <Combobox
-                ariaLabel="Filter by source"
-                placeholder="All sources"
-                value={source}
-                onValueChange={setSource}
-                options={(sourcesQ.data?.sources ?? []).map((s) => ({ value: s, label: s }))}
-              />
-            </div>
-            <div className="w-48">
-              <Combobox
-                ariaLabel="Filter by state"
-                placeholder="All states"
-                value={state}
-                onValueChange={setState}
-                options={US_STATES.map((s) => ({ value: s.code, label: `${s.name} (${s.code})` }))}
-              />
-            </div>
-            <div className="w-52">
-              <DateRangePicker value={range} onChange={setRange} placeholder="Received range" />
-            </div>
-          </>
-        )}
+        <div className="w-48">
+          <Combobox
+            ariaLabel="Filter by source"
+            placeholder="All sources"
+            value={source}
+            onValueChange={setSource}
+            options={(sourcesQ.data?.sources ?? []).map((s) => ({ value: s, label: s }))}
+          />
+        </div>
+        <div className="w-48">
+          <Combobox
+            ariaLabel="Filter by state"
+            placeholder="All states"
+            value={state}
+            onValueChange={setState}
+            options={US_STATES.map((s) => ({ value: s.code, label: `${s.name} (${s.code})` }))}
+          />
+        </div>
+        <div className="w-52">
+          <DateRangePicker value={range} onChange={setRange} placeholder="Received range" />
+        </div>
         {/* Clear all holds a fixed slot at the row's end (ml-auto) — no more jumping as
             filters appear/disappear; disabled until there's something to clear. */}
         <button
@@ -448,7 +454,7 @@ function LeadsTable({
             </THead>
             <TBody>
               {data!.leads.map((l) => (
-                <Tr key={l.refId} className="hover:bg-surface-2">
+                <Tr key={l.refId} className="group hover:bg-surface-2">
                   <Td fit>
                     <span className="inline-flex items-center gap-1.5">
                       <RowOpenButton className="text-xs" onClick={() => onOpen(l.refId)}>{l.refId}</RowOpenButton>
@@ -477,6 +483,7 @@ function LeadsTable({
                   <Td>
                     <LeadTags
                       editable
+                      quietAdd
                       tags={l.tags}
                       hot={l.mlsStatus === "kept" && l.scoreGroup === "hot"}
                       hotScore={l.scoreTotal}

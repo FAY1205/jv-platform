@@ -36,6 +36,11 @@ export interface LeadTagsProps {
   onCreate?: (name: string) => void;
   /** A mutation is in flight: ✕ buttons and the ＋ trigger disable, nothing moves. */
   busy?: boolean;
+  /** WP-UX-3 (audit 1.6/2.4): render the ＋ trigger only on row/card hover or keyboard
+   *  focus. Requires a `group` class on the hosting row/card. The trigger stays in the
+   *  tab order (opacity, not display) — focus reveals it for keyboard users. Rows of
+   *  identical dashed ghosts were the loudest empty chrome in the audit. */
+  quietAdd?: boolean;
   className?: string;
 }
 
@@ -50,6 +55,7 @@ export function LeadTags({
   onDetach,
   onCreate,
   busy = false,
+  quietAdd = false,
   className,
 }: LeadTagsProps) {
   const shown = max === undefined ? tags : tags.slice(0, max);
@@ -71,13 +77,21 @@ export function LeadTags({
       ))}
       {hidden.length > 0 && <TagOverflowChip hidden={hidden} />}
       {editable && onAttach && (
-        <TagPicker
-          options={options}
-          selectedIds={tags.map((t) => t.id)}
-          onSelect={onAttach}
-          onCreate={onCreate}
-          busy={busy}
-        />
+        <span
+          className={cn(
+            quietAdd &&
+              "opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100 group-focus-within:opacity-100",
+          )}
+          data-testid={quietAdd ? "quiet-add" : undefined}
+        >
+          <TagPicker
+            options={options}
+            selectedIds={tags.map((t) => t.id)}
+            onSelect={onAttach}
+            onCreate={onCreate}
+            busy={busy}
+          />
+        </span>
       )}
     </div>
   );

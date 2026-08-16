@@ -33,6 +33,14 @@ export interface BoardFilters {
   hot: boolean;
   /** TAG-03: selected tag ids (any-of) — carried over from the list's filter row. */
   tags: string[];
+  /** WP-UX-3 (audit 2.3): the board carries the WHOLE list filter set — one filter bar,
+   *  two views, nothing on screen silently ignored. `statuses` stays list-only: the
+   *  board's columns are the status filter. */
+  q: string;
+  state: string;
+  source: string;
+  dateFrom: string;
+  dateTo: string;
 }
 
 interface BoardCardData {
@@ -83,6 +91,11 @@ const boardUrl = (filters: BoardFilters, status: string | null, page: number) =>
   if (filters.partnerId) params.set("partnerId", filters.partnerId);
   if (filters.hot) params.set("hot", "1");
   if (filters.tags.length) params.set("tags", filters.tags.join(","));
+  if (filters.q) params.set("q", filters.q);
+  if (filters.state) params.set("state", filters.state);
+  if (filters.source) params.set("source", filters.source);
+  if (filters.dateFrom) params.set("dateFrom", filters.dateFrom);
+  if (filters.dateTo) params.set("dateTo", filters.dateTo);
   if (status) params.set("status", status);
   if (page > 1) params.set("page", String(page));
   const qs = params.toString();
@@ -107,7 +120,7 @@ export function LeadsBoard({
    *  steady for the board's life so a re-render never reshuffles ages mid-drag. */
   now?: Date;
 }) {
-  const filterKey = `${filters.partnerId}|${filters.hot}|${filters.tags.join(",")}`;
+  const filterKey = `${filters.partnerId}|${filters.hot}|${filters.tags.join(",")}|${filters.q}|${filters.state}|${filters.source}|${filters.dateFrom}|${filters.dateTo}`;
   const [mountNow] = React.useState(() => new Date());
   const now = nowProp ?? mountNow;
 
@@ -169,6 +182,26 @@ export function LeadsBoard({
     return map;
   }, [boardQ.data]);
 
+  // WP-UX-3 (audit 2.1): a horizontal-overflow cue. Seven columns can't fit at 1440, and
+  // silently clipping the terminal statuses read as "the pipeline ends at Closed". The
+  // scroller reports whether MORE columns exist to the right; the fade scrim renders only
+  // then, and disappears once the user reaches the end.
+  const scrollerRef = React.useRef<HTMLDivElement>(null);
+  const [moreRight, setMoreRight] = React.useState(false);
+  React.useEffect(() => {
+    const el = scrollerRef.current;
+    if (!el) return;
+    const check = () => setMoreRight(el.scrollLeft + el.clientWidth < el.scrollWidth - 8);
+    check();
+    el.addEventListener("scroll", check, { passive: true });
+    const ro = new ResizeObserver(check);
+    ro.observe(el);
+    return () => {
+      el.removeEventListener("scroll", check);
+      ro.disconnect();
+    };
+  }, []);
+
   if (boardQ.error) {
     return (
       <Card>
@@ -181,9 +214,16 @@ export function LeadsBoard({
 
   return (
     <Card>
-      {/* Horizontal scroller: six fixed-width columns, never a squashed grid. */}
-      <div className="flex items-start gap-3 overflow-x-auto rounded-2xl bg-surface-2 p-4" data-testid="leads-board">
-        {BOARD_COLUMNS.map((status) => (
+      {/* WP-UX-3: columns flex between a floor and a cap (min-w-56 → max-w-80), so wide
+          viewports fit more columns instead of piling slack into one gutter; when they
+          still overflow, the fade scrim + the scroller say so instead of a silent clip. */}
+      <div className="relative">
+        <div
+          ref={scrollerRef}
+          className="flex items-start gap-3 overflow-x-auto rounded-2xl bg-surface-2 p-4"
+          data-testid="leads-board"
+        >
+          {BOARD_COLUMNS.map((status) => (
           <BoardColumnView
             key={status}
             status={status}
@@ -199,7 +239,16 @@ export function LeadsBoard({
             onMove={onMove}
             onLoadMore={onLoadMore}
           />
-        ))}
+          ))}
+        </div>
+        {/* KAN continuation cue: token-only gradient over the deck's own surface. */}
+        {moreRight && (
+          <div
+            aria-hidden="true"
+            data-testid="board-more-right"
+            className="pointer-events-none absolute inset-y-0 right-0 w-14 rounded-r-2xl bg-gradient-to-l from-surface-2 to-transparent"
+          />
+        )}
       </div>
     </Card>
   );
@@ -256,7 +305,10 @@ const BoardColumnView = React.memo(function BoardColumnView({
   return (
     <section
       aria-label={`${status} — ${total} ${total === 1 ? "lead" : "leads"}`}
-      className="flex max-h-[34rem] w-60 shrink-0 flex-col rounded-lg border border-border bg-bg"
+      // WP-UX-3 (audit 2.1/2.2): flexible width (floor 14rem, cap 20rem) so wide viewports
+      // fit more columns; viewport-relative height so the deck uses the page instead of
+      // stopping at a fixed 34rem with 40% of the screen empty below.
+      className="flex max-h-[70dvh] min-h-[20rem] w-60 min-w-56 max-w-80 flex-1 flex-col rounded-lg border border-border bg-bg"
     >
       <header className="flex items-center gap-2 px-3 pb-2 pt-2.5">
         {/* Decorative dot — the status WORD is always present (PRN-14). */}
@@ -400,7 +452,9 @@ const BoardCardView = React.memo(function BoardCardView({
         onOpen(card.refId);
       }}
       className={[
-        "cursor-grab rounded-lg border border-border bg-surface px-2.5 py-2 shadow-xs transition-shadow",
+        // `group` hosts the quiet tag-add reveal (WP-UX-3 — the dashed ghost row was the
+        // loudest empty chrome on every card; chips render at rest, ＋ appears on hover/focus).
+        "group cursor-grab rounded-lg border border-border bg-surface px-2.5 py-2 shadow-xs transition-shadow",
         "hover:border-border-strong hover:shadow-sm active:cursor-grabbing",
         dragging ? "opacity-45" : "",
       ].join(" ")}
@@ -429,6 +483,7 @@ const BoardCardView = React.memo(function BoardCardView({
       <div className="mt-1.5">
         <LeadTags
           editable
+          quietAdd
           tags={card.tags}
           hot={card.hot}
           hotScore={card.scoreTotal}

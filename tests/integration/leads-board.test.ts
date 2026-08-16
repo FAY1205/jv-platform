@@ -333,6 +333,23 @@ suite("WP-KAN-1: leads board endpoint (KAN-02/03/08/09)", () => {
     expect(col(hot, "Contacted").total).toBe(1);
   });
 
+  it("UX3-01: the board honours the list's q / state / date filters (WP-UX-3 filter parity)", async () => {
+    // q — free-text seller search, same predicate as the list (qTextMatch), filtered
+    // inside the CTE so the per-column TOTALS shrink too, not just the card slices.
+    const q = await board({ q: "Whitfield" });
+    expect(q.columns.reduce((n, c) => n + c.total, 0)).toBe(1);
+    expect(col(q, "Appointment").cards.map((x) => x.refId)).toEqual(["LD-26-80900"]);
+
+    // state — the LIST's validator (lower-case degrades to the canonical upper form).
+    const va = await board({ state: "va" });
+    expect(va.columns.reduce((n, c) => n + c.total, 0)).toBe(1);
+    expect(col(va, "Contacted").cards.map((x) => x.refId)).toEqual(["LD-26-80901"]);
+
+    // date range — a future dateFrom empties every column (true totals included).
+    const none = await board({ dateFrom: "2099-01-01" });
+    expect(none.columns.reduce((n, c) => n + c.total, 0)).toBe(0);
+  });
+
   it("KAN-02: GET /api/leads/board returns 200 with the board payload and degrades bad params", async () => {
     const res = await getBoard(jsonRequest("GET", "/api/leads/board"));
     expect(res.status).toBe(200);

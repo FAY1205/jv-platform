@@ -96,7 +96,8 @@ function wrap(ui: React.ReactNode) {
 }
 
 const column = (status: string) => screen.getByTestId(`board-column-${status}`);
-const noFilters = { partnerId: "", hot: false, tags: [] };
+// WP-UX-3: the board carries the whole list filter set now (q/state/source/date parity).
+const noFilters = { partnerId: "", hot: false, tags: [], q: "", state: "", source: "", dateFrom: "", dateTo: "" };
 
 // ── render (KAN-02/03/08) ─────────────────────────────────────────────────────
 describe("KAN-02: LeadsBoard renders six columns of cards", () => {
@@ -375,7 +376,7 @@ describe("KAN-02: Load more fetches the next page of ONE column", () => {
       return json(payload({}));
     }) as unknown as typeof fetch);
 
-    wrap(<LeadsBoard filters={{ partnerId: "unmatched", hot: true, tags: [] }} onOpen={() => {}} now={NOW} />);
+    wrap(<LeadsBoard filters={{ ...noFilters, partnerId: "unmatched", hot: true }} onOpen={() => {}} now={NOW} />);
     await waitFor(() => expect(urls.length).toBeGreaterThan(0));
     expect(urls[0]).toContain("partnerId=unmatched");
     expect(urls[0]).toContain("hot=1");
