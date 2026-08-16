@@ -215,7 +215,7 @@ function DashboardBody() {
                   left a floating mid-card gap whenever the map column ran taller (owner
                   testing note #1). Tooltip copy kept deliberately plain (same note). */}
               <div className="mt-6">
-                <div className="grid grid-cols-3 gap-px overflow-hidden rounded-xl border border-border bg-border">
+                <div className="grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-border bg-border sm:grid-cols-3">
                   {/* WP-UX-4: per-metric polarity — more leads/distribution is good, more
                       unmatched is bad; Partners stays neutral (a count, not a direction). */}
                   <HeroKpi label="Leads in" value={d!.stats.leadsIn.value} delta={d!.stats.leadsIn.delta} good="up" tip="All leads imported in this range, before MLS filtering." />
@@ -224,7 +224,7 @@ function DashboardBody() {
                 </div>
                 {/* Partner-stat tier — same cell design as the KPIs, range-scoped rollups
                     across partners (PRN-15); no prior-window delta on these. */}
-                <div className="mt-3 grid grid-cols-3 gap-px overflow-hidden rounded-xl border border-border bg-border">
+                <div className="mt-3 grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-border bg-border sm:grid-cols-3">
                   <HeroKpi label={d!.stats.partners.value === 1 ? "Partner" : "Partners"} value={d!.stats.partners.value} delta={d!.stats.partners.delta} tip="Partners that received at least one lead in this range." />
                   <HeroKpi label="Contacted" value={d!.stats.contacted.value} delta={d!.stats.contacted.delta} good="up" tip="Leads partners acted on for the first time in this range — a status change or a note." />
                   <HeroKpi label="Closed" value={d!.stats.closed.value} delta={d!.stats.closed.delta} good="up" tip="Leads marked Closed in this range." />
@@ -308,7 +308,7 @@ function DashboardBody() {
             {d!.partners.length === 0 ? (
               <p className="py-4 text-sm text-text-3">No leads distributed {rangeLabel}.</p>
             ) : (
-              <Table className="mt-3 min-w-[560px]" ariaLabel="Partner performance">
+              <Table className="mt-3 min-w-[560px]" ariaLabel="Partner performance" scrollHint>
                 <THead>
                   <Tr>
                     <Th>Partner</Th>
@@ -348,7 +348,7 @@ function DashboardBody() {
             {d!.sources.length === 0 ? (
               <p className="py-4 text-sm text-text-3">No leads imported {rangeLabel}.</p>
             ) : (
-              <Table className="mt-3 min-w-[420px]" ariaLabel="Lead source performance">
+              <Table className="mt-3 min-w-[420px]" ariaLabel="Lead source performance" scrollHint>
                 <THead>
                   <Tr>
                     <Th>Source</Th>

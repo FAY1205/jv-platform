@@ -66,7 +66,7 @@ function CoverageBody() {
         </div>
       ) : (
         <div className="stagger flex flex-col gap-5">
-          <div className="grid grid-cols-3 gap-3">
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
             <StatCard label="States covered" value={`${data!.coveredCount}/51`} sub="by a state rule" />
             <StatCard label="ZIP overrides" value={data!.zipCoverageCount} sub="beat the state rule" />
             <StatCard label="Partners with territory" value={data!.partners.length} sub="own states or ZIPs" />

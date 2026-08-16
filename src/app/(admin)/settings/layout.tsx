@@ -21,7 +21,10 @@ export default async function SettingsLayout({ children }: { children: React.Rea
           hugging the left with all the slack in one right gutter (audit S-2/T2);
           content width moves off the ad-hoc 760px literal onto the prose token. */}
       <PageContainer size="hub">
-        <div className="grid gap-8 lg:grid-cols-[210px_1fr]">
+        {/* grid-cols-1 (minmax(0,1fr)) is load-bearing: without an explicit narrow-width
+            column the grid's IMPLICIT auto track sizes to max-content, so the pill
+            strip's unwrapped row would blow the mobile layout viewport open (WP-UX-5). */}
+        <div className="grid grid-cols-1 gap-8 lg:grid-cols-[210px_1fr]">
           <SettingsNav isPlatformOwner={isPlatformOwner} />
           <div className="min-w-0 max-w-3xl">{children}</div>
         </div>

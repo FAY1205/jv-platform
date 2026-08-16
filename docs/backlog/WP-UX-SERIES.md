@@ -32,7 +32,7 @@ Rules that bind every slice:
 | WP-UX-2 | `PageContainer` + page-width adoption | T2 | High | waived | ✅ 2026-08-16 |
 | WP-UX-3 | Kanban board flexibility | T1 | High | waived | ✅ 2026-08-16 |
 | WP-UX-4 | Map & chart honesty (legend/hatch/sentiment) | T4 | High | waived | ✅ 2026-08-16 (deferred: on-map choropleth labels + anchored ramp legend on Unmatched — needs state centroids; dark brand/warn chart-hue separation → UX-8) |
-| WP-UX-5 | Mobile adaptivity (admin + portal) | T3 | **Critical** | **YES** | ☐ |
+| WP-UX-5 | Mobile adaptivity (admin + portal) | T3 | **Critical** | waived | ✅ 2026-08-16 (admin table→card + dialog sheet deferred by recorded decision — out of ≥768px contract) |
 | WP-UX-6 | Row-action & chrome hierarchy | T5 | Medium | light | ☐ |
 | WP-UX-7 | Empty-state, copy & dialog polish | T5/T6 | High | no | ☐ |
 | WP-UX-8 | Shared paper cuts + dark parity | T6 | Medium | no | ☐ |
@@ -130,9 +130,12 @@ audit's Critical):
 - Stat grids `auto-fit/minmax` → 2-across &lt;480px (dashboard + coverage).
 - Dashboard performance tables: `overflow-x-auto` + edge fade, or 2-column
   collapse (standards: wide content scrolls in its own container).
-- Leads table &lt;`md`: card list (the board card is 90% of the component) — or
-  a recorded decision that admin phone is out of contract.
-- Lead dialog &lt;`md`: full-height sheet, single-column fields in desktop order.
+- ~~Leads table &lt;`md` card list~~ / ~~lead dialog full-height sheet~~ —
+  **DECISION (WP-UX-5, 2026-08-16): deferred as out of contract.** FRONTEND_STANDARDS
+  §9 commits the admin app to ≥768px; phones get graceful degradation (which the
+  clipped-table scrollHint + stat-grid reflow + settings pill-nav now provide), not a
+  parallel phone UI. Revisit only if the admin viewport contract changes — then the
+  board card is ~90% of the needed card-list component.
 
 Portal (375px is contractual):
 - Restore search `Input` + status chips (horizontal scroll row) on mobile leads.

@@ -1,3 +1,5 @@
+"use client";
+
 import * as React from "react";
 import { cn } from "@/lib/cn";
 
@@ -13,11 +15,38 @@ export function Table({
   children,
   maxHeight,
   ariaLabel,
+  scrollHint = false,
   "aria-labelledby": ariaLabelledBy,
   ...rest
-}: React.HTMLAttributes<HTMLTableElement> & { maxHeight?: number; ariaLabel?: string }) {
-  return (
+}: React.HTMLAttributes<HTMLTableElement> & {
+  maxHeight?: number;
+  ariaLabel?: string;
+  /** WP-UX-5 (audit D-7): show a right-edge fade while columns are cut off to the
+   *  right — a wide table on a narrow card otherwise reads as amputated, not
+   *  scrollable (phones have no resting scrollbar). Opt in on tables with a min
+   *  width wider than their narrowest host. */
+  scrollHint?: boolean;
+}) {
+  const scrollerRef = React.useRef<HTMLDivElement>(null);
+  const [moreRight, setMoreRight] = React.useState(false);
+  React.useEffect(() => {
+    if (!scrollHint) return;
+    const el = scrollerRef.current;
+    if (!el) return;
+    const check = () => setMoreRight(el.scrollLeft + el.clientWidth < el.scrollWidth - 8);
+    check();
+    el.addEventListener("scroll", check, { passive: true });
+    const ro = new ResizeObserver(check);
+    ro.observe(el);
+    return () => {
+      el.removeEventListener("scroll", check);
+      ro.disconnect();
+    };
+  }, [scrollHint]);
+
+  const scroller = (
     <div
+      ref={scrollerRef}
       className="overflow-auto"
       style={maxHeight ? { maxHeight } : undefined}
       tabIndex={0}
@@ -31,6 +60,20 @@ export function Table({
       <table className={cn("w-full border-collapse text-sm", className)} aria-labelledby={ariaLabelledBy} {...rest}>
         {children}
       </table>
+    </div>
+  );
+
+  if (!scrollHint) return scroller;
+  return (
+    <div className="relative">
+      {scroller}
+      {moreRight && (
+        <div
+          aria-hidden="true"
+          data-testid="table-more-right"
+          className="pointer-events-none absolute inset-y-0 right-0 w-10 bg-gradient-to-l from-surface to-transparent"
+        />
+      )}
     </div>
   );
 }

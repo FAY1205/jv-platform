@@ -4,12 +4,18 @@ import * as React from "react";
 import { useQuery } from "@tanstack/react-query";
 import { apiGet } from "@/lib/api";
 import { fmtDate } from "@/lib/dates";
-import { Button, EmptyState, QueryErrorState, Skeleton, HotLeadMark } from "@/components";
+import { useDebouncedValue } from "@/lib/use-debounced-value";
+import { Button, EmptyState, FilterPill, Input, QueryErrorState, Skeleton, HotLeadMark } from "@/components";
 import { statusPillClass } from "@/lib/status-pill";
+import { PORTAL_STATUS_FILTERS } from "@/modules/portal/leads-contract";
 
-// WP-PW-3 Task 2: the mobile (< lg) Leads view, extracted verbatim from the pre-WP-PW-3
-// page.tsx (same markup/classes/behavior, same page-only query) so mobile stays pixel-
-// and behavior-identical — only the gate in page.tsx changed, not this component.
+// WP-PW-3 Task 2: the mobile (< lg) Leads view.
+// WP-UX-5 (audit portal-mobile 1–3): mobile no longer loses capability — the desktop's
+// debounced search and status filter come along (same params, same endpoint), rendered
+// phone-shaped: a full-width search input and a horizontally scrollable chip row. The
+// card leads with the SELLER (the person a partner is about to call — it was the one
+// datum the card omitted; info-design is first-class UX, owner 2026-08-16), address
+// second, and carries a chevron so the tap-through is discoverable.
 
 interface Lead {
   refId: string;
@@ -33,19 +39,40 @@ interface LeadsPage {
 
 export function LeadsMobile({ onOpen }: { onOpen: (refId: string) => void }) {
   const [page, setPage] = React.useState(1);
+  const [qInput, setQInput] = React.useState("");
+  const qCommitted = useDebouncedValue(qInput.trim());
+  const [statuses, setStatuses] = React.useState<string[]>([]);
+
+  // The desktop view's filterKey idiom: a render-time compare resets `page` to 1
+  // the moment search or status filters change.
+  const filterKey = `${qCommitted}|${statuses.join(",")}`;
+  const [resetKey, setResetKey] = React.useState(filterKey);
+  if (filterKey !== resetKey) {
+    setResetKey(filterKey);
+    setPage(1);
+  }
+
+  const toggleStatus = (s: string) => setStatuses((prev) => (prev.includes(s) ? prev.filter((x) => x !== s) : [...prev, s]));
+
   const { data, isLoading, error, refetch } = useQuery({
-    queryKey: ["portal-leads", page],
-    queryFn: () => apiGet<LeadsPage>(`/api/portal/leads?page=${page}`),
+    queryKey: ["portal-leads", filterKey, page],
+    queryFn: () => {
+      const params = new URLSearchParams({ page: String(page) });
+      if (qCommitted) params.set("q", qCommitted);
+      if (statuses.length) params.set("status", statuses.join(","));
+      return apiGet<LeadsPage>(`/api/portal/leads?${params.toString()}`);
+    },
   });
 
   const leads = data?.leads ?? [];
   const total = data?.total ?? 0;
   const pageSize = data?.pageSize ?? 50;
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  const hasFilters = qCommitted !== "" || statuses.length > 0;
 
   return (
     <main className="mx-auto w-full flex-1 p-4 md:p-0">
-      <div className="mb-4 flex items-end justify-between gap-3">
+      <div className="mb-3 flex items-end justify-between gap-3">
         <div>
           <h1 className="font-display text-xl font-semibold tracking-tight text-text md:hidden">Your leads</h1>
           {total > 0 && <p className="text-step-1 text-text-3">{total} total</p>}
@@ -57,6 +84,27 @@ export function LeadsMobile({ onOpen }: { onOpen: (refId: string) => void }) {
         </a>
       </div>
 
+      {/* WP-UX-5: the desktop capabilities, phone-shaped. */}
+      <div className="mb-2">
+        <Input
+          value={qInput}
+          onChange={(e) => setQInput(e.target.value)}
+          onClear={() => setQInput("")}
+          placeholder="Search seller, address, ZIP, lead ID…"
+          aria-label="Search your leads"
+        />
+      </div>
+      <div className="-mx-4 mb-4 flex gap-1.5 overflow-x-auto px-4 pb-1">
+        <FilterPill active={statuses.length === 0} onClick={() => setStatuses([])} className="shrink-0">
+          All
+        </FilterPill>
+        {PORTAL_STATUS_FILTERS.map((s) => (
+          <FilterPill key={s} active={statuses.includes(s)} onClick={() => toggleStatus(s)} className="shrink-0">
+            {s}
+          </FilterPill>
+        ))}
+      </div>
+
       {error ? (
         <QueryErrorState title="Couldn't load your leads" error={error} onRetry={() => refetch()} />
       ) : isLoading ? (
@@ -66,7 +114,10 @@ export function LeadsMobile({ onOpen }: { onOpen: (refId: string) => void }) {
           <Skeleton className="h-24 rounded-xl" />
         </div>
       ) : leads.length === 0 ? (
-        <EmptyState title="No leads yet" description="Leads assigned to you will appear here after the next upload." />
+        <EmptyState
+          title="No leads found"
+          description={hasFilters ? "Try widening your search or status filter." : "Leads assigned to you will appear here after the next upload."}
+        />
       ) : (
         <>
           <div className="flex flex-col gap-3">
@@ -84,13 +135,21 @@ export function LeadsMobile({ onOpen }: { onOpen: (refId: string) => void }) {
                     {l.status}
                   </span>
                 </div>
-                <div className="mt-1.5 text-base font-semibold text-text">{l.address}</div>
-                <div className="mt-1 flex flex-wrap gap-x-2 gap-y-0.5 text-step-1 text-text-2">
+                {/* Seller leads the card — the person to call. */}
+                <div className="mt-1.5 text-base font-semibold text-text">{l.sellerFirst} {l.sellerLast}</div>
+                <div className="mt-0.5 flex items-center gap-2">
+                  <span className="min-w-0 flex-1 truncate text-sm text-text-2">{l.address}</span>
+                  {/* Chevron: the tap-through affordance the flat card lacked. */}
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className="shrink-0 text-text-3">
+                    <path d="m9 18 6-6-6-6" />
+                  </svg>
+                </div>
+                <div className="mt-1 flex flex-wrap gap-x-2 gap-y-0.5 text-step-1 text-text-3">
                   <span>
                     {l.city}, {l.state}
                   </span>
-                  <span className="num text-text-3">{l.zip}</span>
-                  <span className="text-text-3">· {fmtDate(l.receivedAt)}</span>
+                  <span className="num">{l.zip}</span>
+                  <span>· {fmtDate(l.receivedAt)}</span>
                 </div>
               </button>
             ))}
