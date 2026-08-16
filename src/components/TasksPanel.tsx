@@ -131,7 +131,9 @@ export function TasksPanel({ leadRef, today, onTaskChanged }: TasksPanelProps) {
   return (
     <div className="rounded-xl border border-border-soft bg-surface-2 p-4">
       <div className="mb-3 flex items-center justify-between gap-2">
-        <h3 className="text-step-1 font-semibold uppercase tracking-wide text-brand-ink">Tasks</h3>
+        {/* WP-UX-7 (audit 3.1): one section-header treatment across the dialog (Lead score /
+            Tasks / Timeline) — amber ink is reserved for links + actions, not headings. */}
+        <h3 className="text-step-1 font-semibold uppercase tracking-wide text-text-2">Tasks</h3>
         {!q.isPending && !q.isError && <Badge variant="neutral">{openCount} open</Badge>}
       </div>
 

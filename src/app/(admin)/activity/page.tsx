@@ -50,6 +50,17 @@ function ActivityBody() {
   const qDebounced = useDebouncedValue(q.trim());
 
   const reset = () => setPage(1); // any filter change returns to page 1
+  // WP-UX-7 (audit A-1/A-3): distinguish "nothing logged yet" from "your filters match
+  // nothing" — the old copy told an admin with NO filters to "widen the filters", which
+  // is wrong and makes an empty log read as user error.
+  const hasFilters = qDebounced !== "" || category !== "all" || actor !== "" || Boolean(range.from) || Boolean(range.to);
+  const clearFilters = () => {
+    setQ("");
+    setCategory("all");
+    setActor("");
+    setRange({ from: null, to: null });
+    setPage(1);
+  };
 
   const params = new URLSearchParams({ page: String(page), pageSize: String(pageSize), category, dir });
   if (actor) params.set("actor", actor);
@@ -90,7 +101,24 @@ function ActivityBody() {
         ) : error ? (
           <div className="p-6"><QueryErrorState title="Couldn't load activity" error={error} onRetry={() => refetch()} /></div>
         ) : rows.length === 0 ? (
-          <div className="p-6"><EmptyState title="Nothing matches" description="Try widening the filters or clearing the search." /></div>
+          <div className="grid min-h-[52vh] place-items-center p-6">
+            {hasFilters ? (
+              <EmptyState
+                title="Nothing matches these filters"
+                description="No activity in the selected category, actor, or date range."
+                action={
+                  <button type="button" onClick={clearFilters} className="rounded-md border border-border bg-surface px-3 py-1.5 text-sm font-semibold text-text-2 transition-colors hover:border-brand-line hover:text-text">
+                    Clear filters
+                  </button>
+                }
+              />
+            ) : (
+              <EmptyState
+                title="No activity recorded yet"
+                description="Sign-ins, imports, assignments, and other tracked changes will appear here as they happen."
+              />
+            )}
+          </div>
         ) : (
           <Table>
             <THead>

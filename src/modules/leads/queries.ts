@@ -38,6 +38,21 @@ function taggedWithAny(scope: ScopeContext, tagIds: readonly string[]): SQL {
   )`;
 }
 
+/**
+ * WP-UX-3 — the free-text search predicate, shared by the list and the board so `?q=`
+ * means exactly one thing across both endpoints (the `taggedWithAny` precedent above).
+ * Returns undefined for a blank query so callers can push conditionally.
+ */
+function qTextMatch(q: string): SQL | undefined {
+  if (!q) return undefined;
+  const like = `%${q}%`;
+  return or(
+    ilike(schema.leads.sellerFirst, like), ilike(schema.leads.sellerLast, like),
+    ilike(schema.leads.address, like), ilike(schema.leads.city, like),
+    ilike(schema.leads.zip, like), ilike(schema.leads.refId, like),
+  );
+}
+
 /** Currently-unmatched = kept, not pipeline-routed, not yet manually assigned.
  *  Exported for the bulk-assign command's shared eligibility guard (S6/ASN-03). */
 export function unmatchedWhere(scope: ScopeContext): SQL {
@@ -139,15 +154,8 @@ export async function listLeads(scope: ScopeContext, query: LeadsQuery): Promise
   if (query.statuses.length > 0) {
     conds.push(or(...query.statuses.map((s) => sql`${sExpr} = ${s}`))!);
   }
-  if (query.q) {
-    const like = `%${query.q}%`;
-    const textMatch = or(
-      ilike(schema.leads.sellerFirst, like), ilike(schema.leads.sellerLast, like),
-      ilike(schema.leads.address, like), ilike(schema.leads.city, like),
-      ilike(schema.leads.zip, like), ilike(schema.leads.refId, like),
-    );
-    if (textMatch) conds.push(textMatch);
-  }
+  const textMatch = qTextMatch(query.q);
+  if (textMatch) conds.push(textMatch);
   const where = and(...conds);
 
   const sortCol =
@@ -328,6 +336,15 @@ export async function listLeadsBoard(scope: ScopeContext, query: BoardQuery): Pr
   // TOTALS are filtered too — a filter applied only to the card slice would report counts for
   // leads the board isn't showing.
   if (query.tags.length > 0) conds.push(taggedWithAny(scope, query.tags));
+  // WP-UX-3 (audit 2.3): the REST of the list's filter set, same predicates, inside `base`
+  // for the same totals-honesty reason. `statuses` is deliberately absent — the columns are
+  // the status filter (KAN-09).
+  if (query.state) conds.push(eq(schema.leads.state, query.state));
+  if (query.source) conds.push(eq(schema.leads.campaign, query.source));
+  if (query.dateFrom) conds.push(gte(schema.leads.createdAt, new Date(`${query.dateFrom}T00:00:00Z`)));
+  if (query.dateTo) conds.push(lte(schema.leads.createdAt, new Date(`${query.dateTo}T23:59:59Z`)));
+  const boardTextMatch = qTextMatch(query.q);
+  if (boardTextMatch) conds.push(boardTextMatch);
   const where = and(...conds)!;
 
   // Reused, not re-derived (PRN-15): the same scope-aware correlated subqueries the

@@ -25,6 +25,7 @@ import {
   usePageHeader,
   HeroKpi,
 } from "@/components";
+import { UncoveredKey } from "@/components/map";
 import { formatContactTime, AVG_CONTACT_DEFINITION, type RangeKey } from "@/modules/analytics/ranges";
 import { matchRate, formatMatchRatePct, MATCH_RATE_DEFINITION } from "@/modules/analytics/match-rate";
 import { useIsDesktop } from "@/lib/use-media-query";
@@ -47,9 +48,11 @@ const CountyCoverageMap = dynamic(() => import("@/components/CountyCoverageMap")
 // token-driven (PRN-12).
 
 const RANGES: { value: RangeKey; label: string; short: string }[] = [
-  { value: "7d", label: "Last 7 days", short: "7 days" },
-  { value: "30d", label: "Last 30 days", short: "30 days" },
-  { value: "12mo", label: "Last 12 months", short: "12 months" },
+  // WP-UX-8: one time-range vocabulary across both apps — the compact form the portal
+  // already uses (fits mobile; the full "Last 30 days" label still leads the hero).
+  { value: "7d", label: "Last 7 days", short: "7d" },
+  { value: "30d", label: "Last 30 days", short: "30d" },
+  { value: "12mo", label: "Last 12 months", short: "12mo" },
   { value: "all", label: "All time", short: "All" },
 ];
 const RANGE_SEGMENTS: { value: RangeKey; label: string }[] = RANGES.map((r) => ({ value: r.value, label: r.short }));
@@ -59,8 +62,10 @@ const label13 = "text-step-1"; // ≥13px chrome text (no sub-13px — WP-A/C ru
 const pct = (n: number) => `${Math.round(n * 100)}%`;
 
 // Donut palette from tokens (PRN-12); cycled per source. Names always accompany
-// color in the legend + tooltip (PRN-14).
-const SOURCE_COLORS = ["var(--brand)", "var(--warn)", "var(--danger)", "var(--text-3)", "var(--brand-strong)"];
+// color in the legend + tooltip (PRN-14). WP-UX-4 (audit D-2): the old cycle put THREE
+// amber-family hues (brand/warn/brand-strong) in one five-slice ring; the order below
+// keeps the two remaining ambers separated by green so no two neighbours share a family.
+const SOURCE_COLORS = ["var(--brand)", "var(--success)", "var(--warn)", "var(--danger)", "var(--text-3)"];
 
 // A dotted underline is the whole affordance (no ⓘ glyph) — subtler, and it matches
 // the match-rate figure. tabIndex=0 keeps the tooltip keyboard-reachable (Tooltip
@@ -212,17 +217,19 @@ function DashboardBody() {
                   left a floating mid-card gap whenever the map column ran taller (owner
                   testing note #1). Tooltip copy kept deliberately plain (same note). */}
               <div className="mt-6">
-                <div className="grid grid-cols-3 gap-px overflow-hidden rounded-xl border border-border bg-border">
-                  <HeroKpi label="Leads in" value={d!.stats.leadsIn.value} delta={d!.stats.leadsIn.delta} tip="All leads imported in this range, before MLS filtering." />
-                  <HeroKpi label="Distributed" value={d!.stats.distributed.value} delta={d!.stats.distributed.delta} tone="brand" tip="Leads that went to a partner in this range." />
-                  <HeroKpi label="Unmatched" value={d!.stats.unmatched.value} delta={d!.stats.unmatched.delta} tone="warn" tip="Leads no partner covers yet — they're waiting for an assignment." />
+                <div className="grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-border bg-border sm:grid-cols-3">
+                  {/* WP-UX-4: per-metric polarity — more leads/distribution is good, more
+                      unmatched is bad; Partners stays neutral (a count, not a direction). */}
+                  <HeroKpi label="Leads in" value={d!.stats.leadsIn.value} delta={d!.stats.leadsIn.delta} good="up" tip="All leads imported in this range, before MLS filtering." />
+                  <HeroKpi label="Distributed" value={d!.stats.distributed.value} delta={d!.stats.distributed.delta} good="up" tone="brand" tip="Leads that went to a partner in this range." />
+                  <HeroKpi label="Unmatched" value={d!.stats.unmatched.value} delta={d!.stats.unmatched.delta} good="down" tone="warn" tip="Leads no partner covers yet — they're waiting for an assignment." />
                 </div>
                 {/* Partner-stat tier — same cell design as the KPIs, range-scoped rollups
                     across partners (PRN-15); no prior-window delta on these. */}
-                <div className="mt-3 grid grid-cols-3 gap-px overflow-hidden rounded-xl border border-border bg-border">
+                <div className="mt-3 grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-border bg-border sm:grid-cols-3">
                   <HeroKpi label={d!.stats.partners.value === 1 ? "Partner" : "Partners"} value={d!.stats.partners.value} delta={d!.stats.partners.delta} tip="Partners that received at least one lead in this range." />
-                  <HeroKpi label="Contacted" value={d!.stats.contacted.value} delta={d!.stats.contacted.delta} tip="Leads partners acted on for the first time in this range — a status change or a note." />
-                  <HeroKpi label="Closed" value={d!.stats.closed.value} delta={d!.stats.closed.delta} tip="Leads marked Closed in this range." />
+                  <HeroKpi label="Contacted" value={d!.stats.contacted.value} delta={d!.stats.contacted.delta} good="up" tip="Leads partners acted on for the first time in this range — a status change or a note." />
+                  <HeroKpi label="Closed" value={d!.stats.closed.value} delta={d!.stats.closed.delta} good="up" tip="Leads marked Closed in this range." />
                 </div>
               </div>
             </div>
@@ -240,11 +247,16 @@ function DashboardBody() {
                       subtitle: `${coverage.data.partners.length} partner${coverage.data.partners.length === 1 ? "" : "s"} · ${coverage.data.coveredCount} state${coverage.data.coveredCount === 1 ? "" : "s"}`,
                     }}
                   />
-                  {/* Keyboard/AT path to the accessible per-partner companion list — the
+                  {/* WP-UX-4 (audit D-1): the same one-swatch key the Coverage page shows —
+                      this map previously had NO legend, and the hatch read as a partner fill.
+                      Keyboard/AT path to the accessible per-partner companion list stays — the
                       hero map itself is role="img" (a11y F-1). */}
-                  <Link href="/coverage" className={`mt-2 self-end font-semibold text-brand-ink hover:underline ${label13}`}>
-                    View full coverage →
-                  </Link>
+                  <div className={`mt-2 flex items-center justify-between gap-3 ${label13}`}>
+                    <UncoveredKey className="text-text-3" />
+                    <Link href="/coverage" className="font-semibold text-brand-ink hover:underline">
+                      View full coverage →
+                    </Link>
+                  </div>
                 </>
               ) : coverage.isError ? (
                 <EmptyState compact title="Coverage map unavailable." className="flex-1" />
@@ -270,7 +282,9 @@ function DashboardBody() {
                   series={[
                     { key: "Leads in", name: "Leads in", color: "var(--text-2)" },
                     { key: "Distributed", name: "Distributed", color: "var(--brand)" },
-                    { key: "Unmatched", name: "Unmatched", color: "var(--warn)" },
+                    // WP-UX-4 (audit D-5): unmatched is the ALERT series — the warn amber
+                    // hugged the axis nearly invisibly; danger is AA-vetted in both themes.
+                    { key: "Unmatched", name: "Unmatched", color: "var(--danger)" },
                   ]}
                 />
               )}
@@ -296,7 +310,7 @@ function DashboardBody() {
             {d!.partners.length === 0 ? (
               <p className="py-4 text-sm text-text-3">No leads distributed {rangeLabel}.</p>
             ) : (
-              <Table className="mt-3 min-w-[560px]" ariaLabel="Partner performance">
+              <Table className="mt-3 min-w-[560px]" ariaLabel="Partner performance" scrollHint>
                 <THead>
                   <Tr>
                     <Th>Partner</Th>
@@ -336,7 +350,7 @@ function DashboardBody() {
             {d!.sources.length === 0 ? (
               <p className="py-4 text-sm text-text-3">No leads imported {rangeLabel}.</p>
             ) : (
-              <Table className="mt-3 min-w-[420px]" ariaLabel="Lead source performance">
+              <Table className="mt-3 min-w-[420px]" ariaLabel="Lead source performance" scrollHint>
                 <THead>
                   <Tr>
                     <Th>Source</Th>

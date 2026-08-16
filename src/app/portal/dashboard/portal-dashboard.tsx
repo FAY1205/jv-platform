@@ -181,10 +181,10 @@ export function PortalDashboard() {
                 ))
               ) : (
                 <>
-                  <HeroKpi dense label="Leads" value={s.leads} delta={s.leadsDelta} tip="Kept leads routed to you in the selected range." />
+                  <HeroKpi dense label="Leads" value={s.leads} delta={s.leadsDelta} good="up" tip="Kept leads routed to you in the selected range." />
                   <HeroKpi dense label="New" value={s.untouched} delta={s.untouchedDelta} tip="Leads you've received but not yet actioned — get to these first." />
-                  <HeroKpi dense label="Contacted" value={s.contacted} delta={s.contactedDelta} tip="Leads you actioned (a status change or note) in the selected range." />
-                  <HeroKpi dense label="Closed" value={s.closed} delta={s.closedDelta} tip="Leads whose latest status became Closed in the selected range." />
+                  <HeroKpi dense label="Contacted" value={s.contacted} delta={s.contactedDelta} good="up" tip="Leads you actioned (a status change or note) in the selected range." />
+                  <HeroKpi dense label="Closed" value={s.closed} delta={s.closedDelta} good="up" tip="Leads whose latest status became Closed in the selected range." />
                 </>
               )}
             </div>
@@ -253,10 +253,10 @@ export function PortalDashboard() {
                   ))
                 ) : (
                   <>
-                    <HeroKpi label="Leads" value={s.leads} delta={s.leadsDelta} tip="Kept leads routed to you in the selected range." />
+                    <HeroKpi label="Leads" value={s.leads} delta={s.leadsDelta} good="up" tip="Kept leads routed to you in the selected range." />
                     <HeroKpi label="New" value={s.untouched} delta={s.untouchedDelta} tip="Leads you've received but not yet actioned — get to these first." />
-                    <HeroKpi label="Contacted" value={s.contacted} delta={s.contactedDelta} tip="Leads you actioned (a status change or note) in the selected range." />
-                    <HeroKpi label="Closed" value={s.closed} delta={s.closedDelta} tip="Leads whose latest status became Closed in the selected range." />
+                    <HeroKpi label="Contacted" value={s.contacted} delta={s.contactedDelta} good="up" tip="Leads you actioned (a status change or note) in the selected range." />
+                    <HeroKpi label="Closed" value={s.closed} delta={s.closedDelta} good="up" tip="Leads whose latest status became Closed in the selected range." />
                   </>
                 )}
               </div>
@@ -298,25 +298,26 @@ export function PortalDashboard() {
           <EmptyState compact title="No leads yet." description="Leads assigned to you will appear here after the next upload." className="py-8" />
         ) : (
           <Table>
+            {/* WP-UX-1: city/state fold into the address line (they were separate columns
+                restating it); ref/date/status take content width, the address flexes. */}
             <THead>
               <Tr>
-                <Th>Ref</Th>
+                <Th fit>Ref</Th>
                 <Th>Address</Th>
-                <Th>City</Th>
-                <Th>ST</Th>
-                <Th>Received</Th>
-                <Th>Status</Th>
+                <Th fit align="right">Received</Th>
+                <Th fit>Status</Th>
               </Tr>
             </THead>
             <TBody>
               {recent.map((l) => (
                 <Tr key={l.refId} className="hover:bg-surface-2">
-                  <Td className="num text-text-3">{l.refId}</Td>
-                  <Td className="font-medium text-text">{l.address}</Td>
-                  <Td className="text-text-2">{l.city}</Td>
-                  <Td className="num text-text-2">{l.state}</Td>
-                  <Td className="num text-text-3">{fmtDate(l.receivedAt)}</Td>
-                  <Td><span className={statusPillClass(l.status)}>{l.status}</span></Td>
+                  <Td fit className="num text-text-3">{l.refId}</Td>
+                  <Td clamp>
+                    <span className="font-medium text-text">{l.address}</span>
+                    <span className="ml-1.5 text-xs text-text-3">{[l.city, l.state].filter(Boolean).join(", ")}</span>
+                  </Td>
+                  <Td fit align="right" className="num text-text-3">{fmtDate(l.receivedAt)}</Td>
+                  <Td fit><span className={statusPillClass(l.status)}>{l.status}</span></Td>
                 </Tr>
               ))}
             </TBody>

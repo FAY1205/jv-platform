@@ -103,9 +103,18 @@ export const BoardQuerySchema = z
     page: pageParam({ max: BOARD_MAX_PAGE }),
     partnerId: z.unknown().optional().transform((v) => (typeof v === "string" && UUID_RE.test(v) ? v : v === "unmatched" ? "unmatched" : null)),
     hot: z.unknown().optional().transform((v) => v === "1" || v === "true" || v === true),
-    /** KAN-09 + TAG-03: the board now carries THREE of the list's filters — partner, hot,
-     *  and tags. Same shared parser as the list (one meaning for `?tags=`). */
+    /** KAN-09 + TAG-03: shared parser with the list (one meaning for `?tags=`). */
     tags: tagsParam(),
+    /** WP-UX-3 (audit 2.3): the board carries the WHOLE list filter set — the two views are
+     *  one filter bar, so nothing on screen is silently ignored when the mode flips. The
+     *  field schemas are the LIST's own (`LeadsQuerySchema.shape.*`, the SV-02 composition
+     *  precedent) — `?q=`/`?state=` can never mean two things across the two endpoints.
+     *  `statuses` stays list-only on purpose: the board's columns ARE the status filter. */
+    q: LeadsQuerySchema.shape.q,
+    state: LeadsQuerySchema.shape.state,
+    source: LeadsQuerySchema.shape.source,
+    dateFrom: LeadsQuerySchema.shape.dateFrom,
+    dateTo: LeadsQuerySchema.shape.dateTo,
   })
   // `page` is a per-COLUMN cursor: it only means anything alongside `status` (pr F-1).
   // Without one it is normalized away, so `?page=3` returns page 1 of every column and

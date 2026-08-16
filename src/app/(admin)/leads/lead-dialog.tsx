@@ -211,10 +211,19 @@ export function LeadDialog({ refId, onClose }: { refId: string; onClose: () => v
 // ── Read-only view ────────────────────────────────────────────────────────────
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  // WP-UX-7 (audit 3.2): a missing value is DEMOTED to a muted "Not provided" rather than
+  // a bare "—" at full field prominence — four em-dashes at full weight made a routed lead
+  // read as broken. Every empty-able caller resolves to the "—" sentinel, so this one place
+  // catches them all; JSX children (Property link, Routed-by tag) pass through unchanged.
+  const isEmpty = children === "—" || children === "" || children == null;
   return (
     <div className="flex flex-col gap-0.5">
       <span className="text-step-1 font-semibold uppercase tracking-wide text-text-3">{label}</span>
-      <span className="text-sm text-text">{children}</span>
+      {isEmpty ? (
+        <span className="text-sm italic text-text-3">Not provided</span>
+      ) : (
+        <span className="text-sm text-text">{children}</span>
+      )}
     </div>
   );
 }
@@ -341,7 +350,7 @@ function ScorePanel({ score, kept }: { score: LeadDetail["score"]; kept: boolean
   return (
     <div className="rounded-xl border border-border-soft bg-surface-2 p-4">
       <div className="mb-3 flex items-center justify-between gap-2">
-        <h3 className="text-step-1 font-semibold uppercase tracking-wide text-text-3">Lead score</h3>
+        <h3 className="text-step-1 font-semibold uppercase tracking-wide text-text-2">Lead score</h3>
         {score.status === "complete" && score.group ? (
           <Badge variant={GROUP_META[score.group].badge} className="gap-1.5">
             {/* Icon only for a kept hot lead (owner: no hot mark on MLS-listed). */}

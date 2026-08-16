@@ -48,6 +48,35 @@ export const DropdownMenuItem = React.forwardRef<
   );
 });
 
+// WP-UX-6: a checkbox menu item for multi-select menus (the status filter). Radix gives
+// role="menuitemcheckbox" + aria-checked + roving focus; call sites pass
+// onSelect={(e)=>e.preventDefault()} to keep the menu OPEN while toggling several.
+export const DropdownMenuCheckboxItem = React.forwardRef<
+  React.ElementRef<typeof RadixMenu.CheckboxItem>,
+  React.ComponentPropsWithoutRef<typeof RadixMenu.CheckboxItem>
+>(function DropdownMenuCheckboxItem({ className, children, ...props }, ref) {
+  return (
+    <RadixMenu.CheckboxItem
+      ref={ref}
+      className={cn(
+        "relative flex cursor-pointer select-none items-center gap-2 rounded py-1.5 pl-7 pr-2 text-sm text-text outline-none",
+        "data-[highlighted]:bg-surface-2 data-[disabled]:cursor-not-allowed data-[disabled]:opacity-50",
+        className,
+      )}
+      {...props}
+    >
+      <span className="absolute left-1.5 grid h-4 w-4 place-items-center rounded border border-border-strong">
+        <RadixMenu.ItemIndicator className="text-brand-ink">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="M20 6 9 17l-5-5" />
+          </svg>
+        </RadixMenu.ItemIndicator>
+      </span>
+      {children}
+    </RadixMenu.CheckboxItem>
+  );
+});
+
 export const DropdownMenuSeparator = React.forwardRef<
   React.ElementRef<typeof RadixMenu.Separator>,
   React.ComponentPropsWithoutRef<typeof RadixMenu.Separator>

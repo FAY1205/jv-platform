@@ -1,3 +1,5 @@
+"use client";
+
 import * as React from "react";
 import { cn } from "@/lib/cn";
 
@@ -13,11 +15,38 @@ export function Table({
   children,
   maxHeight,
   ariaLabel,
+  scrollHint = false,
   "aria-labelledby": ariaLabelledBy,
   ...rest
-}: React.HTMLAttributes<HTMLTableElement> & { maxHeight?: number; ariaLabel?: string }) {
-  return (
+}: React.HTMLAttributes<HTMLTableElement> & {
+  maxHeight?: number;
+  ariaLabel?: string;
+  /** WP-UX-5 (audit D-7): show a right-edge fade while columns are cut off to the
+   *  right — a wide table on a narrow card otherwise reads as amputated, not
+   *  scrollable (phones have no resting scrollbar). Opt in on tables with a min
+   *  width wider than their narrowest host. */
+  scrollHint?: boolean;
+}) {
+  const scrollerRef = React.useRef<HTMLDivElement>(null);
+  const [moreRight, setMoreRight] = React.useState(false);
+  React.useEffect(() => {
+    if (!scrollHint) return;
+    const el = scrollerRef.current;
+    if (!el) return;
+    const check = () => setMoreRight(el.scrollLeft + el.clientWidth < el.scrollWidth - 8);
+    check();
+    el.addEventListener("scroll", check, { passive: true });
+    const ro = new ResizeObserver(check);
+    ro.observe(el);
+    return () => {
+      el.removeEventListener("scroll", check);
+      ro.disconnect();
+    };
+  }, [scrollHint]);
+
+  const scroller = (
     <div
+      ref={scrollerRef}
       className="overflow-auto"
       style={maxHeight ? { maxHeight } : undefined}
       tabIndex={0}
@@ -33,6 +62,20 @@ export function Table({
       </table>
     </div>
   );
+
+  if (!scrollHint) return scroller;
+  return (
+    <div className="relative">
+      {scroller}
+      {moreRight && (
+        <div
+          aria-hidden="true"
+          data-testid="table-more-right"
+          className="pointer-events-none absolute inset-y-0 right-0 w-10 bg-gradient-to-l from-surface to-transparent"
+        />
+      )}
+    </div>
+  );
 }
 
 export function THead({ className, ...rest }: React.HTMLAttributes<HTMLTableSectionElement>) {
@@ -45,19 +88,33 @@ export function TBody({ className, ...rest }: React.HTMLAttributes<HTMLTableSect
 
 export type SortDir = "asc" | "desc" | null;
 
+// ── Column sizing vocabulary (WP-UX-1) ───────────────────────────────────────
+// The audit's T1 finding: auto-layout tables mis-budget width — starved columns
+// wrap (dates, names) while others hoard dead gutters. The shared recipe:
+//   • `fit` on a column's Th + Td → `w-px` + nowrap: the column takes exactly its
+//     content width (IDs, dates, status pills, counts, action clusters).
+//   • `clamp` on a Td → `max-w-0` + an inner `truncate` block: the column absorbs
+//     the leftover width and ellipsizes instead of wrapping (names, addresses,
+//     filenames). Pass `clampTitle` so the full value survives as a tooltip.
+// Content columns never wrap; flexible columns never push the table wide. The
+// Unmatched table's density/behavior is the reference this generalizes.
+
 export interface ThProps extends React.ThHTMLAttributes<HTMLTableCellElement> {
   sortable?: boolean;
   sortDir?: SortDir;
   onSort?: () => void;
   align?: "left" | "right";
+  /** Content-sized column: header contributes no width beyond its label. */
+  fit?: boolean;
 }
 
-export function Th({ sortable, sortDir = null, onSort, align = "left", className, children, ...rest }: ThProps) {
+export function Th({ sortable, sortDir = null, onSort, align = "left", fit, className, children, ...rest }: ThProps) {
   const base = cn(
     "text-step-1 uppercase tracking-wider text-text-3 font-semibold px-3.5 py-2.5",
     "border-b border-border-strong bg-surface-2 whitespace-nowrap sticky top-0 z-[2]",
     align === "right" ? "text-right" : "text-left",
     sortable && "cursor-pointer select-none hover:text-text",
+    fit && "w-px",
     className,
   );
   return (
@@ -110,14 +167,34 @@ export interface TdProps extends React.TdHTMLAttributes<HTMLTableCellElement> {
   align?: "left" | "right";
   /** When set on the first cell of an accented row, draws the color rail. */
   rail?: string;
+  /** Content-sized cell (pair with the column's `fit` Th): never wraps, never hoards. */
+  fit?: boolean;
+  /** Flexible cell: absorbs leftover width and ellipsizes instead of wrapping. */
+  clamp?: boolean;
+  /** Full value for the clamped cell's tooltip (title attribute). */
+  clampTitle?: string;
 }
 
-export function Td({ align = "left", rail, className, style, ...rest }: TdProps) {
+export function Td({ align = "left", rail, fit, clamp, clampTitle, className, style, children, ...rest }: TdProps) {
   return (
     <td
-      className={cn("px-3.5 py-2.5 align-middle", align === "right" && "text-right", className)}
+      className={cn(
+        "px-3.5 py-2.5 align-middle",
+        align === "right" && "text-right",
+        fit && "w-px whitespace-nowrap",
+        clamp && "max-w-0",
+        className,
+      )}
       style={rail ? { borderLeft: `3px solid ${rail}`, ...style } : style}
       {...rest}
-    />
+    >
+      {clamp ? (
+        <div className="truncate" title={clampTitle}>
+          {children}
+        </div>
+      ) : (
+        children
+      )}
+    </td>
   );
 }

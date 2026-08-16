@@ -8,7 +8,9 @@ import { usePathname } from "next/navigation";
 // /settings; the active item is derived from the URL. Sections fill in across the WS-7
 // slices; Billing + Team are intentional stubs (member role + billing come later).
 
-interface NavItem { href: string; label: string }
+// WP-UX-7 (audit TM-1): `soon` marks a nav item that leads to a "coming soon" placeholder,
+// so the label carries a quiet pill and the destination isn't a surprise after the click.
+interface NavItem { href: string; label: string; soon?: boolean }
 const GROUPS: { label: string; items: NavItem[] }[] = [
   { label: "Account", items: [
     { href: "/settings/profile", label: "Profile" },
@@ -21,9 +23,9 @@ const GROUPS: { label: string; items: NavItem[] }[] = [
     // TAG-06: the tag manager sits with the other workspace-wide data settings.
     { href: "/settings/tags", label: "Tags" },
     { href: "/settings/data", label: "Data & Export" },
-    { href: "/settings/billing", label: "Billing" },
+    { href: "/settings/billing", label: "Billing", soon: true },
     { href: "/settings/ai", label: "AI assistant" },
-    { href: "/settings/team", label: "Team" },
+    { href: "/settings/team", label: "Team", soon: true },
   ] },
 ];
 
@@ -35,29 +37,70 @@ export function SettingsNav({ isPlatformOwner = false }: { isPlatformOwner?: boo
   const groups = isPlatformOwner
     ? [...GROUPS, { label: "Platform", items: [{ href: "/settings/invitations", label: "Invitations" }] }]
     : GROUPS;
+  const isOn = (item: NavItem) => path === item.href || path.startsWith(`${item.href}/`);
+
   return (
-    <nav aria-label="Settings sections" className="flex flex-col gap-4">
-      {groups.map((group) => (
-        <div key={group.label} className="flex flex-col gap-0.5">
-          <div className="px-3 pb-1 text-step-1 font-semibold uppercase tracking-[.08em] text-text-3">{group.label}</div>
-          {group.items.map((item) => {
-            const on = path === item.href || path.startsWith(`${item.href}/`);
-            return (
-              <Link
-                key={item.href}
-                href={item.href}
-                aria-current={on ? "page" : undefined}
-                className={
-                  "rounded-md px-3 py-2 text-sm font-medium transition-colors " +
-                  (on ? "bg-brand-soft font-semibold text-brand-ink" : "text-text-2 hover:bg-surface-3 hover:text-text")
-                }
-              >
-                {item.label}
-              </Link>
-            );
-          })}
-        </div>
-      ))}
+    <nav aria-label="Settings sections">
+      {/* WP-UX-5 (audit S-1 — the series' one CRITICAL): below `lg` the grouped sidebar
+          used to linearize ABOVE the content — ~1,100px of nav before the first card on
+          every settings visit. Narrow widths get a horizontally scrollable pill strip
+          instead; the grouped sidebar stays on `lg+` untouched. One item list, two
+          renders — the strips can never drift apart. */}
+      <div className="-mx-1 flex gap-1.5 overflow-x-auto px-1 pb-2 lg:hidden" role="list">
+        {groups.flatMap((g) => g.items).map((item) => {
+          const on = isOn(item);
+          return (
+            <Link
+              key={item.href}
+              href={item.href}
+              aria-current={on ? "page" : undefined}
+              className={
+                "whitespace-nowrap rounded-full border px-3 py-1.5 text-sm font-medium transition-colors " +
+                (on
+                  ? "border-brand bg-brand-soft font-semibold text-brand-ink"
+                  : "border-border bg-surface text-text-2 hover:border-brand-line hover:text-text")
+              }
+            >
+              {item.label}
+              {item.soon && <SoonPill />}
+            </Link>
+          );
+        })}
+      </div>
+
+      <div className="hidden flex-col gap-4 lg:flex">
+        {groups.map((group) => (
+          <div key={group.label} className="flex flex-col gap-0.5">
+            <div className="px-3 pb-1 text-step-1 font-semibold uppercase tracking-[.08em] text-text-3">{group.label}</div>
+            {group.items.map((item) => {
+              const on = isOn(item);
+              return (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  aria-current={on ? "page" : undefined}
+                  className={
+                    "flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium transition-colors " +
+                    (on ? "bg-brand-soft font-semibold text-brand-ink" : "text-text-2 hover:bg-surface-3 hover:text-text")
+                  }
+                >
+                  {item.label}
+                  {item.soon && <SoonPill />}
+                </Link>
+              );
+            })}
+          </div>
+        ))}
+      </div>
     </nav>
+  );
+}
+
+/** WP-UX-7 (audit TM-1): a quiet "Soon" marker on a stub nav item. */
+function SoonPill() {
+  return (
+    <span className="rounded-full bg-surface-3 px-1.5 py-0.5 text-[0.625rem] font-semibold uppercase tracking-wide text-text-3">
+      Soon
+    </span>
   );
 }

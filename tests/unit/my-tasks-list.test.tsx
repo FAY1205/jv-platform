@@ -41,6 +41,9 @@ function task(overrides: Partial<MyTask>): MyTask {
     createdAt: "2026-08-10T00:00:00.000Z",
     updatedAt: "2026-08-10T00:00:00.000Z",
     leadRefId: "LD-25-01847",
+    leadSeller: "Marcus Whitfield",
+    leadCity: "Phoenix",
+    leadState: "AZ",
     group: "overdue",
     ...overrides,
   };
@@ -60,8 +63,18 @@ describe("DSN-03: MyTasksList — loading/empty/error states", () => {
   it("shows an empty state when the actor has no open tasks", async () => {
     vi.stubGlobal("fetch", vi.fn(() => jsonRes(page([]))) as unknown as typeof fetch);
     wrap(<MyTasksList leadHrefBase="/leads?open=" today={TODAY} />);
-    expect(await screen.findByText("No tasks")).toBeInTheDocument();
-    expect(screen.getByText("Add one from any lead.")).toBeInTheDocument();
+    expect(await screen.findByText("No open tasks")).toBeInTheDocument();
+    vi.unstubAllGlobals();
+  });
+
+  it("UX7-01: a task row shows the lead's identity (seller + city/state), not just the ref", async () => {
+    vi.stubGlobal("fetch", vi.fn(() => jsonRes(page([OVERDUE]))) as unknown as typeof fetch);
+    wrap(<MyTasksList leadHrefBase="/leads?open=" today={TODAY} />);
+    // The two identical "Call seller…" rows the audit flagged are now distinguishable.
+    expect(await screen.findByText("Marcus Whitfield")).toBeInTheDocument();
+    expect(screen.getByText(/Phoenix, AZ/)).toBeInTheDocument();
+    // The deep-link ref stays.
+    expect(screen.getByRole("link", { name: "LD-25-01847" })).toBeInTheDocument();
     vi.unstubAllGlobals();
   });
 
@@ -149,7 +162,7 @@ describe("TSK-07: the Open/Done segmented control switches ?status=", () => {
 
     await user.click(screen.getByRole("button", { name: "Done" }));
     await waitFor(() => expect(fetchSpy).toHaveBeenCalledWith(expect.stringContaining("status=done")));
-    await screen.findByText("No tasks");
+    await screen.findByText("No completed tasks yet"); // WP-UX-7: Done tab's own empty copy
 
     await user.click(screen.getByRole("button", { name: "Open" }));
     await waitFor(() => expect(screen.getByText(OVERDUE.title)).toBeInTheDocument());

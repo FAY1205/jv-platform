@@ -162,4 +162,20 @@ describe("TAG-04/TAG-05: the card cap and the Hot smart tag", () => {
     rerender(<LeadTags tags={[]} hot={false} hotScore={44} />);
     expect(screen.queryByRole("img", { name: /hot lead/i })).toBeNull();
   });
+
+  it("UX3-04: quietAdd hides the ＋ trigger until row hover/focus — but keeps it in the tab order", () => {
+    render(<LeadTags editable quietAdd tags={[PROBATE]} options={ALL} onAttach={vi.fn()} />);
+    const wrap = screen.getByTestId("quiet-add");
+    // Hidden by opacity (revealed by the hosting row's `group` hover / focus-within),
+    // never display:none — the trigger stays keyboard-reachable and reveals on focus.
+    expect(wrap.className).toContain("opacity-0");
+    expect(wrap.className).toContain("group-hover:opacity-100");
+    expect(wrap.className).toContain("focus-within:opacity-100");
+    expect(within(wrap).getByRole("button")).toBeInTheDocument();
+  });
+
+  it("UX3-04b: without quietAdd the trigger renders at rest (read-only surfaces unchanged)", () => {
+    render(<LeadTags editable tags={[PROBATE]} options={ALL} onAttach={vi.fn()} />);
+    expect(screen.queryByTestId("quiet-add")).toBeNull();
+  });
 });

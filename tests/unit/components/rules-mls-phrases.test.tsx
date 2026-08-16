@@ -41,8 +41,10 @@ describe("MlsPhrasesCard", () => {
     expect(screen.queryByText("sold")).toBeNull(); // internal pattern key not shown
   });
 
-  it("shows an empty state when there are no phrases", () => {
+  it("shows an empty state that states the consequence when there are no phrases (WP-UX-7)", () => {
     render(<MlsPhrasesCard patterns={[]} />);
-    expect(screen.getByText("No MLS phrases")).toBeInTheDocument();
+    expect(screen.getByText("No phrases configured")).toBeInTheDocument();
+    // The copy names what an empty set MEANS — nothing is being filtered.
+    expect(screen.getByText(/No leads are being filtered as already-listed/)).toBeInTheDocument();
   });
 });

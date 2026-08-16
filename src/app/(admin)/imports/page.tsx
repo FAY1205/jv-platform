@@ -91,31 +91,38 @@ function ImportsBody() {
           </div>
         ) : (
           <Table>
+            {/* WP-UX-1: FILE is the one flexible column (ellipsizing, full name on hover);
+                id/rows/status/date take content width — no more stranded midsection band. */}
             <THead>
               <Tr>
-                <Th>Import</Th>
+                <Th fit>Import</Th>
                 <Th>File</Th>
-                <Th align="right">Rows</Th>
-                <Th>Status</Th>
-                <Th align="right">Processed</Th>
+                <Th fit align="right">Rows</Th>
+                <Th fit>Status</Th>
+                <Th fit align="right">Processed</Th>
               </Tr>
             </THead>
             <TBody>
               {data.runs.map((run) => (
                 <Tr key={run.refId} className="hover:bg-surface-2">
-                  <Td>
+                  <Td fit>
                     <Link href={`/imports/${run.refId}`} className="num font-semibold text-brand-ink hover:underline">
                       {run.refId}
                     </Link>
                   </Td>
-                  <Td className="text-text-2">{run.filename}</Td>
-                  <Td align="right"><span className="num text-text-2">{run.rowCount ?? "—"}</span></Td>
-                  <Td>
-                    <Badge variant={run.status === "processed" ? "success" : run.status === "voided" ? "removed" : "neutral"}>
-                      {run.status}
-                    </Badge>
+                  <Td clamp clampTitle={run.filename} className="text-text-2">{run.filename}</Td>
+                  <Td fit align="right"><span className="num text-text-2">{run.rowCount ?? "—"}</span></Td>
+                  <Td fit>
+                    {/* WP-UX-7 (audit I-2): the steady state ("processed", ~every row) is quiet
+                        text so a FAILED/voided run's pill is the thing that pops (ING-08 — failures
+                        loud). A wall of identical green pills differentiated nothing. */}
+                    {run.status === "processed" ? (
+                      <span className="text-sm text-text-3">Processed</span>
+                    ) : (
+                      <Badge variant={run.status === "voided" ? "neutral" : "removed"}>{run.status}</Badge>
+                    )}
                   </Td>
-                  <Td align="right"><span className="num text-text-3">{fmtDate(run.createdAt)}</span></Td>
+                  <Td fit align="right"><span className="num text-text-3">{fmtDate(run.createdAt)}</span></Td>
                 </Tr>
               ))}
             </TBody>

@@ -241,7 +241,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </div>
         </header>
 
-        <main className="anim-fade w-full max-w-[1240px] px-6 pb-14 pt-5 md:px-8">{children}</main>
+        {/* WP-UX-2: mx-auto — the cap existed but the region was left-anchored, so
+            ultra-wide viewports piled all the slack into one right gutter. */}
+        <main className="anim-fade mx-auto w-full max-w-[1240px] px-6 pb-14 pt-5 md:px-8">{children}</main>
       </div>
       </div>
       </PageHeaderProvider>

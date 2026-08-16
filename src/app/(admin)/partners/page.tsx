@@ -17,6 +17,11 @@ import {
   Td,
   Badge,
   Button,
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
   Dialog,
   Input,
   Textarea,
@@ -540,6 +545,10 @@ function DeactivateModal({
 }
 
 // ── Roster row actions ───────────────────────────────────────────────────────
+// WP-UX-6 (audit P-2): the per-row Edit + (Re)invite + Deactivate cluster used to change
+// width row-to-row (the Invited row's extra button shoved Edit ~100px out of line) and
+// left a destructive action permanently exposed at equal weight. Collapsed to a single
+// fixed-slot ⋯ menu — columnar rhythm restored, Deactivate quiet (styled danger) inside it.
 function RowActions({ p, onEdit, onDeactivate }: { p: Partner; onEdit: () => void; onDeactivate: () => void }) {
   const qc = useQueryClient();
   const { toast } = useToast();
@@ -557,30 +566,43 @@ function RowActions({ p, onEdit, onDeactivate }: { p: Partner; onEdit: () => voi
   const canInvite = p.status !== "active";
   const inviteLabel = p.status === "revoked" ? "Reactivate" : p.status === "invited" ? "Re-invite" : "Invite";
   return (
-    <div className="flex items-center justify-end gap-1.5">
-      <Button variant="secondary" size="sm" onClick={onEdit}>
-        Edit
-      </Button>
-      {canInvite && (
-        <Button
-          variant="secondary"
-          size="sm"
-          loading={invite.isPending}
-          disabled={!p.email}
-          title={p.email ? undefined : "Add an email first"}
-          onClick={() => invite.mutate()}
-        >
-          {inviteLabel}
-        </Button>
-      )}
-      {p.status !== "revoked" && (
-        <Button variant="ghost" size="sm" onClick={onDeactivate}>
-          Deactivate
-        </Button>
-      )}
-    </div>
+    <DropdownMenu>
+      <DropdownMenuTrigger aria-label={`Actions for ${p.name}`} className={rowMenuTrigger}>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+          <circle cx="5" cy="12" r="1.7" /><circle cx="12" cy="12" r="1.7" /><circle cx="19" cy="12" r="1.7" />
+        </svg>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end">
+        <DropdownMenuItem onSelect={onEdit}>Edit</DropdownMenuItem>
+        {canInvite && (
+          <DropdownMenuItem
+            disabled={!p.email || invite.isPending}
+            // The row lives inside a table cell; a menu item never re-triggers the row.
+            onSelect={(e) => {
+              e.preventDefault();
+              if (p.email) invite.mutate();
+            }}
+            title={p.email ? undefined : "Add an email first"}
+          >
+            {invite.isPending ? "Sending…" : inviteLabel}
+          </DropdownMenuItem>
+        )}
+        {p.status !== "revoked" && (
+          <>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem destructive onSelect={onDeactivate}>
+              Deactivate
+            </DropdownMenuItem>
+          </>
+        )}
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
+
+// Shared ⋯ trigger — the board's MoveMenu recipe (KAN-05), tokened, all states.
+const rowMenuTrigger =
+  "grid h-8 w-8 place-items-center rounded-md text-text-3 outline-none transition-colors hover:bg-surface-2 hover:text-text focus-visible:ring-1 focus-visible:ring-brand-ink data-[state=open]:bg-surface-2";
 
 function PartnersInner() {
   return (
@@ -711,41 +733,45 @@ function PartnersBody() {
             </div>
           ) : (
             <Table>
+              {/* WP-UX-1: Partner + Contact are the flexible identity columns (ellipsizing
+                  with the full value on hover); status/coverage/actions take content width,
+                  so a long real-world partner name can't collide with Contact and the wide
+                  fixed gutters between the narrow columns are gone. */}
               <THead>
                 <Tr>
-                  <Th>Partner</Th>
+                  <Th className="w-[38%]">Partner</Th>
                   <Th>Contact</Th>
-                  <Th>Status</Th>
-                  <Th>Coverage</Th>
-                  <Th align="right">Actions</Th>
+                  <Th fit>Status</Th>
+                  <Th fit>Coverage</Th>
+                  <Th fit align="right">Actions</Th>
                 </Tr>
               </THead>
               <TBody>
                 {roster.map((p) => (
                   <Tr key={p.id}>
-                    <Td>
+                    <Td clamp clampTitle={`${p.name} (${p.refId})`}>
                       <Link
                         href={`/partners/${p.id}`}
-                        className="inline-flex rounded-md transition-opacity hover:opacity-70 focus-visible:opacity-70"
+                        className="inline-flex max-w-full rounded-md transition-opacity hover:opacity-70 focus-visible:opacity-70"
                         title={`Open ${p.name}`}
                       >
                         <PartnerTag name={p.name} color={p.color} refId={p.refId} />
                       </Link>
                     </Td>
-                    <Td>
-                      <div className="text-sm text-text-2">{p.email ?? <span className="text-text-3">no email</span>}</div>
+                    <Td clamp clampTitle={p.email ?? undefined}>
+                      <div className="truncate text-sm text-text-2">{p.email ?? <span className="text-text-3">no email</span>}</div>
                       {p.phone && <div className="num text-xs text-text-3">{p.phone}</div>}
                     </Td>
-                    <Td>
+                    <Td fit>
                       <Badge variant={STATUS[p.status].variant}>{STATUS[p.status].label}</Badge>
                     </Td>
-                    <Td>
+                    <Td fit>
                       <span className="num text-xs text-text-3">
                         {p.zipCount} ZIP{p.zipCount === 1 ? "" : "s"}
                         {p.stateCount > 0 && ` · ${p.stateCount} state${p.stateCount === 1 ? "" : "s"}`}
                       </span>
                     </Td>
-                    <Td align="right">
+                    <Td fit align="right">
                       <RowActions p={p} onEdit={() => setEditing(p)} onDeactivate={() => setDeactivating(p)} />
                     </Td>
                   </Tr>

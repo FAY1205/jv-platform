@@ -80,9 +80,12 @@ export function GlobalSearchTrigger({ className }: { className?: string }) {
       aria-keyshortcuts="Control+K Meta+K"
       className={cn(
         // 44px tap target, like the sibling chrome controls (F-66); tokens only (PRN-12).
-        "inline-flex h-11 min-w-11 shrink-0 items-center justify-center gap-2 rounded-md border border-border",
-        "bg-surface-2 px-3 text-step-1 text-text-3 transition-colors",
-        "hover:border-border-strong hover:text-text-2 focus-visible:border-border",
+        "inline-flex h-11 min-w-11 shrink-0 items-center justify-center gap-2 rounded-md px-3 text-step-1 text-text-3 transition-colors",
+        // WP-UX-8 (audit): the search BAR box (border + fill) is desktop-only. Below md the
+        // trigger is icon-only, so it drops the box to sit borderless beside the bell +
+        // theme toggle — it was reading as "pressed" next to them.
+        "hover:bg-surface-2 hover:text-text-2",
+        "md:border md:border-border md:bg-surface-2 md:hover:border-border-strong",
         "active:scale-95 disabled:pointer-events-none disabled:opacity-50",
         className,
       )}
@@ -251,7 +254,8 @@ export function GlobalSearchOverlay() {
           onKeyDown={onKeyDown}
           className="flex-1 border-0 bg-transparent text-sm text-text outline-none placeholder:text-text-3"
         />
-        <kbd className="num rounded border border-border-strong bg-surface px-1 py-px text-step-0 font-semibold">esc</kbd>
+        {/* WP-UX-8 (audit G-2): the esc hint lives once, in the footer's hint set (↑↓ / ↵ / esc) —
+            the duplicate chip in the input was redundant. */}
       </div>
 
       <div className="max-h-[52vh] overflow-auto px-2 py-2">

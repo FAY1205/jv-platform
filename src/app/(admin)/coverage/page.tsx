@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
 import { apiGet } from "@/lib/api";
 import { AppShell, CountyCoverageMap, PartnerTag, QueryErrorState, Skeleton, usePageHeader } from "@/components";
-import { MapHatch } from "@/components/map";
+import { UncoveredKey } from "@/components/map";
 import type { StateCoverage, CoveragePartner, CountyCoverage } from "@/modules/coverage/map";
 
 // MAP-01. Read-only coverage overview: the county map colors each state by its
@@ -51,7 +51,6 @@ function CoverageBody() {
   });
   const [selected, setSelected] = React.useState<string | null>(null);
   const toggle = (id: string | null) => setSelected((prev) => (prev === id ? null : id));
-  const hatchId = React.useId();
 
   // Topbar carries the title only — the "Manage partners" action was dropped
   // (owner testing note #8, 2026-07-15); Partners is one click away in the nav.
@@ -67,13 +66,16 @@ function CoverageBody() {
         </div>
       ) : (
         <div className="stagger flex flex-col gap-5">
-          <div className="grid grid-cols-3 gap-3">
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
             <StatCard label="States covered" value={`${data!.coveredCount}/51`} sub="by a state rule" />
             <StatCard label="ZIP overrides" value={data!.zipCoverageCount} sub="beat the state rule" />
             <StatCard label="Partners with territory" value={data!.partners.length} sub="own states or ZIPs" />
           </div>
 
-          <div className="grid grid-cols-1 items-start gap-5 lg:grid-cols-[1fr_300px]">
+          {/* WP-UX-1: the aside was a fixed 300px track — 6 of 14 partner names truncated
+              (audit). minmax lets wide viewports feed the identity column first; the map
+              still takes the lion's share. */}
+          <div className="grid grid-cols-1 items-start gap-5 lg:grid-cols-[2fr_minmax(340px,1fr)]">
             <section className={panel}>
               <h2 className="mb-4 font-display text-step-3 font-semibold tracking-tight">County map</h2>
               <CountyCoverageMap
@@ -84,16 +86,9 @@ function CoverageBody() {
                 caption={{ title: "US coverage", subtitle: `${data!.coveredCount}/51 states · ${data!.zipCoverageCount} ZIP overrides` }}
               />
               <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-step-1 text-text-3">
-                <span className="inline-flex items-center gap-1.5">
-                  {/* Legend swatch reuses the map's amber hatch (MapHatch) — exact parity, texture not color alone (PRN-14). */}
-                  <span className="inline-flex h-3.5 w-3.5 overflow-hidden rounded-[3px] border border-border">
-                    <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true">
-                      <MapHatch id={hatchId} />
-                      <rect width="14" height="14" fill={`url(#${hatchId})`} />
-                    </svg>
-                  </span>
-                  Uncovered
-                </span>
+                {/* WP-UX-4: the shared UncoveredKey — exact hatch parity with the map (PRN-14),
+                    one recipe with the dashboard's legend. */}
+                <UncoveredKey />
                 <span className="text-text-3">Counties a partner covers by ZIP show at county level; the rest follow their state&apos;s partner · scroll or use +/− to zoom, drag to pan · click to highlight a partner. Prefer the keyboard? Use the Partners list to highlight and open each territory.</span>
               </div>
             </section>
@@ -127,7 +122,9 @@ function CoverageBody() {
                           (on ? "bg-brand-soft" : "hover:bg-surface-2")
                         }
                       >
-                        <span className="min-w-0 truncate">
+                        {/* title = the full name for the rows that still truncate (WP-UX-1);
+                            PartnerTag now ellipsizes its own name span. */}
+                        <span className="min-w-0 truncate" title={p.name}>
                           <PartnerTag name={p.name} color={p.color} size="sm" />
                         </span>
                         <span className="num text-step-0 text-text-3" aria-label={`Reference ${p.refId}`}>

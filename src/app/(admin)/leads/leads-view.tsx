@@ -10,7 +10,7 @@ import { LEAD_STATUS_FILTERS, DEFAULT_STATUS_FILTERS, isDefaultStatuses, type Le
 import {
   AppShell, Card, Table, THead, TBody, Th, Tr, Td, PartnerTag, EmptyState, QueryErrorState, Skeleton,
   Input, Combobox, DateRangePicker, Pagination, RowOpenButton, StatusSelect, SegmentedControl,
-  DEFAULT_PAGE_SIZE, usePageHeader, FilterPill, Tooltip, HotLeadIcon,
+  DEFAULT_PAGE_SIZE, usePageHeader, FilterPill, Tooltip, HotLeadIcon, StatusFilterMenu,
   LeadTags, TagChip, TagPicker, SavedViewsMenu, type LeadTagView,
 } from "@/components";
 import type { SavedViewFilters } from "@/modules/saved-views/schema";
@@ -160,9 +160,21 @@ function LeadsBody({ initialQ, initialOpenRef = null, initialHot = false }: { in
       <LeadsFilterBar seedQ={initialQ} seedHot={initialHot} view={view} applied={applied} onChange={setFilters} />
 
       {view === "board" ? (
-        // KAN-09 + TAG-03: the board carries the partner, hot AND tag filters (the filter bar
-        // hides the rest in board mode, so nothing on screen is silently ignored).
-        <LeadsBoard filters={{ partnerId: filters.partnerId, hot: filters.hot, tags: filters.tags }} onOpen={setOpenRef} />
+        // WP-UX-3 (audit 2.3): the board carries the WHOLE committed filter set — one filter
+        // bar, two views. `statuses` alone stays list-only (the columns are the status filter).
+        <LeadsBoard
+          filters={{
+            partnerId: filters.partnerId,
+            hot: filters.hot,
+            tags: filters.tags,
+            q: filters.q,
+            state: filters.state,
+            source: filters.source,
+            dateFrom: filters.dateFrom,
+            dateTo: filters.dateTo,
+          }}
+          onOpen={setOpenRef}
+        />
       ) : (
         <LeadsTable
           filterKey={filterKey}
@@ -185,10 +197,10 @@ function LeadsBody({ initialQ, initialOpenRef = null, initialHot = false }: { in
 
 // ── Filter bar (isolated; owns raw text + debounce, lifts committed filters) ──
 const LeadsFilterBar = React.memo(function LeadsFilterBar({ seedQ, seedHot = false, view = "list", applied = null, onChange }: { seedQ: string; seedHot?: boolean; view?: LeadsViewPref; applied?: AppliedView | null; onChange: (f: Filters) => void }) {
-  // KAN-09: the board honours the partner + hot filters. The rest (search, source,
-  // state, received range, status) are list-only for v1, so board mode HIDES them
-  // rather than showing controls that quietly do nothing. Their state is kept, so
-  // switching back to the list restores exactly what was set.
+  // WP-UX-3 (audit 2.3): the board now honours the WHOLE filter set, so every control
+  // stays visible in both modes. The one exception: the status pills are list-only —
+  // the board's columns already express status, and two answers to "which statuses am
+  // I looking at" would be worse than one.
   const listOnly = view === "list";
   const [qInput, setQInput] = React.useState(seedQ);
   // Partner / Source / State are ALL searchable Comboboxes (owner: make them match) — one
@@ -256,24 +268,21 @@ const LeadsFilterBar = React.memo(function LeadsFilterBar({ seedQ, seedHot = fal
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [qCommitted, state, partnerId, source, statuses.join(","), hot, tagIds.join(","), range.from, range.to]);
 
-  const toggleStatus = (s: string) => setStatuses((prev) => (prev.includes(s) ? prev.filter((x) => x !== s) : [...prev, s]));
   // "Filters active" ignores the default status selection — only a change from it counts.
   const hasFilters = Boolean(qInput || state || partnerId || source || hot || tagIds.length || !isDefaultStatuses(statuses) || range.from);
 
   return (
     <>
       <div className="mb-3 flex flex-wrap items-end gap-2.5">
-        {listOnly && (
-          <div className="w-full max-w-[300px]">
-            <Input
-              value={qInput}
-              onChange={(e) => setQInput(e.target.value)}
-              onClear={() => { setQInput(""); setQCommitted(""); }}
-              placeholder="Search seller, address, ZIP, lead ID…"
-              aria-label="Search leads"
-            />
-          </div>
-        )}
+        <div className="w-full max-w-[300px]">
+          <Input
+            value={qInput}
+            onChange={(e) => setQInput(e.target.value)}
+            onClear={() => { setQInput(""); setQCommitted(""); }}
+            placeholder="Search seller, address, ZIP, lead ID…"
+            aria-label="Search leads"
+          />
+        </div>
         <div className="w-48">
           <Combobox
             ariaLabel="Filter by partner"
@@ -286,31 +295,27 @@ const LeadsFilterBar = React.memo(function LeadsFilterBar({ seedQ, seedHot = fal
             ]}
           />
         </div>
-        {listOnly && (
-          <>
-            <div className="w-48">
-              <Combobox
-                ariaLabel="Filter by source"
-                placeholder="All sources"
-                value={source}
-                onValueChange={setSource}
-                options={(sourcesQ.data?.sources ?? []).map((s) => ({ value: s, label: s }))}
-              />
-            </div>
-            <div className="w-48">
-              <Combobox
-                ariaLabel="Filter by state"
-                placeholder="All states"
-                value={state}
-                onValueChange={setState}
-                options={US_STATES.map((s) => ({ value: s.code, label: `${s.name} (${s.code})` }))}
-              />
-            </div>
-            <div className="w-52">
-              <DateRangePicker value={range} onChange={setRange} placeholder="Received range" />
-            </div>
-          </>
-        )}
+        <div className="w-48">
+          <Combobox
+            ariaLabel="Filter by source"
+            placeholder="All sources"
+            value={source}
+            onValueChange={setSource}
+            options={(sourcesQ.data?.sources ?? []).map((s) => ({ value: s, label: s }))}
+          />
+        </div>
+        <div className="w-48">
+          <Combobox
+            ariaLabel="Filter by state"
+            placeholder="All states"
+            value={state}
+            onValueChange={setState}
+            options={US_STATES.map((s) => ({ value: s.code, label: `${s.name} (${s.code})` }))}
+          />
+        </div>
+        <div className="w-52">
+          <DateRangePicker value={range} onChange={setRange} placeholder="Received range" />
+        </div>
         {/* Clear all holds a fixed slot at the row's end (ml-auto) — no more jumping as
             filters appear/disappear; disabled until there's something to clear. */}
         <button
@@ -361,17 +366,19 @@ const LeadsFilterBar = React.memo(function LeadsFilterBar({ seedQ, seedHot = fal
           selectedIds={tagIds}
           onSelect={(id) => setTagIds((prev) => (prev.includes(id) ? prev : [...prev, id]))}
         />
-        {/* Status is what the board's COLUMNS already express — hiding the pills there
-            keeps one answer to "which statuses am I looking at". */}
+        {/* WP-UX-6: the status filter is a multi-select (owner direction) — a calm
+            summary trigger + removable deviation chips, not a wall of active pills. The
+            board hides it entirely: its COLUMNS already express status, so one answer to
+            "which statuses am I looking at". */}
         {listOnly && (
           <>
             <span className="mx-1 h-4 w-px bg-border" aria-hidden="true" />
-            <span className="mr-1 text-xs font-semibold text-text-3">Status</span>
-            {LEAD_STATUS_FILTERS.map((s) => (
-              <FilterPill key={s} active={statuses.includes(s)} onClick={() => toggleStatus(s)}>
-                {s}
-              </FilterPill>
-            ))}
+            <StatusFilterMenu
+              options={LEAD_STATUS_FILTERS}
+              defaultValue={DEFAULT_STATUS_FILTERS}
+              value={statuses}
+              onChange={setStatuses}
+            />
           </>
         )}
       </div>
@@ -430,36 +437,43 @@ function LeadsTable({
           <div className="p-6"><EmptyState title="No leads found" description={hasFilters ? "Try widening the filters." : "Process a weekly file to see leads here."} /></div>
         ) : (
           <Table>
+            {/* WP-UX-1 width budget (audit T1): IDs/dates/status take content width
+                (`fit`), Seller/Property/Partner absorb the leftover and ellipsize
+                (`clamp`) — a date never wraps to two lines, a name never wraps while
+                a neighbor column sits half-empty. Tags stays auto: chips wrap in place. */}
             <THead>
               <Tr>
-                <Th sortable sortDir={sortDir("lead")} onSort={() => onSort("lead")}>Lead</Th>
-                <Th sortable sortDir={sortDir("seller")} onSort={() => onSort("seller")}>Seller</Th>
-                <Th>Property</Th>
-                <Th>Partner</Th>
+                <Th fit sortable sortDir={sortDir("lead")} onSort={() => onSort("lead")}>Lead</Th>
+                <Th sortable sortDir={sortDir("seller")} onSort={() => onSort("seller")} className="w-[14%]">Seller</Th>
+                <Th className="w-[28%]">Property</Th>
+                <Th className="w-[23%]">Partner</Th>
                 <Th>Tags</Th>
-                <Th sortable sortDir={sortDir("received")} onSort={() => onSort("received")} align="right">Received</Th>
-                <Th sortable sortDir={sortDir("modified")} onSort={() => onSort("modified")} align="right">Modified</Th>
-                <Th>Status</Th>
+                <Th fit sortable sortDir={sortDir("received")} onSort={() => onSort("received")} align="right">Received</Th>
+                <Th fit sortable sortDir={sortDir("modified")} onSort={() => onSort("modified")} align="right">Modified</Th>
+                <Th fit>Status</Th>
               </Tr>
             </THead>
             <TBody>
               {data!.leads.map((l) => (
-                <Tr key={l.refId} className="hover:bg-surface-2">
-                  <Td>
-                    <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
+                <Tr key={l.refId} className="group hover:bg-surface-2">
+                  <Td fit>
+                    <span className="inline-flex items-center gap-1.5">
                       <RowOpenButton className="text-xs" onClick={() => onOpen(l.refId)}>{l.refId}</RowOpenButton>
                     </span>
                   </Td>
-                  <Td><span className="text-sm text-text">{l.seller}</span></Td>
-                  <Td>
+                  <Td clamp clampTitle={l.seller}><span className="text-sm text-text">{l.seller}</span></Td>
+                  {/* One flowing line, single wrap point (audit 4.3): street + muted
+                      city/state/zip as inline runs that truncate together — the city
+                      fragment no longer lands at a different x-offset per row. */}
+                  <Td clamp>
                     <Tooltip content="Search this property on Google">
-                      <a href={googleSearchUrl([l.address, l.city, l.state, l.zip])} target="_blank" rel="noopener noreferrer" className="group inline-flex items-baseline gap-1 hover:underline">
-                        <span className="text-sm text-text-2 group-hover:text-brand-ink">{l.address}</span>
+                      <a href={googleSearchUrl([l.address, l.city, l.state, l.zip])} target="_blank" rel="noopener noreferrer" className="group hover:underline">
+                        <span className="text-sm text-text-2 group-hover:text-brand-ink">{l.address}</span>{" "}
                         <span className="text-xs text-text-3">{[l.city, l.state].filter(Boolean).join(", ")} <span className="num">{l.zip}</span></span>
                       </a>
                     </Tooltip>
                   </Td>
-                  <Td>
+                  <Td clamp clampTitle={l.partner ? `${l.partner.name} (${l.partner.refId})` : undefined}>
                     {l.partner ? <PartnerTag size="sm" name={l.partner.name} color={l.partner.color} refId={l.partner.refId} />
                       : l.mlsStatus === "kept" ? <span className="text-xs font-semibold text-warn">Unmatched</span>
                       : <span className="text-xs text-text-3">—</span>}
@@ -470,6 +484,7 @@ function LeadsTable({
                   <Td>
                     <LeadTags
                       editable
+                      quietAdd
                       tags={l.tags}
                       hot={l.mlsStatus === "kept" && l.scoreGroup === "hot"}
                       hotScore={l.scoreTotal}
@@ -480,9 +495,9 @@ function LeadsTable({
                       onCreate={(name) => createAndAttach.mutate({ refId: l.refId, name })}
                     />
                   </Td>
-                  <Td align="right"><span className="num text-xs text-text-3 tabular-nums">{fmtDate(l.receivedAt)}</span></Td>
-                  <Td align="right"><span className="num text-xs text-text-3 tabular-nums">{l.modifiedAt ? fmtDate(l.modifiedAt) : "—"}</span></Td>
-                  <Td><StatusSelect refId={l.refId} status={l.status} mlsStatus={l.mlsStatus} /></Td>
+                  <Td fit align="right"><span className="num text-xs text-text-3 tabular-nums">{fmtDate(l.receivedAt)}</span></Td>
+                  <Td fit align="right"><span className="num text-xs text-text-3 tabular-nums">{l.modifiedAt ? fmtDate(l.modifiedAt) : "—"}</span></Td>
+                  <Td fit><StatusSelect refId={l.refId} status={l.status} mlsStatus={l.mlsStatus} /></Td>
                 </Tr>
               ))}
             </TBody>

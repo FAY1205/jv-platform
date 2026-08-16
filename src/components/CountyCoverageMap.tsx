@@ -239,9 +239,11 @@ export function CountyCoverageMap({ states, counties = [], selectedPartnerId = n
 
       {caption && <MapCaption {...caption} />}
 
-      {/* Zoom controls — omitted in static (non-interactive) mode */}
+      {/* Zoom controls — omitted in static (non-interactive) mode. WP-UX-4 (audit D-4/C-3):
+          bottom-right, not top-right — the top corner collided with the caption plate on
+          narrow maps and clipped against tight card tops (the dashboard's sliced "−"). */}
       {interactive && (
-      <div className="absolute right-2 top-2 flex flex-col gap-1.5">
+      <div className="absolute bottom-2 right-2 flex flex-col gap-1.5">
         <button type="button" aria-label="Zoom in" className={zoomBtn} onClick={() => zoomAt(1.4, (wrapRef.current?.clientWidth ?? 0) / 2, (wrapRef.current?.clientHeight ?? 0) / 2)}>
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
         </button>
