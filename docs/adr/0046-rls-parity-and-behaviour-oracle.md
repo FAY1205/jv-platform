@@ -70,6 +70,21 @@ enforcement.
    rolled-back transaction, so it still exercises the policy as defense-in-depth, while `asRole`
    (which grants nothing) exercises the real, revoked write surface.
 
+7. **The grant revoke is schema-wide, not per-table** (WP-SEC-4, migration 0046). Verified via
+   `pg_default_acl`: Supabase's `public` schema auto-grants FULL DML to `anon`/`authenticated` on
+   every new table `postgres` creates, so a per-table revoke (Decision 6 / 0045) is a band-aid —
+   every other tenant table has the same hole and any future table re-opens it. 0046 (a)
+   `ALTER DEFAULT PRIVILEGES FOR ROLE postgres` so future public tables are not auto-granted write
+   DML, and (b) sweeps every existing public table (under a bounded `lock_timeout`/`statement_timeout`
+   so the migrate-on-merge sweep fails fast on contention rather than queuing behind live traffic —
+   audit-security F-1). No public table needs `anon`/`authenticated` write DML because the app
+   connects as the owner (ADR-0013). The guard is a DERIVED test (SEC4-02) keyed on the
+   RLS-ENABLED fact (`pg_class.relrowsecurity`), not policy naming, reading grants from
+   `pg_class.relacl` via `aclexplode` (catalog-level, not `information_schema` which is
+   `current_user`-filtered): every RLS table with a lingering DML grant fails automatically, so a
+   new scoped table is covered without migration-author memory. `SELECT` is retained schema-wide;
+   revoking read remains the separate, larger claim of C-29.
+
 ### What this ADR does NOT change
 
 - The admin arms' deliberate asymmetries: admin keeps its own work items visible on a recalled
