@@ -2,7 +2,7 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { apiGet } from "@/lib/api";
-import { Card, CardBody, Skeleton, QueryErrorState, AppShell, usePageHeader } from "@/components";
+import { Card, CardBody, PageContainer, Skeleton, QueryErrorState, AppShell, usePageHeader } from "@/components";
 import { LockedNote, MlsPhrasesCard, type MlsPhrase } from "./mls-phrases";
 import { ScoringCard } from "./scoring-card";
 
@@ -18,7 +18,9 @@ function RulesBody() {
   const { data, isPending, error, refetch } = useQuery({ queryKey: ["rules"], queryFn: () => apiGet<RulesData>("/api/admin/rules") });
 
   return (
-    <div className="flex max-w-3xl flex-col gap-5">
+    // WP-UX-2: a documentation-style page reads in a CENTERED column (audit R-1:
+    // the left-anchored cards left a dead right gutter for the full scroll height).
+    <PageContainer size="reading" className="flex flex-col gap-5">
       <div>
         <p className="text-sm text-text-2">How the import decides which leads are removed as already-listed, and how every kept lead is scored.</p>
         <LockedNote />
@@ -33,7 +35,7 @@ function RulesBody() {
       ) : (
         <MlsPhrasesCard patterns={data.mlsPatterns} />
       )}
-    </div>
+    </PageContainer>
   );
 }
 

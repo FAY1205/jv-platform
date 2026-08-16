@@ -29,7 +29,7 @@ Rules that bind every slice:
 | Slice | Title | Theme | Sev ceiling | Mockup? | Status |
 |-------|-------|-------|-------------|---------|--------|
 | WP-UX-1 | Flexible table primitive + adopters | T1 | High | waived | ✅ 2026-08-16 |
-| WP-UX-2 | `PageContainer` + page-width adoption | T2 | High | light | ☐ |
+| WP-UX-2 | `PageContainer` + page-width adoption | T2 | High | waived | ✅ 2026-08-16 |
 | WP-UX-3 | Kanban board flexibility | T1 | High | **YES** | ☐ |
 | WP-UX-4 | Map & chart honesty (legend/hatch/sentiment) | T4 | High | light | ☐ |
 | WP-UX-5 | Mobile adaptivity (admin + portal) | T3 | **Critical** | **YES** | ☐ |

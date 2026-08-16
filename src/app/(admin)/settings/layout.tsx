@@ -1,5 +1,5 @@
 import * as React from "react";
-import { AppShell } from "@/components";
+import { AppShell, PageContainer } from "@/components";
 import { getServerScope } from "@/lib/scope-context";
 import { isCallerPlatformOwner } from "@/lib/auth/platform-owner";
 import { SettingsNav } from "./settings-nav";
@@ -17,10 +17,15 @@ export default async function SettingsLayout({ children }: { children: React.Rea
   return (
     <AppShell>
       <SettingsHeader />
-      <div className="grid gap-8 lg:grid-cols-[210px_1fr]">
-        <SettingsNav isPlatformOwner={isPlatformOwner} />
-        <div className="min-w-0 max-w-[760px]">{children}</div>
-      </div>
+      {/* WP-UX-2: the nav + content ensemble centers as one `hub` unit instead of
+          hugging the left with all the slack in one right gutter (audit S-2/T2);
+          content width moves off the ad-hoc 760px literal onto the prose token. */}
+      <PageContainer size="hub">
+        <div className="grid gap-8 lg:grid-cols-[210px_1fr]">
+          <SettingsNav isPlatformOwner={isPlatformOwner} />
+          <div className="min-w-0 max-w-3xl">{children}</div>
+        </div>
+      </PageContainer>
     </AppShell>
   );
 }
