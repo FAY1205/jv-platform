@@ -16,6 +16,11 @@ const eslintConfig = defineConfig([
     // .claude/worktrees are full copies of this repo and would otherwise be
     // linted again (tens of thousands of duplicate problems).
     ".claude/**",
+    // Untracked reference/marketing material kept in the working tree but not
+    // part of the app: the Krayin CRM comparison checkout and the marketing
+    // capture scripts. They are not ours to lint (C-1).
+    "laravel-crm-2.2/**",
+    "_marketing/**",
   ]),
 ]);
 

@@ -25,9 +25,10 @@ export async function GET(_request: Request, { params }: { params: Promise<{ ref
     if (!detail) return jsonError("not_found", "Lead not found.", 404);
     return jsonOk(detail);
   } catch (e) {
+    // C-17: static message + logged traceId — never echo the driver error to the client.
     return (
       authErrorResponse(e) ??
-      jsonError("lead_detail_failed", e instanceof Error ? e.message : "Failed to load lead", 500)
+      jsonServerError("lead_detail_failed", "Failed to load lead.", { message: e instanceof Error ? e.message : String(e) })
     );
   }
 }

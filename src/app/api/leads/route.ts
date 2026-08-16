@@ -2,7 +2,7 @@ import { getServerScope } from "@/lib/scope-context";
 import { authErrorResponse, requireAdminResponse } from "@/lib/auth/guard";
 import { LeadsQuerySchema } from "@/modules/leads/schema";
 import { listLeads } from "@/modules/leads/queries";
-import { jsonOk, jsonError } from "@/lib/http";
+import { jsonOk, jsonServerError } from "@/lib/http";
 
 // ADM: the global leads list — searchable, filterable, server-paginated.
 // Admin-only; scoped via the guard (PRN-08). Params are Zod-normalized
@@ -17,9 +17,11 @@ export async function GET(request: Request) {
     const page = await listLeads(scope, query);
     return jsonOk(page);
   } catch (e) {
+    // C-17: static message + logged traceId — never echo the driver error (its bound
+    // params can carry seller data) to the client.
     return (
       authErrorResponse(e) ??
-      jsonError("leads_list_failed", e instanceof Error ? e.message : "Failed to list leads", 500)
+      jsonServerError("leads_list_failed", "Failed to list leads.", { message: e instanceof Error ? e.message : String(e) })
     );
   }
 }
