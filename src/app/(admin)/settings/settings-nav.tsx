@@ -8,7 +8,9 @@ import { usePathname } from "next/navigation";
 // /settings; the active item is derived from the URL. Sections fill in across the WS-7
 // slices; Billing + Team are intentional stubs (member role + billing come later).
 
-interface NavItem { href: string; label: string }
+// WP-UX-7 (audit TM-1): `soon` marks a nav item that leads to a "coming soon" placeholder,
+// so the label carries a quiet pill and the destination isn't a surprise after the click.
+interface NavItem { href: string; label: string; soon?: boolean }
 const GROUPS: { label: string; items: NavItem[] }[] = [
   { label: "Account", items: [
     { href: "/settings/profile", label: "Profile" },
@@ -21,9 +23,9 @@ const GROUPS: { label: string; items: NavItem[] }[] = [
     // TAG-06: the tag manager sits with the other workspace-wide data settings.
     { href: "/settings/tags", label: "Tags" },
     { href: "/settings/data", label: "Data & Export" },
-    { href: "/settings/billing", label: "Billing" },
+    { href: "/settings/billing", label: "Billing", soon: true },
     { href: "/settings/ai", label: "AI assistant" },
-    { href: "/settings/team", label: "Team" },
+    { href: "/settings/team", label: "Team", soon: true },
   ] },
 ];
 
@@ -60,6 +62,7 @@ export function SettingsNav({ isPlatformOwner = false }: { isPlatformOwner?: boo
               }
             >
               {item.label}
+              {item.soon && <SoonPill />}
             </Link>
           );
         })}
@@ -77,11 +80,12 @@ export function SettingsNav({ isPlatformOwner = false }: { isPlatformOwner?: boo
                   href={item.href}
                   aria-current={on ? "page" : undefined}
                   className={
-                    "rounded-md px-3 py-2 text-sm font-medium transition-colors " +
+                    "flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium transition-colors " +
                     (on ? "bg-brand-soft font-semibold text-brand-ink" : "text-text-2 hover:bg-surface-3 hover:text-text")
                   }
                 >
                   {item.label}
+                  {item.soon && <SoonPill />}
                 </Link>
               );
             })}
@@ -89,5 +93,14 @@ export function SettingsNav({ isPlatformOwner = false }: { isPlatformOwner?: boo
         ))}
       </div>
     </nav>
+  );
+}
+
+/** WP-UX-7 (audit TM-1): a quiet "Soon" marker on a stub nav item. */
+function SoonPill() {
+  return (
+    <span className="rounded-full bg-surface-3 px-1.5 py-0.5 text-[0.625rem] font-semibold uppercase tracking-wide text-text-3">
+      Soon
+    </span>
   );
 }

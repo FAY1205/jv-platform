@@ -23,11 +23,17 @@ export interface DueChipProps {
   today: string;
   /** Extra classes for the host's layout only (My Tasks pins `shrink-0` in its flex row). */
   className?: string;
+  /** WP-UX-7: drop the state word ("Overdue · ", "Due ") and show just the date, for
+   *  contexts where a GROUP HEADER already names the state (My Tasks' grouped open view) —
+   *  the tone still carries urgency and the header carries the word, so it's not lost. When
+   *  there's no date (the "No due date" bucket) the full label still renders. */
+  dateOnly?: boolean;
 }
 
-export function DueChip({ dueOn, doneAt, today, className }: DueChipProps) {
+export function DueChip({ dueOn, doneAt, today, className, dateOnly = false }: DueChipProps) {
   const chip = dueChipFor(dueOn, doneAt, today);
   const prefix = chip.dateText ? chip.label.slice(0, chip.label.length - chip.dateText.length) : chip.label;
+  const showPrefix = !(dateOnly && chip.dateText);
   return (
     <span
       className={cn(
@@ -36,7 +42,7 @@ export function DueChip({ dueOn, doneAt, today, className }: DueChipProps) {
         className,
       )}
     >
-      {prefix}
+      {showPrefix && prefix}
       {chip.dateText && <span className="num">{chip.dateText}</span>}
     </span>
   );

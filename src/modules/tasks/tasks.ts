@@ -110,6 +110,12 @@ export interface LeadTaskView {
 
 export interface MyTaskItem extends LeadTaskView {
   leadRefId: string;
+  // WP-UX-7 (info design): the lead's identity, so a task row answers "which Smith?" without
+  // a click-through. Same caller, same stream — the lead is already reachable via leadRefId,
+  // so this surfaces nothing the caller can't already open (no new PII exposure).
+  leadSeller: string;
+  leadCity: string | null;
+  leadState: string | null;
   /** TSK-10 bucket, computed from the injected clock — never re-derived downstream (PRN-15). */
   group: DueGroup;
 }
@@ -493,7 +499,15 @@ export async function listMyTasks(
 
   const [rows, totals] = await Promise.all([
     db
-      .select({ ...TASK_COLUMNS, leadRefId: schema.leads.refId })
+      .select({
+        ...TASK_COLUMNS,
+        leadRefId: schema.leads.refId,
+        // WP-UX-7: the lead's identity travels with the task (already-joined leads row).
+        leadSellerFirst: schema.leads.sellerFirst,
+        leadSellerLast: schema.leads.sellerLast,
+        leadCity: schema.leads.city,
+        leadState: schema.leads.state,
+      })
       .from(schema.leadTasks)
       .innerJoin(schema.leads, eq(schema.leads.id, schema.leadTasks.leadId))
       .where(where)
@@ -505,7 +519,14 @@ export async function listMyTasks(
 
   const today = utcDateString(now);
   return {
-    items: rows.map((r) => ({ ...toView(r), leadRefId: r.leadRefId, group: groupByDue(r.dueOn, today) })),
+    items: rows.map((r) => ({
+      ...toView(r),
+      leadRefId: r.leadRefId,
+      leadSeller: `${r.leadSellerFirst ?? ""} ${r.leadSellerLast ?? ""}`.trim() || "—",
+      leadCity: r.leadCity,
+      leadState: r.leadState,
+      group: groupByDue(r.dueOn, today),
+    })),
     page,
     pageSize,
     total: totals[0]?.n ?? 0,

@@ -39,9 +39,9 @@ const EFFECT_META: Record<MlsEffect, { title: string; hint: string; badge: "succ
 };
 
 /** The locked-note pill: the phrase set is fixed in code and can't be changed here. */
-export function LockedNote() {
+function LockedNote() {
   return (
-    <span className="mt-3 inline-flex items-center gap-2 rounded-full border border-border bg-surface-2 px-3 py-1 text-step-1 text-text-3">
+    <span className="inline-flex items-center gap-2 rounded-full border border-border bg-surface-2 px-3 py-1 text-step-1 text-text-3">
       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
         <rect x="5" y="11" width="14" height="9" rx="2" />
         <path d="M8 11V8a4 4 0 0 1 8 0v3" />
@@ -65,8 +65,16 @@ export function MlsPhrasesCard({ patterns }: MlsPhrasesCardProps) {
     <Card>
       <CardHeader><CardTitle>MLS phrases</CardTitle></CardHeader>
       <CardBody>
+        {/* WP-UX-7 (audit R-2): the "managed for you" note lives INSIDE the card it describes,
+            not floating atop the page above the unrelated Scoring card. */}
+        <div className="mb-4"><LockedNote /></div>
         {patterns.length === 0 ? (
-          <EmptyState title="No MLS phrases" description="No filter phrases are configured yet." />
+          // R-3: the empty copy states the CONSEQUENCE — an empty set means nothing is filtered,
+          // which (leads silently removed as already-listed) is expensive to leave ambiguous.
+          <EmptyState
+            title="No phrases configured"
+            description="No leads are being filtered as already-listed. Contact us to set up MLS filtering."
+          />
         ) : (
           <div className="flex flex-col gap-6">
             {groupMlsPatterns(patterns).map((group) => {

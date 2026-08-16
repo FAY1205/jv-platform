@@ -429,6 +429,10 @@ suite("WP-TSK-2: lead tasks module (TSK-01..07)", () => {
     expect(open.items.map((t) => t.group)).toEqual(["overdue", "upcoming", "none"]);
     // Each row links to its lead (TSK-07).
     expect(open.items.every((t) => t.leadRefId === "LD-26-20009")).toBe(true);
+    // WP-UX-7: the lead's identity travels with the task (info design — "which Smith?").
+    expect(open.items.every((t) => typeof t.leadSeller === "string" && t.leadSeller.length > 0)).toBe(true);
+    expect(open.items[0]).toHaveProperty("leadCity");
+    expect(open.items[0]).toHaveProperty("leadState");
 
     const done = await listMyTasks(pzScope, { status: "done", page: 1 }, new Date("2026-08-15T12:00:00Z"));
     expect(done.items.map((t) => t.title)).toEqual(["already done"]);

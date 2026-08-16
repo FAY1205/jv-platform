@@ -36,6 +36,10 @@ export interface MyTask {
   createdAt: string;
   updatedAt: string;
   leadRefId: string;
+  // WP-UX-7: the lead's identity, so a row says WHICH lead without a click-through.
+  leadSeller: string;
+  leadCity: string | null;
+  leadState: string | null;
   /** Server-computed TSK-10 bucket. Kept for type-fidelity with the /api/tasks payload,
    *  but NOT what this component groups by — see the client-side re-group note below. */
   group: DueGroup;
@@ -165,7 +169,10 @@ export function MyTasksList({ leadHrefBase, today }: MyTasksListProps) {
         ) : q.isError ? (
           <QueryErrorState title="Couldn't load your tasks" error={q.error} onRetry={() => q.refetch()} />
         ) : items.length === 0 ? (
-          <EmptyState title="No tasks" description="Add one from any lead." />
+          <EmptyState
+            title={status === "done" ? "No completed tasks yet" : "No open tasks"}
+            description={status === "done" ? "Tasks you complete will collect here." : "Open a lead and add a task — it shows up here, grouped by when it's due."}
+          />
         ) : status === "done" ? (
           <ul className="flex flex-col">
             {items.map((t) => (
@@ -184,7 +191,8 @@ export function MyTasksList({ leadHrefBase, today }: MyTasksListProps) {
               </h3>
               <ul className="flex flex-col">
                 {g.tasks.map((t) => (
-                  <TaskRow key={t.id} task={t} today={todayStr} leadHrefBase={leadHrefBase} onToggle={() => toggle.mutate(t)} pending={pendingToggleIds.has(t.id)} />
+                  // dateOnly: this section's header already names the state, so the chip shows just the date.
+                  <TaskRow key={t.id} task={t} today={todayStr} leadHrefBase={leadHrefBase} dateOnly onToggle={() => toggle.mutate(t)} pending={pendingToggleIds.has(t.id)} />
                 ))}
               </ul>
             </div>
@@ -192,7 +200,9 @@ export function MyTasksList({ leadHrefBase, today }: MyTasksListProps) {
         )}
       </CardBody>
 
-      {q.data && q.data.total > 0 && (
+      {/* WP-UX-7 (audit): the pager only exists past a single page — a "Page 1 of 1" with
+          two dead chevrons read as unfinished chrome. */}
+      {q.data && totalPages > 1 && (
         <div className="flex items-center justify-between gap-3 border-t border-border-soft px-5 py-3">
           <span className="num text-xs text-text-3">
             Page {q.data.page} of {totalPages}
@@ -233,14 +243,20 @@ function TaskRow({
   leadHrefBase,
   onToggle,
   pending,
+  dateOnly = false,
 }: {
   task: MyTask;
   today: string;
   leadHrefBase: string;
   onToggle: () => void;
   pending: boolean;
+  dateOnly?: boolean;
 }) {
   const checkboxId = React.useId();
+  // WP-UX-7 (info design): the lead's who + where, so a row answers "which Smith?" — the
+  // two identical "Call seller to confirm appointment" rows the audit flagged are now
+  // distinguishable at a glance, not only after a click-through.
+  const where = [task.leadCity, task.leadState].filter(Boolean).join(", ");
   return (
     // WP-N floor: min-h-11 (44px) keeps the whole row a comfortable touch target on the
     // portal's mobile surface, not just the checkbox's own hit area.
@@ -254,17 +270,22 @@ function TaskRow({
           ariaLabel={task.doneAt ? `Reopen "${task.title}"` : `Mark "${task.title}" done`}
         />
       </label>
-      <div className="min-w-0 flex-1 py-2.5">
-        <div className={cn("truncate text-sm font-medium text-text", task.doneAt && "text-text-3 line-through")}>{task.title}</div>
-        <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1">
-          {/* TSK-07 deep link: same ?open=<ref> convention as notifications + the Leads page.
-              API gap (not invented): MyTaskItem carries no seller/city, so only the ref renders. */}
-          <Link href={`${leadHrefBase}${encodeURIComponent(task.leadRefId)}`} className="num inline-block py-1 -my-1 text-xs font-semibold text-brand-ink hover:underline">
+      <div className="min-w-0 flex-1 py-2">
+        {/* WP-UX-7: titles wrap to two lines below md so the phone view stops truncating the
+            task's own text at ~15 chars; one line with an ellipsis at wider widths. */}
+        <div className={cn("text-sm font-medium text-text line-clamp-2 md:truncate", task.doneAt && "text-text-3 line-through")}>{task.title}</div>
+        <div className="mt-0.5 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5 text-xs">
+          {/* TSK-07 deep link: same ?open=<ref> convention as notifications + the Leads page. */}
+          <Link href={`${leadHrefBase}${encodeURIComponent(task.leadRefId)}`} className="num inline-block py-1 -my-1 font-semibold text-brand-ink hover:underline">
             {task.leadRefId}
           </Link>
+          <span className="min-w-0 truncate text-text-2">
+            {task.leadSeller}
+            {where && <span className="text-text-3"> · {where}</span>}
+          </span>
         </div>
       </div>
-      <DueChip dueOn={task.dueOn} doneAt={task.doneAt} today={today} className="shrink-0" />
+      <DueChip dueOn={task.dueOn} doneAt={task.doneAt} today={today} dateOnly={dateOnly} className="shrink-0" />
     </li>
   );
 }
