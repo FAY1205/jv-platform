@@ -6,7 +6,7 @@ import { apiGet } from "@/lib/api";
 import { fmtDate } from "@/lib/dates";
 import { useDebouncedValue } from "@/lib/use-debounced-value";
 import {
-  Button, Card, FilterPill, Input, Table, THead, TBody, Th, Tr, Td, Pagination, DEFAULT_PAGE_SIZE, Skeleton, EmptyState, QueryErrorState, HotLeadMark, RowOpenButton, StatusSelect,
+  Button, Card, Input, Table, THead, TBody, Th, Tr, Td, Pagination, DEFAULT_PAGE_SIZE, Skeleton, EmptyState, QueryErrorState, HotLeadMark, RowOpenButton, StatusSelect, StatusFilterMenu,
 } from "@/components";
 // leads-contract, NOT ./queries: this is a "use client" component and a VALUE import
 // from queries would pull its @/db → postgres → node:fs chain into the client bundle.
@@ -56,7 +56,6 @@ export function LeadsDesktop({ onOpen }: { onOpen: (refId: string) => void }) {
     }
   };
 
-  const toggleStatus = (s: string) => setStatuses((prev) => (prev.includes(s) ? prev.filter((x) => x !== s) : [...prev, s]));
 
   const leadsQ = useQuery({
     queryKey: ["portal-leads-desktop", filterKey, page, pageSize],
@@ -91,17 +90,11 @@ export function LeadsDesktop({ onOpen }: { onOpen: (refId: string) => void }) {
           </Button>
         </a>
       </div>
-      {/* D3: the shared FilterPill primitive (the second former copy of the recipe). */}
+      {/* WP-UX-6: the shared status multi-select (parity with the admin list). The portal's
+          default is the empty set (= all shown), so the calm "All active" trigger stands in
+          for the old "All" pill and each chosen status becomes a removable chip. */}
       <div className="mb-4 flex flex-wrap items-center gap-1.5">
-        <span className="mr-1 text-xs font-semibold text-text-3">Status</span>
-        <FilterPill active={statuses.length === 0} onClick={() => setStatuses([])}>
-          All
-        </FilterPill>
-        {PORTAL_STATUS_FILTERS.map((s) => (
-          <FilterPill key={s} active={statuses.includes(s)} onClick={() => toggleStatus(s)}>
-            {s}
-          </FilterPill>
-        ))}
+        <StatusFilterMenu options={PORTAL_STATUS_FILTERS} defaultValue={[]} value={statuses} onChange={setStatuses} />
       </div>
 
       {/* Live result count (admin T2 copy) — re-announces as the filter narrows the set.

@@ -148,7 +148,10 @@ describe("SV-04: applying a saved view replaces the leads page's filter state", 
     const user = userEvent.setup();
     renderLeads();
     await user.type(await screen.findByRole("textbox", { name: /search leads/i }), "typed by hand");
-    await user.click(await screen.findByRole("button", { name: "Dead" })); // turn a status pill OFF
+    // WP-UX-6: status is a multi-select menu — open it and uncheck Dead.
+    await user.click(await screen.findByRole("button", { name: /^Status:/ }));
+    await user.click(await screen.findByRole("menuitemcheckbox", { name: "Dead" }));
+    await user.keyboard("{Escape}"); // close the menu before the view-apply steps below
     await waitFor(() => {
       const url = leadsCalls().at(-1)!;
       expect(url).toContain("q=typed+by+hand");

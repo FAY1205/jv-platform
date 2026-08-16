@@ -15,7 +15,7 @@ import {
 import type { StateCoverage } from "@/modules/coverage/map";
 import { US_STATES } from "@/lib/us-states";
 import { googleSearchUrl } from "@/lib/search-links";
-import { formatWaiting } from "@/lib/waiting";
+import { formatWaiting, waitingTone } from "@/lib/waiting";
 
 // ASN-03: the unmatched inbox. A clear "how big is the backlog" header whose state
 // chips FILTER the table (T3, owner note #4), the real county choropleth (same map
@@ -407,7 +407,7 @@ function UnmatchedBody() {
                   </THead>
                   <TBody>
                     {listQ.data!.leads.map((l) => (
-                      <Tr key={l.refId} className="hover:bg-surface-2">
+                      <Tr key={l.refId} className="group hover:bg-surface-2">
                         <Td><Checkbox checked={selected.has(l.refId)} onCheckedChange={(v) => toggleRef(l.refId, v)} ariaLabel={`Select ${l.refId}`} /></Td>
                         <Td><RowOpenButton className="text-xs" onClick={() => setOpenRef(l.refId)}>{l.refId}</RowOpenButton></Td>
                         <Td><span className="text-sm text-text">{l.seller}</span></Td>
@@ -420,8 +420,34 @@ function UnmatchedBody() {
                           </Tooltip>
                         </Td>
                         <Td>{l.campaign ? <Badge variant="neutral">{l.campaign}</Badge> : <span className="text-xs text-text-3">—</span>}</Td>
-                        <Td align="right"><Tooltip content={fmtDateTime(l.receivedAt)}><span className="num tabular-nums text-text-2" tabIndex={0}>{formatWaiting(l.receivedAt, now)}</span></Tooltip></Td>
-                        <Td align="right"><Button size="sm" variant="primary" onClick={() => setAssigning([l.refId])}>Assign →</Button></Td>
+                        <Td align="right">
+                          <Tooltip content={fmtDateTime(l.receivedAt)}>
+                            {(() => {
+                              const tone = waitingTone(l.receivedAt, now);
+                              return (
+                                <span
+                                  className={`num tabular-nums ${tone === "danger" ? "font-semibold text-danger" : tone === "warn" ? "font-semibold text-warn" : "text-text-2"}`}
+                                  tabIndex={0}
+                                >
+                                  {formatWaiting(l.receivedAt, now)}
+                                </span>
+                              );
+                            })()}
+                          </Tooltip>
+                        </Td>
+                        {/* WP-UX-6 (audit U-1): row Assign demoted to secondary and filled only on
+                            row hover/focus, so the bulk "Assign selected" is the page's one primary
+                            and 20 rows stop shouting. */}
+                        <Td align="right">
+                          <Button
+                            size="sm"
+                            variant="secondary"
+                            className="transition-colors group-hover:border-brand group-hover:bg-brand group-hover:text-brand-contrast"
+                            onClick={() => setAssigning([l.refId])}
+                          >
+                            Assign →
+                          </Button>
+                        </Td>
                       </Tr>
                     ))}
                   </TBody>

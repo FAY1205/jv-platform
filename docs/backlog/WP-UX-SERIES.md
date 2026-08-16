@@ -33,7 +33,7 @@ Rules that bind every slice:
 | WP-UX-3 | Kanban board flexibility | T1 | High | waived | ✅ 2026-08-16 |
 | WP-UX-4 | Map & chart honesty (legend/hatch/sentiment) | T4 | High | waived | ✅ 2026-08-16 (deferred: on-map choropleth labels + anchored ramp legend on Unmatched — needs state centroids; dark brand/warn chart-hue separation → UX-8) |
 | WP-UX-5 | Mobile adaptivity (admin + portal) | T3 | **Critical** | waived | ✅ 2026-08-16 (admin table→card + dialog sheet deferred by recorded decision — out of ≥768px contract) |
-| WP-UX-6 | Row-action & chrome hierarchy | T5 | Medium | light | ☐ |
+| WP-UX-6 | Row-action & chrome hierarchy | T5 | Medium | waived | ✅ 2026-08-17 |
 | WP-UX-7 | Empty-state, copy & dialog polish | T5/T6 | High | no | ☐ |
 | WP-UX-8 | Shared paper cuts + dark parity | T6 | Medium | no | ☐ |
 

@@ -17,6 +17,11 @@ import {
   Td,
   Badge,
   Button,
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
   Dialog,
   Input,
   Textarea,
@@ -540,6 +545,10 @@ function DeactivateModal({
 }
 
 // ── Roster row actions ───────────────────────────────────────────────────────
+// WP-UX-6 (audit P-2): the per-row Edit + (Re)invite + Deactivate cluster used to change
+// width row-to-row (the Invited row's extra button shoved Edit ~100px out of line) and
+// left a destructive action permanently exposed at equal weight. Collapsed to a single
+// fixed-slot ⋯ menu — columnar rhythm restored, Deactivate quiet (styled danger) inside it.
 function RowActions({ p, onEdit, onDeactivate }: { p: Partner; onEdit: () => void; onDeactivate: () => void }) {
   const qc = useQueryClient();
   const { toast } = useToast();
@@ -557,30 +566,43 @@ function RowActions({ p, onEdit, onDeactivate }: { p: Partner; onEdit: () => voi
   const canInvite = p.status !== "active";
   const inviteLabel = p.status === "revoked" ? "Reactivate" : p.status === "invited" ? "Re-invite" : "Invite";
   return (
-    <div className="flex items-center justify-end gap-1.5">
-      <Button variant="secondary" size="sm" onClick={onEdit}>
-        Edit
-      </Button>
-      {canInvite && (
-        <Button
-          variant="secondary"
-          size="sm"
-          loading={invite.isPending}
-          disabled={!p.email}
-          title={p.email ? undefined : "Add an email first"}
-          onClick={() => invite.mutate()}
-        >
-          {inviteLabel}
-        </Button>
-      )}
-      {p.status !== "revoked" && (
-        <Button variant="ghost" size="sm" onClick={onDeactivate}>
-          Deactivate
-        </Button>
-      )}
-    </div>
+    <DropdownMenu>
+      <DropdownMenuTrigger aria-label={`Actions for ${p.name}`} className={rowMenuTrigger}>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+          <circle cx="5" cy="12" r="1.7" /><circle cx="12" cy="12" r="1.7" /><circle cx="19" cy="12" r="1.7" />
+        </svg>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end">
+        <DropdownMenuItem onSelect={onEdit}>Edit</DropdownMenuItem>
+        {canInvite && (
+          <DropdownMenuItem
+            disabled={!p.email || invite.isPending}
+            // The row lives inside a table cell; a menu item never re-triggers the row.
+            onSelect={(e) => {
+              e.preventDefault();
+              if (p.email) invite.mutate();
+            }}
+            title={p.email ? undefined : "Add an email first"}
+          >
+            {invite.isPending ? "Sending…" : inviteLabel}
+          </DropdownMenuItem>
+        )}
+        {p.status !== "revoked" && (
+          <>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem destructive onSelect={onDeactivate}>
+              Deactivate
+            </DropdownMenuItem>
+          </>
+        )}
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
+
+// Shared ⋯ trigger — the board's MoveMenu recipe (KAN-05), tokened, all states.
+const rowMenuTrigger =
+  "grid h-8 w-8 place-items-center rounded-md text-text-3 outline-none transition-colors hover:bg-surface-2 hover:text-text focus-visible:ring-1 focus-visible:ring-brand-ink data-[state=open]:bg-surface-2";
 
 function PartnersInner() {
   return (

@@ -2,6 +2,7 @@
 import * as React from "react";
 import { describe, expect, it, vi } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 // WP-PW-3 Task 2: the desktop (>= lg) sortable/filterable/paginated partner Leads table.
@@ -105,7 +106,11 @@ describe("WP-PW-3 Task 2 LeadsDesktop (sortable, filterable, paginated table)", 
     await waitFor(() => expect(lastCallUrl()).toContain("page=2"));
 
     vi.mocked(apiGet).mockClear();
-    fireEvent.click(screen.getByRole("button", { name: "Contacted" }));
+    // WP-UX-6: status is a multi-select menu now — open it (Radix trigger needs a real
+    // pointer sequence, so userEvent), then toggle the item.
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: /^Status:/ }));
+    await user.click(await screen.findByRole("menuitemcheckbox", { name: "Contacted" }));
 
     await waitFor(() => expect(apiGet).toHaveBeenCalled());
     const url = lastCallUrl();

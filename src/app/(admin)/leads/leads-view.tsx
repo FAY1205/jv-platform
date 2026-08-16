@@ -10,7 +10,7 @@ import { LEAD_STATUS_FILTERS, DEFAULT_STATUS_FILTERS, isDefaultStatuses, type Le
 import {
   AppShell, Card, Table, THead, TBody, Th, Tr, Td, PartnerTag, EmptyState, QueryErrorState, Skeleton,
   Input, Combobox, DateRangePicker, Pagination, RowOpenButton, StatusSelect, SegmentedControl,
-  DEFAULT_PAGE_SIZE, usePageHeader, FilterPill, Tooltip, HotLeadIcon,
+  DEFAULT_PAGE_SIZE, usePageHeader, FilterPill, Tooltip, HotLeadIcon, StatusFilterMenu,
   LeadTags, TagChip, TagPicker, SavedViewsMenu, type LeadTagView,
 } from "@/components";
 import type { SavedViewFilters } from "@/modules/saved-views/schema";
@@ -268,7 +268,6 @@ const LeadsFilterBar = React.memo(function LeadsFilterBar({ seedQ, seedHot = fal
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [qCommitted, state, partnerId, source, statuses.join(","), hot, tagIds.join(","), range.from, range.to]);
 
-  const toggleStatus = (s: string) => setStatuses((prev) => (prev.includes(s) ? prev.filter((x) => x !== s) : [...prev, s]));
   // "Filters active" ignores the default status selection — only a change from it counts.
   const hasFilters = Boolean(qInput || state || partnerId || source || hot || tagIds.length || !isDefaultStatuses(statuses) || range.from);
 
@@ -367,17 +366,19 @@ const LeadsFilterBar = React.memo(function LeadsFilterBar({ seedQ, seedHot = fal
           selectedIds={tagIds}
           onSelect={(id) => setTagIds((prev) => (prev.includes(id) ? prev : [...prev, id]))}
         />
-        {/* Status is what the board's COLUMNS already express — hiding the pills there
-            keeps one answer to "which statuses am I looking at". */}
+        {/* WP-UX-6: the status filter is a multi-select (owner direction) — a calm
+            summary trigger + removable deviation chips, not a wall of active pills. The
+            board hides it entirely: its COLUMNS already express status, so one answer to
+            "which statuses am I looking at". */}
         {listOnly && (
           <>
             <span className="mx-1 h-4 w-px bg-border" aria-hidden="true" />
-            <span className="mr-1 text-xs font-semibold text-text-3">Status</span>
-            {LEAD_STATUS_FILTERS.map((s) => (
-              <FilterPill key={s} active={statuses.includes(s)} onClick={() => toggleStatus(s)}>
-                {s}
-              </FilterPill>
-            ))}
+            <StatusFilterMenu
+              options={LEAD_STATUS_FILTERS}
+              defaultValue={DEFAULT_STATUS_FILTERS}
+              value={statuses}
+              onChange={setStatuses}
+            />
           </>
         )}
       </div>

@@ -216,7 +216,7 @@ export function SavedViewsMenu({ filters, onApply, className }: SavedViewsMenuPr
             <p className="px-2 py-1.5 text-xs text-text-3">No saved views yet.</p>
           ) : (
             views.map((v) => (
-              <div key={v.id} className="flex items-center gap-0.5">
+              <div key={v.id} className="group flex items-center gap-0.5">
                 <DropdownMenuItem
                   className={cn("min-w-0 flex-1", v.id === active?.id && "bg-brand-soft font-semibold text-brand-ink")}
                   onSelect={() => apply(v)}
@@ -224,13 +224,14 @@ export function SavedViewsMenu({ filters, onApply, className }: SavedViewsMenuPr
                   <StarIcon className={v.id === active?.id ? "text-warn" : "text-text-3"} />
                   <span className="truncate">{v.name}</span>
                 </DropdownMenuItem>
-                {/* A second menu ITEM, not a nested button: roving focus reaches it with the
-                    arrow keys, and selecting it closes the menu so the confirmation can own
-                    the screen. */}
+                {/* WP-UX-6 (audit 4.1): the delete is GHOSTED (text-3) until the row is
+                    hovered or its own item is keyboard-highlighted — three always-on red
+                    trash cans were louder than the view names. Still a menu ITEM (roving
+                    focus reaches it), just no longer `destructive`-red at rest; it turns
+                    danger on highlight/hover, when its intent is what you mean. */}
                 <DropdownMenuItem
-                  destructive
                   aria-label={`Delete view ${v.name}`}
-                  className="shrink-0 px-1.5"
+                  className="shrink-0 px-1.5 text-text-3 opacity-0 transition-opacity group-hover:opacity-100 data-[highlighted]:bg-danger-soft data-[highlighted]:text-danger data-[highlighted]:opacity-100"
                   onSelect={() => setConfirmDelete(v)}
                 >
                   <TrashIcon />
