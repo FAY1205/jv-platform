@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import * as schema from "@/db/schema";
 import { tenantWhere, type ScopeContext } from "@/lib/scope";
@@ -120,7 +120,7 @@ export async function saveNotificationPrefs(
     .values({ tenantId: scope.tenantId, key: NOTIFICATION_PREFS_KEY, value: merged })
     .onConflictDoUpdate({
       target: [schema.settings.tenantId, schema.settings.key],
-      set: { value: merged, updatedAt: new Date() },
+      set: { value: merged, updatedAt: sql`now()` },
     });
   return merged;
 }

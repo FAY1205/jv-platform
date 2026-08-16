@@ -1,4 +1,4 @@
-import { and, asc, count, eq, inArray, isNotNull, isNull, or, sql } from "drizzle-orm";
+import { and, asc, count, eq, inArray, isNotNull, isNull, or, sql, type SQL } from "drizzle-orm";
 import { LeadNotFoundError } from "@/modules/leads/errors";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import { getDb } from "@/db";
@@ -325,8 +325,8 @@ export async function editLeadTask(
     const task = await resolveTask(tx, scope, taskId);
     if (task.doneAt !== null) throw new TaskClosedError(taskId);
 
-    const set: { title?: string; dueOn?: string | null; assignedToUserId?: string; updatedAt: Date } = {
-      updatedAt: new Date(),
+    const set: { title?: string; dueOn?: string | null; assignedToUserId?: string; updatedAt: SQL } = {
+      updatedAt: sql`now()`,
     };
     // undefined = "leave alone", null = "clear" (assignee falls back to the caller). Keyed on
     // the VALUE, not `in`: a parser that materialises absent optional keys as undefined would

@@ -230,7 +230,7 @@ export async function updateTag(
       const next = { name: patch.name ?? tag.name, color: patch.color ?? tag.color };
       await tx
         .update(schema.tags)
-        .set({ ...next, updatedAt: new Date() })
+        .set({ ...next, updatedAt: sql`now()` })
         .where(and(tagWhere(scope), eq(schema.tags.id, tagId)));
       await tx.insert(schema.auditLog).values({
         tenantId: scope.tenantId,

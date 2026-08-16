@@ -183,6 +183,11 @@ export async function listLeads(scope: ScopeContext, query: LeadsQuery): Promise
       // Effective owner = manual assignment if present, else the pipeline routing.
       // R-65: the partner must be same-tenant too — a mis-set partner_id must resolve to NULL
       // (no partner shown), never surface another tenant's partner name/colour (leftJoin).
+      // C-18 (decided): this DISPLAY join deliberately does NOT filter deleted_at — a soft-deleted
+      // partner keeps lending its name/colour to the historical leads it handled (PRN-05: who
+      // handled a lead is history and must not silently blank to "Unmatched"). Contrast
+      // unmatchedCoverageMatches, which DOES exclude deleted/revoked partners because it ROUTES new
+      // work — a different question. The board join (listLeadsBoard) follows the same rule.
       .leftJoin(
         schema.partners,
         and(
@@ -354,6 +359,9 @@ export async function listLeadsBoard(scope: ScopeContext, query: BoardQuery): Pr
       -- other join uses — so this join can never drift from the guard (audit-tenancy F-1).
       -- It stays in the ON clause: moved to WHERE it would degrade the LEFT join and drop
       -- unmatched leads from the board entirely.
+      -- C-18 (decided): like the list, this display join keeps a soft-deleted partner's
+      -- name/colour on its historical leads (no deleted_at filter) — PRN-05 attribution, not
+      -- routing; unmatchedCoverageMatches is the place that excludes deleted partners.
       left join partners
         on ${schema.partners.id} = coalesce(${schema.leads.manualPartnerId}, ${schema.leads.partnerId})
        and ${tenantWhere(schema.partners, scope)}
