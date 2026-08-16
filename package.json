@@ -57,7 +57,7 @@
     "@tailwindcss/postcss": "^4.3.3",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",
-    "@testing-library/user-event": "^14.6.3",
+    "@testing-library/user-event": "^14.6.4",
     "@types/node": "^22",
     "@types/react": "^19",
     "@types/react-dom": "^19",
@@ -67,7 +67,7 @@
     "eslint-config-next": "16.3.0",
     "jsdom": "^30.0.1",
     "tailwindcss": "^4.3.3",
-    "tsx": "^4.23.10",
+    "tsx": "^4.23.12",
     "typescript": "^5",
     "vitest": "^4.1.10"
   }
