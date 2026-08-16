@@ -711,41 +711,45 @@ function PartnersBody() {
             </div>
           ) : (
             <Table>
+              {/* WP-UX-1: Partner + Contact are the flexible identity columns (ellipsizing
+                  with the full value on hover); status/coverage/actions take content width,
+                  so a long real-world partner name can't collide with Contact and the wide
+                  fixed gutters between the narrow columns are gone. */}
               <THead>
                 <Tr>
-                  <Th>Partner</Th>
+                  <Th className="w-[38%]">Partner</Th>
                   <Th>Contact</Th>
-                  <Th>Status</Th>
-                  <Th>Coverage</Th>
-                  <Th align="right">Actions</Th>
+                  <Th fit>Status</Th>
+                  <Th fit>Coverage</Th>
+                  <Th fit align="right">Actions</Th>
                 </Tr>
               </THead>
               <TBody>
                 {roster.map((p) => (
                   <Tr key={p.id}>
-                    <Td>
+                    <Td clamp clampTitle={`${p.name} (${p.refId})`}>
                       <Link
                         href={`/partners/${p.id}`}
-                        className="inline-flex rounded-md transition-opacity hover:opacity-70 focus-visible:opacity-70"
+                        className="inline-flex max-w-full rounded-md transition-opacity hover:opacity-70 focus-visible:opacity-70"
                         title={`Open ${p.name}`}
                       >
                         <PartnerTag name={p.name} color={p.color} refId={p.refId} />
                       </Link>
                     </Td>
-                    <Td>
-                      <div className="text-sm text-text-2">{p.email ?? <span className="text-text-3">no email</span>}</div>
+                    <Td clamp clampTitle={p.email ?? undefined}>
+                      <div className="truncate text-sm text-text-2">{p.email ?? <span className="text-text-3">no email</span>}</div>
                       {p.phone && <div className="num text-xs text-text-3">{p.phone}</div>}
                     </Td>
-                    <Td>
+                    <Td fit>
                       <Badge variant={STATUS[p.status].variant}>{STATUS[p.status].label}</Badge>
                     </Td>
-                    <Td>
+                    <Td fit>
                       <span className="num text-xs text-text-3">
                         {p.zipCount} ZIP{p.zipCount === 1 ? "" : "s"}
                         {p.stateCount > 0 && ` · ${p.stateCount} state${p.stateCount === 1 ? "" : "s"}`}
                       </span>
                     </Td>
-                    <Td align="right">
+                    <Td fit align="right">
                       <RowActions p={p} onEdit={() => setEditing(p)} onDeactivate={() => setDeactivating(p)} />
                     </Td>
                   </Tr>

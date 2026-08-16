@@ -45,19 +45,33 @@ export function TBody({ className, ...rest }: React.HTMLAttributes<HTMLTableSect
 
 export type SortDir = "asc" | "desc" | null;
 
+// ── Column sizing vocabulary (WP-UX-1) ───────────────────────────────────────
+// The audit's T1 finding: auto-layout tables mis-budget width — starved columns
+// wrap (dates, names) while others hoard dead gutters. The shared recipe:
+//   • `fit` on a column's Th + Td → `w-px` + nowrap: the column takes exactly its
+//     content width (IDs, dates, status pills, counts, action clusters).
+//   • `clamp` on a Td → `max-w-0` + an inner `truncate` block: the column absorbs
+//     the leftover width and ellipsizes instead of wrapping (names, addresses,
+//     filenames). Pass `clampTitle` so the full value survives as a tooltip.
+// Content columns never wrap; flexible columns never push the table wide. The
+// Unmatched table's density/behavior is the reference this generalizes.
+
 export interface ThProps extends React.ThHTMLAttributes<HTMLTableCellElement> {
   sortable?: boolean;
   sortDir?: SortDir;
   onSort?: () => void;
   align?: "left" | "right";
+  /** Content-sized column: header contributes no width beyond its label. */
+  fit?: boolean;
 }
 
-export function Th({ sortable, sortDir = null, onSort, align = "left", className, children, ...rest }: ThProps) {
+export function Th({ sortable, sortDir = null, onSort, align = "left", fit, className, children, ...rest }: ThProps) {
   const base = cn(
     "text-step-1 uppercase tracking-wider text-text-3 font-semibold px-3.5 py-2.5",
     "border-b border-border-strong bg-surface-2 whitespace-nowrap sticky top-0 z-[2]",
     align === "right" ? "text-right" : "text-left",
     sortable && "cursor-pointer select-none hover:text-text",
+    fit && "w-px",
     className,
   );
   return (
@@ -110,14 +124,34 @@ export interface TdProps extends React.TdHTMLAttributes<HTMLTableCellElement> {
   align?: "left" | "right";
   /** When set on the first cell of an accented row, draws the color rail. */
   rail?: string;
+  /** Content-sized cell (pair with the column's `fit` Th): never wraps, never hoards. */
+  fit?: boolean;
+  /** Flexible cell: absorbs leftover width and ellipsizes instead of wrapping. */
+  clamp?: boolean;
+  /** Full value for the clamped cell's tooltip (title attribute). */
+  clampTitle?: string;
 }
 
-export function Td({ align = "left", rail, className, style, ...rest }: TdProps) {
+export function Td({ align = "left", rail, fit, clamp, clampTitle, className, style, children, ...rest }: TdProps) {
   return (
     <td
-      className={cn("px-3.5 py-2.5 align-middle", align === "right" && "text-right", className)}
+      className={cn(
+        "px-3.5 py-2.5 align-middle",
+        align === "right" && "text-right",
+        fit && "w-px whitespace-nowrap",
+        clamp && "max-w-0",
+        className,
+      )}
       style={rail ? { borderLeft: `3px solid ${rail}`, ...style } : style}
       {...rest}
-    />
+    >
+      {clamp ? (
+        <div className="truncate" title={clampTitle}>
+          {children}
+        </div>
+      ) : (
+        children
+      )}
+    </td>
   );
 }

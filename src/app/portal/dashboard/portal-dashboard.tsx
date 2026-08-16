@@ -298,25 +298,26 @@ export function PortalDashboard() {
           <EmptyState compact title="No leads yet." description="Leads assigned to you will appear here after the next upload." className="py-8" />
         ) : (
           <Table>
+            {/* WP-UX-1: city/state fold into the address line (they were separate columns
+                restating it); ref/date/status take content width, the address flexes. */}
             <THead>
               <Tr>
-                <Th>Ref</Th>
+                <Th fit>Ref</Th>
                 <Th>Address</Th>
-                <Th>City</Th>
-                <Th>ST</Th>
-                <Th>Received</Th>
-                <Th>Status</Th>
+                <Th fit align="right">Received</Th>
+                <Th fit>Status</Th>
               </Tr>
             </THead>
             <TBody>
               {recent.map((l) => (
                 <Tr key={l.refId} className="hover:bg-surface-2">
-                  <Td className="num text-text-3">{l.refId}</Td>
-                  <Td className="font-medium text-text">{l.address}</Td>
-                  <Td className="text-text-2">{l.city}</Td>
-                  <Td className="num text-text-2">{l.state}</Td>
-                  <Td className="num text-text-3">{fmtDate(l.receivedAt)}</Td>
-                  <Td><span className={statusPillClass(l.status)}>{l.status}</span></Td>
+                  <Td fit className="num text-text-3">{l.refId}</Td>
+                  <Td clamp>
+                    <span className="font-medium text-text">{l.address}</span>
+                    <span className="ml-1.5 text-xs text-text-3">{[l.city, l.state].filter(Boolean).join(", ")}</span>
+                  </Td>
+                  <Td fit align="right" className="num text-text-3">{fmtDate(l.receivedAt)}</Td>
+                  <Td fit><span className={statusPillClass(l.status)}>{l.status}</span></Td>
                 </Tr>
               ))}
             </TBody>

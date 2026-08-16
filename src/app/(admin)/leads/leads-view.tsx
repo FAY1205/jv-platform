@@ -430,36 +430,43 @@ function LeadsTable({
           <div className="p-6"><EmptyState title="No leads found" description={hasFilters ? "Try widening the filters." : "Process a weekly file to see leads here."} /></div>
         ) : (
           <Table>
+            {/* WP-UX-1 width budget (audit T1): IDs/dates/status take content width
+                (`fit`), Seller/Property/Partner absorb the leftover and ellipsize
+                (`clamp`) — a date never wraps to two lines, a name never wraps while
+                a neighbor column sits half-empty. Tags stays auto: chips wrap in place. */}
             <THead>
               <Tr>
-                <Th sortable sortDir={sortDir("lead")} onSort={() => onSort("lead")}>Lead</Th>
-                <Th sortable sortDir={sortDir("seller")} onSort={() => onSort("seller")}>Seller</Th>
-                <Th>Property</Th>
-                <Th>Partner</Th>
+                <Th fit sortable sortDir={sortDir("lead")} onSort={() => onSort("lead")}>Lead</Th>
+                <Th sortable sortDir={sortDir("seller")} onSort={() => onSort("seller")} className="w-[14%]">Seller</Th>
+                <Th className="w-[28%]">Property</Th>
+                <Th className="w-[23%]">Partner</Th>
                 <Th>Tags</Th>
-                <Th sortable sortDir={sortDir("received")} onSort={() => onSort("received")} align="right">Received</Th>
-                <Th sortable sortDir={sortDir("modified")} onSort={() => onSort("modified")} align="right">Modified</Th>
-                <Th>Status</Th>
+                <Th fit sortable sortDir={sortDir("received")} onSort={() => onSort("received")} align="right">Received</Th>
+                <Th fit sortable sortDir={sortDir("modified")} onSort={() => onSort("modified")} align="right">Modified</Th>
+                <Th fit>Status</Th>
               </Tr>
             </THead>
             <TBody>
               {data!.leads.map((l) => (
                 <Tr key={l.refId} className="hover:bg-surface-2">
-                  <Td>
-                    <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
+                  <Td fit>
+                    <span className="inline-flex items-center gap-1.5">
                       <RowOpenButton className="text-xs" onClick={() => onOpen(l.refId)}>{l.refId}</RowOpenButton>
                     </span>
                   </Td>
-                  <Td><span className="text-sm text-text">{l.seller}</span></Td>
-                  <Td>
+                  <Td clamp clampTitle={l.seller}><span className="text-sm text-text">{l.seller}</span></Td>
+                  {/* One flowing line, single wrap point (audit 4.3): street + muted
+                      city/state/zip as inline runs that truncate together — the city
+                      fragment no longer lands at a different x-offset per row. */}
+                  <Td clamp>
                     <Tooltip content="Search this property on Google">
-                      <a href={googleSearchUrl([l.address, l.city, l.state, l.zip])} target="_blank" rel="noopener noreferrer" className="group inline-flex items-baseline gap-1 hover:underline">
-                        <span className="text-sm text-text-2 group-hover:text-brand-ink">{l.address}</span>
+                      <a href={googleSearchUrl([l.address, l.city, l.state, l.zip])} target="_blank" rel="noopener noreferrer" className="group hover:underline">
+                        <span className="text-sm text-text-2 group-hover:text-brand-ink">{l.address}</span>{" "}
                         <span className="text-xs text-text-3">{[l.city, l.state].filter(Boolean).join(", ")} <span className="num">{l.zip}</span></span>
                       </a>
                     </Tooltip>
                   </Td>
-                  <Td>
+                  <Td clamp clampTitle={l.partner ? `${l.partner.name} (${l.partner.refId})` : undefined}>
                     {l.partner ? <PartnerTag size="sm" name={l.partner.name} color={l.partner.color} refId={l.partner.refId} />
                       : l.mlsStatus === "kept" ? <span className="text-xs font-semibold text-warn">Unmatched</span>
                       : <span className="text-xs text-text-3">—</span>}
@@ -480,9 +487,9 @@ function LeadsTable({
                       onCreate={(name) => createAndAttach.mutate({ refId: l.refId, name })}
                     />
                   </Td>
-                  <Td align="right"><span className="num text-xs text-text-3 tabular-nums">{fmtDate(l.receivedAt)}</span></Td>
-                  <Td align="right"><span className="num text-xs text-text-3 tabular-nums">{l.modifiedAt ? fmtDate(l.modifiedAt) : "—"}</span></Td>
-                  <Td><StatusSelect refId={l.refId} status={l.status} mlsStatus={l.mlsStatus} /></Td>
+                  <Td fit align="right"><span className="num text-xs text-text-3 tabular-nums">{fmtDate(l.receivedAt)}</span></Td>
+                  <Td fit align="right"><span className="num text-xs text-text-3 tabular-nums">{l.modifiedAt ? fmtDate(l.modifiedAt) : "—"}</span></Td>
+                  <Td fit><StatusSelect refId={l.refId} status={l.status} mlsStatus={l.mlsStatus} /></Td>
                 </Tr>
               ))}
             </TBody>

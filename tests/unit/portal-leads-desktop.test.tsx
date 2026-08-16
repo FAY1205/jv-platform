@@ -56,7 +56,9 @@ describe("WP-PW-3 Task 2 LeadsDesktop (sortable, filterable, paginated table)", 
     await screen.findByText("JV-2001");
     vi.mocked(apiGet).mockClear();
 
-    fireEvent.click(screen.getByRole("button", { name: /city/i }));
+    // WP-UX-1: the standalone City column folded into Address; the Address header
+    // now carries the city sort (same sort=city request — asserted below).
+    fireEvent.click(screen.getByRole("button", { name: /address/i }));
 
     await waitFor(() => expect(apiGet).toHaveBeenCalled());
     const url = lastCallUrl();
@@ -68,12 +70,12 @@ describe("WP-PW-3 Task 2 LeadsDesktop (sortable, filterable, paginated table)", 
     renderPage();
     await screen.findByText("JV-2001");
 
-    fireEvent.click(screen.getByRole("button", { name: /city/i })); // city, default asc
+    fireEvent.click(screen.getByRole("button", { name: /address/i })); // city sort (WP-UX-1: lives on the Address header), default asc
     await waitFor(() => expect(lastCallUrl()).toContain("sort=city"));
     await screen.findByText("JV-2001"); // wait for the re-fetched table to settle (not the loading skeleton)
     vi.mocked(apiGet).mockClear();
 
-    fireEvent.click(screen.getByRole("button", { name: /city/i })); // same column again -> flips
+    fireEvent.click(screen.getByRole("button", { name: /address/i })); // same column again -> flips
     await waitFor(() => expect(apiGet).toHaveBeenCalled());
     expect(lastCallUrl()).toContain("dir=desc");
   });

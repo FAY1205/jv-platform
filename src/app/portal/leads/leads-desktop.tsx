@@ -135,39 +135,41 @@ export function LeadsDesktop({ onOpen }: { onOpen: (refId: string) => void }) {
           </div>
         ) : (
           <Table>
+            {/* WP-UX-1 (audit: portal triple-duplication): the ADDRESS run already carries
+                city/state/zip, so the standalone CITY and STATE columns are gone — ~30% of
+                the table restated itself while SELLER/ADDRESS couldn't flex. City stays a
+                sortable FACET on the Address header (the state sort had no real use over a
+                small territory; the API param remains for deep links). Width budget: fit
+                for ref/date/status, clamp for the two identity columns. */}
             <THead>
               <Tr>
-                <Th sortable sortDir={sortDir("ref")} onSort={() => onSort("ref")}>Ref</Th>
-                <Th>Seller</Th>
-                <Th>Address</Th>
-                <Th sortable sortDir={sortDir("city")} onSort={() => onSort("city")}>City</Th>
-                <Th sortable sortDir={sortDir("state")} onSort={() => onSort("state")}>State</Th>
-                <Th sortable sortDir={sortDir("received")} onSort={() => onSort("received")} align="right">Received</Th>
+                <Th fit sortable sortDir={sortDir("ref")} onSort={() => onSort("ref")}>Ref</Th>
+                <Th className="w-[28%]">Seller</Th>
+                <Th sortable sortDir={sortDir("city")} onSort={() => onSort("city")} title="Sorts by city">Address</Th>
+                <Th fit sortable sortDir={sortDir("received")} onSort={() => onSort("received")} align="right">Received</Th>
                 {/* Status is not sortable — matches the admin leads table (a workflow value,
                     not an ordered dimension); it is edited inline in the cell below. */}
-                <Th>Status</Th>
+                <Th fit>Status</Th>
               </Tr>
             </THead>
             <TBody>
               {data!.leads.map((l) => (
                 <Tr key={l.refId} className="hover:bg-surface-2">
-                  <Td>
-                    <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
+                  <Td fit>
+                    <span className="inline-flex items-center gap-1.5">
                       <RowOpenButton onClick={() => onOpen(l.refId)}>{l.refId}</RowOpenButton>
                       {l.scoreGroup === "hot" && l.scoreTotal !== null && <HotLeadMark score={l.scoreTotal} />}
                     </span>
                   </Td>
-                  <Td>
+                  <Td clamp clampTitle={`${l.sellerFirst} ${l.sellerLast}`}>
                     <span className="text-sm text-text">{l.sellerFirst} {l.sellerLast}</span>
                   </Td>
-                  <Td>
+                  <Td clamp>
                     <span className="text-sm text-text-2">{l.address}</span>
                     <span className="ml-1.5 text-xs text-text-3">{[l.city, l.state].filter(Boolean).join(", ")} <span className="num">{l.zip}</span></span>
                   </Td>
-                  <Td><span className="text-sm text-text-2">{l.city}</span></Td>
-                  <Td><span className="num text-sm text-text-2">{l.state}</span></Td>
-                  <Td align="right"><span className="num text-xs text-text-3 tabular-nums">{fmtDate(l.receivedAt)}</span></Td>
-                  <Td><StatusSelect refId={l.refId} status={l.status} mlsStatus="kept" scope="portal" /></Td>
+                  <Td fit align="right"><span className="num text-xs text-text-3 tabular-nums">{fmtDate(l.receivedAt)}</span></Td>
+                  <Td fit><StatusSelect refId={l.refId} status={l.status} mlsStatus="kept" scope="portal" /></Td>
                 </Tr>
               ))}
             </TBody>

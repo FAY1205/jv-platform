@@ -73,7 +73,10 @@ function CoverageBody() {
             <StatCard label="Partners with territory" value={data!.partners.length} sub="own states or ZIPs" />
           </div>
 
-          <div className="grid grid-cols-1 items-start gap-5 lg:grid-cols-[1fr_300px]">
+          {/* WP-UX-1: the aside was a fixed 300px track — 6 of 14 partner names truncated
+              (audit). minmax lets wide viewports feed the identity column first; the map
+              still takes the lion's share. */}
+          <div className="grid grid-cols-1 items-start gap-5 lg:grid-cols-[2fr_minmax(340px,1fr)]">
             <section className={panel}>
               <h2 className="mb-4 font-display text-step-3 font-semibold tracking-tight">County map</h2>
               <CountyCoverageMap
@@ -127,7 +130,9 @@ function CoverageBody() {
                           (on ? "bg-brand-soft" : "hover:bg-surface-2")
                         }
                       >
-                        <span className="min-w-0 truncate">
+                        {/* title = the full name for the rows that still truncate (WP-UX-1);
+                            PartnerTag now ellipsizes its own name span. */}
+                        <span className="min-w-0 truncate" title={p.name}>
                           <PartnerTag name={p.name} color={p.color} size="sm" />
                         </span>
                         <span className="num text-step-0 text-text-3" aria-label={`Reference ${p.refId}`}>
