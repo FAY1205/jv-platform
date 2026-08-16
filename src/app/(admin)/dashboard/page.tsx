@@ -48,9 +48,11 @@ const CountyCoverageMap = dynamic(() => import("@/components/CountyCoverageMap")
 // token-driven (PRN-12).
 
 const RANGES: { value: RangeKey; label: string; short: string }[] = [
-  { value: "7d", label: "Last 7 days", short: "7 days" },
-  { value: "30d", label: "Last 30 days", short: "30 days" },
-  { value: "12mo", label: "Last 12 months", short: "12 months" },
+  // WP-UX-8: one time-range vocabulary across both apps — the compact form the portal
+  // already uses (fits mobile; the full "Last 30 days" label still leads the hero).
+  { value: "7d", label: "Last 7 days", short: "7d" },
+  { value: "30d", label: "Last 30 days", short: "30d" },
+  { value: "12mo", label: "Last 12 months", short: "12mo" },
   { value: "all", label: "All time", short: "All" },
 ];
 const RANGE_SEGMENTS: { value: RangeKey; label: string }[] = RANGES.map((r) => ({ value: r.value, label: r.short }));

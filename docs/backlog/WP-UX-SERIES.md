@@ -35,7 +35,20 @@ Rules that bind every slice:
 | WP-UX-5 | Mobile adaptivity (admin + portal) | T3 | **Critical** | waived | ✅ 2026-08-16 (admin table→card + dialog sheet deferred by recorded decision — out of ≥768px contract) |
 | WP-UX-6 | Row-action & chrome hierarchy | T5 | Medium | waived | ✅ 2026-08-17 |
 | WP-UX-7 | Empty-state, copy & dialog polish | T5/T6 | High | no | ✅ 2026-08-17 (deferred: scoring-card range-badge fixed width + "Required: Yes" dedup, Tags create-row colour picker, portal "My Tasks" title de-dup — small, low-risk, roll into a future polish pass) |
-| WP-UX-8 | Shared paper cuts + dark parity | T6 | Medium | no | ☐ |
+| WP-UX-8 | Shared paper cuts + dark parity | T6 | Medium | no | ✅ 2026-08-17 (see dark-parity note ↓) |
+
+**WP-UX-8 dark-parity — DELIVERED vs DEFERRED.** Done: Ctrl-K duplicate-esc dedup + verified the scrim
+is already present (the audit's "no scrim" was a loading-state capture); admin header search-trigger
+drops its box below `md` so it sits borderless beside bell/theme (was reading "pressed"); one time-range
+vocabulary across both apps (admin adopts the portal's 7d/30d/12mo/All). Verified no-ops: dotted-underline
+labels already carry real tooltips (dots only render via HeaderTip when `tip` is set); mono date
+"double-space" is a mono-font space-glyph perception, not padded data (`day:"numeric"`); AccountMenuTrigger
+already `min-w-0`+`truncate`. **DEFERRED — mockup-first, needs the owner's eye across every surface in
+dark (a global-token/shared-map change is exactly the kind the series treats as recommend-not-destabilize):**
+portal `--surface`/elevation lift for dark card separation (current dark tokens are actually a sound step —
+surface #17232a over bg #10181c — so this is a judgment call best made against a full-app dark mockup);
+portal county-map stroke theme-parity (shared CountyCoverageMap — admin coverage regression risk);
+raise dark non-territory state fill a step. These want a dedicated dark-mode pass, not a blind token edit.
 
 ---
 
