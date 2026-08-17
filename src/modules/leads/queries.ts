@@ -347,12 +347,18 @@ export async function listLeadsBoard(scope: ScopeContext, query: BoardQuery): Pr
   if (boardTextMatch) conds.push(boardTextMatch);
   const where = and(...conds)!;
 
-  // Reused, not re-derived (PRN-15): the same scope-aware correlated subqueries the
-  // list view resolves current status / last-change with (ADR-0013 defence-in-depth).
-  const sExpr = statusExpr(scope);
-  const sinceExpr = sql`coalesce(${latestAt(scope)}, ${schema.leads.createdAt})`;
   const wantedList = sql.join(wanted.map((s) => sql`${s}`), sql`, `);
 
+  // WP-KAN-1a (C-16): the board materializes EVERY kept lead to compute per-column totals, so the
+  // current-status derivation runs for the whole tenant, not the page. It was two correlated
+  // subqueries (latestStatus + latestAt) evaluated PER ROW; here one LEFT JOIN LATERAL probes the
+  // history once per lead, backed by lead_status_lead_created_idx (0051) so each probe is a single
+  // index seek. Measured on a 50k-lead tenant this halves the board's DB time (~1.06s → ~0.51s). The
+  // status semantics are identical to statusExpr (removed ⇒ "Removed MLS", else latest-or-"New") and
+  // to the list/portal reads (PRN-15: still derived from lead_status_history, not stored).
+  // ALIAS TRAP: the scope fragments (tenantWhere, every ${schema.leads.*}) render the drizzle TABLE
+  // name, so `leads` MUST stay unaliased — the lateral references ${schema.leads.id} = "leads"."id",
+  // which is in scope. `h` is the only alias; nothing else references `leads` by an alias.
   const rows = (await db.execute(sql`
     with base as (
       select
@@ -366,8 +372,8 @@ export async function listLeadsBoard(scope: ScopeContext, query: BoardQuery): Pr
         ${schema.partners.name} as p_name,
         ${schema.partners.refId} as p_ref,
         ${schema.partners.color} as p_color,
-        ${sExpr} as col_status,
-        ${sinceExpr} as status_since,
+        case when ${schema.leads.mlsStatus} = 'removed' then 'Removed MLS' else coalesce(h.status, 'New') end as col_status,
+        coalesce(h.created_at, ${schema.leads.createdAt}) as status_since,
         ${schema.leads.createdAt} as created_at
       from leads
       -- R-65: the partner must be same-tenant, or a mis-set partner_id resolves to NULL
@@ -382,6 +388,13 @@ export async function listLeadsBoard(scope: ScopeContext, query: BoardQuery): Pr
       left join partners
         on ${schema.partners.id} = coalesce(${schema.leads.manualPartnerId}, ${schema.leads.partnerId})
        and ${tenantWhere(schema.partners, scope)}
+      left join lateral (
+        select status, created_at
+        from lead_status_history
+        where lead_id = ${schema.leads.id} and ${tenantWhere(schema.leadStatusHistory, scope)}
+        order by created_at desc, id desc
+        limit 1
+      ) h on true
       where ${where}
     ),
     ranked as (

@@ -533,7 +533,13 @@ export const leadStatusHistory = pgTable(
     createdAt: createdAt(),
   },
   (t) => [
-    index("lead_status_lead_idx").on(t.leadId),
+    // WP-KAN-1a (C-16): the "current status per lead" reads (leads list/board, portal list, global
+    // search) probe for the LATEST history row per lead — `where lead_id = ? order by created_at
+    // desc, id desc limit 1`. This covering index makes each probe a single index seek (no per-lead
+    // sort); measured on a 50k-lead tenant it takes the board's correlated-subquery cost from a
+    // sort-per-row to a seek, and it's the prerequisite for the LATERAL rewrite. Supersedes the old
+    // `lead_status_lead_idx (lead_id)` — the same leading column still covers the lead_id FK + equality.
+    index("lead_status_lead_created_idx").on(t.leadId, t.createdAt.desc(), t.id.desc()),
     // FK-covering indexes (db-linter 0001). changed_by_user_id also backs the R-22 policy
     // (0037) predicate `changed_by_user_id IN (...)`; tenant_id had no leading-column index.
     index("lead_status_history_changed_by_idx").on(t.changedByUserId),
