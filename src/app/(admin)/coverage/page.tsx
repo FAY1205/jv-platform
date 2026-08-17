@@ -2,11 +2,21 @@
 
 import * as React from "react";
 import Link from "next/link";
+import dynamic from "next/dynamic";
 import { useQuery } from "@tanstack/react-query";
 import { apiGet } from "@/lib/api";
-import { AppShell, CountyCoverageMap, PartnerTag, QueryErrorState, Skeleton, usePageHeader } from "@/components";
+import { AppShell, PartnerTag, QueryErrorState, Skeleton, usePageHeader } from "@/components";
 import { UncoveredKey } from "@/components/map";
 import type { StateCoverage, CoveragePartner, CountyCoverage } from "@/modules/coverage/map";
+
+// Perf: the county choropleth carries ~0.9 MB of geometry. Every other page that shows it code-splits
+// it client-only (dashboard/unmatched/partners) so the rest of the page paints first; /coverage — the
+// map's own page — was the one that eagerly bundled it. Match the siblings so first-load JS drops and
+// the stat cards / gap panel are interactive while the geometry streams in (it renders its own skeleton).
+const CountyCoverageMap = dynamic(() => import("@/components/CountyCoverageMap").then((m) => m.CountyCoverageMap), {
+  ssr: false,
+  loading: () => <Skeleton className="h-full min-h-[248px] flex-1" />,
+});
 
 // MAP-01. Read-only coverage overview: the county map colors each state by its
 // partner (WP-E: counties a partner covers by ZIP color at county level); the legend

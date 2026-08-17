@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, keepPreviousData } from "@tanstack/react-query";
 import { apiGet } from "@/lib/api";
 import { fmtDate } from "@/lib/dates";
 import { useDebouncedValue } from "@/lib/use-debounced-value";
@@ -62,6 +62,8 @@ export function LeadsMobile({ onOpen }: { onOpen: (refId: string) => void }) {
       if (statuses.length) params.set("status", statuses.join(","));
       return apiGet<LeadsPage>(`/api/portal/leads?${params.toString()}`);
     },
+    // Perf: keep the prior page while the next loads (mobile users on slow networks feel the flash most).
+    placeholderData: keepPreviousData,
   });
 
   const leads = data?.leads ?? [];

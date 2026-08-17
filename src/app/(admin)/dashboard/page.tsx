@@ -3,7 +3,7 @@
 import * as React from "react";
 import Link from "next/link";
 import dynamic from "next/dynamic";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, keepPreviousData } from "@tanstack/react-query";
 import { apiGet } from "@/lib/api";
 import { fmtBucket } from "@/lib/dates";
 import {
@@ -131,7 +131,9 @@ export default function DashboardPage() {
 function DashboardBody() {
   const [range, setRange] = React.useState<RangeKey>("30d");
   const isDesktop = useIsDesktop(); // VP-2: gate the hero map's interactivity to desktop
-  const dash = useQuery({ queryKey: ["dashboard", range], queryFn: () => apiGet<DashboardData>(`/api/dashboard?range=${range}`) });
+  // Perf: switching the 7d/30d/12mo/All range keeps the prior KPIs/charts on screen while the new
+  // window loads, instead of flashing the whole hero+KPI+chart+table stack to skeletons.
+  const dash = useQuery({ queryKey: ["dashboard", range], queryFn: () => apiGet<DashboardData>(`/api/dashboard?range=${range}`), placeholderData: keepPreviousData });
   const coverage = useQuery({ queryKey: ["coverage"], queryFn: () => apiGet<CoverageMapResponse>("/api/coverage") });
 
   // Topbar carries the title only. The range control moved in-body (owner testing

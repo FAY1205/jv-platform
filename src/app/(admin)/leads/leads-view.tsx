@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, keepPreviousData } from "@tanstack/react-query";
 import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import { apiGet } from "@/lib/api";
@@ -407,6 +407,10 @@ function LeadsTable({
       if (filters.dateTo) params.set("dateTo", filters.dateTo);
       return apiGet<LeadsPage>(`/api/leads?${params.toString()}`);
     },
+    // Perf: paging/sorting/filtering keeps the prior page visible (and its "N leads" count) instead of
+    // wiping the table to skeletons on every change (mirrors portal-dashboard). isPending only fires
+    // on the very first load; subsequent fetches are background refetches over the kept data.
+    placeholderData: keepPreviousData,
   });
   const data = leadsQ.data;
   const hasFilters = Boolean(filters.q || filters.partnerId || filters.state || filters.source || filters.hot || filters.tags.length || !isDefaultStatuses(filters.statuses) || filters.dateFrom);

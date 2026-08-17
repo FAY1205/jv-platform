@@ -25,10 +25,20 @@ single-PR batch.
 | C-38 | Void-path cross-tenant collision test for `redactLeadCommunications` | ☐ | S |
 | C-39 | `audit-compliance` pass on the erasure runbook vs all server-side PII sinks (esp. `ai_memory`) | ☐ | S |
 
-## Slice 2 — Performance (MEASURE FIRST) · Tier A
+## Slice 2 — Performance · MEASURED 2026-08-18 (`claude/perf-waterfalls-slice2`)
+**Measurement (prod `vhoiixmhvuwxfyvxtumz`): 298 leads, max 203/tenant, 1 status-history row total, 0
+notes, 2 tasks. All perf advisors are INFO "unused index" (tables too small to index). → the database
+is NOT the bottleneck and won't be for a long time. Perceived slowness = latency × per-page round
+trips.** The query-plan work (C-16/C-22) is confirmed premature; the wins are latency/round-trip/frontend.
+
 | Item | What | Status | Tier |
 |------|------|--------|------|
-| C-16 + C-22 (WP-KAN-1a) | `EXPLAIN ANALYZE` a realistic tenant; if warranted: LATERAL rewrite of the correlated latest-status subqueries + covering index `lead_status_history(lead_id, created_at desc)` + push status filter into the board CTE + the global-search limit CTE (incl. the portal's parallel copy + `, id desc` tie-break). Alias trap noted. | ☐ | A (index) |
+| **Round-trip waterfalls (done)** | Parallelized the sequential per-request query waterfalls: `getAdminLeadDetail` (5→2 round trips), `getPartnerLeadDetail` (portal, 4→2), `listPartners` (3→1). Behavior-preserving `Promise.all`. | ✅ | B |
+| **Frontend flash/over-fetch (done)** | `placeholderData: keepPreviousData` on admin leads table, admin dashboard, portal desktop+mobile leads (no more full-skeleton flash on page/sort/filter/range change); code-split the `/coverage` 0.9 MB county map to match every sibling page. | ✅ | B |
+| **C-42 (WP-PERF-AUTH)** | HIGH-value infra: every `/api/*` verifies the JWT **twice over the network** — `proxy.ts` middleware `getUser()` + route `getServerScope()` `getUser()` (GoTrue HTTP calls, ~1 RTT each, not local decodes). Fix = local JWT verification via asymmetric signing keys + `getClaims()` (needs Supabase key config + security review) and/or don't re-verify in the route. Owner-gated (auth). | ☐ | A (auth) |
+| **Region co-location** | Prod DB is **Frankfurt** (`eu-central-1`); no Vercel `regions` pin → functions default to US. With client-side fetching each query crosses the Atlantic once. Pin functions to `fra1` (best if users are EU/ME) or move DB to US (Slice 7, best if users are US). **Owner: where are the users?** | ⏳ | owner |
+| **Pooler mode** | Confirm prod `DATABASE_URL` uses the **transaction** pooler `:6543` (serverless-recommended), not session `:5432` (dev `.env.local` uses 5432). Config-only. | ⏳ | owner (verify) |
+| C-16 + C-22 (WP-KAN-1a) | **DEFERRED — measured zero benefit at current volume.** At-scale fix for when a tenant grows (LATERAL rewrite of the correlated `latestStatus`/`latestAt` subqueries + covering index `lead_status_history(lead_id, created_at desc, id desc)` + push status filter into the board CTE + global-search limit CTE, incl. the portal's parallel copy + `, id desc` tie-break; alias trap noted). Trigger: a tenant's leads×status-history grows enough that `EXPLAIN ANALYZE` shows the per-row subplan dominating (measured 8ms/44-loops at 934 leads/1392 status rows in the test DB — still trivial). Index add is Tier A + CONCURRENTLY out-of-tx (DM-13). | ☐ (deferred) | A (index) |
 
 ## Slice 3 — Frontend polish · Tier B
 | Item | What | Status | Tier |

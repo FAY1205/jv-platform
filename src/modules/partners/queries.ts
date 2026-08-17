@@ -39,24 +39,26 @@ const iso = (d: Date | null): string | null => (d ? d.toISOString() : null);
  *  full-history health scan is off the roster path). */
 export async function listPartners(scope: ScopeContext): Promise<PartnerRow[]> {
   const db = getDb();
-  const rows = await db
-    .select()
-    .from(schema.partners)
-    .where(and(tenantWhere(schema.partners, scope), isNull(schema.partners.deletedAt)))
-    .orderBy(schema.partners.refId);
-
-  const zipCounts = await db
-    .select({ partnerId: schema.coverageZips.partnerId, n: count() })
-    .from(schema.coverageZips)
-    .where(and(tenantWhere(schema.coverageZips, scope), isNull(schema.coverageZips.effectiveTo)))
-    .groupBy(schema.coverageZips.partnerId);
+  // Perf: the roster and the two coverage-count aggregates are independent — one Promise.all instead
+  // of three sequential round trips against a distant DB.
+  const [rows, zipCounts, stateCounts] = await Promise.all([
+    db
+      .select()
+      .from(schema.partners)
+      .where(and(tenantWhere(schema.partners, scope), isNull(schema.partners.deletedAt)))
+      .orderBy(schema.partners.refId),
+    db
+      .select({ partnerId: schema.coverageZips.partnerId, n: count() })
+      .from(schema.coverageZips)
+      .where(and(tenantWhere(schema.coverageZips, scope), isNull(schema.coverageZips.effectiveTo)))
+      .groupBy(schema.coverageZips.partnerId),
+    db
+      .select({ partnerId: schema.stateRules.partnerId, n: count() })
+      .from(schema.stateRules)
+      .where(tenantWhere(schema.stateRules, scope))
+      .groupBy(schema.stateRules.partnerId),
+  ]);
   const zipBy = new Map(zipCounts.map((c) => [c.partnerId, Number(c.n)]));
-
-  const stateCounts = await db
-    .select({ partnerId: schema.stateRules.partnerId, n: count() })
-    .from(schema.stateRules)
-    .where(tenantWhere(schema.stateRules, scope))
-    .groupBy(schema.stateRules.partnerId);
   const stateBy = new Map(stateCounts.map((c) => [c.partnerId, Number(c.n)]));
 
   return rows.map((p) => ({
