@@ -73,7 +73,7 @@ export async function POST(request: Request) {
         const { error } = await supabase.auth.signInWithPassword({ email, password });
         return !error;
       } catch (e) {
-        // Capture the fault for the floored 500 below, then rethrow so withUniformTiming still applies
+        // Capture the fault for the floored 503 below, then rethrow so withUniformTiming still applies
         // the timing floor and yields `undefined` — the signal that this was an infra fault, not a
         // credential result.
         infraError = e;
@@ -89,7 +89,7 @@ export async function POST(request: Request) {
     // password. Do NOT feed the AUT-04 lockout ladder: a transient outage must never lock out a
     // legitimate admin. The reservation already stands as a success:true row (counts toward the AUT-03
     // rate window, never the lockout ladder), and we deliberately do NOT settle again — a second DB
-    // write would likely also fail mid-outage. C-3 (SEC-08): a transient, retryable outage is a 503 +
+    // write would likely also fail mid-outage. C-3 (SEC-09): a transient, retryable outage is a 503 +
     // Retry-After, not a 500 — it tells the client/monitor to back off and retry rather than reporting
     // a hard error. Still floored (withUniformTiming already applied MIN_RESPONSE_MS around the throw)
     // and account-independent, so the distinct status does not leak account existence (AUT-05-safe).

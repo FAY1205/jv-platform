@@ -6,7 +6,7 @@ Promoted from candidate **C-3** (carried from the WP-SU-16..20 line). Tier A (a 
 
 Three small auth-line follow-ups left as candidates after WP-SU-20:
 
-1. **503 + Retry-After for an auth-backend outage (SEC-08 availability).** WP-SU-20 made the login
+1. **503 + Retry-After for an auth-backend outage (SEC-09 availability).** WP-SU-20 made the login
    route distinguish an infra fault (`signInWithPassword` threw → tri-state `undefined`) from a wrong
    credential, returning a floored 500 instead of a 401 masquerade. A transient, *retryable* outage
    is more honestly a **503 + Retry-After** than a 500 — it tells a client/monitor to back off and
@@ -23,10 +23,17 @@ Three small auth-line follow-ups left as candidates after WP-SU-20:
   `Retry-After`, logs with a shared traceId (mirrors `jsonServerError`), `Cache-Control: no-store`.
 - The login route's `success === undefined` path returns `jsonServiceUnavailable("login_unavailable", …)`
   — still floored (the floor already ran around the throw) and account-independent (AUT-05-safe).
+- **`change-password`'s sibling infra branch** (surfaced by the pr-reviewer, F-2) moves onto the same
+  helper: its `ok === undefined` path previously returned a bare 503 with NO log and NO `Retry-After`
+  (a silent failure on an authed path, ADR-0014). It now captures the throw and returns
+  `jsonServiceUnavailable("password_change_unavailable", …)`, consistent with login.
 - Migration **0048** renames the index in place (`ALTER INDEX … RENAME`, metadata-only, no
   drop-window on the uniqueness guard) + `schema.ts` updated; journal `when` above 0047.
-- **(2) requires no change** — verified already satisfied in WP-SU-20: `login` and `change-password`
-  both construct the Supabase client *before* `withUniformTiming`; the otp routes don't use it.
+- **(2) requires no code change** — verified: `login` and `change-password` construct the Supabase
+  client *before* `withUniformTiming`, so the floor wraps only the auth network call. `otp/verify`
+  DOES reach `getSupabaseServer` indirectly (via `establishSessionForEmail` → `getSupabaseServer` +
+  `getSupabaseAdmin`), but INSIDE its floor BY DESIGN — session establishment is part of the timed
+  outcome there, not client construction to be hoisted out. So nothing to move.
 
 ## Out of scope
 

@@ -84,10 +84,10 @@ describe("WP-SU-19/20: auth-route infra-fault handling (observability + login av
     expect(logError).toHaveBeenCalledWith("reset_request_failed", expect.objectContaining({ message: "db down" }));
   });
 
-  it("WP-SU-20/AUT-04 + C-3/SEC-08: a login infra fault returns a floored 503 + Retry-After (not a 401/500), is logged, and does NOT feed the lockout ladder", async () => {
+  it("WP-SU-20/AUT-04 + C-3/SEC-09: a login infra fault returns a floored 503 + Retry-After (not a 401/500), is logged, and does NOT feed the lockout ladder", async () => {
     signInWithPassword.mockRejectedValueOnce(new Error("supabase down"));
     const res = await login(post("/api/auth/login", { email: "who@x.test", password: "pw" }));
-    // Availability (C-3/SEC-08): an auth-backend outage is not a wrong password and not a hard error —
+    // Availability (C-3/SEC-09): an auth-backend outage is not a wrong password and not a hard error —
     // a retryable 503 with a Retry-After hint, not the 401 masquerade (pre-SU-20) nor the 500 (pre-C-3).
     // AUT-05-safe: login's throw is account-independent, so the distinct status leaks nothing.
     expect(res.status).toBe(503);

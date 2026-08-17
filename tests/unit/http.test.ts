@@ -34,7 +34,7 @@ describe("uniform error envelope", () => {
     expect(jsonServerError("x", "y").headers.get("Cache-Control")).toBe("private, no-store");
   });
 
-  // C-3 (SEC-08): a transient backend outage → 503 + Retry-After (retryable), still no-store.
+  // C-3 (SEC-09): a transient backend outage → 503 + Retry-After (retryable), still no-store.
   it("C-3: jsonServiceUnavailable returns 503 with Retry-After and the uniform envelope", async () => {
     const res = jsonServiceUnavailable("svc_down", "Temporarily unavailable.");
     expect(res.status).toBe(503);

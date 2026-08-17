@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import { getDb } from "@/db";
 import { getSupabaseServer } from "@/lib/supabase/server";
 import { getServerScope } from "@/lib/scope-context";
-import { jsonOk, jsonError, newTraceId } from "@/lib/http";
+import { jsonOk, jsonError, jsonServiceUnavailable, newTraceId } from "@/lib/http";
 import { assertCsrf, authErrorResponse } from "@/lib/auth/guard";
 import { evaluateNewPassword, hibpRangeFetcher } from "@/lib/auth/password";
 import { clientIp } from "@/lib/auth/client-ip";
@@ -82,17 +82,31 @@ export async function POST(request: Request) {
     // withUniformTiming so a wrong current password is not distinguishable by response time.
     // `ok` is tri-state: true (correct), false (wrong), undefined (the auth backend THREW —
     // a transient fault, never a credential result; do not report it as a wrong password).
+    let infraError: unknown;
     const ok = await withUniformTiming(
       MIN_RESPONSE_MS,
       async () => {
-        const { error } = await supabase.auth.signInWithPassword({ email: user.email!, password: currentPassword });
-        return !error;
+        try {
+          const { error } = await supabase.auth.signInWithPassword({ email: user.email!, password: currentPassword });
+          return !error;
+        } catch (e) {
+          // Capture the fault for the 503 below, then rethrow so the timing floor still applies and
+          // `ok` becomes undefined — the infra-fault signal, distinct from a wrong password (login's shape).
+          infraError = e;
+          throw e;
+        }
       },
       (ms) => new Promise((r) => setTimeout(r, ms)),
       () => performance.now(),
     );
     if (ok === undefined) {
-      return jsonError("auth_unavailable", "Could not verify your current password right now. Please try again.", 503);
+      // C-3 / SEC-09 (audit F-2): a transient auth-backend outage — mirror login. Was a bare 503
+      // with no log and no Retry-After; jsonServiceUnavailable adds the Retry-After hint and logs the
+      // PII-scrubbed fault sharing the response traceId (F-42), so an outage on this authed path is
+      // no longer a silent failure (ADR-0014).
+      return jsonServiceUnavailable("password_change_unavailable", "Could not verify your current password right now. Please try again.", {
+        message: infraError instanceof Error ? infraError.message : String(infraError),
+      });
     }
     if (!ok) {
       return jsonError("reauth_failed", "Your current password is incorrect.", 401);
