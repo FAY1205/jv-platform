@@ -51,6 +51,9 @@ jobs:
           --health-retries 5
     env:
       DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres
+      # C-30: run the RLS ENFORCEMENT oracle here, not just in the local/dev loop. The grant
+      # baseline is provisioned below (after db:migrate); this flag opts the suites in.
+      RLS_ORACLE: "1"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
@@ -60,6 +63,12 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm run db:migrate
+      # C-30: migration 0044 has created the anon/authenticated roles; this reproduces the
+      # SELECT grants Supabase provides (DML stays revoked per 0045/0046) so the enforcement
+      # oracle sees the real post-migration surface instead of self-skipping. psql ships on the
+      # ubuntu-latest runner.
+      - name: Provision Supabase grant baseline for the RLS oracle (C-30)
+        run: psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f tests/helpers/ci-rls-grants.sql
       - run: pnpm run test:integration
 
   # Heavier checks run on main only: end-to-end and performance. The app is built +

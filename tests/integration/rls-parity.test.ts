@@ -5,14 +5,14 @@ import { and, eq, inArray, sql } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import * as schema from "@/db/schema";
 import { noteWhere, taskWhere, statusHistoryWhere, type ScopeContext } from "@/lib/scope";
-import { asRole, probeWrite, IS_SUPABASE_DB, type RlsClaims } from "../helpers/rls";
+import { asRole, probeWrite, RLS_ORACLE_ENABLED, type RlsClaims } from "../helpers/rls";
 
 // WP-SEC-2 / RLP-07..09 (ADR-0046): parity fixes proven by the WP-SEC-1 oracle. Legs
 // marked "(RED before 0044)" fail against the pre-0044 policies (tenant-only WITH CHECK;
 // lead_notes USING without the own-author + deleted_at predicates) and go green once
 // migration 0044 + the lib/scope.ts role pin land. Self-skips without DATABASE_URL.
 const url = process.env.DATABASE_URL;
-const suite = IS_SUPABASE_DB ? describe : describe.skip;
+const suite = RLS_ORACLE_ENABLED ? describe : describe.skip;
 
 const SLUG = "test-rls-parity";
 

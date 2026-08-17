@@ -4,7 +4,7 @@ import postgres from "postgres";
 import { eq, inArray, sql } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import * as schema from "@/db/schema";
-import { asRole, probeWrite, IS_SUPABASE_DB, type RlsClaims } from "../helpers/rls";
+import { asRole, probeWrite, RLS_ORACLE_ENABLED, type RlsClaims } from "../helpers/rls";
 
 // WP-SEC-1 / RLSB-01..05 (ADR-0046): the RLS ENFORCEMENT oracle. Unlike the *-scope
 // suites (which read pg_policies text), this runs reads/writes as the non-owner
@@ -15,7 +15,7 @@ import { asRole, probeWrite, IS_SUPABASE_DB, type RlsClaims } from "../helpers/r
 // known-good policy before WP-SEC-2 leans on it to prove the fixed policies.
 // Self-skips without DATABASE_URL; run with node --env-file=.env.local.
 const url = process.env.DATABASE_URL;
-const suite = IS_SUPABASE_DB ? describe : describe.skip;
+const suite = RLS_ORACLE_ENABLED ? describe : describe.skip;
 
 const SLUG = "test-rls-beh";
 const SLUG_B = "test-rls-beh-b";

@@ -5,7 +5,7 @@ import { eq, inArray, sql } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import * as schema from "@/db/schema";
 import { pgErrorCode } from "@/lib/db/pg-error";
-import { asRole, POLICY_VIOLATION, LEAD_FAMILY_TABLES, IS_SUPABASE_DB, type RlsClaims } from "../helpers/rls";
+import { asRole, POLICY_VIOLATION, LEAD_FAMILY_TABLES, RLS_ORACLE_ENABLED, type RlsClaims } from "../helpers/rls";
 
 // WP-SEC-3 / SEC3-01..04 (ADR-0046 Decision-6): least privilege on the authenticated/PostgREST
 // surface. Migration 0045 REVOKEs INSERT/UPDATE/DELETE from anon/authenticated on the five
@@ -15,7 +15,7 @@ import { asRole, POLICY_VIOLATION, LEAD_FAMILY_TABLES, IS_SUPABASE_DB, type RlsC
 // grants nothing, so it exercises the REAL revoked surface (unlike probeWrite, which grants DML
 // in-txn to keep the WITH CHECK layer testable). Self-skips without DATABASE_URL.
 const url = process.env.DATABASE_URL;
-const suite = IS_SUPABASE_DB ? describe : describe.skip;
+const suite = RLS_ORACLE_ENABLED ? describe : describe.skip;
 
 const SLUG = "test-rls-grants";
 // SQL array literal of the revoked tables, built from the shared source of truth (helpers/rls.ts).
