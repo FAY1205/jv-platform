@@ -18,6 +18,10 @@ const suite = url ? describe : describe.skip;
 const SLUG = "test-tasks-iso";
 const SLUG_B = "test-tasks-iso-b";
 
+// C-8 / WP-TSK-2a: taskWhere's partner arm now carries the distribution hold, so partner-owned
+// leads whose tasks a partner must SEE are seeded past the hold window (else they read as held).
+const RELEASED_AT = new Date(Date.now() - 10 * 60 * 1000);
+
 suite("TSK-09/ADR-0044: two-stream lead-task visibility", () => {
   let client: ReturnType<typeof postgres>;
   let db: PostgresJsDatabase<typeof schema>;
@@ -63,11 +67,11 @@ suite("TSK-09/ADR-0044: two-stream lead-task visibility", () => {
     const [up] = await db.insert(schema.uploads).values({ tenantId: t.id, refId: "IM-26-101", filename: "a.xlsx", status: "processed" }).returning({ id: schema.uploads.id });
     const [leadX] = await db
       .insert(schema.leads)
-      .values({ tenantId: t.id, refId: "LD-26-10001", uploadId: up.id, dedupeKey: "x|1", rawJson: {}, partnerId: px.id, matchMethod: "zip", mlsStatus: "kept" })
+      .values({ tenantId: t.id, refId: "LD-26-10001", uploadId: up.id, dedupeKey: "x|1", rawJson: {}, partnerId: px.id, matchMethod: "zip", mlsStatus: "kept", createdAt: RELEASED_AT })
       .returning({ id: schema.leads.id });
     const [leadY] = await db
       .insert(schema.leads)
-      .values({ tenantId: t.id, refId: "LD-26-10002", uploadId: up.id, dedupeKey: "y|2", rawJson: {}, partnerId: py.id, matchMethod: "zip", mlsStatus: "kept" })
+      .values({ tenantId: t.id, refId: "LD-26-10002", uploadId: up.id, dedupeKey: "y|2", rawJson: {}, partnerId: py.id, matchMethod: "zip", mlsStatus: "kept", createdAt: RELEASED_AT })
       .returning({ id: schema.leads.id });
     id.leadX = leadX.id;
     id.leadY = leadY.id;
@@ -90,7 +94,7 @@ suite("TSK-09/ADR-0044: two-stream lead-task visibility", () => {
     await db.insert(schema.users).values({ id: id.pbUser, tenantId: tb.id, email: "pb@tasks-b.test", role: "partner", partnerId: pb.id });
     const [leadB2] = await db
       .insert(schema.leads)
-      .values({ tenantId: tb.id, refId: "LD-26-10004", uploadId: upB.id, dedupeKey: "w|4", rawJson: {}, partnerId: pb.id, matchMethod: "zip", mlsStatus: "kept" })
+      .values({ tenantId: tb.id, refId: "LD-26-10004", uploadId: upB.id, dedupeKey: "w|4", rawJson: {}, partnerId: pb.id, matchMethod: "zip", mlsStatus: "kept", createdAt: RELEASED_AT })
       .returning({ id: schema.leads.id });
     id.leadB2 = leadB2.id;
   });
