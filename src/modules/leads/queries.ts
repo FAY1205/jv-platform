@@ -522,34 +522,41 @@ export async function getAdminLeadDetail(scope: ScopeContext, refId: string): Pr
 
   const effPartnerId = lead.manualPartnerId ?? lead.partnerId;
   const wantIds = [effPartnerId, lead.partnerId].filter((v): v is string => Boolean(v));
-  const partnerRows = wantIds.length
-    ? await db
-        .select({ id: schema.partners.id, name: schema.partners.name, refId: schema.partners.refId, color: schema.partners.color })
-        .from(schema.partners)
-        .where(and(tenantWhere(schema.partners, scope), inArray(schema.partners.id, wantIds)))
-    : [];
+
+  // Perf: after the lead row, its four dependent reads — the effective/original partner names, the
+  // status history, the manual-assignment actor, and the note/task timeline — depend only on the
+  // lead, not on each other. Run them as ONE Promise.all instead of a four-step sequential waterfall:
+  // against a distant DB each round trip is a full RTT, and this is the most-clicked interaction
+  // (opening a lead). Cuts ~5 sequential round trips to ~2.
+  const [partnerRows, hist, manualActorRows, timelineActivity] = await Promise.all([
+    wantIds.length
+      ? db
+          .select({ id: schema.partners.id, name: schema.partners.name, refId: schema.partners.refId, color: schema.partners.color })
+          .from(schema.partners)
+          .where(and(tenantWhere(schema.partners, scope), inArray(schema.partners.id, wantIds)))
+      : Promise.resolve([] as { id: string; name: string; refId: string; color: string }[]),
+    db
+      .select({ status: schema.leadStatusHistory.status, at: schema.leadStatusHistory.createdAt, actor: schema.users.email })
+      .from(schema.leadStatusHistory)
+      // R-65 / ADR-0013 defence-in-depth: the actor join carries its own tenant predicate, so a
+      // mis-set changed_by_user_id resolves to NULL (no actor) rather than surfacing another
+      // tenant's email. The timeline's note/task author joins are built the same way.
+      .leftJoin(schema.users, and(eq(schema.users.id, schema.leadStatusHistory.changedByUserId), tenantWhere(schema.users, scope)))
+      .where(and(tenantWhere(schema.leadStatusHistory, scope), eq(schema.leadStatusHistory.leadId, lead.id)))
+      .orderBy(asc(schema.leadStatusHistory.createdAt)),
+    lead.manualAssignedBy
+      ? db
+          .select({ email: schema.users.email })
+          .from(schema.users)
+          .where(and(tenantWhere(schema.users, scope), eq(schema.users.id, lead.manualAssignedBy)))
+      : Promise.resolve([] as { email: string }[]),
+    noteAndTaskActivity(db, scope, lead.id),
+  ]);
+
   const pMap = new Map(partnerRows.map((p) => [p.id, p]));
   const effPartner = effPartnerId ? pMap.get(effPartnerId) ?? null : null;
   const origPartner = lead.partnerId ? pMap.get(lead.partnerId) ?? null : null;
-
-  const hist = await db
-    .select({ status: schema.leadStatusHistory.status, at: schema.leadStatusHistory.createdAt, actor: schema.users.email })
-    .from(schema.leadStatusHistory)
-    // R-65 / ADR-0013 defence-in-depth: the actor join carries its own tenant predicate, so a
-    // mis-set changed_by_user_id resolves to NULL (no actor) rather than surfacing another
-    // tenant's email. The timeline's note/task author joins are built the same way.
-    .leftJoin(schema.users, and(eq(schema.users.id, schema.leadStatusHistory.changedByUserId), tenantWhere(schema.users, scope)))
-    .where(and(tenantWhere(schema.leadStatusHistory, scope), eq(schema.leadStatusHistory.leadId, lead.id)))
-    .orderBy(asc(schema.leadStatusHistory.createdAt));
-
-  let manualActor: string | null = null;
-  if (lead.manualAssignedBy) {
-    const [u] = await db
-      .select({ email: schema.users.email })
-      .from(schema.users)
-      .where(and(tenantWhere(schema.users, scope), eq(schema.users.id, lead.manualAssignedBy)));
-    manualActor = u?.email ?? null;
-  }
+  const manualActor: string | null = manualActorRows[0]?.email ?? null;
 
   const workflowStatus = currentStatus(hist.map((h) => ({ status: h.status, createdAt: h.at.toISOString() })));
   const derivedStatus = lead.mlsStatus === "removed" ? "Removed MLS" : workflowStatus;
@@ -583,8 +590,9 @@ export async function getAdminLeadDetail(scope: ScopeContext, refId: string): Pr
     activity.push({ kind: "status", status: h.status, at: h.at.toISOString(), actor: h.actor, label: `Status set to ${h.status}` });
   }
   // TSK-06: the admin stream's notes and tasks join the same array — scoped by
-  // noteWhere/taskWhere, so the partner streams stay invisible here (PRN-13).
-  activity.push(...(await noteAndTaskActivity(db, scope, lead.id)));
+  // noteWhere/taskWhere, so the partner streams stay invisible here (PRN-13). Fetched above in the
+  // Promise.all (timelineActivity) so it runs concurrently with the status/partner reads.
+  activity.push(...timelineActivity);
   sortNewestFirst(activity);
 
   const modifiedAt = hist.length ? hist[hist.length - 1].at : lead.manualAssignedAt;

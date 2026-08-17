@@ -259,21 +259,27 @@ export async function getPartnerLeadDetail(scope: ScopeContext, refId: string): 
     .where(and(visibleLeadsWhere(scope), eq(schema.leads.refId, refId)));
   if (!lead) return null;
 
-  const hist = await db
-    .select({ status: schema.leadStatusHistory.status, createdAt: schema.leadStatusHistory.createdAt })
-    .from(schema.leadStatusHistory)
-    .where(and(statusHistoryWhere(scope, db), eq(schema.leadStatusHistory.leadId, lead.id)))
-    .orderBy(desc(schema.leadStatusHistory.createdAt));
+  // Perf: the status history, the latest listing check, and the note/task timeline all depend only on
+  // the lead row, not on each other — one Promise.all instead of a three-step sequential waterfall.
+  // Each saved round trip is a full RTT against a distant DB, on the portal's most-clicked interaction.
+  const [hist, checkRows, taskNoteActivity] = await Promise.all([
+    db
+      .select({ status: schema.leadStatusHistory.status, createdAt: schema.leadStatusHistory.createdAt })
+      .from(schema.leadStatusHistory)
+      .where(and(statusHistoryWhere(scope, db), eq(schema.leadStatusHistory.leadId, lead.id)))
+      .orderBy(desc(schema.leadStatusHistory.createdAt)),
+    // LST-01: latest listing check for this lead (link comes from the check; the flag lives on the
+    // lead). Scoped via leadChildWhere.
+    db
+      .select({ result: schema.listingChecks.result })
+      .from(schema.listingChecks)
+      .where(and(leadChildWhere(schema.listingChecks, scope, db), eq(schema.listingChecks.leadId, lead.id)))
+      .orderBy(desc(schema.listingChecks.checkedAt))
+      .limit(1),
+    noteAndTaskActivity(db, scope, lead.id),
+  ]);
   const history = hist.map((h) => ({ status: h.status, changedAt: h.createdAt.toISOString() }));
-
-  // LST-01: latest listing check for this lead (link comes from the check; the flag
-  // lives on the lead). Scoped via leadChildWhere.
-  const [check] = await db
-    .select({ result: schema.listingChecks.result })
-    .from(schema.listingChecks)
-    .where(and(leadChildWhere(schema.listingChecks, scope, db), eq(schema.listingChecks.leadId, lead.id)))
-    .orderBy(desc(schema.listingChecks.checkedAt))
-    .limit(1);
+  const check = checkRows[0];
   const listing = { status: lead.possibleMlsListing, link: (check?.result as { link?: string } | null)?.link ?? null };
 
   const receivedAt = (lead.firstMatchedAt ?? lead.createdAt).toISOString();
@@ -292,7 +298,7 @@ export async function getPartnerLeadDetail(scope: ScopeContext, refId: string): 
       actor: null,
       label: `Status set to ${h.status}`,
     })),
-    ...(await noteAndTaskActivity(db, scope, lead.id)),
+    ...taskNoteActivity,
   ]);
 
   return {

@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, keepPreviousData } from "@tanstack/react-query";
 import { apiGet } from "@/lib/api";
 import { fmtDate } from "@/lib/dates";
 import { useDebouncedValue } from "@/lib/use-debounced-value";
@@ -65,6 +65,9 @@ export function LeadsDesktop({ onOpen }: { onOpen: (refId: string) => void }) {
       if (qCommitted) params.set("q", qCommitted);
       return apiGet<PartnerLeadPage>(`/api/portal/leads?${params.toString()}`);
     },
+    // Perf: keep the prior page visible while the next page/sort/filter loads (mirrors the admin
+    // leads table + portal-dashboard) rather than flashing the table to skeletons.
+    placeholderData: keepPreviousData,
   });
 
   const data = leadsQ.data;
