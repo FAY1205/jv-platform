@@ -79,7 +79,8 @@ doc-extraction · Stripe (→ Phase D)._
 ## Slice 5 — UX audit remediation
 | Item | What | Status | Tier |
 |------|------|--------|------|
-| C-31 (WP-UX-SERIES) | 8 slices (WP-UX-1..8); 3 mockup-first; WP-UX-5 carries the one Critical (mobile settings nav) | ☐ | L |
+| C-31 (WP-UX-SERIES) | **DONE — MERGED (PR #87, `c4b91cd`).** All 8 slices WP-UX-1..8 shipped (flexible tables, `PageContainer`, kanban flexibility, map/chart honesty, mobile adaptivity incl. the Critical settings-nav, chrome hierarchy, empty-state/copy, dark parity). Details + per-slice deferrals in `docs/backlog/WP-UX-SERIES.md`. (Tracker drift: this row was left ☐ when the tracker was written after the merge.) | ✅ | L |
+| WP-UX deferred cuts | Low-risk polish deferred from the 8 slices (per `WP-UX-SERIES.md`): UX-4 on-map choropleth labels + anchored legend on Unmatched (needs state centroids) + dark chart-hue separation; UX-7 small fixes (scoring-card badge width, "Required: Yes" dedup, Tags create-row colour picker, portal "My Tasks" title de-dup); **UX-8 a dedicated dark-mode pass** (portal surface/elevation lift, map stroke theme-parity, non-territory fill) — mockup-first, needs owner's eye across surfaces in dark. UX-5 admin table→card/dialog-sheet is deliberately OUT of scope (≥768px admin contract). | ☐ | B |
 
 ## Slice 6 — Roadmap phases (large, owner-sequenced)
 | Item | What | Status | Tier |
