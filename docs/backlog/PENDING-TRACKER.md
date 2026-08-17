@@ -24,7 +24,7 @@ single-PR batch.
 | C-37 | Fold notifications/outbox redaction counts into the per-lead `lead.pii_purged` audit row | ✅ | S |
 | C-38 | Void-path cross-tenant collision test for `redactLeadCommunications` | ✅ | S |
 | C-39 | `audit-compliance` pass on the erasure runbook vs all server-side PII sinks (esp. `ai_memory`) | ✅ | S |
-| C-40 (WP-RET-4) | **NEW (from C-39):** erase the 3 PII sinks the purge paths miss — Storage export blob (HIGH), `listing_checks.result` (MED), `leads.mlsMatchSpan` (LOW). Documented as known gaps in the erasure runbook | ☐ | A (Storage on void) |
+| C-40 (WP-RET-4) | **DONE:** erased the 3 PII sinks the purge paths missed — Storage export blob (`voidUpload` `removeExport` on void + `sweepVoidedExports` backstop), `listing_checks.result` (null on void + sweep), `leads.mlsMatchSpan` (in `redactionPatch`). Runbook rows 1/8/9 updated to "erased". | ✅ | A (PII+Storage) |
 
 **Slice-1 status (2026-08-17, `claude/slice-1-hardening`):** C-34/C-35/C-37/C-38/C-39 done + tested;
 C-36 is ◐ — ADR-0048 + DM-13 promote the CONCURRENTLY/SQL-only rule, snapshot gaps documented

@@ -59,6 +59,8 @@ describe("retention purge (DM-09 / LGL-02)", () => {
       "notes",
       "address",
       "addressNormalized",
+      // C-40 / WP-RET-4: mlsMatchSpan.text is a verbatim fragment of `notes` — nulled too.
+      "mlsMatchSpan",
     ] as const) {
       expect(patch[k]).toBeNull();
     }

@@ -1,6 +1,23 @@
-import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
 import { drizzle, type PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
+
+// C-40 / WP-RET-4: voidUpload now deletes the run's export .xlsx from Storage after the tx. Mock the
+// admin client so the test captures the remove() calls instead of hitting real Storage. processRun in
+// this suite stores no export, so the mock is exercised only by voidUpload's removeExport.
+const storageState = vi.hoisted(() => ({ removed: [] as string[] }));
+vi.mock("@/lib/supabase/admin", () => ({
+  getSupabaseAdmin: () => ({
+    storage: {
+      from: () => ({
+        remove: async (paths: string[]) => {
+          storageState.removed.push(...paths);
+          return { data: paths.map((p) => ({ name: p })), error: null };
+        },
+      }),
+    },
+  }),
+}));
 import { and, eq, inArray } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import * as schema from "@/db/schema";
@@ -8,6 +25,8 @@ import { purgeAuditLog } from "../helpers/audit";
 import { DrizzleRunStore } from "@/modules/run/store";
 import { processRun } from "@/modules/run/process";
 import { voidUpload, AlreadyVoidedError, VoidWindowClosedError, NotLatestImportError, AlreadyDistributedError } from "@/modules/run/void";
+import { sweepVoidedExports } from "@/modules/retention/export-sweep";
+import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { REDACTED_RAW_JSON, REDACTED_NOTE_BODY, REDACTED_TASK_TITLE, REDACTED_DEDUPE_KEY, REDACTED_NOTIFICATION_TITLE, REDACTED_OUTBOX_SUBJECT } from "@/modules/retention/purge";
 import { listPartnerLeads } from "@/modules/portal/queries";
 import { getRunDetail } from "@/modules/run/queries";
@@ -40,6 +59,7 @@ suite("WP-018: void-run (ING-09)", () => {
     await db.delete(schema.leadStatusHistory).where(inArray(schema.leadStatusHistory.tenantId, tids));
     await db.delete(schema.leadTasks).where(inArray(schema.leadTasks.tenantId, tids));
     await db.delete(schema.leadNotes).where(inArray(schema.leadNotes.tenantId, tids));
+    await db.delete(schema.listingChecks).where(inArray(schema.listingChecks.tenantId, tids));
     await db.delete(schema.leads).where(inArray(schema.leads.tenantId, tids));
     await db.delete(schema.uploads).where(inArray(schema.uploads.tenantId, tids));
     await db.delete(schema.refCounters).where(inArray(schema.refCounters.tenantId, tids));
@@ -199,6 +219,14 @@ suite("WP-018: void-run (ING-09)", () => {
     // to the lead by refId — the void must redact them at once (not wait for the age sweep).
     await db.insert(schema.notifications).values({ tenantId: scope.tenantId, userId: author, type: "task_due", title: "Task due: call Bob on 555-000-1234", body: "b", leadRef: lead.refId });
     await db.insert(schema.emailOutbox).values({ tenantId: scope.tenantId, toAddress: `purge-${author}@test.dev`, subject: "Task due: call Bob on 555-000-1234", body: "call Bob on 555-000-1234", kind: "task_due", status: "sent", meta: { leadRef: lead.refId } });
+    // C-40 / WP-RET-4: three more sinks the void must now erase — a listing check whose result URL
+    // embeds the street address, the mlsMatchSpan verbatim-notes fragment on the lead, and the
+    // rendered export .xlsx in Storage (its path stamped on the upload).
+    await db.insert(schema.listingChecks).values({ tenantId: scope.tenantId, leadId: lead.id, provider: "link", result: { link: "https://www.google.com/search?q=88+Purge+Blvd" } });
+    await db.update(schema.leads).set({ mlsMatchSpan: { start: 0, end: 10, text: "off market" } }).where(eq(schema.leads.id, lead.id));
+    const exportPath = `${scope.tenantId}/${uploadRef}.xlsx`;
+    await db.update(schema.uploads).set({ storagePath: exportPath }).where(eq(schema.uploads.id, up.id));
+    storageState.removed.length = 0;
 
     await voidUpload(scope, uploadRef, "wrong file");
 
@@ -224,6 +252,14 @@ suite("WP-018: void-run (ING-09)", () => {
       .from(schema.auditLog)
       .where(and(eq(schema.auditLog.tenantId, scope.tenantId), eq(schema.auditLog.action, "upload.voided"), eq(schema.auditLog.entityRef, uploadRef)));
     expect((audit.after as { piiPurged: number }).piiPurged).toBeGreaterThanOrEqual(1);
+    // C-40 / WP-RET-4: the listing-check URL, the mlsMatchSpan fragment, and the Storage export blob
+    // are all erased by the void.
+    const [check] = await db.select().from(schema.listingChecks).where(eq(schema.listingChecks.leadId, lead.id));
+    expect(check.result).toBeNull();
+    expect(l.mlsMatchSpan).toBeNull();
+    expect(storageState.removed).toContain(exportPath); // removeExport called with the run's blob path
+    const [upAfter] = await db.select({ storagePath: schema.uploads.storagePath }).from(schema.uploads).where(eq(schema.uploads.id, up.id));
+    expect(upAfter.storagePath).toBeNull(); // nulled after a successful delete (backstop skips it)
   });
 
   it("C-38/PRN-08: voiding a run never redacts another tenant's comms that share the same refId", async () => {
@@ -258,5 +294,23 @@ suite("WP-018: void-run (ING-09)", () => {
     expect(bNotif[0].title).toBe("Task due: B-tenant secret");
     const bOutbox = await db.select().from(schema.emailOutbox).where(eq(schema.emailOutbox.tenantId, tB.id));
     expect(bOutbox[0].subject).toBe("Task due: B-tenant secret");
+  });
+
+  it("C-40/WP-RET-4: the retention backstop removes a voided upload's surviving export blob and nulls its path", async () => {
+    // A voided upload whose storage_path still points at a blob — the state left by a void-time delete
+    // that failed (or a legacy void that predates the fix). The backstop must clean it up.
+    const path = `${scope.tenantId}/IM-26-BACKSTOP.xlsx`;
+    const [up] = await db
+      .insert(schema.uploads)
+      .values({ tenantId: scope.tenantId, refId: "IM-26-BACKSTOP", filename: "b.xlsx", status: "voided", storagePath: path })
+      .returning({ id: schema.uploads.id });
+    storageState.removed.length = 0;
+
+    const res = await sweepVoidedExports(db, getSupabaseAdmin() as never, scope.tenantId);
+
+    expect(res.exportsRemoved).toBeGreaterThanOrEqual(1);
+    expect(storageState.removed).toContain(path);
+    const [after] = await db.select({ storagePath: schema.uploads.storagePath }).from(schema.uploads).where(eq(schema.uploads.id, up.id));
+    expect(after.storagePath).toBeNull(); // nulled → the next run skips it (idempotent)
   });
 });

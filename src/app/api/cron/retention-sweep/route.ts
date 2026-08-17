@@ -3,6 +3,8 @@ import * as schema from "@/db/schema";
 import { env } from "@/lib/env";
 import { isAuthorizedCron } from "@/lib/auth/cron-auth";
 import { sweepTenantPii } from "@/modules/retention/sweep";
+import { sweepVoidedExports } from "@/modules/retention/export-sweep";
+import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { sweepAuthAttempts } from "@/modules/retention/auth-attempts";
 import {
   sweepOtpChallenges,
@@ -50,7 +52,10 @@ export async function GET(request: Request) {
       let tasksRedacted = 0;
       let notificationsRedacted = 0;
       let outboxRedacted = 0;
+      let exportsRemoved = 0;
       let swept = 0;
+      // C-40 / WP-RET-4: one admin client for the Storage backstop below (voided-export removal).
+      const admin = getSupabaseAdmin();
       for (const t of tenants) {
         try {
           // C-7 + C-13: sweepTenantPii returns per-artifact redaction counts (leads purged, note
@@ -63,6 +68,10 @@ export async function GET(request: Request) {
           tasksRedacted += r.tasksRedacted;
           notificationsRedacted += r.notificationsRedacted;
           outboxRedacted += r.outboxRedacted;
+          // C-40 / WP-RET-4: backstop — remove the rendered export .xlsx (Storage) for voided uploads
+          // whose blob survived (a failed immediate delete on void, or a pre-fix legacy void).
+          const ex = await sweepVoidedExports(db, admin, t.id);
+          exportsRemoved += ex.exportsRemoved;
           swept += 1;
         } catch (e) {
           // Best-effort per tenant: one tenant's failure must not stop the others.
@@ -177,7 +186,7 @@ export async function GET(request: Request) {
           }),
       ]);
 
-      return { tenants: swept, purged, notesRedacted, tasksRedacted, notificationsRedacted, outboxRedacted, authAttempts, otpChallenges, resetTokens, signupVerifications, signupCodes, trustedDevices, noticeClaims, idempotencyKeys, emailOutbox, aiFeedback, notifications, savedViewsCleared };
+      return { tenants: swept, purged, notesRedacted, tasksRedacted, notificationsRedacted, outboxRedacted, exportsRemoved, authAttempts, otpChallenges, resetTokens, signupVerifications, signupCodes, trustedDevices, noticeClaims, idempotencyKeys, emailOutbox, aiFeedback, notifications, savedViewsCleared };
     },
   ).then(
     (r) => jsonOk({ code: "ok", ...r }),
