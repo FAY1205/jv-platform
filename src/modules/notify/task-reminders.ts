@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray, isNotNull, isNull, lte, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNotNull, isNull, lt, lte, sql } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import * as schema from "@/db/schema";
 import { tenantIdWhere, type ScopeContext } from "@/lib/scope";
@@ -38,6 +38,12 @@ import { loadNotificationPrefs, resolvePref } from "./prefs";
 
 type DB = PostgresJsDatabase<typeof schema>;
 
+/** C-14 / WP-TSK-6a: retire a due task after this many ticks where the sweep found it due but could
+ *  NOT resolve an eligible recipient (re-routed / mis-assigned / cross-stream). At 5-min ticks this is
+ *  a ~30-min window for a re-assignment to make it deliverable before the sweep gives up + tells an
+ *  admin. Retiring drops it from the sweep's candidate set, so an orphan stops being re-probed forever. */
+export const REMINDER_ATTEMPTS_MAX = 6;
+
 export interface RemindDueTasksOptions {
   tenantId: string;
   /** Absolute origin for the lead deep link (env.APP_URL), as releaseDueImports takes. */
@@ -47,6 +53,13 @@ export interface RemindDueTasksOptions {
   /** The same instant `today` came from: stamps reminded_at and gates the partner hold. */
   now: Date;
   limit?: number;
+  /** C-14 / WP-TSK-6a: a wall-clock budget — the sweep stops claiming NEW tasks once real time passes
+   *  this epoch-ms deadline, so one tenant's backlog can't consume the cron's 60s maxDuration (the
+   *  remainder is picked up next tick). Undefined = no budget. Distinct from `now` (the injected
+   *  eligibility/stamp clock, TSK-10) precisely because a budget is real elapsed time, not the run clock. */
+  deadlineMs?: number;
+  /** Real-time reader for the `deadlineMs` budget, injected so tests are deterministic. Default Date.now. */
+  clockMs?: () => number;
 }
 
 /** One candidate recipient, as stored — role + org decide what they may see. */
@@ -62,7 +75,8 @@ interface Candidate {
  * tasks were nudged (a task whose recipient cannot be resolved is skipped, not counted,
  * and stays eligible for a later tick once it is re-assigned).
  */
-export async function remindDueTasks(db: DB, opts: RemindDueTasksOptions): Promise<{ reminded: number }> {
+export async function remindDueTasks(db: DB, opts: RemindDueTasksOptions): Promise<{ reminded: number; retired: number }> {
+  const clockMs = opts.clockMs ?? (() => Date.now());
   const due = await db
     .select({
       id: schema.leadTasks.id,
@@ -94,11 +108,14 @@ export async function remindDueTasks(db: DB, opts: RemindDueTasksOptions): Promi
         // (liveLeadGate), and WP-GL-B has replaced the title with the redaction sentinel —
         // there is nothing left worth emailing about.
         isNull(schema.leads.deletedAt),
+        // C-14 / WP-TSK-6a: skip tasks retired after too many undeliverable ticks — they've been
+        // surfaced to an admin and must not be re-probed (2 visibility queries each) forever.
+        lt(schema.leadTasks.reminderAttempts, REMINDER_ATTEMPTS_MAX),
       ),
     )
     .orderBy(asc(schema.leadTasks.dueOn), asc(schema.leadTasks.createdAt))
     .limit(opts.limit ?? 200);
-  if (due.length === 0) return { reminded: 0 };
+  if (due.length === 0) return { reminded: 0, retired: 0 };
 
   // Prefs are per tenant (NTF-05) — one load for the whole sweep. userId is unused by the
   // settings read; releaseDueImports builds the same system scope.
@@ -120,11 +137,21 @@ export async function remindDueTasks(db: DB, opts: RemindDueTasksOptions): Promi
   const usersById = new Map<string, Candidate>(userRows.map((u) => [u.id, u]));
 
   let reminded = 0;
+  let retired = 0;
   for (const task of due) {
+    // C-14: honour the wall-clock budget — stop claiming NEW tasks once real time passes the
+    // deadline. The remainder (including this task) stays eligible and is picked up next tick.
+    if (opts.deadlineMs !== undefined && clockMs() >= opts.deadlineMs) break;
     try {
       const recipient = await resolveRecipient(db, opts, usersById, task);
       if (!recipient) {
-        // SEC-05: ids only — never the title, the seller, or the recipient's address.
+        // C-14 / WP-TSK-6a: no eligible recipient this tick. Count the attempt; when it crosses
+        // REMINDER_ATTEMPTS_MAX, RETIRE the task (drops from the sweep) and tell the tenant's admins
+        // ONCE so an orphan is surfaced, not re-probed forever. The per-tenant advisory lock
+        // serializes concurrent ticks so exactly one crosses the threshold and notifies. SEC-05: the
+        // admin heads-up carries the lead ref + a generic message, never the task title (seller PII).
+        if (await retireIfExhausted(db, opts, task)) retired++;
+        // Keep the id-only observability line for the whole orphan class (retired or still retrying).
         logError("task_reminder_no_visible_recipient", { tenantId: opts.tenantId, taskId: task.id });
         continue;
       }
@@ -235,7 +262,57 @@ export async function remindDueTasks(db: DB, opts: RemindDueTasksOptions): Promi
       });
     }
   }
-  return { reminded };
+  return { reminded, retired };
+}
+
+/**
+ * C-14 / WP-TSK-6a: increment an orphaned task's attempt counter and, when it crosses
+ * REMINDER_ATTEMPTS_MAX, retire it (excluded from the sweep by `reminder_attempts < MAX`) and notify
+ * the tenant's admins ONCE. Returns true only on the tick that actually retires it. The per-tenant
+ * advisory lock (the same key void/persist/the nudge take) serializes concurrent ticks, so exactly
+ * one increment crosses the threshold. The conditional `WHERE reminder_attempts < MAX` makes a
+ * post-retirement increment a no-op, so the heads-up never re-fires. Best-effort: a throw here is
+ * caught by the caller's per-task try, and the un-committed increment simply retries next tick.
+ */
+async function retireIfExhausted(
+  db: DB,
+  opts: RemindDueTasksOptions,
+  task: { id: string; leadRefId: string },
+): Promise<boolean> {
+  return db.transaction(async (tx) => {
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${opts.tenantId})::bigint)`);
+    const [row] = await tx
+      .update(schema.leadTasks)
+      .set({ reminderAttempts: sql`${schema.leadTasks.reminderAttempts} + 1` })
+      .where(
+        and(
+          tenantIdWhere(schema.leadTasks, opts.tenantId),
+          eq(schema.leadTasks.id, task.id),
+          lt(schema.leadTasks.reminderAttempts, REMINDER_ATTEMPTS_MAX),
+        ),
+      )
+      .returning({ attempts: schema.leadTasks.reminderAttempts });
+    if (!row || row.attempts < REMINDER_ATTEMPTS_MAX) return false; // still retrying (or already retired)
+    // Crossed the threshold this tick → retired. Surface to the tenant's admins (generic — no
+    // task-title PII). Query + insert on `tx` (the transaction's own connection) — reading via the
+    // outer `db` here would deadlock a single-connection pool waiting on a connection tx holds.
+    const admins = await tx
+      .select({ id: schema.users.id })
+      .from(schema.users)
+      .where(and(tenantIdWhere(schema.users, opts.tenantId), eq(schema.users.role, "admin")));
+    for (const admin of admins) {
+      await createNotification(tx, {
+        tenantId: opts.tenantId,
+        userId: admin.id,
+        type: "task_reminder_orphaned",
+        title: "A task reminder couldn't be delivered",
+        body: `A due task on lead ${task.leadRefId} has no eligible recipient and was retired after ${REMINDER_ATTEMPTS_MAX} attempts — check its assignment.`,
+        deepLink: `/leads?open=${encodeURIComponent(task.leadRefId)}`,
+        leadRef: task.leadRefId, // C-13: correlate for void/purge redaction (lead ref, not seller PII)
+      });
+    }
+    return true;
+  });
 }
 
 /**
