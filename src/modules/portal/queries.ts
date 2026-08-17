@@ -65,7 +65,12 @@ function latestStatus(scope: ScopeContext) {
   // partner's). Admin: unscoped. Same predicate statusHistoryWhere applies to the row-level reads.
   const author = ownStatusAuthorScope(scope);
   const authorClause = author ? sql` and ${author}` : sql``;
-  return sql`(select status from lead_status_history where lead_id = ${schema.leads.id} and ${tenantWhere(schema.leadStatusHistory, scope)}${authorClause} order by created_at desc limit 1)`;
+  // WP-KAN-1a (C-16): `, id desc` matches the admin read's tie-break (leads/queries.ts) and the
+  // write path (status-update.ts). Without it, two same-`created_at` entries (one clock tick, or a
+  // backfill) let Postgres pick either — so a lead could read one status in the admin list and
+  // another in the partner portal. It also lets lead_status_lead_created_idx (0051) satisfy the
+  // ordering as a pure index seek (no per-row sort).
+  return sql`(select status from lead_status_history where lead_id = ${schema.leads.id} and ${tenantWhere(schema.leadStatusHistory, scope)}${authorClause} order by created_at desc, id desc limit 1)`;
 }
 function statusExpr(scope: ScopeContext) {
   return sql<string>`coalesce(${latestStatus(scope)}, 'New')`;
