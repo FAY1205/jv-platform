@@ -72,8 +72,10 @@ Promote the twice-written rule to the spec (**DM-13**, §5) and record the two m
 - **Reopens if:** drizzle gains a first-class non-transactional / `CONCURRENTLY` migration path (or
   we adopt a tool that models RLS/grants), at which point these migrations could go through
   `generate` and carry snapshots like any other.
-- **Follow-up (owner-gated, dev WP):** the deferred `notifications (tenant_id, lead_ref) WHERE
-  lead_ref is not null` index (C-36) is a ready `CREATE INDEX CONCURRENTLY` to apply out-of-tx when
-  notification volume warrants; it seq-scans cheaply today. Its SQL is parked outside drizzle's `out`
-  dir at `src/db/manual/notifications_lead_ref_idx.concurrent.sql` (so `drizzle-kit migrate` never
-  auto-applies it), to be run by hand against prod under owner greenlight.
+- **Resolved (C-36, migration 0052):** the `notifications (tenant_id, lead_ref) WHERE lead_ref is not
+  null` index shipped as a **plain** drizzle migration, not the parked `CONCURRENTLY`-out-of-tx step.
+  The DM-13 rule targets *populated* tables; `notifications` is tiny in prod (~6 rows), so a plain
+  `CREATE INDEX`'s ShareLock is sub-millisecond — placed now, while small, so it precedes unpredictable
+  end-user volume (same rationale as 0051's covering index). The parked
+  `src/db/manual/notifications_lead_ref_idx.concurrent.sql` was removed. The CONCURRENTLY-out-of-tx
+  path remains the rule for a genuinely large table.

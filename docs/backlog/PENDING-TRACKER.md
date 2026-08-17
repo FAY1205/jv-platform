@@ -20,7 +20,7 @@ single-PR batch.
 |------|------|--------|------|
 | C-34 (WP-AUTH-OUTAGE-2) | Extend SEC-09 503+Retry-After to `otp/verify` + `trust/refresh` `session_failed` (needs `establishSessionForEmail` tri-state) | ✅ | S |
 | C-35 | Backfill missing drizzle snapshots for migrations 0036/0037/0044–0047 (ledger drift) | ✅ | S |
-| C-36 | Add `notifications (tenant_id, lead_ref) WHERE lead_ref is not null` index via `CREATE INDEX CONCURRENTLY` (out-of-tx, manual prod apply) | ◐ | A (index) |
+| C-36 | `notifications (tenant_id, lead_ref) WHERE lead_ref is not null` index — **shipped as a plain migration 0052** (table ~6 rows in prod → instant; placed proactively before unpredictable end-user volume, same rationale as 0051). Parked CONCURRENTLY step removed. | ✅ | A (index) |
 | C-37 | Fold notifications/outbox redaction counts into the per-lead `lead.pii_purged` audit row | ✅ | S |
 | C-38 | Void-path cross-tenant collision test for `redactLeadCommunications` | ✅ | S |
 | C-39 | `audit-compliance` pass on the erasure runbook vs all server-side PII sinks (esp. `ai_memory`) | ✅ | S |
