@@ -1,5 +1,7 @@
-import { describe, it, expect } from "vitest";
-import { jsonOk, jsonError, jsonServerError } from "@/lib/http";
+import { describe, it, expect, vi } from "vitest";
+import { jsonOk, jsonError, jsonServerError, jsonServiceUnavailable } from "@/lib/http";
+
+vi.mock("@/lib/observability", () => ({ logError: vi.fn() }));
 
 // C-21 / AUT-13: authenticated JSON payloads are tenant-scoped and must never be cached
 // by a shared proxy or the browser. jsonOk is the single success path for every API route.
@@ -30,6 +32,21 @@ describe("uniform error envelope", () => {
   it("C-21: jsonError and jsonServerError also set Cache-Control: private, no-store", () => {
     expect(jsonError("x", "y", 400).headers.get("Cache-Control")).toBe("private, no-store");
     expect(jsonServerError("x", "y").headers.get("Cache-Control")).toBe("private, no-store");
+  });
+
+  // C-3 (SEC-09): a transient backend outage → 503 + Retry-After (retryable), still no-store.
+  it("C-3: jsonServiceUnavailable returns 503 with Retry-After and the uniform envelope", async () => {
+    const res = jsonServiceUnavailable("svc_down", "Temporarily unavailable.");
+    expect(res.status).toBe(503);
+    expect(res.headers.get("Retry-After")).toBe("5");
+    expect(res.headers.get("Cache-Control")).toBe("private, no-store");
+    const body = await res.json();
+    expect(body).toMatchObject({ code: "svc_down", message: "Temporarily unavailable." });
+    expect(typeof body.traceId).toBe("string");
+  });
+
+  it("C-3: jsonServiceUnavailable honours a custom retryAfterSec", () => {
+    expect(jsonServiceUnavailable("x", "y", {}, 30).headers.get("Retry-After")).toBe("30");
   });
 
   it("jsonServerError logs + returns a 500 envelope sharing one traceId", async () => {

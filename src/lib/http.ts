@@ -46,3 +46,23 @@ export function jsonServerError(code: string, message: string, detail: Record<st
   logError(code, detail, traceId);
   return jsonError(code, message, 500, traceId);
 }
+
+/** C-3 (SEC-09 availability): a TRANSIENT backend outage — not the caller's fault and expected to
+ *  recover — returns 503 + `Retry-After` so a client or uptime monitor backs off instead of treating
+ *  it as a hard failure. Same log-with-shared-traceId contract as jsonServerError (SEC-05 detail).
+ *  Use only where the fault is genuinely retryable AND account-independent (a 503 vs 500 must not
+ *  become an account-existence oracle — see the login route's AUT-05 note). */
+export function jsonServiceUnavailable(
+  code: string,
+  message: string,
+  detail: Record<string, unknown> = {},
+  retryAfterSec = 5,
+): NextResponse {
+  const traceId = newTraceId();
+  logError(code, detail, traceId);
+  const body: ErrorEnvelope = { code, message, traceId };
+  return NextResponse.json(body, {
+    status: 503,
+    headers: { "Cache-Control": NO_STORE, "Retry-After": String(retryAfterSec) },
+  });
+}

@@ -799,7 +799,7 @@ export const noticeClaims = pgTable(
     // (never merged: a lock on one surface must not suppress the owner alert for the other)
     notifiedAt: timestamp("notified_at", { withTimezone: true }).notNull(),
   },
-  (t) => [uniqueIndex("notice_claims_identifier_kind_key").on(t.identifier, t.kind)],
+  (t) => [uniqueIndex("notice_claims_identifier_kind_idx").on(t.identifier, t.kind)],
 );
 
 // ── Password reset tokens (AUT-06): single-use, hashed at rest, 30-min expiry. ──
