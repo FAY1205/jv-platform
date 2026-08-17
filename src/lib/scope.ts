@@ -2,7 +2,7 @@ import { and, eq, inArray, isNull, or, sql, type SQL } from "drizzle-orm";
 import type { PgColumn } from "drizzle-orm/pg-core";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import * as schema from "@/db/schema";
-import { releasedLeads } from "@/modules/run/hold-filter";
+import { releasedLeads } from "@/lib/hold-filter";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // The scoping guard (PRN-08). Every query in API routes builds its WHERE clause
