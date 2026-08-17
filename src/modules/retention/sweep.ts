@@ -111,23 +111,34 @@ export async function sweepTenantPii(
 
     // C-13 / WP-RET-3a: redact the purged leads' COMMUNICATIONS too (in-app notifications +
     // email_outbox rows), correlated by refId — a task_due notification/email embeds the task free
-    // text (seller PII). Aggregate counts (not per-lead) — the per-lead audit below stays notes/tasks.
+    // text (seller PII). C-37: the helper now returns a per-refId breakdown so each lead's audit row
+    // records its own comms counts, not just the tenant aggregate (LGL-02: "what was redacted for
+    // lead X" is answerable from audit_log alone).
     const refIds = eligible.map((l) => l.refId);
     const comms = await redactLeadCommunications(tx, opts.tenantId, refIds);
 
     // Append-only audit (DM-04), one per lead. actorUserId null = the scheduled system sweep.
-    // SEC-05: before/after record only that PII was purged + note/task counts — never the values.
+    // SEC-05: before/after record only that PII was purged + per-artifact counts — never the values.
     await tx.insert(schema.auditLog).values(
-      eligible.map((l) => ({
-        tenantId: opts.tenantId,
-        actorUserId: null,
-        action: "lead.pii_purged",
-        entityType: "lead",
-        entityRef: l.refId,
-        before: { piiPurged: false },
-        after: { piiPurged: true, notesRedacted: notesByLead.get(l.id) ?? 0, tasksRedacted: tasksByLead.get(l.id) ?? 0 },
-        traceId: globalThis.crypto.randomUUID(),
-      })),
+      eligible.map((l) => {
+        const c = comms.byRef.get(l.refId);
+        return {
+          tenantId: opts.tenantId,
+          actorUserId: null,
+          action: "lead.pii_purged",
+          entityType: "lead",
+          entityRef: l.refId,
+          before: { piiPurged: false },
+          after: {
+            piiPurged: true,
+            notesRedacted: notesByLead.get(l.id) ?? 0,
+            tasksRedacted: tasksByLead.get(l.id) ?? 0,
+            notificationsRedacted: c?.notifications ?? 0,
+            outboxRedacted: c?.outbox ?? 0,
+          },
+          traceId: globalThis.crypto.randomUUID(),
+        };
+      }),
     );
 
     return {

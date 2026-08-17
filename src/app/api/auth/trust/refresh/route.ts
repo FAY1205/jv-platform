@@ -3,7 +3,7 @@ import { cookies } from "next/headers";
 import { sql } from "drizzle-orm";
 import { getDb } from "@/db";
 import * as schema from "@/db/schema";
-import { jsonError, newTraceId } from "@/lib/http";
+import { jsonError, jsonServerError, jsonServiceUnavailable, newTraceId } from "@/lib/http";
 import { assertCsrf } from "@/lib/auth/guard";
 import { clientIp } from "@/lib/auth/client-ip";
 import { TrustedDeviceService } from "@/lib/auth/trusted-device";
@@ -81,8 +81,16 @@ export async function POST(request: Request) {
 
     // Persist the rotated trust token and mint a fresh Supabase session (no OTP).
     store.set(TRUST_COOKIE_NAME, result.token, TRUST_COOKIE_OPTIONS);
-    if (!(await establishSessionForEmail(email))) {
-      return jsonError("session_failed", "Could not establish a session. Please sign in.", 500);
+    const session = await establishSessionForEmail(email);
+    if (session.status !== "established") {
+      // C-34 (SEC-09): a transient auth-backend outage is a retryable 503 + Retry-After (mirroring
+      // login / otp/verify); a clean-but-unusable response stays a 500. Account-independent — the
+      // trust token was already validated — so the distinct status leaks nothing. The helper returns
+      // `detail` so we log ONCE here sharing the response traceId (F-42), not an uncorrelated line.
+      const detail = { message: session.detail };
+      return session.status === "unavailable"
+        ? jsonServiceUnavailable("session_unavailable", "Sign-in is temporarily unavailable. Please try again shortly.", detail)
+        : jsonServerError("session_failed", "Could not establish a session. Please sign in.", detail);
     }
 
     const [u] = await db

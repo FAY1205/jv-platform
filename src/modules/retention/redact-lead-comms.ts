@@ -17,19 +17,34 @@ import { REDACTED_NOTIFICATION_TITLE, REDACTED_OUTBOX_SUBJECT, REDACTED_OUTBOX_B
 
 type DB = PostgresJsDatabase<typeof schema>;
 
+/** Per-lead redaction counts, keyed by the lead's refId. */
+export interface CommsByRef {
+  notifications: number;
+  outbox: number;
+}
+
 export interface RedactedCommsResult {
   notificationsRedacted: number;
   outboxRedacted: number;
+  /** C-37: per-refId breakdown so a caller writing a PER-LEAD audit row (the retention sweep's
+   *  `lead.pii_purged`) can record comms counts for that lead, not just the tenant aggregate.
+   *  Assumes refId identifies one lead within a tenant (DM-07: tenant-scoped + immutable; refIds are
+   *  generated sequentially, so no live path produces a collision). `leads.ref_id` carries no DB
+   *  unique constraint, so if refId generation ever changed to allow per-tenant duplicates, two
+   *  leads' counts would pool under one key — revisit this keying then (candidate: leads refId
+   *  uniqueness). */
+  byRef: Map<string, CommsByRef>;
 }
 
 /** Redact (title/subject/body → sentinel, nullable bodies → null) the notifications and outbox rows
- *  that reference any of `leadRefs`, for ONE tenant. Returns per-artifact counts. No-op on empty. */
+ *  that reference any of `leadRefs`, for ONE tenant. Returns per-artifact totals AND a per-refId
+ *  breakdown (C-37). No-op on empty. */
 export async function redactLeadCommunications(
   tx: DB,
   tenantId: string,
   leadRefs: string[],
 ): Promise<RedactedCommsResult> {
-  if (leadRefs.length === 0) return { notificationsRedacted: 0, outboxRedacted: 0 };
+  if (leadRefs.length === 0) return { notificationsRedacted: 0, outboxRedacted: 0, byRef: new Map() };
 
   const redactedNotifications = await tx
     .update(schema.notifications)
@@ -41,7 +56,7 @@ export async function redactLeadCommunications(
         ne(schema.notifications.title, REDACTED_NOTIFICATION_TITLE),
       ),
     )
-    .returning({ id: schema.notifications.id });
+    .returning({ leadRef: schema.notifications.leadRef });
 
   // email_outbox correlates by meta.leadRef (a jsonb text field). `->>` extracts it as text; the
   // SQL expression is the inArray target. `html` is nullable → nulled; subject/body are NOT NULL.
@@ -55,7 +70,20 @@ export async function redactLeadCommunications(
         ne(schema.emailOutbox.subject, REDACTED_OUTBOX_SUBJECT),
       ),
     )
-    .returning({ id: schema.emailOutbox.id });
+    .returning({ leadRef: sql<string>`${schema.emailOutbox.meta} ->> 'leadRef'` });
 
-  return { notificationsRedacted: redactedNotifications.length, outboxRedacted: redactedOutbox.length };
+  // Tally per refId. A notification carries lead_ref directly; an outbox row carries it via
+  // meta.leadRef, both re-projected above. Only rows matching one of `leadRefs` were touched, so a
+  // null ref cannot appear here.
+  const byRef = new Map<string, CommsByRef>();
+  const bump = (ref: string | null, key: keyof CommsByRef) => {
+    if (!ref) return;
+    const entry = byRef.get(ref) ?? { notifications: 0, outbox: 0 };
+    entry[key] += 1;
+    byRef.set(ref, entry);
+  };
+  for (const n of redactedNotifications) bump(n.leadRef, "notifications");
+  for (const o of redactedOutbox) bump(o.leadRef, "outbox");
+
+  return { notificationsRedacted: redactedNotifications.length, outboxRedacted: redactedOutbox.length, byRef };
 }

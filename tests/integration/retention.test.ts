@@ -206,6 +206,16 @@ suite("WP-GL-B: retention PII sweep — backstop (DM-09 / LGL-02)", () => {
     expect(audits[0].entityType).toBe("lead");
     expect(audits[0].entityRef).toBe("LD-26-00001");
     expect(audits[0].actorUserId).toBeNull(); // system actor
+    // C-37: the per-lead audit row records ALL four per-artifact counts (not just notes/tasks), so an
+    // auditor reconstructing "what was redacted for lead X" needs only audit_log. The purged lead had
+    // one notification + one outbox row (LD-26-00001).
+    expect(audits[0].after).toMatchObject({
+      piiPurged: true,
+      notesRedacted: 1,
+      tasksRedacted: 1,
+      notificationsRedacted: 1,
+      outboxRedacted: 1,
+    });
     const blob = (JSON.stringify(audits[0].before) + JSON.stringify(audits[0].after)).toLowerCase();
     expect(blob).not.toContain("jane");
     expect(blob).not.toContain("5558675309");

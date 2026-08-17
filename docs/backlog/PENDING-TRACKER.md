@@ -18,12 +18,20 @@ single-PR batch.
 
 | Item | What | Status | Tier |
 |------|------|--------|------|
-| C-34 (WP-AUTH-OUTAGE-2) | Extend SEC-09 503+Retry-After to `otp/verify` + `trust/refresh` `session_failed` (needs `establishSessionForEmail` tri-state) | ☐ | S |
-| C-35 | Backfill missing drizzle snapshots for migrations 0036/0037/0044–0047 (ledger drift) | ☐ | S |
-| C-36 | Add `notifications (tenant_id, lead_ref) WHERE lead_ref is not null` index via `CREATE INDEX CONCURRENTLY` (out-of-tx, manual prod apply) | ☐ | A (index) |
-| C-37 | Fold notifications/outbox redaction counts into the per-lead `lead.pii_purged` audit row | ☐ | S |
-| C-38 | Void-path cross-tenant collision test for `redactLeadCommunications` | ☐ | S |
-| C-39 | `audit-compliance` pass on the erasure runbook vs all server-side PII sinks (esp. `ai_memory`) | ☐ | S |
+| C-34 (WP-AUTH-OUTAGE-2) | Extend SEC-09 503+Retry-After to `otp/verify` + `trust/refresh` `session_failed` (needs `establishSessionForEmail` tri-state) | ✅ | S |
+| C-35 | Backfill missing drizzle snapshots for migrations 0036/0037/0044–0047 (ledger drift) | ✅ | S |
+| C-36 | Add `notifications (tenant_id, lead_ref) WHERE lead_ref is not null` index via `CREATE INDEX CONCURRENTLY` (out-of-tx, manual prod apply) | ◐ | A (index) |
+| C-37 | Fold notifications/outbox redaction counts into the per-lead `lead.pii_purged` audit row | ✅ | S |
+| C-38 | Void-path cross-tenant collision test for `redactLeadCommunications` | ✅ | S |
+| C-39 | `audit-compliance` pass on the erasure runbook vs all server-side PII sinks (esp. `ai_memory`) | ✅ | S |
+| C-40 (WP-RET-4) | **NEW (from C-39):** erase the 3 PII sinks the purge paths miss — Storage export blob (HIGH), `listing_checks.result` (MED), `leads.mlsMatchSpan` (LOW). Documented as known gaps in the erasure runbook | ☐ | A (Storage on void) |
+
+**Slice-1 status (2026-08-17, `claude/slice-1-hardening`):** C-34/C-35/C-37/C-38/C-39 done + tested;
+C-36 is ◐ — ADR-0048 + DM-13 promote the CONCURRENTLY/SQL-only rule, snapshot gaps documented
+(`migrations/README.md`), and the index SQL is parked at `src/db/manual/…concurrent.sql`; the index
+itself stays deferred (Tier A, owner-gated, seq-scans cheaply today). C-39's audit surfaced 3 real
+erasure gaps → spun out as **C-40 / WP-RET-4** (F-1 Storage export is HIGH — a live LGL-02 hole; owner
+greenlight to build).
 
 ## Slice 2 — Performance · MEASURED 2026-08-18 (`claude/perf-waterfalls-slice2`)
 **Measurement (prod `vhoiixmhvuwxfyvxtumz`): 298 leads, max 203/tenant, 1 status-history row total, 0
