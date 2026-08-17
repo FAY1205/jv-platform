@@ -109,6 +109,19 @@ export async function sweepTenantPii(
     const tasksByLead = new Map<string, number>();
     for (const t of redactedTasks) tasksByLead.set(t.leadId, (tasksByLead.get(t.leadId) ?? 0) + 1);
 
+    // C-40 / WP-RET-4: null listing_checks.result (jsonb {link} embedding the street address) for
+    // the purged leads — the backstop half of the same fix voidUpload does. Direct leadId FK.
+    await tx
+      .update(schema.listingChecks)
+      .set({ result: null })
+      .where(
+        and(
+          tenantIdWhere(schema.listingChecks, opts.tenantId),
+          inArray(schema.listingChecks.leadId, ids),
+          isNotNull(schema.listingChecks.result),
+        ),
+      );
+
     // C-13 / WP-RET-3a: redact the purged leads' COMMUNICATIONS too (in-app notifications +
     // email_outbox rows), correlated by refId — a task_due notification/email embeds the task free
     // text (seller PII). C-37: the helper now returns a per-refId breakdown so each lead's audit row

@@ -38,6 +38,16 @@ export async function storeExport(
   return path;
 }
 
+/** Delete a run's stored deliverable (WP-RET-4 / C-40). A void redacts the run's leads in-DB, and
+ *  the rendered .xlsx carries the SAME seller PII, so the object must go too — otherwise the
+ *  "void = PII gone at once" promise (LGL-02/DM-09) is broken. Idempotent: Supabase `remove()` does
+ *  not error on a path that is already gone. Caller treats failures as best-effort (a retention
+ *  backstop retries), so an error is surfaced here for the caller to log, not swallowed. */
+export async function removeExport(admin: SupabaseClient, path: string): Promise<void> {
+  const { error } = await admin.storage.from(EXPORTS_BUCKET).remove([path]);
+  if (error) throw error;
+}
+
 /** A short-lived signed download URL for a stored export (SEC-02). */
 export async function signedExportUrl(
   admin: SupabaseClient,

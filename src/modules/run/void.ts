@@ -1,10 +1,13 @@
-import { and, eq, isNull, inArray, ne, sql } from "drizzle-orm";
+import { and, eq, isNull, isNotNull, inArray, ne, sql } from "drizzle-orm";
 import { getDb } from "@/db";
 import * as schema from "@/db/schema";
 import { tenantWhere, type ScopeContext } from "@/lib/scope";
+import { getSupabaseAdmin } from "@/lib/supabase/admin";
+import { logError } from "@/lib/observability";
 import { isWithinVoidWindow } from "./void-window";
 import { redactionPatch, REDACTED_NOTE_BODY, REDACTED_TASK_TITLE } from "../retention/purge";
 import { redactLeadCommunications } from "../retention/redact-lead-comms";
+import { removeExport } from "../export/storage";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Void a run (ING-09). Soft-void with a required reason: the upload is marked voided
@@ -64,7 +67,7 @@ export interface VoidResult {
 
 export async function voidUpload(scope: ScopeContext, ref: string, reason: string): Promise<VoidResult> {
   const db = getDb();
-  return db.transaction(async (tx) => {
+  const { result, storagePath, uploadId } = await db.transaction(async (tx) => {
     // ING-06 / concurrency: serialize per tenant (mirrors persistRun) so two overlapping voids
     // can't double-recall, and a void can't race a concurrent import's inserts.
     await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${scope.tenantId})::bigint)`);
@@ -150,6 +153,19 @@ export async function voidUpload(scope: ScopeContext, ref: string, reason: strin
             ne(schema.leadTasks.title, REDACTED_TASK_TITLE),
           ),
         );
+      // C-40 / WP-RET-4: listing_checks.result is a jsonb {link} whose URL embeds the lead's full
+      // street address (LinkOnlyProvider). Neither purge path touched it before — null it for the
+      // recalled leads (direct leadId FK, no ref correlation needed). Idempotent (skips already-null).
+      await tx
+        .update(schema.listingChecks)
+        .set({ result: null })
+        .where(
+          and(
+            tenantWhere(schema.listingChecks, scope),
+            inArray(schema.listingChecks.leadId, recalledIds),
+            isNotNull(schema.listingChecks.result),
+          ),
+        );
       // C-13 / WP-RET-3a: redact the recalled leads' in-app notifications + email_outbox rows too,
       // correlated by refId (a task_due notification/email embeds the task free text = seller PII).
       // Same shared helper the backstop sweep uses, so the two purge paths never diverge.
@@ -169,9 +185,31 @@ export async function voidUpload(scope: ScopeContext, ref: string, reason: strin
     });
 
     return {
-      uploadRef: upload.refId,
-      voidedAt: voidedAt.toISOString(),
-      recalledLeadCount: recalled.length,
+      result: {
+        uploadRef: upload.refId,
+        voidedAt: voidedAt.toISOString(),
+        recalledLeadCount: recalled.length,
+      },
+      storagePath: upload.storagePath,
+      uploadId: upload.id,
     };
   });
+
+  // C-40 / WP-RET-4: the rendered export .xlsx carries the recalled leads' seller PII. Delete it
+  // AFTER the tx commits — best-effort: a failed remove must never fail (or roll back) the void
+  // (the download route already blocks a voided run, and the retention backstop sweep retries).
+  // On success, null uploads.storage_path so the backstop knows this export is already gone.
+  if (storagePath) {
+    try {
+      await removeExport(getSupabaseAdmin(), storagePath);
+      await db.update(schema.uploads).set({ storagePath: null }).where(eq(schema.uploads.id, uploadId));
+    } catch (e) {
+      logError("void_export_remove_failed", {
+        uploadRef: result.uploadRef,
+        message: e instanceof Error ? e.message : String(e),
+      });
+    }
+  }
+
+  return result;
 }

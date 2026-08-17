@@ -81,6 +81,11 @@ export interface LeadRedactionPatch {
   addressNormalized: null;
   dedupeKey: string;
   rawJson: { _redacted: true };
+  // C-40 / WP-RET-4: the MLS matcher captures a verbatim fragment of `notes` (the seller-provided
+  // "Notes"/"Is it listed?" free text) into mlsMatchSpan.text (MLS-05). `notes` is nulled above, so
+  // this unredacted copy must go too. Bound small by PRN-04 (patterns anchor to short listing-status
+  // tokens), but it's still source PII the runbook classifies under row 1. jsonb → null.
+  mlsMatchSpan: null;
 }
 
 /** The column values that redact a lead's seller PII: name, contact, seller-provided fields,
@@ -104,5 +109,6 @@ export function redactionPatch(): LeadRedactionPatch {
     addressNormalized: null,
     dedupeKey: REDACTED_DEDUPE_KEY,
     rawJson: REDACTED_RAW_JSON,
+    mlsMatchSpan: null,
   };
 }

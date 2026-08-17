@@ -54,6 +54,7 @@ suite("WP-GL-B: retention PII sweep — backstop (DM-09 / LGL-02)", () => {
     await db.delete(schema.emailOutbox).where(inArray(schema.emailOutbox.tenantId, tids));
     await db.delete(schema.leadTasks).where(inArray(schema.leadTasks.tenantId, tids));
     await db.delete(schema.leadNotes).where(inArray(schema.leadNotes.tenantId, tids));
+    await db.delete(schema.listingChecks).where(inArray(schema.listingChecks.tenantId, tids));
     await db.delete(schema.leads).where(inArray(schema.leads.tenantId, tids));
     await db.delete(schema.uploads).where(inArray(schema.uploads.tenantId, tids));
     await db.delete(schema.users).where(inArray(schema.users.tenantId, tids));
@@ -115,6 +116,13 @@ suite("WP-GL-B: retention PII sweep — backstop (DM-09 / LGL-02)", () => {
       { tenantId: tenantA, toAddress: "admin@retention.test", subject: "Task due: call Jane at 555-867-5309", body: "call Jane at 555-867-5309", kind: "task_due", status: "sent", meta: { leadRef: "LD-26-00001" } },
       { tenantId: tenantA, toAddress: "admin@retention.test", subject: "Task due: live lead task stays", body: "live text", kind: "task_due", status: "sent", meta: { leadRef: "LD-26-00002" } },
     ]);
+    // C-40 / WP-RET-4: a listing check whose URL embeds the street address + an mlsMatchSpan fragment
+    // on the purged lead — both must be nulled by the sweep; the LIVE lead's listing check survives.
+    await db.insert(schema.listingChecks).values([
+      { tenantId: tenantA, leadId: idSoftDeleted, provider: "link", result: { link: "https://www.google.com/search?q=1+Main+St" } },
+      { tenantId: tenantA, leadId: idLive, provider: "link", result: { link: "https://www.google.com/search?q=live" } },
+    ]);
+    await db.update(schema.leads).set({ mlsMatchSpan: { start: 0, end: 10, text: "not listed" } }).where(eq(schema.leads.id, idSoftDeleted));
     // PRN-08 collision fixture: tenant B has a lead with the SAME refId (LD-26-00001, refIds are
     // per-tenant), plus a notification + outbox row referencing it. Sweeping tenant A must NOT reach
     // tenant B's comms — proves both UPDATEs in redactLeadCommunications carry the tenant predicate.
@@ -182,6 +190,11 @@ suite("WP-GL-B: retention PII sweep — backstop (DM-09 / LGL-02)", () => {
     // …and its task titles (SEC-05), by the same statement pair.
     const tasks = await db.select().from(schema.leadTasks).where(eq(schema.leadTasks.leadId, idSoftDeleted));
     expect(tasks.every((t) => t.title === REDACTED_TASK_TITLE)).toBe(true);
+    // C-40 / WP-RET-4: mlsMatchSpan (a verbatim notes fragment) + the listing-check URL (embeds the
+    // address) are nulled too.
+    expect(l.mlsMatchSpan).toBeNull();
+    const checks = await db.select().from(schema.listingChecks).where(eq(schema.listingChecks.leadId, idSoftDeleted));
+    expect(checks.every((c) => c.result === null)).toBe(true);
   });
 
   it("LGL-02: leaves a live lead (and its note + task) untouched", async () => {
@@ -195,6 +208,9 @@ suite("WP-GL-B: retention PII sweep — backstop (DM-09 / LGL-02)", () => {
     expect(liveNotes[0].body).toBe("live lead note stays");
     const liveTasks = await db.select().from(schema.leadTasks).where(eq(schema.leadTasks.leadId, idLive));
     expect(liveTasks[0].title).toBe("live lead task stays");
+    // C-40 / WP-RET-4: the live lead's listing check keeps its URL (only purged leads are nulled).
+    const liveChecks = await db.select().from(schema.listingChecks).where(eq(schema.listingChecks.leadId, idLive));
+    expect((liveChecks[0].result as { link: string }).link).toContain("live");
   });
 
   it("DM-04/SEC-05: writes one append-only audit row per purged lead, carrying no PII", async () => {
