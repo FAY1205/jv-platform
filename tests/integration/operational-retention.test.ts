@@ -9,6 +9,7 @@ import {
   sweepEmailOutbox,
   sweepAiFeedback,
   sweepNotifications,
+  sweepSavedViewsPii,
 } from "@/modules/retention/operational";
 
 // WP-RET-2 (audit R-42/R-43/R-91 / SET-07): retention for the three tenant-scoped operational
@@ -35,6 +36,7 @@ suite("WP-RET-2: operational-table retention sweeps", () => {
     await db.delete(schema.emailOutbox).where(inArray(schema.emailOutbox.tenantId, tids));
     await db.delete(schema.aiFeedback).where(inArray(schema.aiFeedback.tenantId, tids));
     await db.delete(schema.notifications).where(inArray(schema.notifications.tenantId, tids));
+    await db.delete(schema.savedViews).where(inArray(schema.savedViews.tenantId, tids));
     await db.delete(schema.users).where(inArray(schema.users.tenantId, tids));
     await db.delete(schema.tenants).where(inArray(schema.tenants.id, tids));
   }
@@ -94,6 +96,26 @@ suite("WP-RET-2: operational-table retention sweeps", () => {
     expect(deleted).toBe(1);
     const rows = await db.select().from(schema.notifications).where(eq(schema.notifications.tenantId, tenantId));
     expect(rows.map((r) => r.title)).toEqual(["Task due: fresh"]);
+  });
+
+  it("C-13/WP-RET-3b: sweepSavedViewsPii clears the q search string on stale views, keeps the view + recent views' q", async () => {
+    const mkFilters = (q: string) => ({ q, partnerId: "", state: "", source: "", statuses: [], hot: false, tags: [], dateFrom: "", dateTo: "", viewMode: "list" });
+    // saved_views' q-clear window is 12 MONTHS (not 7/30/90d) — the stale one must be >365d old.
+    const veryVeryOld = daysAgo(400);
+    await db.insert(schema.savedViews).values([
+      { tenantId, userId, name: "stale view", filters: mkFilters("seller Jane 555-867-5309"), createdAt: veryVeryOld, updatedAt: veryVeryOld }, // >12mo → q cleared
+      { tenantId, userId, name: "recent view", filters: mkFilters("active search 555"), createdAt: recent, updatedAt: recent }, // within window → untouched
+    ]);
+    const { cleared } = await sweepSavedViewsPii(db, { now });
+    expect(cleared).toBe(1);
+    const rows = await db.select().from(schema.savedViews).where(eq(schema.savedViews.tenantId, tenantId));
+    const byName = Object.fromEntries(rows.map((r) => [r.name, (r.filters as { q: string }).q]));
+    expect(byName["stale view"]).toBe(""); // PII search string cleared…
+    expect(byName["recent view"]).toBe("active search 555"); // …recent view untouched
+    // The stale VIEW survives (non-destructive) — only its q was cleared.
+    expect(rows.map((r) => r.name).sort()).toEqual(["recent view", "stale view"]);
+    // Idempotent: a second pass clears nothing (q is now "").
+    expect((await sweepSavedViewsPii(db, { now })).cleared).toBe(0);
   });
 
   it("R-91: sweepAiFeedback deletes rows past the 90-day window, keeps recent", async () => {

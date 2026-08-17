@@ -1,4 +1,4 @@
-import { and, inArray, lte } from "drizzle-orm";
+import { and, asc, inArray, lt, lte, ne, sql } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import * as schema from "@/db/schema";
 import { batchedDeleteByAge } from "./batched-delete";
@@ -109,4 +109,37 @@ export async function sweepNotifications(db: DB, opts: { now?: Date; limit?: num
     where: lte(N.createdAt, notificationsCutoff(now)),
     limit: opts.limit ?? OPERATIONAL_SWEEP_BATCH,
   });
+}
+
+// ── saved_views.filters.q (C-13 / WP-RET-3b, SV-01): the leads search box takes seller names, phone
+// fragments and addresses, and a saved view stores whatever was typed there verbatim, per user,
+// FOREVER — and the lead purge can't reach it (the blob holds a search STRING, not a lead id). Unlike
+// the other operational tables this is NOT a delete: the view is a user artifact (name + structured
+// filters) worth keeping. Instead, CLEAR just the free-text `q` field (the ONLY seller-PII in the
+// blob — partnerId/state/source/statuses/tags are structured, not PII) on views untouched beyond the
+// window. Non-destructive: the view still loads with an empty search (q="" is the EMPTY default).
+// updated_at is deliberately NOT bumped, so the staleness clock reflects real user activity and the
+// pass is idempotent (a cleared row has q='' and is skipped next time).
+export const SAVED_VIEWS_Q_RETENTION_MS = 365 * 24 * 60 * 60 * 1000; // 12 months untouched
+
+export function savedViewsQCutoff(now: Date): Date {
+  return new Date(now.getTime() - SAVED_VIEWS_Q_RETENTION_MS);
+}
+
+export async function sweepSavedViewsPii(db: DB, opts: { now?: Date; limit?: number } = {}): Promise<{ cleared: number }> {
+  const now = opts.now ?? new Date();
+  const V = schema.savedViews;
+  // Batched via an id subquery (oldest-first): a bounded pass, the remainder drains next run.
+  const stale = db
+    .select({ id: V.id })
+    .from(V)
+    .where(and(lt(V.updatedAt, savedViewsQCutoff(now)), ne(sql`${V.filters} ->> 'q'`, "")))
+    .orderBy(asc(V.updatedAt))
+    .limit(opts.limit ?? OPERATIONAL_SWEEP_BATCH);
+  const cleared = await db
+    .update(V)
+    .set({ filters: sql`jsonb_set(${V.filters}, '{q}', '""'::jsonb)` })
+    .where(inArray(V.id, stale))
+    .returning({ id: V.id });
+  return { cleared: cleared.length };
 }

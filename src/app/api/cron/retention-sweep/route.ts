@@ -12,7 +12,7 @@ import {
   sweepTrustedDevices,
   sweepNoticeClaims,
 } from "@/modules/retention/auth-tables";
-import { sweepIdempotencyKeys, sweepEmailOutbox, sweepAiFeedback, sweepNotifications } from "@/modules/retention/operational";
+import { sweepIdempotencyKeys, sweepEmailOutbox, sweepAiFeedback, sweepNotifications, sweepSavedViewsPii } from "@/modules/retention/operational";
 import { logError } from "@/lib/observability";
 import { jsonOk, jsonError, jsonServerError } from "@/lib/http";
 import { CRON_MONITORS, withCronMonitor } from "@/lib/cron-monitors";
@@ -92,7 +92,7 @@ export async function GET(request: Request) {
       // with hygiene work. trusted_devices is now swept here too (WP-SU-14) — but CANARY-SAFE: it
       // prunes a row only when its family has no live head, so an active family's reuse canaries
       // survive (AUT-10 preserved).
-      const [authAttempts, otpChallenges, resetTokens, signupVerifications, signupCodes, trustedDevices, noticeClaims, idempotencyKeys, emailOutbox, aiFeedback, notifications] = await Promise.all([
+      const [authAttempts, otpChallenges, resetTokens, signupVerifications, signupCodes, trustedDevices, noticeClaims, idempotencyKeys, emailOutbox, aiFeedback, notifications, savedViewsCleared] = await Promise.all([
         sweepAuthAttempts(db)
           .then((r) => r.deleted)
           .catch((e) => {
@@ -167,9 +167,17 @@ export async function GET(request: Request) {
             logError("cron_notifications_sweep_failed", { message: e instanceof Error ? e.message : String(e) });
             return 0;
           }),
+        // C-13 / WP-RET-3b: clear the seller-PII search string (q) on saved_views untouched > 12mo —
+        // a per-user PII sink the lead purge can't correlate (it holds a search string, not a lead id).
+        sweepSavedViewsPii(db)
+          .then((r) => r.cleared)
+          .catch((e) => {
+            logError("cron_saved_views_pii_sweep_failed", { message: e instanceof Error ? e.message : String(e) });
+            return 0;
+          }),
       ]);
 
-      return { tenants: swept, purged, notesRedacted, tasksRedacted, notificationsRedacted, outboxRedacted, authAttempts, otpChallenges, resetTokens, signupVerifications, signupCodes, trustedDevices, noticeClaims, idempotencyKeys, emailOutbox, aiFeedback, notifications };
+      return { tenants: swept, purged, notesRedacted, tasksRedacted, notificationsRedacted, outboxRedacted, authAttempts, otpChallenges, resetTokens, signupVerifications, signupCodes, trustedDevices, noticeClaims, idempotencyKeys, emailOutbox, aiFeedback, notifications, savedViewsCleared };
     },
   ).then(
     (r) => jsonOk({ code: "ok", ...r }),
