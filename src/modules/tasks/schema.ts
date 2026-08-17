@@ -9,7 +9,10 @@ import { pageParam, PORTAL_MAX_PAGE } from "@/lib/query-params";
 export const TASK_TITLE_MAX = 200;
 
 /** My Tasks rows per page. Fixed rather than client-chosen: the view is a personal work
- *  list with a bounded row count, not a data table with a page-size control. */
+ *  list with a bounded row count, not a data table with a page-size control.
+ *  C-6: reviewed and kept fixed — no UI exposes a size selector (WP-TSK-5) and a personal
+ *  list needs none. IF one is ever added, adopt the shared `pageSizeParam()` ({10,20,50})
+ *  from lib/query-params like the leads/activity endpoints, not a second convention. */
 export const MY_TASKS_PAGE_SIZE = 20;
 
 /** A calendar date as the `date` column round-trips it (TSK-10 — UTC semantics). The
