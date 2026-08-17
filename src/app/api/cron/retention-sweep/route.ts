@@ -46,11 +46,19 @@ export async function GET(request: Request) {
       const db = getDb();
       const tenants: { id: string }[] = await db.select({ id: schema.tenants.id }).from(schema.tenants);
       let purged = 0;
+      let notesRedacted = 0;
+      let tasksRedacted = 0;
       let swept = 0;
       for (const t of tenants) {
         try {
+          // C-7: sweepTenantPii already returns per-artifact redaction counts (leads purged,
+          // note bodies + task titles redacted) and audits them per lead. Surface the totals in
+          // the cron response too, so LGL-02 evidence has per-artifact figures without reading
+          // the audit_log (the response previously reported only `purged`).
           const r = await sweepTenantPii(db, { tenantId: t.id });
           purged += r.purged;
+          notesRedacted += r.notesRedacted;
+          tasksRedacted += r.tasksRedacted;
           swept += 1;
         } catch (e) {
           // Best-effort per tenant: one tenant's failure must not stop the others.
@@ -149,7 +157,7 @@ export async function GET(request: Request) {
           }),
       ]);
 
-      return { tenants: swept, purged, authAttempts, otpChallenges, resetTokens, signupVerifications, signupCodes, trustedDevices, noticeClaims, idempotencyKeys, emailOutbox, aiFeedback };
+      return { tenants: swept, purged, notesRedacted, tasksRedacted, authAttempts, otpChallenges, resetTokens, signupVerifications, signupCodes, trustedDevices, noticeClaims, idempotencyKeys, emailOutbox, aiFeedback };
     },
   ).then(
     (r) => jsonOk({ code: "ok", ...r }),
