@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getDb } from "@/db";
 import { getSupabaseServer } from "@/lib/supabase/server";
-import { jsonError, jsonServerError, newTraceId } from "@/lib/http";
+import { jsonError, jsonServiceUnavailable, newTraceId } from "@/lib/http";
 import { assertCsrf } from "@/lib/auth/guard";
 import { loginOutcome } from "@/lib/auth/login";
 import { withUniformTiming } from "@/lib/auth/enumeration";
@@ -89,11 +89,12 @@ export async function POST(request: Request) {
     // password. Do NOT feed the AUT-04 lockout ladder: a transient outage must never lock out a
     // legitimate admin. The reservation already stands as a success:true row (counts toward the AUT-03
     // rate window, never the lockout ladder), and we deliberately do NOT settle again — a second DB
-    // write would likely also fail mid-outage. Return a floored generic 500 rather than a 401
-    // masquerade; login's throw is account-independent, so a distinct status here does not leak account
-    // existence (AUT-05-safe). jsonServerError logs the captured fault (PII-scrubbed) sharing the
-    // response traceId (F-42) — superseding WP-SU-19's inner logError on this path.
-    return jsonServerError("login_unavailable", "Could not sign you in. Please try again.", {
+    // write would likely also fail mid-outage. C-3 (SEC-08): a transient, retryable outage is a 503 +
+    // Retry-After, not a 500 — it tells the client/monitor to back off and retry rather than reporting
+    // a hard error. Still floored (withUniformTiming already applied MIN_RESPONSE_MS around the throw)
+    // and account-independent, so the distinct status does not leak account existence (AUT-05-safe).
+    // jsonServiceUnavailable logs the captured fault (PII-scrubbed) sharing the response traceId (F-42).
+    return jsonServiceUnavailable("login_unavailable", "Sign-in is temporarily unavailable. Please try again shortly.", {
       message: infraError instanceof Error ? infraError.message : String(infraError),
     });
   }
