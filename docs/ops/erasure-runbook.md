@@ -26,13 +26,15 @@ helper (`redact-lead-comms.ts`), so they never diverge.
 
 | # | Location | What | How it's erased | Correlates by |
 |---|----------|------|------------------|---------------|
-| 1 | `leads` (sellerFirst/Last, phone, phoneNorm, email, address, addressNormalized, reasonForSelling, motivation, timeToSell, notes, rawJson, dedupeKey) | The seller's contact + all seller-provided fields + the raw source row | `redactionPatch()` on void + backstop sweep — columns nulled/sentineled; `pii_purged_at` stamped | lead id |
+| 1 | `leads` (sellerFirst/Last, phone, phoneNorm, email, address, addressNormalized, reasonForSelling, motivation, timeToSell, notes, rawJson, dedupeKey) | The seller's contact + all seller-provided fields + the raw source row | `redactionPatch()` on void + backstop sweep — columns nulled/sentineled; `pii_purged_at` stamped. ⚠️ `mlsMatchSpan.text` (a verbatim fragment of `notes`) is **not** in `redactionPatch()` yet — tracked in **WP-RET-4** (C-40) | lead id |
 | 2 | `lead_notes.body` | Free text an admin/partner typed (most likely place a human pasted seller PII) | Sentineled (`REDACTED_NOTE_BODY`) on void + sweep | lead id |
 | 3 | `lead_tasks.title` | Free-text task title (e.g. "call Jane at 555-…") | Sentineled (`REDACTED_TASK_TITLE`) on void + sweep | lead id |
 | 4 | `notifications.title` / `.body` | A `task_due` notification embeds the task free text (seller PII) | Redacted (`REDACTED_NOTIFICATION_TITLE`) on void + sweep (`redact-lead-comms.ts`); **also** an unconditional 90-day age sweep (`sweepNotifications`) | `notifications.lead_ref` (refId) |
 | 5 | `email_outbox.subject` / `.body` / `.html` | A `task_due` / `status_change` email carries the same free text | Redacted on void + sweep (`redact-lead-comms.ts`); **also** a 30-day terminal-row age sweep (`sweepEmailOutbox`) | `meta.leadRef` (refId) |
 | 6 | `saved_views.filters.q` | A per-user saved search string — the leads search box takes seller names / phone fragments / addresses | **Cannot** correlate to a lead (it's a search string, not a lead id). Cleared to `""` on views untouched > 12 months (`sweepSavedViewsPii`); the view itself is kept | user id + staleness only |
-| 7 | `audit_log` (before/after) | Append-only; deliberately carries **no** seller PII (SEC-05 — the purge audit records counts + booleans only) | N/A — never holds PII by construction | — |
+| 7 | `audit_log` (before/after) | Append-only; deliberately carries **no** seller PII (SEC-05 — the purge audit records counts + booleans only; live mutation paths mask PII fields via `maskAuditValue`/`isAuditPiiLeadField`, ADR-0031) | N/A — never holds PII by construction | — |
+| 8 | Supabase Storage `run-exports/{tenantId}/{uploadRef}.xlsx` | The rendered per-run deliverable — every lead's seller name/phone/email/address for that run (`storeExport`, `src/modules/export/storage.ts`) | ⚠️ **NOT erased yet** — the download route blocks a voided run's export (`app/api/runs/[ref]/export/route.ts`) but the object itself persists in Storage; `voidUpload`/`sweepTenantPii` are DB-only. Tracked in **WP-RET-4** (C-40): `admin.storage.remove()` on void + a backstop sweep | `uploads.ref_id` (path prefix) |
+| 9 | `listing_checks.result` (jsonb `{link}`) | A search-engine URL embedding the lead's full street address (`LinkOnlyProvider`, `src/modules/listing/link-only.ts`) | ⚠️ **NOT erased yet** — neither purge path references `listing_checks`. Tracked in **WP-RET-4** (C-40): `set result = null` for purged lead ids in both void + sweep | lead id |
 
 ## Handling a subject request over a specific seller
 
@@ -42,10 +44,31 @@ helper (`redact-lead-comms.ts`), so they never diverge.
 3. Row 6 (`saved_views.filters.q`) is **not** reachable by lead id. Search `saved_views.filters->>'q'`
    across the tenant for the seller's name/phone/address fragments and clear/redact the matching
    `q` fields manually; the 12-month sweep is only the automatic backstop.
-4. Confirm via the `lead.pii_purged` audit rows (row 7) and the cron response's per-artifact counts.
+4. Confirm via the `lead.pii_purged` audit rows (row 7): each per-lead row's `after` records all four
+   per-artifact counts — `notesRedacted`, `tasksRedacted`, `notificationsRedacted`, `outboxRedacted`
+   (C-37) — so "what was redacted for lead X" is answerable from `audit_log` alone. The cron response
+   also returns tenant-aggregate counts.
+
+## AI surfaces (audited 2026-08-17, C-39)
+
+Confirmed to hold **no** un-purged seller PII: `ai_usage` (counts/cost only, SEC-05), assistant
+transcripts (client-`sessionStorage` only, cleared on sign-out — ADR-0041; no server table stores the
+conversation), and `ai_feedback.note` (free text, but the whole row is deleted after 90 days by
+`sweepAiFeedback`, `src/modules/retention/operational.ts`). The `ai_memory` table exists but is a
+reserved, **dormant** seam for the deferred AIA-04 learning loop (ADR-0041) — zero read/write call
+sites, so there is nothing to purge until it ships; add a row here if that changes.
+
+## Known gaps (tracked in WP-RET-4 / C-40)
+
+The C-39 audit found three server-side seller-PII sinks the purge paths do **not** yet reach — rows 8
+and 9 above, and `leads.mlsMatchSpan.text` (row 1 caveat). Row 8 (the Storage export blob) is the
+significant one: it directly undermines the "void = PII gone at once" promise this doc leads with, and
+needs a Supabase-Storage deletion path, so it is its own owner-greenlit WP rather than a hardening
+batch item. Until WP-RET-4 lands, a subject-deletion request over a seller whose lead was in an
+exported run is **not** fully satisfied by voiding — the rendered `.xlsx` must also be removed from
+Storage manually.
 
 ## Keep this current
 
 Adding any column/table that can hold seller free-text or contact data **must** add a row here and a
-purge path (void + backstop, or an age sweep). Open item: fold notifications/outbox counts into the
-per-lead `lead.pii_purged` audit row (candidate C-37) so step 4 needs only `audit_log`.
+purge path (void + backstop, or an age sweep).

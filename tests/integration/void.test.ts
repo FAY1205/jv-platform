@@ -21,6 +21,7 @@ import type { ScopeContext } from "@/lib/scope";
 const url = process.env.DATABASE_URL;
 const suite = url ? describe : describe.skip;
 const SLUG = "test-void-wp018";
+const SLUG_B = "test-void-wp018-b"; // C-38: a second tenant for the cross-tenant collision test
 
 suite("WP-018: void-run (ING-09)", () => {
   let client: ReturnType<typeof postgres>;
@@ -30,7 +31,7 @@ suite("WP-018: void-run (ING-09)", () => {
   let partnerNJ: string;
 
   async function cleanup() {
-    const t = await db.select({ id: schema.tenants.id }).from(schema.tenants).where(eq(schema.tenants.slug, SLUG));
+    const t = await db.select({ id: schema.tenants.id }).from(schema.tenants).where(inArray(schema.tenants.slug, [SLUG, SLUG_B]));
     const tids = t.map((x) => x.id);
     if (tids.length === 0) return;
     await purgeAuditLog(db, inArray(schema.auditLog.tenantId, tids));
@@ -223,5 +224,39 @@ suite("WP-018: void-run (ING-09)", () => {
       .from(schema.auditLog)
       .where(and(eq(schema.auditLog.tenantId, scope.tenantId), eq(schema.auditLog.action, "upload.voided"), eq(schema.auditLog.entityRef, uploadRef)));
     expect((audit.after as { piiPurged: number }).piiPurged).toBeGreaterThanOrEqual(1);
+  });
+
+  it("C-38/PRN-08: voiding a run never redacts another tenant's comms that share the same refId", async () => {
+    // refIds are per-tenant, so tenant B can legitimately hold LD-… rows with the same string as
+    // tenant A's leads. redactLeadCommunications carries the tenant predicate on BOTH updates; the
+    // sweep path proves this (retention.test.ts) — this proves the VOID path (same shared helper,
+    // its own scope.tenantId) does too. Newest import ⇒ voidable (only-latest rule).
+    const uploadRef = await processNjRun("99 Collision Ct");
+    const [up] = await db
+      .select({ id: schema.uploads.id })
+      .from(schema.uploads)
+      .where(and(eq(schema.uploads.tenantId, scope.tenantId), eq(schema.uploads.refId, uploadRef)));
+    const [lead] = await db
+      .select({ refId: schema.leads.refId })
+      .from(schema.leads)
+      .where(and(eq(schema.leads.tenantId, scope.tenantId), eq(schema.leads.uploadId, up.id)));
+
+    // A SECOND tenant with a notification + outbox row referencing the SAME refId string.
+    const [tB] = await db.insert(schema.tenants).values({ name: "Void Collision B", slug: SLUG_B }).returning({ id: schema.tenants.id });
+    const adminB = randomUUID();
+    await db.insert(schema.users).values({ id: adminB, tenantId: tB.id, email: `collide-${adminB}@b.test`, role: "admin" });
+    await db.insert(schema.notifications).values({ tenantId: tB.id, userId: adminB, type: "task_due", title: "Task due: B-tenant secret", body: "b", leadRef: lead.refId });
+    await db.insert(schema.emailOutbox).values({ tenantId: tB.id, toAddress: `collide-${adminB}@b.test`, subject: "Task due: B-tenant secret", body: "b", kind: "task_due", status: "sent", meta: { leadRef: lead.refId } });
+
+    await voidUpload(scope, uploadRef, "wrong file"); // redacts tenant A's comms for this refId
+
+    // Tenant A's notification/outbox for the refId are redacted…
+    const aNotif = await db.select().from(schema.notifications).where(and(eq(schema.notifications.tenantId, scope.tenantId), eq(schema.notifications.leadRef, lead.refId)));
+    expect(aNotif.every((n) => n.title === REDACTED_NOTIFICATION_TITLE)).toBe(true);
+    // …while tenant B's identically-reffed rows are UNTOUCHED (the tenant wall held on the void path).
+    const bNotif = await db.select().from(schema.notifications).where(eq(schema.notifications.tenantId, tB.id));
+    expect(bNotif[0].title).toBe("Task due: B-tenant secret");
+    const bOutbox = await db.select().from(schema.emailOutbox).where(eq(schema.emailOutbox.tenantId, tB.id));
+    expect(bOutbox[0].subject).toBe("Task due: B-tenant secret");
   });
 });

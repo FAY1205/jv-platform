@@ -4,7 +4,7 @@ import { eq, sql } from "drizzle-orm";
 import { z } from "zod";
 import { getDb } from "@/db";
 import * as schema from "@/db/schema";
-import { jsonOk, jsonError, jsonServerError } from "@/lib/http";
+import { jsonOk, jsonError, jsonServerError, jsonServiceUnavailable } from "@/lib/http";
 import { assertCsrf } from "@/lib/auth/guard";
 import { withUniformTiming } from "@/lib/auth/enumeration";
 import { AuthAttemptsStore } from "@/lib/auth/attempts-store";
@@ -115,8 +115,19 @@ export async function POST(request: Request) {
 
         // Establish the session BEFORE consuming the code, so an infrastructure failure
         // here leaves the (correct) code usable for an immediate retry.
-        if (!(await establishSessionForEmail(email))) {
-          return jsonError("session_failed", "Could not establish a session. Please try again.", 500);
+        const session = await establishSessionForEmail(email);
+        if (session.status !== "established") {
+          // C-34 (SEC-09): a transient auth-backend outage is a retryable 503 + Retry-After (mirroring
+          // login / change-password), while a clean-but-unusable response stays a 500. Both run AFTER
+          // the code is validated, so the distinct status is account-independent (no enumeration /
+          // lockout angle) and the code is still unconsumed here for an immediate retry. Still inside
+          // the timing floor by design. jsonServiceUnavailable/jsonServerError log the diagnostic ONCE
+          // sharing the response traceId (F-42) — hence establishSessionForEmail returns `detail`
+          // instead of logging its own uncorrelated line.
+          const detail = { message: session.detail };
+          return session.status === "unavailable"
+            ? jsonServiceUnavailable("session_unavailable", "Sign-in is temporarily unavailable. Please try again shortly.", detail)
+            : jsonServerError("session_failed", "Could not establish a session. Please try again.", detail);
         }
         await store.consume(challenge.id, now);
 
