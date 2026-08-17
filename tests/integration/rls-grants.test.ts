@@ -18,6 +18,10 @@ const url = process.env.DATABASE_URL;
 const suite = RLS_ORACLE_ENABLED ? describe : describe.skip;
 
 const SLUG = "test-rls-grants";
+
+// C-8 / WP-TSK-2a: the note a partner must read via RLS (SEC3-04) sits on a lead that must be past
+// the distribution hold — the lead_notes_scope partner arm now carries it (migration 0047).
+const RELEASED_AT = new Date(Date.now() - 20 * 60 * 1000);
 // SQL array literal of the revoked tables, built from the shared source of truth (helpers/rls.ts).
 const TABLE_ARRAY = sql.raw(`array[${LEAD_FAMILY_TABLES.map((t) => `'${t}'`).join(",")}]`);
 
@@ -51,7 +55,7 @@ suite("SEC3: least-privilege grant revoke on the authenticated surface", () => {
     const [up] = await db.insert(schema.uploads).values({ tenantId: t.id, refId: "IM-26-401", filename: "a.xlsx", status: "processed" }).returning({ id: schema.uploads.id });
     const [leadX] = await db
       .insert(schema.leads)
-      .values({ tenantId: t.id, refId: "LD-26-40001", uploadId: up.id, dedupeKey: "x|1", rawJson: {}, partnerId: px.id, matchMethod: "zip", mlsStatus: "kept" })
+      .values({ tenantId: t.id, refId: "LD-26-40001", uploadId: up.id, dedupeKey: "x|1", rawJson: {}, partnerId: px.id, matchMethod: "zip", mlsStatus: "kept", createdAt: RELEASED_AT })
       .returning({ id: schema.leads.id });
     id.leadX = leadX.id;
     const [note] = await db

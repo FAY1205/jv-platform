@@ -20,6 +20,10 @@ const suite = RLS_ORACLE_ENABLED ? describe : describe.skip;
 const SLUG = "test-rls-beh";
 const SLUG_B = "test-rls-beh-b";
 
+// C-8 / WP-TSK-2a: a lead is partner-visible only once past the distribution hold (5 min). Seed
+// the leads a partner must SEE with a released created_at; a lead left at the default now() is HELD.
+const RELEASED_AT = new Date(Date.now() - 10 * 60 * 1000);
+
 suite("RLSB: RLS enforcement oracle (non-owner role)", () => {
   let client: ReturnType<typeof postgres>;
   let db: PostgresJsDatabase<typeof schema>;
@@ -65,11 +69,11 @@ suite("RLSB: RLS enforcement oracle (non-owner role)", () => {
     const [up] = await db.insert(schema.uploads).values({ tenantId: t.id, refId: "IM-26-201", filename: "a.xlsx", status: "processed" }).returning({ id: schema.uploads.id });
     const [leadX] = await db
       .insert(schema.leads)
-      .values({ tenantId: t.id, refId: "LD-26-20001", uploadId: up.id, dedupeKey: "x|1", rawJson: {}, partnerId: px.id, matchMethod: "zip", mlsStatus: "kept" })
+      .values({ tenantId: t.id, refId: "LD-26-20001", uploadId: up.id, dedupeKey: "x|1", rawJson: {}, partnerId: px.id, matchMethod: "zip", mlsStatus: "kept", createdAt: RELEASED_AT })
       .returning({ id: schema.leads.id });
     const [leadY] = await db
       .insert(schema.leads)
-      .values({ tenantId: t.id, refId: "LD-26-20002", uploadId: up.id, dedupeKey: "y|2", rawJson: {}, partnerId: py.id, matchMethod: "zip", mlsStatus: "kept" })
+      .values({ tenantId: t.id, refId: "LD-26-20002", uploadId: up.id, dedupeKey: "y|2", rawJson: {}, partnerId: py.id, matchMethod: "zip", mlsStatus: "kept", createdAt: RELEASED_AT })
       .returning({ id: schema.leads.id });
     id.leadX = leadX.id;
     id.leadY = leadY.id;
@@ -88,6 +92,15 @@ suite("RLSB: RLS enforcement oracle (non-owner role)", () => {
     await db.insert(schema.leadTasks).values({ tenantId: t.id, leadId: leadX.id, authorUserId: id.adminUser, authorRole: "admin", title: "ADMIN task on X" });
     await db.insert(schema.leadTasks).values({ tenantId: t.id, leadId: leadX.id, authorUserId: id.pxUser, authorRole: "partner", title: "X-PARTNER task on X" });
     await db.insert(schema.leadTasks).values({ tenantId: t.id, leadId: leadY.id, authorUserId: id.pyUser, authorRole: "partner", title: "Y-PARTNER task on Y" });
+
+    // C-8 / WP-TSK-2a: a STILL-HELD lead owned by PX (default created_at = now), with a PX task on
+    // it — for the hold-enforcement case below. PX owns it, but cannot see it yet.
+    const [leadHeld] = await db
+      .insert(schema.leads)
+      .values({ tenantId: t.id, refId: "LD-26-20004", uploadId: up.id, dedupeKey: "h|4", rawJson: {}, partnerId: px.id, matchMethod: "zip", mlsStatus: "kept" })
+      .returning({ id: schema.leads.id });
+    id.leadHeld = leadHeld.id;
+    await db.insert(schema.leadTasks).values({ tenantId: t.id, leadId: leadHeld.id, authorUserId: id.pxUser, authorRole: "partner", title: "X-PARTNER task on HELD" });
   });
 
   afterAll(async () => {
@@ -157,6 +170,28 @@ suite("RLSB: RLS enforcement oracle (non-owner role)", () => {
     const y = await taskTitlesAs(pyClaims());
     expect(y).toContain("Y-PARTNER task on Y");
     expect(y).not.toContain("X-PARTNER task on X");
+  });
+
+  it("RLSB-04 (C-8): the distribution hold is ENFORCED — a partner cannot read or write a task on a still-held lead", async () => {
+    // PX owns leadHeld, but it is within the hold window, so the policy's partner ownLeads arm
+    // (created_at < now() - 5min, migration 0047) excludes it: the task is invisible via RLS.
+    const x = await taskTitlesAs(pxClaims());
+    expect(x).not.toContain("X-PARTNER task on HELD");
+
+    // …and PX cannot INSERT a task onto the held lead either — the WITH CHECK ownLeads arm carries
+    // the same hold, so the write is refused (WITH CHECK ≥ USING, ADR-0046).
+    const write = await probeWrite(
+      db,
+      pxClaims(),
+      async (tx) => {
+        await tx
+          .insert(schema.leadTasks)
+          .values({ tenantId: id.tenant, leadId: id.leadHeld, authorUserId: id.pxUser, authorRole: "partner", title: "premature" });
+      },
+      async (tx) =>
+        (await tx.select({ id: schema.leadTasks.id }).from(schema.leadTasks).where(eq(schema.leadTasks.title, "premature"))).length,
+    );
+    expect(write.denied).toBe(true);
   });
 
   it("RLSB-04: cross-stream / cross-owner WRITES are refused; the legitimate write is allowed", async () => {

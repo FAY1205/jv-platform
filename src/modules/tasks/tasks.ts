@@ -16,29 +16,6 @@ const partnerLive = (scope: ScopeContext) =>
   scope.role === "partner" ? and(isNull(schema.leads.deletedAt), releasedLeads()) : undefined;
 
 /**
- * The same hold rule for task paths that DON'T resolve a lead first — mutation by task id
- * (resolveTask) and the cross-lead My Tasks list (audit-tenancy F-3). `taskWhere`'s partner
- * arm filters ownership and soft-deletes but is hold-BLIND, so those two paths would still
- * reach a task sitting on a lead the partner cannot yet see. Partner-only: an admin is never
- * hold-gated. Expressed as a leadId subquery because there is no lead join to hang it on.
- *
- * Belongs in `taskWhere` eventually so app + RLS carry it in lockstep — tracked as C-8 /
- * WP-TSK-2a; it lives here now because this WP may not touch lib/scope.ts or migration 0041.
- */
-function partnerHoldGate(scope: ScopeContext, db: DB, now?: Date) {
-  if (scope.role !== "partner") return undefined;
-  return inArray(
-    schema.leadTasks.leadId,
-    db
-      .select({ id: schema.leads.id })
-      .from(schema.leads)
-      // `now` is injected by callers that already hold a clock (the TSK-08 reminder sweep
-      // takes one at the route boundary); request paths keep releasedLeads()'s own default.
-      .where(and(tenantWhere(schema.leads, scope), releasedLeads(now))),
-  );
-}
-
-/**
  * My Tasks drops tasks whose lead was RECALLED (soft-deleted), for BOTH roles (audit-tenancy
  * F-7, owner default): a personal work list of items on dead leads is noise, and the void
  * path has already sentinelled those titles. Deliberately NOT applied to resolveTask — an
@@ -235,7 +212,7 @@ async function resolveTask(db: DB, scope: ScopeContext, taskId: string) {
       doneAt: schema.leadTasks.doneAt,
     })
     .from(schema.leadTasks)
-    .where(and(taskWhere(scope, db), eq(schema.leadTasks.id, taskId), partnerHoldGate(scope, db)));
+    .where(and(taskWhere(scope, db), eq(schema.leadTasks.id, taskId)));
   if (!task) throw new TaskNotFoundError(taskId);
   return task;
 }
@@ -248,12 +225,15 @@ async function resolveTask(db: DB, scope: ScopeContext, taskId: string) {
  * an assignee whose org was re-routed away from the lead, or who sits on the other side of
  * the PRN-13 stream wall, resolves to nothing here and gets no email about work they cannot
  * open. Exported (rather than inlined in the sweep) so app and reminder never drift apart.
+ *
+ * C-8 / WP-TSK-2a: the distribution hold now lives in `taskWhere` — the sweep's injected clock
+ * flows in via `now`, so a still-HELD lead's task is invisible to its recipient (no premature nudge).
  */
 export async function taskVisibleTo(db: DB, scope: ScopeContext, taskId: string, now?: Date): Promise<boolean> {
   const [row] = await db
     .select({ id: schema.leadTasks.id })
     .from(schema.leadTasks)
-    .where(and(taskWhere(scope, db), eq(schema.leadTasks.id, taskId), partnerHoldGate(scope, db, now)));
+    .where(and(taskWhere(scope, db, now), eq(schema.leadTasks.id, taskId)));
   return row !== undefined;
 }
 
@@ -261,7 +241,7 @@ export async function taskVisibleTo(db: DB, scope: ScopeContext, taskId: string,
  *  scoped rather than trusting the preceding SELECT (defence in depth: the code's contract is
  *  "taskWhere ∩ id on every mutation" — this makes the SQL say so too). */
 function taskWriteWhere(scope: ScopeContext, db: DB, taskId: string) {
-  return and(taskWhere(scope, db), eq(schema.leadTasks.id, taskId), partnerHoldGate(scope, db));
+  return and(taskWhere(scope, db), eq(schema.leadTasks.id, taskId));
 }
 
 /** The caller's own task stream for one lead (admin stream OR partner stream). */
@@ -486,14 +466,14 @@ export async function listMyTasks(
     and(isNull(schema.leadTasks.assignedToUserId), eq(schema.leadTasks.authorUserId, scope.userId)),
   );
   // ONE predicate feeds both the page query and the count, so `total` can never drift from
-  // the rows it counts (audit-tenancy F-7). That is also why the lead-liveness and hold rules
-  // are leadId subqueries rather than filters on the row query's join — a join-only filter
-  // would apply to the rows and silently miss the count.
+  // the rows it counts (audit-tenancy F-7). That is also why the lead-liveness rule is a leadId
+  // subquery rather than a filter on the row query's join — a join-only filter would apply to the
+  // rows and silently miss the count. C-8: the distribution hold now rides inside `taskWhere`'s
+  // own leadId subquery (same shape), so it keeps that no-drift property without a separate conjunct.
   const where = and(
     taskWhere(scope, db),
     mine,
     query.status === "done" ? isNotNull(schema.leadTasks.doneAt) : isNull(schema.leadTasks.doneAt),
-    partnerHoldGate(scope, db),
     liveLeadGate(scope, db),
   );
 

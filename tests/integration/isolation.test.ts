@@ -68,7 +68,9 @@ suite("TST-01: tenant & partner isolation", () => {
     id.uploadA = ua.id;
     const [ub] = await db.insert(schema.uploads).values({ tenantId: tb.id, refId: "IM-26-001", filename: "b.xlsx", status: "processed" }).returning({ id: schema.uploads.id });
 
-    const [lx] = await db.insert(schema.leads).values({ tenantId: ta.id, refId: "LD-26-00001", uploadId: ua.id, dedupeKey: "x|00001", rawJson: {}, partnerId: px.id, matchMethod: "zip" }).returning({ id: schema.leads.id });
+    // C-8 / WP-TSK-2a: partnerX reads its partner note on lx via noteWhere (PRN-13), which now
+    // carries the distribution hold — so lx must be seeded past the hold window (released).
+    const [lx] = await db.insert(schema.leads).values({ tenantId: ta.id, refId: "LD-26-00001", uploadId: ua.id, dedupeKey: "x|00001", rawJson: {}, partnerId: px.id, matchMethod: "zip", createdAt: new Date(Date.now() - 20 * 60 * 1000) }).returning({ id: schema.leads.id });
     const [ly] = await db.insert(schema.leads).values({ tenantId: ta.id, refId: "LD-26-00002", uploadId: ua.id, dedupeKey: "y|00002", rawJson: {}, partnerId: py.id, matchMethod: "zip" }).returning({ id: schema.leads.id });
     const [lz] = await db.insert(schema.leads).values({ tenantId: tb.id, refId: "LD-26-00001", uploadId: ub.id, dedupeKey: "z|00003", rawJson: {}, partnerId: pz.id, matchMethod: "zip" }).returning({ id: schema.leads.id });
     // An unmatched lead in tenant A, manually assigned to partner Y (ASN-03).

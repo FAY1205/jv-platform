@@ -16,6 +16,10 @@ const suite = RLS_ORACLE_ENABLED ? describe : describe.skip;
 
 const SLUG = "test-rls-parity";
 
+// C-8 / WP-TSK-2a: task/note reads go through the hold-carrying partner policy arms (migration
+// 0047), so the leads whose children a partner must SEE are seeded past the distribution hold.
+const RELEASED_AT = new Date(Date.now() - 10 * 60 * 1000);
+
 suite("RLP: RLS parity + author-role pin (enforced)", () => {
   let client: ReturnType<typeof postgres>;
   let db: PostgresJsDatabase<typeof schema>;
@@ -69,17 +73,17 @@ suite("RLP: RLS parity + author-role pin (enforced)", () => {
     // leadX: plainly owned by PX.
     const [leadX] = await db
       .insert(schema.leads)
-      .values({ tenantId: t.id, refId: "LD-26-30001", uploadId: up.id, dedupeKey: "x|1", rawJson: {}, partnerId: px.id, matchMethod: "zip", mlsStatus: "kept" })
+      .values({ tenantId: t.id, refId: "LD-26-30001", uploadId: up.id, dedupeKey: "x|1", rawJson: {}, partnerId: px.id, matchMethod: "zip", mlsStatus: "kept", createdAt: RELEASED_AT })
       .returning({ id: schema.leads.id });
     // leadY: owned by PY.
     const [leadY] = await db
       .insert(schema.leads)
-      .values({ tenantId: t.id, refId: "LD-26-30002", uploadId: up.id, dedupeKey: "y|2", rawJson: {}, partnerId: py.id, matchMethod: "zip", mlsStatus: "kept" })
+      .values({ tenantId: t.id, refId: "LD-26-30002", uploadId: up.id, dedupeKey: "y|2", rawJson: {}, partnerId: py.id, matchMethod: "zip", mlsStatus: "kept", createdAt: RELEASED_AT })
       .returning({ id: schema.leads.id });
     // leadZ: pipeline-owned by PX but RE-ROUTED to PY (manual overlay). Effective owner = PY.
     const [leadZ] = await db
       .insert(schema.leads)
-      .values({ tenantId: t.id, refId: "LD-26-30003", uploadId: up.id, dedupeKey: "z|3", rawJson: {}, partnerId: px.id, manualPartnerId: py.id, matchMethod: "zip", mlsStatus: "kept" })
+      .values({ tenantId: t.id, refId: "LD-26-30003", uploadId: up.id, dedupeKey: "z|3", rawJson: {}, partnerId: px.id, manualPartnerId: py.id, matchMethod: "zip", mlsStatus: "kept", createdAt: RELEASED_AT })
       .returning({ id: schema.leads.id });
     id.leadX = leadX.id;
     id.leadY = leadY.id;

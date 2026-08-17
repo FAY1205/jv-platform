@@ -2,6 +2,7 @@ import { and, eq, inArray, isNull, or, sql, type SQL } from "drizzle-orm";
 import type { PgColumn } from "drizzle-orm/pg-core";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import * as schema from "@/db/schema";
+import { releasedLeads } from "@/modules/run/hold-filter";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // The scoping guard (PRN-08). Every query in API routes builds its WHERE clause
@@ -84,7 +85,7 @@ export function leadWhere(scope: ScopeContext): SQL {
  * Lead notes visibility (PRN-13): admin sees only admin notes; a partner sees only
  * their own partner notes on their own leads. Cross-role notes are never returned.
  */
-export function noteWhere(scope: ScopeContext, db: DB): SQL {
+export function noteWhere(scope: ScopeContext, db: DB, now?: Date): SQL {
   const base = eq(leadNotes.tenantId, scope.tenantId);
   if (scope.role === "admin") {
     return and(base, eq(leadNotes.authorRole, "admin"))!;
@@ -95,7 +96,10 @@ export function noteWhere(scope: ScopeContext, db: DB): SQL {
     .from(leads)
     // WP-J2 / DM-09b: a partner's owned-lead set excludes recalled (soft-deleted) leads, so the
     // guard is self-sufficient — child-table reads never rely on a parent join to filter deletes.
-    .where(and(eq(leads.tenantId, scope.tenantId), partnerOwnsLead(me), isNull(leads.deletedAt)));
+    // C-8 / WP-TSK-2a: it also excludes STILL-HELD leads (distribution hold), so noteWhere carries
+    // the hold itself rather than leaning on a lead-resolution conjunct. The RLS counterpart
+    // (lead_notes_scope, migration 0047) carries the identical predicate in USING + WITH CHECK.
+    .where(and(eq(leads.tenantId, scope.tenantId), partnerOwnsLead(me), isNull(leads.deletedAt), releasedLeads(now)));
   // A note belongs to the partner org that wrote it (PRN-08/PRN-13): lead ownership MOVES
   // on re-route (partnerOwnsLead), so "notes on leads I own" alone would hand the previous
   // partner's notes to the new one. Restrict to notes authored by the reading partner's own org.
@@ -121,12 +125,17 @@ export function noteWhere(scope: ScopeContext, db: DB): SQL {
  * by their own org on leads they currently own. Lead ownership MOVES on re-route
  * (partnerOwnsLead), so "tasks on leads I own" alone would hand the previous partner's
  * tasks to the new owner — the own-org author predicate closes that, exactly as
- * noteWhere does for notes. The RLS policy lead_tasks_scope (migration 0041) carries
- * the identical READ predicate, and its WITH CHECK additionally pins author identity,
- * stream, and in-tenant references on writes (SEC-01; audit-tenancy F-1) — keep both
+ * noteWhere does for notes. The RLS policy lead_tasks_scope (migration 0041, hold added
+ * in 0047) carries the identical READ predicate, and its WITH CHECK additionally pins author
+ * identity, stream, and in-tenant references on writes (SEC-01; audit-tenancy F-1) — keep both
  * halves in lockstep with this builder.
+ *
+ * C-8 / WP-TSK-2a: the partner arm also carries the DISTRIBUTION HOLD (releasedLeads) directly,
+ * so the two paths that don't resolve a lead first — resolveTask (mutation by task id) and the
+ * cross-lead My Tasks list — are hold-gated by the guard itself, not a separate compensator.
+ * `now` lets the TSK-08 reminder sweep inject its clock (taskVisibleTo); request paths default it.
  */
-export function taskWhere(scope: ScopeContext, db: DB): SQL {
+export function taskWhere(scope: ScopeContext, db: DB, now?: Date): SQL {
   const base = eq(leadTasks.tenantId, scope.tenantId);
   if (scope.role === "admin") {
     return and(base, eq(leadTasks.authorRole, "admin"))!;
@@ -137,7 +146,9 @@ export function taskWhere(scope: ScopeContext, db: DB): SQL {
     .from(leads)
     // DM-09b: recalled (soft-deleted) leads drop out of the owned set here, so task reads
     // never rely on a parent join to filter deletes (same discipline as noteWhere).
-    .where(and(eq(leads.tenantId, scope.tenantId), partnerOwnsLead(me), isNull(leads.deletedAt)));
+    // C-8 / WP-TSK-2a: still-HELD leads drop out too (distribution hold), so the guard is
+    // self-sufficient and app + RLS (0047) carry the hold in lockstep.
+    .where(and(eq(leads.tenantId, scope.tenantId), partnerOwnsLead(me), isNull(leads.deletedAt), releasedLeads(now)));
   // SCP-01 (C-15, ADR-0046): pin role='partner'. users.partner_id carries no role invariant, so
   // an admin row with a stray partner_id must not be counted into this org's authored set — the
   // RLS counterpart (0044) carries the same predicate. (ownStatusAuthorScope keeps role='admin'
