@@ -9,6 +9,7 @@ import {
   sweepEmailOutbox,
   sweepAiFeedback,
   sweepNotifications,
+  sweepSavedViewsPii,
 } from "@/modules/retention/operational";
 
 // WP-RET-2 (audit R-42/R-43/R-91 / SET-07): retention for the three tenant-scoped operational
@@ -35,6 +36,7 @@ suite("WP-RET-2: operational-table retention sweeps", () => {
     await db.delete(schema.emailOutbox).where(inArray(schema.emailOutbox.tenantId, tids));
     await db.delete(schema.aiFeedback).where(inArray(schema.aiFeedback.tenantId, tids));
     await db.delete(schema.notifications).where(inArray(schema.notifications.tenantId, tids));
+    await db.delete(schema.savedViews).where(inArray(schema.savedViews.tenantId, tids));
     await db.delete(schema.users).where(inArray(schema.users.tenantId, tids));
     await db.delete(schema.tenants).where(inArray(schema.tenants.id, tids));
   }
@@ -94,6 +96,31 @@ suite("WP-RET-2: operational-table retention sweeps", () => {
     expect(deleted).toBe(1);
     const rows = await db.select().from(schema.notifications).where(eq(schema.notifications.tenantId, tenantId));
     expect(rows.map((r) => r.title)).toEqual(["Task due: fresh"]);
+  });
+
+  it("C-13/WP-RET-3b: sweepSavedViewsPii clears ONLY q on stale views, preserves sibling filters + the view + recent q", async () => {
+    // Non-zero sibling filters so the assertion proves jsonb_set touched ONLY q (F-1) — a regression
+    // that replaced the whole blob with {q:""} would drop these and fail toMatchObject below.
+    const mkFilters = (q: string) => ({ q, partnerId: "", state: "AZ", source: "Lead Source 1", statuses: ["new", "contacted"], hot: true, tags: ["t1"], dateFrom: "2026-01-01", dateTo: "2026-02-01", viewMode: "board" });
+    // saved_views' q-clear window is 12 MONTHS (not 7/30/90d) — the stale one must be >365d old.
+    const veryVeryOld = daysAgo(400);
+    await db.insert(schema.savedViews).values([
+      { tenantId, userId, name: "stale view", filters: mkFilters("seller Jane 555-867-5309"), createdAt: veryVeryOld, updatedAt: veryVeryOld }, // >12mo → q cleared
+      { tenantId, userId, name: "recent view", filters: mkFilters("active search 555"), createdAt: recent, updatedAt: recent }, // within window → untouched
+    ]);
+    const { cleared } = await sweepSavedViewsPii(db, { now });
+    expect(cleared).toBe(1);
+    const rows = await db.select().from(schema.savedViews).where(eq(schema.savedViews.tenantId, tenantId));
+    const stale = rows.find((r) => r.name === "stale view")!;
+    const fresh = rows.find((r) => r.name === "recent view")!;
+    expect((stale.filters as { q: string }).q).toBe(""); // PII search string cleared…
+    // …and every OTHER filter field survives (non-destructive — only q was touched).
+    expect(stale.filters).toMatchObject({ q: "", state: "AZ", source: "Lead Source 1", statuses: ["new", "contacted"], hot: true, tags: ["t1"], dateFrom: "2026-01-01", dateTo: "2026-02-01", viewMode: "board" });
+    expect((fresh.filters as { q: string }).q).toBe("active search 555"); // recent view untouched
+    // The stale VIEW survives (non-destructive) — only its q was cleared.
+    expect(rows.map((r) => r.name).sort()).toEqual(["recent view", "stale view"]);
+    // Idempotent: a second pass clears nothing (q is now "").
+    expect((await sweepSavedViewsPii(db, { now })).cleared).toBe(0);
   });
 
   it("R-91: sweepAiFeedback deletes rows past the 90-day window, keeps recent", async () => {
