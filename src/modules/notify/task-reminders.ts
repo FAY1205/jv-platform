@@ -77,6 +77,11 @@ interface Candidate {
  */
 export async function remindDueTasks(db: DB, opts: RemindDueTasksOptions): Promise<{ reminded: number; retired: number }> {
   const clockMs = opts.clockMs ?? (() => Date.now());
+  // C-14 (pr-reviewer F-1): once the shared budget has elapsed, skip this tenant ENTIRELY — before
+  // even the due select / prefs / users lookups — so a many-tenant run past the deadline pays nothing
+  // per remaining tenant, not just nothing per task. The in-loop break below still bounds one tenant
+  // whose own sweep runs long. The remainder is picked up next tick.
+  if (opts.deadlineMs !== undefined && clockMs() >= opts.deadlineMs) return { reminded: 0, retired: 0 };
   const due = await db
     .select({
       id: schema.leadTasks.id,
@@ -300,6 +305,9 @@ async function retireIfExhausted(
       .select({ id: schema.users.id })
       .from(schema.users)
       .where(and(tenantIdWhere(schema.users, opts.tenantId), eq(schema.users.role, "admin")));
+    // Deliberately ALWAYS-ON + in-app only (pr-reviewer F-2): unlike task_due, this retirement alert
+    // has no prefs entry and never emails — it's a rare, operationally-important "someone needs to
+    // re-assign this" signal an admin should not be able to mute into silence. Not a prefs-gated event.
     for (const admin of admins) {
       await createNotification(tx, {
         tenantId: opts.tenantId,
