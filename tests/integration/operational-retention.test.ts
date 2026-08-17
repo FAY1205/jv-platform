@@ -98,8 +98,10 @@ suite("WP-RET-2: operational-table retention sweeps", () => {
     expect(rows.map((r) => r.title)).toEqual(["Task due: fresh"]);
   });
 
-  it("C-13/WP-RET-3b: sweepSavedViewsPii clears the q search string on stale views, keeps the view + recent views' q", async () => {
-    const mkFilters = (q: string) => ({ q, partnerId: "", state: "", source: "", statuses: [], hot: false, tags: [], dateFrom: "", dateTo: "", viewMode: "list" });
+  it("C-13/WP-RET-3b: sweepSavedViewsPii clears ONLY q on stale views, preserves sibling filters + the view + recent q", async () => {
+    // Non-zero sibling filters so the assertion proves jsonb_set touched ONLY q (F-1) — a regression
+    // that replaced the whole blob with {q:""} would drop these and fail toMatchObject below.
+    const mkFilters = (q: string) => ({ q, partnerId: "", state: "AZ", source: "Lead Source 1", statuses: ["new", "contacted"], hot: true, tags: ["t1"], dateFrom: "2026-01-01", dateTo: "2026-02-01", viewMode: "board" });
     // saved_views' q-clear window is 12 MONTHS (not 7/30/90d) — the stale one must be >365d old.
     const veryVeryOld = daysAgo(400);
     await db.insert(schema.savedViews).values([
@@ -109,9 +111,12 @@ suite("WP-RET-2: operational-table retention sweeps", () => {
     const { cleared } = await sweepSavedViewsPii(db, { now });
     expect(cleared).toBe(1);
     const rows = await db.select().from(schema.savedViews).where(eq(schema.savedViews.tenantId, tenantId));
-    const byName = Object.fromEntries(rows.map((r) => [r.name, (r.filters as { q: string }).q]));
-    expect(byName["stale view"]).toBe(""); // PII search string cleared…
-    expect(byName["recent view"]).toBe("active search 555"); // …recent view untouched
+    const stale = rows.find((r) => r.name === "stale view")!;
+    const fresh = rows.find((r) => r.name === "recent view")!;
+    expect((stale.filters as { q: string }).q).toBe(""); // PII search string cleared…
+    // …and every OTHER filter field survives (non-destructive — only q was touched).
+    expect(stale.filters).toMatchObject({ q: "", state: "AZ", source: "Lead Source 1", statuses: ["new", "contacted"], hot: true, tags: ["t1"], dateFrom: "2026-01-01", dateTo: "2026-02-01", viewMode: "board" });
+    expect((fresh.filters as { q: string }).q).toBe("active search 555"); // recent view untouched
     // The stale VIEW survives (non-destructive) — only its q was cleared.
     expect(rows.map((r) => r.name).sort()).toEqual(["recent view", "stale view"]);
     // Idempotent: a second pass clears nothing (q is now "").

@@ -1,4 +1,4 @@
-import { and, asc, inArray, lt, lte, ne, sql } from "drizzle-orm";
+import { and, asc, inArray, lte, ne, sql } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import * as schema from "@/db/schema";
 import { batchedDeleteByAge } from "./batched-delete";
@@ -133,7 +133,7 @@ export async function sweepSavedViewsPii(db: DB, opts: { now?: Date; limit?: num
   const stale = db
     .select({ id: V.id })
     .from(V)
-    .where(and(lt(V.updatedAt, savedViewsQCutoff(now)), ne(sql`${V.filters} ->> 'q'`, "")))
+    .where(and(lte(V.updatedAt, savedViewsQCutoff(now)), ne(sql`${V.filters} ->> 'q'`, "")))
     .orderBy(asc(V.updatedAt))
     .limit(opts.limit ?? OPERATIONAL_SWEEP_BATCH);
   const cleared = await db
