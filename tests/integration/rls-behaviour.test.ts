@@ -172,7 +172,7 @@ suite("RLSB: RLS enforcement oracle (non-owner role)", () => {
     expect(y).not.toContain("X-PARTNER task on X");
   });
 
-  it("RLSB-04 (C-8): the distribution hold is ENFORCED — a partner cannot read or write a task on a still-held lead", async () => {
+  it("RLSB-06 (C-8): the distribution hold is ENFORCED — a partner cannot read or write a task on a still-held lead", async () => {
     // PX owns leadHeld, but it is within the hold window, so the policy's partner ownLeads arm
     // (created_at < now() - 5min, migration 0047) excludes it: the task is invisible via RLS.
     const x = await taskTitlesAs(pxClaims());

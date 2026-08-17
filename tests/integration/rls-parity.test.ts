@@ -98,6 +98,15 @@ suite("RLP: RLS parity + author-role pin (enforced)", () => {
     // Same pathological shape for tasks (SCP-01 covers taskWhere too).
     await db.insert(schema.leadTasks).values({ tenantId: t.id, leadId: leadX.id, authorUserId: id.adminStray, authorRole: "partner", title: "STRAY-authored task on X" });
     await db.insert(schema.leadTasks).values({ tenantId: t.id, leadId: leadX.id, authorUserId: id.pxUser, authorRole: "partner", title: "PX genuine task on X" });
+
+    // C-8 / WP-TSK-2a: a STILL-HELD lead owned by PX (default created_at = now, NOT released), with
+    // a genuine PX note on it — the lead_notes_scope hold-enforcement fixture (RLP-10 below).
+    const [leadHeld] = await db
+      .insert(schema.leads)
+      .values({ tenantId: t.id, refId: "LD-26-30004", uploadId: up.id, dedupeKey: "h|4", rawJson: {}, partnerId: px.id, matchMethod: "zip", mlsStatus: "kept" })
+      .returning({ id: schema.leads.id });
+    id.leadHeld = leadHeld.id;
+    await db.insert(schema.leadNotes).values({ tenantId: t.id, leadId: leadHeld.id, authorUserId: id.pxUser, authorRole: "partner", body: "PX note on HELD lead" });
   });
 
   afterAll(async () => {
@@ -126,6 +135,28 @@ suite("RLP: RLS parity + author-role pin (enforced)", () => {
       (await tx.select({ body: schema.leadNotes.body }).from(schema.leadNotes)).map((r) => r.body),
     );
     expect(bodies).toContain("PX genuine note on X");
+  });
+
+  it("RLP-10 (C-8): the distribution hold is ENFORCED on lead_notes — a partner cannot read or write a note on a still-held lead", async () => {
+    // PX owns leadHeld, but it is within the hold window, so lead_notes_scope's partner ownLeads arm
+    // (created_at < now() - 5min, migration 0047) excludes it: the note is invisible via RLS — even
+    // though the very same PX reads its released note ("PX genuine note on X") in RLP-07 above.
+    const bodies = await asRole(db, pxClaims(), async (tx) =>
+      (await tx.select({ body: schema.leadNotes.body }).from(schema.leadNotes)).map((r) => r.body),
+    );
+    expect(bodies).not.toContain("PX note on HELD lead");
+
+    // …and PX cannot INSERT a note onto the held lead either — the WITH CHECK ownLeads arm carries
+    // the same hold, so the write is refused (WITH CHECK ≥ USING, ADR-0046).
+    const out = await probeWrite(
+      db,
+      pxClaims(),
+      async (tx) => {
+        await tx.insert(schema.leadNotes).values({ tenantId: id.tenant, leadId: id.leadHeld, authorUserId: id.pxUser, authorRole: "partner", body: "premature note" });
+      },
+      notesWith("premature note"),
+    );
+    expect(out.denied).toBe(true);
   });
 
   // ── RLP-08: WITH CHECK ≥ USING — cross-owner / cross-stream WRITES refused ──

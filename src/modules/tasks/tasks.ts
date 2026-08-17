@@ -197,9 +197,9 @@ async function resolveAssignee(db: DB, scope: ScopeContext, assignedToUserId?: s
   return user.id;
 }
 
-/** Re-resolve a task through the scope guard. `taskWhere ∩ id` (+ the partner hold gate) is
- *  the whole authorization: a task id from another tenant, org, or stream — or on a lead the
- *  partner cannot see yet — simply does not resolve (PRN-08). */
+/** Re-resolve a task through the scope guard. `taskWhere ∩ id` is the whole authorization: a task
+ *  id from another tenant, org, or stream — or on a lead the partner cannot see yet (taskWhere now
+ *  carries the distribution hold itself, C-8/WP-TSK-2a) — simply does not resolve (PRN-08). */
 async function resolveTask(db: DB, scope: ScopeContext, taskId: string) {
   const [task] = await db
     .select({
@@ -221,7 +221,7 @@ async function resolveTask(db: DB, scope: ScopeContext, taskId: string) {
  * TSK-08 (WP-TSK-1 tenancy audit F-2, BINDING): can THIS scope read THIS task? The reminder
  * sweep's recipient gate — a nudge is addressed to a person, so the person's own visibility
  * decides whether they may receive it. Deliberately the SAME predicate `resolveTask` uses
- * (`taskWhere ∩ id`, plus the partner hold gate), never a raw `assigned_to_user_id` join:
+ * (`taskWhere ∩ id`, which carries the hold itself since C-8), never a raw `assigned_to_user_id` join:
  * an assignee whose org was re-routed away from the lead, or who sits on the other side of
  * the PRN-13 stream wall, resolves to nothing here and gets no email about work they cannot
  * open. Exported (rather than inlined in the sweep) so app and reminder never drift apart.
