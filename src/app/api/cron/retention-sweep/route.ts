@@ -12,7 +12,7 @@ import {
   sweepTrustedDevices,
   sweepNoticeClaims,
 } from "@/modules/retention/auth-tables";
-import { sweepIdempotencyKeys, sweepEmailOutbox, sweepAiFeedback } from "@/modules/retention/operational";
+import { sweepIdempotencyKeys, sweepEmailOutbox, sweepAiFeedback, sweepNotifications } from "@/modules/retention/operational";
 import { logError } from "@/lib/observability";
 import { jsonOk, jsonError, jsonServerError } from "@/lib/http";
 import { CRON_MONITORS, withCronMonitor } from "@/lib/cron-monitors";
@@ -48,17 +48,21 @@ export async function GET(request: Request) {
       let purged = 0;
       let notesRedacted = 0;
       let tasksRedacted = 0;
+      let notificationsRedacted = 0;
+      let outboxRedacted = 0;
       let swept = 0;
       for (const t of tenants) {
         try {
-          // C-7: sweepTenantPii already returns per-artifact redaction counts (leads purged,
-          // note bodies + task titles redacted) and audits them per lead. Surface the totals in
-          // the cron response too, so LGL-02 evidence has per-artifact figures without reading
-          // the audit_log (the response previously reported only `purged`).
+          // C-7 + C-13: sweepTenantPii returns per-artifact redaction counts (leads purged, note
+          // bodies + task titles + notifications + outbox rows redacted) and audits them per lead.
+          // Surface the totals in the cron response too, so LGL-02 evidence has per-artifact figures
+          // without reading the audit_log (the response previously reported only `purged`).
           const r = await sweepTenantPii(db, { tenantId: t.id });
           purged += r.purged;
           notesRedacted += r.notesRedacted;
           tasksRedacted += r.tasksRedacted;
+          notificationsRedacted += r.notificationsRedacted;
+          outboxRedacted += r.outboxRedacted;
           swept += 1;
         } catch (e) {
           // Best-effort per tenant: one tenant's failure must not stop the others.
@@ -88,7 +92,7 @@ export async function GET(request: Request) {
       // with hygiene work. trusted_devices is now swept here too (WP-SU-14) — but CANARY-SAFE: it
       // prunes a row only when its family has no live head, so an active family's reuse canaries
       // survive (AUT-10 preserved).
-      const [authAttempts, otpChallenges, resetTokens, signupVerifications, signupCodes, trustedDevices, noticeClaims, idempotencyKeys, emailOutbox, aiFeedback] = await Promise.all([
+      const [authAttempts, otpChallenges, resetTokens, signupVerifications, signupCodes, trustedDevices, noticeClaims, idempotencyKeys, emailOutbox, aiFeedback, notifications] = await Promise.all([
         sweepAuthAttempts(db)
           .then((r) => r.deleted)
           .catch((e) => {
@@ -155,9 +159,17 @@ export async function GET(request: Request) {
             logError("cron_ai_feedback_sweep_failed", { message: e instanceof Error ? e.message : String(e) });
             return 0;
           }),
+        // C-13 / WP-RET-3a: age out old in-app notifications (90d) — the last operational table that
+        // had no retention, and one whose task_due titles carry seller PII. Same best-effort shape.
+        sweepNotifications(db)
+          .then((r) => r.deleted)
+          .catch((e) => {
+            logError("cron_notifications_sweep_failed", { message: e instanceof Error ? e.message : String(e) });
+            return 0;
+          }),
       ]);
 
-      return { tenants: swept, purged, notesRedacted, tasksRedacted, authAttempts, otpChallenges, resetTokens, signupVerifications, signupCodes, trustedDevices, noticeClaims, idempotencyKeys, emailOutbox, aiFeedback };
+      return { tenants: swept, purged, notesRedacted, tasksRedacted, notificationsRedacted, outboxRedacted, authAttempts, otpChallenges, resetTokens, signupVerifications, signupCodes, trustedDevices, noticeClaims, idempotencyKeys, emailOutbox, aiFeedback, notifications };
     },
   ).then(
     (r) => jsonOk({ code: "ok", ...r }),

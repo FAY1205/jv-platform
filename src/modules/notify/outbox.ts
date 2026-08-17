@@ -354,6 +354,7 @@ export async function notifyStatusChange(
         type: "status_change",
         title,
         body: "A partner updated a lead's status.",
+        leadRef: input.leadRef, // C-13: correlate for void/purge redaction (title carries the refId)
         // Open the full leads dialog (status control + history + notes), not the
         // retired read-only /leads/[ref] page — P-1 (portal-parity audit). Encoded for
         // defense-in-depth (pr-review F-3) even though leadRef is format-constrained.
@@ -409,6 +410,7 @@ export async function notifyLeadAssigned(
     title: `Lead ${input.leadRef} was assigned to you`,
     body: "An admin routed this lead to you.",
     deepLink: `/portal/leads/${input.leadRef}`,
+    leadRef: input.leadRef, // C-13: correlate for void/purge redaction
   });
 }
 

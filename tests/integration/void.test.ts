@@ -8,7 +8,7 @@ import { purgeAuditLog } from "../helpers/audit";
 import { DrizzleRunStore } from "@/modules/run/store";
 import { processRun } from "@/modules/run/process";
 import { voidUpload, AlreadyVoidedError, VoidWindowClosedError, NotLatestImportError, AlreadyDistributedError } from "@/modules/run/void";
-import { REDACTED_RAW_JSON, REDACTED_NOTE_BODY, REDACTED_TASK_TITLE, REDACTED_DEDUPE_KEY } from "@/modules/retention/purge";
+import { REDACTED_RAW_JSON, REDACTED_NOTE_BODY, REDACTED_TASK_TITLE, REDACTED_DEDUPE_KEY, REDACTED_NOTIFICATION_TITLE, REDACTED_OUTBOX_SUBJECT } from "@/modules/retention/purge";
 import { listPartnerLeads } from "@/modules/portal/queries";
 import { getRunDetail } from "@/modules/run/queries";
 import { getRunExportData } from "@/modules/run/export-data";
@@ -35,6 +35,7 @@ suite("WP-018: void-run (ING-09)", () => {
     if (tids.length === 0) return;
     await purgeAuditLog(db, inArray(schema.auditLog.tenantId, tids));
     await db.delete(schema.notifications).where(inArray(schema.notifications.tenantId, tids));
+    await db.delete(schema.emailOutbox).where(inArray(schema.emailOutbox.tenantId, tids));
     await db.delete(schema.leadStatusHistory).where(inArray(schema.leadStatusHistory.tenantId, tids));
     await db.delete(schema.leadTasks).where(inArray(schema.leadTasks.tenantId, tids));
     await db.delete(schema.leadNotes).where(inArray(schema.leadNotes.tenantId, tids));
@@ -184,7 +185,7 @@ suite("WP-018: void-run (ING-09)", () => {
       .from(schema.uploads)
       .where(and(eq(schema.uploads.tenantId, scope.tenantId), eq(schema.uploads.refId, uploadRef)));
     const [lead] = await db
-      .select({ id: schema.leads.id })
+      .select({ id: schema.leads.id, refId: schema.leads.refId })
       .from(schema.leads)
       .where(and(eq(schema.leads.tenantId, scope.tenantId), eq(schema.leads.uploadId, up.id)));
     // A note carrying seller PII on the lead.
@@ -193,6 +194,10 @@ suite("WP-018: void-run (ING-09)", () => {
     await db.insert(schema.leadNotes).values({ tenantId: scope.tenantId, leadId: lead.id, authorUserId: author, authorRole: "admin", body: "seller Bob at 555-000-1234" });
     // WP-TSK-2 (audit F-5): a task title is the same human-typed free text on the same lead.
     await db.insert(schema.leadTasks).values({ tenantId: scope.tenantId, leadId: lead.id, authorUserId: author, authorRole: "admin", title: "call Bob on 555-000-1234" });
+    // C-13 / WP-RET-3a: a task_due notification + outbox email carry the task free text, correlated
+    // to the lead by refId — the void must redact them at once (not wait for the age sweep).
+    await db.insert(schema.notifications).values({ tenantId: scope.tenantId, userId: author, type: "task_due", title: "Task due: call Bob on 555-000-1234", body: "b", leadRef: lead.refId });
+    await db.insert(schema.emailOutbox).values({ tenantId: scope.tenantId, toAddress: `purge-${author}@test.dev`, subject: "Task due: call Bob on 555-000-1234", body: "call Bob on 555-000-1234", kind: "task_due", status: "sent", meta: { leadRef: lead.refId } });
 
     await voidUpload(scope, uploadRef, "wrong file");
 
@@ -207,6 +212,11 @@ suite("WP-018: void-run (ING-09)", () => {
     expect(notes[0].body).toBe(REDACTED_NOTE_BODY);
     const tasks = await db.select().from(schema.leadTasks).where(eq(schema.leadTasks.leadId, lead.id));
     expect(tasks[0].title).toBe(REDACTED_TASK_TITLE);
+    // C-13: the lead's notification + outbox email are redacted in the same void transaction.
+    const notifs = await db.select().from(schema.notifications).where(eq(schema.notifications.leadRef, lead.refId));
+    expect(notifs[0].title).toBe(REDACTED_NOTIFICATION_TITLE);
+    const outbox = await db.select().from(schema.emailOutbox).where(eq(schema.emailOutbox.subject, REDACTED_OUTBOX_SUBJECT));
+    expect(outbox.length).toBeGreaterThanOrEqual(1);
     // DM-04: the void audit records the purge count.
     const [audit] = await db
       .select()

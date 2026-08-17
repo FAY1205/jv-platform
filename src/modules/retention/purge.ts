@@ -52,6 +52,15 @@ export const REDACTED_NOTE_BODY = "[redacted — retention policy]";
  *  REDACTED_NOTE_BODY: the two columns are redacted by separate statements and may diverge. */
 export const REDACTED_TASK_TITLE = "[redacted — retention policy]";
 
+/** C-13 / WP-RET-3a sentinels for a purged lead's NOTIFICATIONS + EMAIL_OUTBOX rows. A task_due
+ *  notification/email embeds the task's free text (seller PII) verbatim; both purge paths (immediate
+ *  void + backstop sweep) redact them alongside the lead's own columns, correlated by lead_ref /
+ *  meta.leadRef. `notifications.title` and `email_outbox.subject`/`.body` are NOT NULL → sentineled;
+ *  `notifications.body` and `email_outbox.html` are nullable → nulled. */
+export const REDACTED_NOTIFICATION_TITLE = "[redacted — retention policy]";
+export const REDACTED_OUTBOX_SUBJECT = "[redacted — retention policy]";
+export const REDACTED_OUTBOX_BODY = "[redacted — retention policy]";
+
 /** Sentinel for `dedupe_key` (NOT NULL). The key is `normalized(address)+zip5`, so it embeds
  *  the street address — sentinel it so the address is fully removed. Safe: ADR-0038 retired the
  *  dedup collapse, so `dedupe_key` is a plain (non-unique) index — duplicate sentinels are allowed

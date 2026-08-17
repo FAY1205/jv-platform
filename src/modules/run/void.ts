@@ -4,6 +4,7 @@ import * as schema from "@/db/schema";
 import { tenantWhere, type ScopeContext } from "@/lib/scope";
 import { isWithinVoidWindow } from "./void-window";
 import { redactionPatch, REDACTED_NOTE_BODY, REDACTED_TASK_TITLE } from "../retention/purge";
+import { redactLeadCommunications } from "../retention/redact-lead-comms";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Void a run (ING-09). Soft-void with a required reason: the upload is marked voided
@@ -121,7 +122,7 @@ export async function voidUpload(scope: ScopeContext, ref: string, reason: strin
           isNull(schema.leads.deletedAt),
         ),
       )
-      .returning({ id: schema.leads.id });
+      .returning({ id: schema.leads.id, refId: schema.leads.refId });
 
     // Redact the recalled leads' free-text notes too (the likeliest place a human typed seller PII).
     const recalledIds = recalled.map((r) => r.id);
@@ -149,6 +150,10 @@ export async function voidUpload(scope: ScopeContext, ref: string, reason: strin
             ne(schema.leadTasks.title, REDACTED_TASK_TITLE),
           ),
         );
+      // C-13 / WP-RET-3a: redact the recalled leads' in-app notifications + email_outbox rows too,
+      // correlated by refId (a task_due notification/email embeds the task free text = seller PII).
+      // Same shared helper the backstop sweep uses, so the two purge paths never diverge.
+      await redactLeadCommunications(tx, scope.tenantId, recalled.map((r) => r.refId));
     }
 
     // Append-only audit of the mutation (DM-04).

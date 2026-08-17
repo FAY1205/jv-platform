@@ -3,6 +3,7 @@ import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import * as schema from "@/db/schema";
 import { tenantIdWhere } from "@/lib/scope";
 import { retentionCutoff, redactionPatch, REDACTED_NOTE_BODY, REDACTED_TASK_TITLE, RETENTION_GRACE_MS } from "./purge";
+import { redactLeadCommunications } from "./redact-lead-comms";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Retention sweep adapter (WP-GL-B) — the BACKSTOP. Voiding redacts a run's PII
@@ -24,6 +25,8 @@ export interface SweepResult {
   purged: number;
   notesRedacted: number;
   tasksRedacted: number;
+  notificationsRedacted: number;
+  outboxRedacted: number;
 }
 
 /**
@@ -67,7 +70,7 @@ export async function sweepTenantPii(
       .orderBy(asc(schema.leads.deletedAt))
       .limit(limit);
 
-    if (eligible.length === 0) return { purged: 0, notesRedacted: 0, tasksRedacted: 0 };
+    if (eligible.length === 0) return { purged: 0, notesRedacted: 0, tasksRedacted: 0, notificationsRedacted: 0, outboxRedacted: 0 };
 
     const ids = eligible.map((l) => l.id);
     await tx
@@ -106,6 +109,12 @@ export async function sweepTenantPii(
     const tasksByLead = new Map<string, number>();
     for (const t of redactedTasks) tasksByLead.set(t.leadId, (tasksByLead.get(t.leadId) ?? 0) + 1);
 
+    // C-13 / WP-RET-3a: redact the purged leads' COMMUNICATIONS too (in-app notifications +
+    // email_outbox rows), correlated by refId — a task_due notification/email embeds the task free
+    // text (seller PII). Aggregate counts (not per-lead) — the per-lead audit below stays notes/tasks.
+    const refIds = eligible.map((l) => l.refId);
+    const comms = await redactLeadCommunications(tx, opts.tenantId, refIds);
+
     // Append-only audit (DM-04), one per lead. actorUserId null = the scheduled system sweep.
     // SEC-05: before/after record only that PII was purged + note/task counts — never the values.
     await tx.insert(schema.auditLog).values(
@@ -121,6 +130,12 @@ export async function sweepTenantPii(
       })),
     );
 
-    return { purged: eligible.length, notesRedacted: redactedNotes.length, tasksRedacted: redactedTasks.length };
+    return {
+      purged: eligible.length,
+      notesRedacted: redactedNotes.length,
+      tasksRedacted: redactedTasks.length,
+      notificationsRedacted: comms.notificationsRedacted,
+      outboxRedacted: comms.outboxRedacted,
+    };
   });
 }

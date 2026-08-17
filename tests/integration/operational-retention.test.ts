@@ -3,10 +3,12 @@ import { drizzle, type PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 import { eq, inArray } from "drizzle-orm";
 import * as schema from "@/db/schema";
+import { randomUUID } from "node:crypto";
 import {
   sweepIdempotencyKeys,
   sweepEmailOutbox,
   sweepAiFeedback,
+  sweepNotifications,
 } from "@/modules/retention/operational";
 
 // WP-RET-2 (audit R-42/R-43/R-91 / SET-07): retention for the three tenant-scoped operational
@@ -32,8 +34,12 @@ suite("WP-RET-2: operational-table retention sweeps", () => {
     await db.delete(schema.idempotencyKeys).where(inArray(schema.idempotencyKeys.tenantId, tids));
     await db.delete(schema.emailOutbox).where(inArray(schema.emailOutbox.tenantId, tids));
     await db.delete(schema.aiFeedback).where(inArray(schema.aiFeedback.tenantId, tids));
+    await db.delete(schema.notifications).where(inArray(schema.notifications.tenantId, tids));
+    await db.delete(schema.users).where(inArray(schema.users.tenantId, tids));
     await db.delete(schema.tenants).where(inArray(schema.tenants.id, tids));
   }
+
+  let userId: string;
 
   beforeAll(async () => {
     client = postgres(url!, { prepare: false, max: 1 });
@@ -41,6 +47,8 @@ suite("WP-RET-2: operational-table retention sweeps", () => {
     await cleanup();
     const [t] = await db.insert(schema.tenants).values({ name: "Operational Retention", slug: SLUG }).returning({ id: schema.tenants.id });
     tenantId = t.id;
+    userId = randomUUID();
+    await db.insert(schema.users).values({ id: userId, tenantId, email: "op-ret@test.dev", role: "admin" });
   });
 
   afterAll(async () => {
@@ -75,6 +83,17 @@ suite("WP-RET-2: operational-table retention sweeps", () => {
     expect(rows.some((r) => r.status === "pending")).toBe(true);
     // no aged terminal row survived
     expect(rows.some((r) => r.status !== "pending" && r.createdAt.getTime() <= veryOld.getTime())).toBe(false);
+  });
+
+  it("C-13/WP-RET-3a: sweepNotifications deletes rows past the 90-day window, keeps recent", async () => {
+    await db.insert(schema.notifications).values([
+      { tenantId, userId, type: "task_due", title: "Task due: old", createdAt: veryOld }, // aged → deleted
+      { tenantId, userId, type: "task_due", title: "Task due: fresh", createdAt: recent }, // within window → kept
+    ]);
+    const { deleted } = await sweepNotifications(db, { now });
+    expect(deleted).toBe(1);
+    const rows = await db.select().from(schema.notifications).where(eq(schema.notifications.tenantId, tenantId));
+    expect(rows.map((r) => r.title)).toEqual(["Task due: fresh"]);
   });
 
   it("R-91: sweepAiFeedback deletes rows past the 90-day window, keeps recent", async () => {

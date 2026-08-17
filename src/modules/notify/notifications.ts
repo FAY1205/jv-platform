@@ -29,6 +29,10 @@ export interface CreateNotificationInput {
   title: string;
   body?: string;
   deepLink?: string;
+  /** C-13 / WP-RET-3a: the lead this notification is about (refId), for lead-scoped types
+   *  (task_due, status_change, single assigned_lead) so a void/purge can redact it. Omit for
+   *  aggregate notifications (hot_leads/run_summary/bulk assigned span many leads). */
+  leadRef?: string;
 }
 
 /** Insert one in-app notification for a recipient user. */
@@ -40,6 +44,7 @@ export async function createNotification(db: DB, input: CreateNotificationInput)
     title: input.title,
     body: input.body ?? null,
     deepLink: input.deepLink ?? null,
+    leadRef: input.leadRef ?? null,
   });
 }
 

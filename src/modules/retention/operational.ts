@@ -86,3 +86,27 @@ export async function sweepAiFeedback(db: DB, opts: { now?: Date; limit?: number
     limit: opts.limit ?? OPERATIONAL_SWEEP_BATCH,
   });
 }
+
+// ── notifications (C-13 / WP-RET-3a, NTF-04): the in-app notification center. A task_due
+// notification's TITLE embeds the task's free text (seller PII) verbatim, and — unlike the other
+// operational tables — notifications had NO retention at all, so they accumulated that PII forever.
+// The void/purge paths redact a soft-deleted lead's notifications at once (redact-lead-comms.ts);
+// this age sweep is the general bound, deleting read-or-not notifications past the window. 90 days
+// mirrors ai_feedback's user-text window — a notification is an ephemeral nudge, not a record.
+export const NOTIFICATIONS_RETENTION_MS = 90 * 24 * 60 * 60 * 1000;
+
+export function notificationsCutoff(now: Date): Date {
+  return new Date(now.getTime() - NOTIFICATIONS_RETENTION_MS);
+}
+
+export async function sweepNotifications(db: DB, opts: { now?: Date; limit?: number } = {}): Promise<{ deleted: number }> {
+  const now = opts.now ?? new Date();
+  const N = schema.notifications;
+  return batchedDeleteByAge(db, {
+    table: N,
+    id: N.id,
+    orderBy: N.createdAt,
+    where: lte(N.createdAt, notificationsCutoff(now)),
+    limit: opts.limit ?? OPERATIONAL_SWEEP_BATCH,
+  });
+}

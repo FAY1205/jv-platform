@@ -574,6 +574,12 @@ export const notifications = pgTable(
     title: text("title").notNull(),
     body: text("body"),
     deepLink: text("deep_link"),
+    // C-13 / WP-RET-3a: the lead this notification is about (refId string, mirrors the outbox's
+    // meta.leadRef), or null for aggregate notifications (hot_leads/run_summary digests span many
+    // leads). Lets the void/purge paths redact a soft-deleted lead's notifications — the task_due
+    // title embeds the task's free text (seller PII). NOT a FK: a soft (redaction-correlation)
+    // marker, matching how email_outbox correlates by meta.leadRef.
+    leadRef: text("lead_ref"),
     readAt: timestamp("read_at", { withTimezone: true }),
     createdAt: createdAt(),
   },
@@ -581,6 +587,12 @@ export const notifications = pgTable(
     index("notifications_user_idx").on(t.userId),
     // FK-covering index (db-linter 0001): the tenant_id FK had no leading-column index.
     index("notifications_tenant_idx").on(t.tenantId),
+    // C-13 note: the void/purge redaction looks up notifications by (tenant, lead_ref). NO index yet
+    // — a `CREATE INDEX` on the now-live table takes a write-blocking ShareLock (forbidden post-launch,
+    // migrations 0027 / WP-J2 spec), and drizzle-kit's transactional migrate can't run CONCURRENTLY.
+    // notifications is small, so the redaction seq-scans acceptably (same cost model as the other
+    // operational sweeps). Add `(tenant_id, lead_ref) WHERE lead_ref is not null` via CONCURRENTLY,
+    // applied out-of-transaction, once volume warrants — tracked as candidate C-36.
   ],
 );
 
