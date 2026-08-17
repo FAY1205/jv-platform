@@ -6,7 +6,7 @@ import { randomUUID } from "node:crypto";
 import * as schema from "@/db/schema";
 import { purgeAuditLog } from "../helpers/audit";
 import { sweepTenantPii } from "@/modules/retention/sweep";
-import { REDACTED_RAW_JSON, REDACTED_NOTE_BODY, REDACTED_TASK_TITLE, REDACTED_DEDUPE_KEY } from "@/modules/retention/purge";
+import { REDACTED_RAW_JSON, REDACTED_NOTE_BODY, REDACTED_TASK_TITLE, REDACTED_DEDUPE_KEY, REDACTED_NOTIFICATION_TITLE, REDACTED_OUTBOX_SUBJECT } from "@/modules/retention/purge";
 
 // WP-GL-B (DM-09 / LGL-02 / SEC-05): the retention sweep is the BACKSTOP — it redacts seller PII
 // from ANY soft-deleted-but-unpurged lead (the default grace is 0). Voiding purges immediately in
@@ -50,6 +50,8 @@ suite("WP-GL-B: retention PII sweep — backstop (DM-09 / LGL-02)", () => {
     const tids = t.map((x) => x.id);
     if (tids.length === 0) return;
     await purgeAuditLog(db, inArray(schema.auditLog.tenantId, tids));
+    await db.delete(schema.notifications).where(inArray(schema.notifications.tenantId, tids));
+    await db.delete(schema.emailOutbox).where(inArray(schema.emailOutbox.tenantId, tids));
     await db.delete(schema.leadTasks).where(inArray(schema.leadTasks.tenantId, tids));
     await db.delete(schema.leadNotes).where(inArray(schema.leadNotes.tenantId, tids));
     await db.delete(schema.leads).where(inArray(schema.leads.tenantId, tids));
@@ -102,6 +104,17 @@ suite("WP-GL-B: retention PII sweep — backstop (DM-09 / LGL-02)", () => {
       { tenantId: tenantA, leadId: idSoftDeleted, authorUserId: adminId, authorRole: "admin", title: "call Jane at 555-867-5309" },
       { tenantId: tenantA, leadId: idLive, authorUserId: adminId, authorRole: "admin", title: "live lead task stays" },
     ]);
+    // C-13 / WP-RET-3a: a task_due notification + its outbox email carry the task free text (seller
+    // PII) verbatim, correlated to the lead by refId (lead_ref / meta.leadRef). One on the purged
+    // lead (LD-26-00001), one on the LIVE lead (LD-26-00002) which must survive.
+    await db.insert(schema.notifications).values([
+      { tenantId: tenantA, userId: adminId, type: "task_due", title: "Task due: call Jane at 555-867-5309", body: "Lead LD-26-00001", leadRef: "LD-26-00001" },
+      { tenantId: tenantA, userId: adminId, type: "task_due", title: "Task due: live lead task stays", body: "Lead LD-26-00002", leadRef: "LD-26-00002" },
+    ]);
+    await db.insert(schema.emailOutbox).values([
+      { tenantId: tenantA, toAddress: "admin@retention.test", subject: "Task due: call Jane at 555-867-5309", body: "call Jane at 555-867-5309", kind: "task_due", status: "sent", meta: { leadRef: "LD-26-00001" } },
+      { tenantId: tenantA, toAddress: "admin@retention.test", subject: "Task due: live lead task stays", body: "live text", kind: "task_due", status: "sent", meta: { leadRef: "LD-26-00002" } },
+    ]);
   });
 
   afterAll(async () => {
@@ -116,6 +129,17 @@ suite("WP-GL-B: retention PII sweep — backstop (DM-09 / LGL-02)", () => {
     expect(res.purged).toBe(1);
     expect(res.notesRedacted).toBe(1);
     expect(res.tasksRedacted).toBe(1);
+    // C-13: the purged lead's notification + outbox row are redacted; the live lead's survive.
+    expect(res.notificationsRedacted).toBe(1);
+    expect(res.outboxRedacted).toBe(1);
+    const notifs = await db.select().from(schema.notifications).where(eq(schema.notifications.tenantId, tenantA));
+    const byRef = Object.fromEntries(notifs.map((n) => [n.leadRef, n.title]));
+    expect(byRef["LD-26-00001"]).toBe(REDACTED_NOTIFICATION_TITLE); // purged lead → redacted
+    expect(byRef["LD-26-00002"]).toBe("Task due: live lead task stays"); // live lead → untouched
+    const outbox = await db.select().from(schema.emailOutbox).where(eq(schema.emailOutbox.tenantId, tenantA));
+    const outByRef = Object.fromEntries(outbox.map((o) => [(o.meta as { leadRef: string }).leadRef, o.subject]));
+    expect(outByRef["LD-26-00001"]).toBe(REDACTED_OUTBOX_SUBJECT);
+    expect(outByRef["LD-26-00002"]).toBe("Task due: live lead task stays");
 
     const l = await getLead(idSoftDeleted);
     expect(l.sellerFirst).toBeNull();

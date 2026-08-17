@@ -198,6 +198,7 @@ export async function remindDueTasks(db: DB, opts: RemindDueTasksOptions): Promi
             title: `Task due: ${fresh.title}`,
             body: `Lead ${fresh.leadRefId} — ${overdue ? `overdue since ${fresh.dueOn}` : "due today"}.`,
             deepLink: leadPath,
+            leadRef: fresh.leadRefId, // C-13: the title embeds the task free text — correlate for void/purge redaction
           });
         }
         if (channel.email) {
