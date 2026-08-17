@@ -12,6 +12,13 @@
 -- WITH CHECK ≥ USING holds (ADR-0046): a partner can neither read nor write a task/note on a lead
 -- it cannot yet see. Admin arms are never hold-gated (admin sees leads immediately).
 --
+-- SCOPE (audit-tenancy F-3): the RLS hold is DELIBERATELY tasks/notes-only. It exists here because
+-- taskWhere/noteWhere back paths (resolveTask, taskVisibleTo, listMyTasks) that reach a task/note by
+-- id WITHOUT first resolving its lead. The other child reads (lead_status_history, listing_checks)
+-- and the lead itself are ALWAYS reached through hold-gated lead resolution at the app layer
+-- (portal visibleLeadsWhere / activity releasedLeads), so a partner request never lands on a held
+-- lead's children — omitting the hold from those policies is not a leak, just no compensator needed.
+--
 -- ⚠️ MIRROR: `interval '5 minutes'` mirrors VOID_WINDOW_MS (src/modules/run/void-window.ts). The app
 -- guard is the source of truth (ADR-0013 — the service role bypasses RLS); this policy is the
 -- defense-in-depth backstop for the authenticated/PostgREST surface. If VOID_WINDOW_MS changes,
