@@ -366,15 +366,19 @@ async function setDone(scope: ScopeContext, taskId: string, done: boolean, trace
     // Resolve for authorization + the audit payload; the state check is NOT made here.
     const task = await resolveTask(tx, scope, taskId);
 
-    const now = new Date();
     // ATOMIC toggle (TSK-04): the current-state predicate lives IN the UPDATE, so the
     // transition is decided by the write, not by a preceding read. Check-then-act let two
     // concurrent completions both observe done_at IS NULL and both write an audit row —
     // a duplicate timeline event for one real transition. Zero rows affected now means
     // "already in the requested state", i.e. the idempotent no-op, and nothing is audited.
+    //
+    // C-32: doneAt/updatedAt stamp the DB clock (sql`now()`), NOT the app clock (new Date()) —
+    // created_at defaults to the DB's now(), so mixing clocks let a just-completed task sort BEFORE
+    // its own creation in the timeline when the app host's clock lagged the DB (the C-25 two-clock
+    // class; caught live as a lead-timeline TSK-06 order flake). One clock per column, ordering safe.
     const changed = await tx
       .update(schema.leadTasks)
-      .set({ doneAt: done ? now : null, updatedAt: now })
+      .set({ doneAt: done ? sql`now()` : null, updatedAt: sql`now()` })
       .where(
         and(
           taskWriteWhere(scope, tx, taskId),
