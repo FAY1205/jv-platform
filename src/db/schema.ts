@@ -400,6 +400,11 @@ export const leadTasks = pgTable(
     dueOn: date("due_on"), // calendar date, UTC semantics (TSK-10)
     doneAt: timestamp("done_at", { withTimezone: true }),
     remindedAt: timestamp("reminded_at", { withTimezone: true }),
+    // C-14 / WP-TSK-6a: how many times the TSK-08 reminder sweep found this task due but could NOT
+    // resolve an eligible recipient (re-routed / mis-assigned / cross-stream). The sweep retires a
+    // task at REMINDER_ATTEMPTS_MAX so an orphan stops being re-probed forever, and surfaces it to an
+    // admin on retirement. 0 for the normal case (nudged on the first eligible tick).
+    reminderAttempts: integer("reminder_attempts").notNull().default(0),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },

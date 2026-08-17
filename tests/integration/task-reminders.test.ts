@@ -4,7 +4,7 @@ import postgres from "postgres";
 import { and, eq, inArray } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import * as schema from "@/db/schema";
-import { remindDueTasks } from "@/modules/notify/task-reminders";
+import { remindDueTasks, REMINDER_ATTEMPTS_MAX } from "@/modules/notify/task-reminders";
 import { saveNotificationPrefs } from "@/modules/notify/prefs";
 import { utcDateString } from "@/modules/tasks/dates";
 import { releaseTenantLeads } from "../helpers/hold";
@@ -561,4 +561,92 @@ suite("TSK-08: sweep mechanics — limit, atomicity, silent consume", () => {
     expect(await db.select().from(schema.notifications).where(eq(schema.notifications.tenantId, id.tenant))).toHaveLength(notifsBefore);
     expect((await sweep()).reminded).toBe(0);
   });
+});
+
+// C-14 / WP-TSK-6a: an orphaned reminder (no eligible recipient) is retired after N ticks and
+// surfaced to an admin instead of re-probed forever; a wall-clock budget bounds the sweep.
+suite("WP-TSK-6a (C-14): orphan retirement + wall-clock budget", () => {
+  let client: ReturnType<typeof postgres>;
+  let db: PostgresJsDatabase<typeof schema>;
+  const id: Record<string, string> = {};
+  const SLUG_C14 = "test-task-reminders-c14";
+  const sweepC14 = (extra: Partial<Parameters<typeof remindDueTasks>[1]> = {}) =>
+    remindDueTasks(db, { tenantId: id.tenant, appBaseUrl: APP_URL, today, now, ...extra });
+  const taskRow = async (taskId: string) => (await db.select().from(schema.leadTasks).where(eq(schema.leadTasks.id, taskId)))[0];
+  const orphanNotifs = () =>
+    db.select().from(schema.notifications).where(and(eq(schema.notifications.userId, id.admin), eq(schema.notifications.type, "task_reminder_orphaned")));
+
+  beforeAll(async () => {
+    client = postgres(url!, { prepare: false, max: 1 });
+    db = drizzle(client, { schema });
+    await dropTenants(db, [SLUG_C14]);
+    const [t] = await db.insert(schema.tenants).values({ name: "TR C14", slug: SLUG_C14 }).returning({ id: schema.tenants.id });
+    id.tenant = t.id;
+    const [px] = await db.insert(schema.partners).values({ tenantId: t.id, refId: "JV-001", name: "PX", color: "#111111", status: "active" }).returning({ id: schema.partners.id });
+    const [py] = await db.insert(schema.partners).values({ tenantId: t.id, refId: "JV-002", name: "PY", color: "#222222", status: "active" }).returning({ id: schema.partners.id });
+    id.admin = randomUUID();
+    id.pyUser = randomUUID();
+    await db.insert(schema.users).values([
+      { id: id.admin, tenantId: t.id, email: "admin@tr-c14.test", role: "admin" as const },
+      { id: id.pyUser, tenantId: t.id, email: "py@tr-c14.test", role: "partner" as const, partnerId: py.id },
+    ]);
+    const [up] = await db.insert(schema.uploads).values({ tenantId: t.id, refId: "IM-26-c14", filename: "a.xlsx", status: "processed" }).returning({ id: schema.uploads.id });
+    const [lead] = await db
+      .insert(schema.leads)
+      .values({ tenantId: t.id, refId: "LD-26-C1401", uploadId: up.id, dedupeKey: "c14|1", rawJson: {}, partnerId: px.id, city: "Boise", state: "ID", matchMethod: "zip", mlsStatus: "kept" })
+      .returning({ id: schema.leads.id });
+    await releaseTenantLeads(db, t.id);
+    // True orphan: authored AND assigned to PY, an org that does NOT own the lead (owned by PX) —
+    // so neither the assignee nor the author can read it via taskWhere. Nobody to nudge.
+    const [orphan] = await db
+      .insert(schema.leadTasks)
+      .values({ tenantId: t.id, leadId: lead.id, title: "Orphaned task", authorRole: "partner", authorUserId: id.pyUser, assignedToUserId: id.pyUser, dueOn: YESTERDAY })
+      .returning({ id: schema.leadTasks.id });
+    id.orphan = orphan.id;
+    // A deliverable admin task (admin sees all admin-stream tasks) — for the budget test.
+    const [ok] = await db
+      .insert(schema.leadTasks)
+      .values({ tenantId: t.id, leadId: lead.id, title: "Deliverable task", authorRole: "admin", authorUserId: id.admin, assignedToUserId: id.admin, dueOn: YESTERDAY })
+      .returning({ id: schema.leadTasks.id });
+    id.deliverable = ok.id;
+  });
+
+  afterAll(async () => {
+    await dropTenants(db, [SLUG_C14]);
+    await client.end();
+  });
+
+  it("C-14: an orphan increments per tick, retires at MAX + surfaces exactly ONE admin heads-up; never re-probed after", async () => {
+    // One real tick: the counter ticks up, nothing is delivered, nothing retired yet.
+    expect((await sweepC14()).retired).toBe(0);
+    let orphan = await taskRow(id.orphan);
+    expect(orphan.remindedAt).toBeNull(); // never delivered → never stamped
+    expect(orphan.reminderAttempts).toBe(1); // one attempt per tick
+    // Fast-forward to the brink (avoid MAX slow round-trips against the remote pooler), then one
+    // more tick tips it over → retired + admin heads-up.
+    await db.update(schema.leadTasks).set({ reminderAttempts: REMINDER_ATTEMPTS_MAX - 1 }).where(eq(schema.leadTasks.id, id.orphan));
+    expect((await sweepC14()).retired).toBe(1); // retired on the tick that reaches MAX
+    orphan = await taskRow(id.orphan);
+    expect(orphan.reminderAttempts).toBe(REMINDER_ATTEMPTS_MAX);
+    expect(orphan.remindedAt).toBeNull();
+    const notifs = await orphanNotifs();
+    expect(notifs).toHaveLength(1); // exactly one admin heads-up
+    expect(notifs[0].title).toBe("A task reminder couldn't be delivered"); // generic — no task-title PII
+    expect(notifs[0].title).not.toContain("Orphaned task");
+    expect(notifs[0].leadRef).toBe("LD-26-C1401"); // correlated to the lead (C-13 redaction)
+    // Retired: excluded from the sweep now — attempts stays at MAX, no second heads-up.
+    expect((await sweepC14()).retired).toBe(0);
+    expect((await taskRow(id.orphan)).reminderAttempts).toBe(REMINDER_ATTEMPTS_MAX);
+    expect(await orphanNotifs()).toHaveLength(1);
+  }, 60_000);
+
+  it("C-14: the wall-clock budget stops the sweep — a passed deadline claims nothing", async () => {
+    await db.update(schema.leadTasks).set({ remindedAt: null }).where(eq(schema.leadTasks.id, id.deliverable));
+    // deadline already elapsed (clock returns a time after it) → the loop breaks before task 1.
+    const r = await sweepC14({ deadlineMs: 1_000, clockMs: () => 2_000 });
+    expect(r.reminded).toBe(0);
+    expect((await taskRow(id.deliverable)).remindedAt).toBeNull(); // not processed
+    // Sanity: with no budget the same task IS nudged, so the 0 above was the budget, not an empty set.
+    expect((await sweepC14()).reminded).toBeGreaterThanOrEqual(1);
+  }, 45_000);
 });

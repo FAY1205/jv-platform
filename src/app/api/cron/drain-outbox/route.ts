@@ -12,6 +12,12 @@ import { CRON_MONITORS, withCronMonitor } from "@/lib/cron-monitors";
 // F-07: bound the scheduled function's runtime.
 export const maxDuration = 60;
 
+// C-14 / WP-TSK-6a: a wall-clock budget for the (unbounded) reminder sweeps across all tenants. Once
+// real time passes runStart + this, remindDueTasks stops claiming new tasks (remainder next tick), so
+// one tenant's backlog can't push this job past its 60s maxDuration + check-in. Half the budget leaves
+// the other half for release/drain, which run first per tenant.
+const REMINDER_BUDGET_MS = 30_000;
+
 // ACT-05 (ADR-0032): this job's Sentry check-in identity + schedule.
 const MONITOR = CRON_MONITORS["/api/cron/drain-outbox"];
 
@@ -41,10 +47,13 @@ export async function GET(request: Request) {
       // (so a run straddling midnight UTC can't nudge one tenant on two different calendars).
       const now = new Date();
       const today = utcDateString(now);
+      // C-14: the shared reminder-sweep deadline (real elapsed time from run start).
+      const reminderDeadlineMs = now.getTime() + REMINDER_BUDGET_MS;
       let sent = 0;
       let failed = 0;
       let released = 0;
       let tasksReminded = 0;
+      let tasksRetired = 0;
       let drained = 0;
       for (const t of tenants) {
         // Distribution hold: release imports past their 5-min window (enqueues their digests). Kept in
@@ -70,9 +79,9 @@ export async function GET(request: Request) {
         // false-alarm history (ADR-0032 / the drain-outbox monitor). The cost is that a nudge
         // enqueued now ships on the NEXT tick, which for a once-ever reminder is immaterial.
         try {
-          tasksReminded += (
-            await remindDueTasks(db, { tenantId: t.id, appBaseUrl: env.APP_URL, today, now })
-          ).reminded;
+          const r = await remindDueTasks(db, { tenantId: t.id, appBaseUrl: env.APP_URL, today, now, deadlineMs: reminderDeadlineMs });
+          tasksReminded += r.reminded;
+          tasksRetired += r.retired;
         } catch (e) {
           logError("cron_task_reminders_tenant_failed", { tenantId: t.id, message: e instanceof Error ? e.message : String(e) });
         }
@@ -80,7 +89,8 @@ export async function GET(request: Request) {
       // `tasksReminded` counts tasks CLAIMED by the sweep, not messages delivered: a task whose
       // recipient has both channels switched off is consumed silently, so this number can exceed
       // the mail actually sent. Read it as "due tasks processed", never as a delivery metric.
-      return { tenants: drained, released, tasksReminded, sent, failed };
+      // `tasksRetired` (C-14): orphaned tasks retired this run after too many undeliverable ticks.
+      return { tenants: drained, released, tasksReminded, tasksRetired, sent, failed };
     },
   ).then(
     (r) => jsonOk({ code: "ok", ...r }),
