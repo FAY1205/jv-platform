@@ -15,8 +15,11 @@ handle the PII by redacting on void + an age sweep, rather than genericizing the
 ## Definition of done
 
 - **Migration 0049**: `notifications` gains a nullable `lead_ref` (refId string, mirrors
-  `email_outbox.meta.leadRef`) + a partial index `(tenant_id, lead_ref) WHERE lead_ref is not null`,
-  so the purge paths can find a lead's notifications. `createNotification` accepts + stamps it;
+  `email_outbox.meta.leadRef`) so the purge paths can find a lead's notifications. NO index (a
+  `CREATE INDEX` on the now-live table would take a write-blocking ShareLock, forbidden post-launch,
+  and drizzle's transactional migrate can't run `CONCURRENTLY`; the table is small so the redaction
+  seq-scans acceptably — the partial index is deferred to candidate **C-36**, applied via CONCURRENTLY
+  out-of-transaction when volume warrants). `createNotification` accepts + stamps `lead_ref`;
   the three lead-scoped sites stamp it (`task_due`, `status_change`, single `assigned_lead`);
   aggregate notifications (hot_leads/run_summary/bulk-assign) leave it null.
 - **Void + backstop redact comms**: a new shared helper `redact-lead-comms.ts` redacts a lead's

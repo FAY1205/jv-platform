@@ -1,5 +1,5 @@
 {
-  "id": "4edcfcb0-10ee-48d6-b201-0b51ebcd2389",
+  "id": "9b30bec6-a958-468b-ae81-bca3d060a380",
   "prevId": "078ad7ca-7553-4775-b7d2-69d8e3cc5c9e",
   "version": "7",
   "dialect": "postgresql",
@@ -2664,28 +2664,6 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "notifications_tenant_leadref_idx": {
-          "name": "notifications_tenant_leadref_idx",
-          "columns": [
-            {
-              "expression": "tenant_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "lead_ref",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "where": "lead_ref is not null",
           "concurrently": false,
           "method": "btree",
           "with": {}

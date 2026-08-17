@@ -587,9 +587,12 @@ export const notifications = pgTable(
     index("notifications_user_idx").on(t.userId),
     // FK-covering index (db-linter 0001): the tenant_id FK had no leading-column index.
     index("notifications_tenant_idx").on(t.tenantId),
-    // C-13: the void/purge redaction looks up notifications by (tenant, lead_ref). Partial — only
-    // lead-scoped notifications carry a ref, so the index stays small (aggregate rows are excluded).
-    index("notifications_tenant_leadref_idx").on(t.tenantId, t.leadRef).where(sql`lead_ref is not null`),
+    // C-13 note: the void/purge redaction looks up notifications by (tenant, lead_ref). NO index yet
+    // — a `CREATE INDEX` on the now-live table takes a write-blocking ShareLock (forbidden post-launch,
+    // migrations 0027 / WP-J2 spec), and drizzle-kit's transactional migrate can't run CONCURRENTLY.
+    // notifications is small, so the redaction seq-scans acceptably (same cost model as the other
+    // operational sweeps). Add `(tenant_id, lead_ref) WHERE lead_ref is not null` via CONCURRENTLY,
+    // applied out-of-transaction, once volume warrants — tracked as candidate C-36.
   ],
 );
 

@@ -115,6 +115,13 @@ suite("WP-GL-B: retention PII sweep — backstop (DM-09 / LGL-02)", () => {
       { tenantId: tenantA, toAddress: "admin@retention.test", subject: "Task due: call Jane at 555-867-5309", body: "call Jane at 555-867-5309", kind: "task_due", status: "sent", meta: { leadRef: "LD-26-00001" } },
       { tenantId: tenantA, toAddress: "admin@retention.test", subject: "Task due: live lead task stays", body: "live text", kind: "task_due", status: "sent", meta: { leadRef: "LD-26-00002" } },
     ]);
+    // PRN-08 collision fixture: tenant B has a lead with the SAME refId (LD-26-00001, refIds are
+    // per-tenant), plus a notification + outbox row referencing it. Sweeping tenant A must NOT reach
+    // tenant B's comms — proves both UPDATEs in redactLeadCommunications carry the tenant predicate.
+    const adminB = randomUUID();
+    await db.insert(schema.users).values({ id: adminB, tenantId: tenantB, email: "admin@retention-b.test", role: "admin" });
+    await db.insert(schema.notifications).values({ tenantId: tenantB, userId: adminB, type: "task_due", title: "Task due: B-tenant secret", body: "b", leadRef: "LD-26-00001" });
+    await db.insert(schema.emailOutbox).values({ tenantId: tenantB, toAddress: "admin@retention-b.test", subject: "Task due: B-tenant secret", body: "b", kind: "task_due", status: "sent", meta: { leadRef: "LD-26-00001" } });
   });
 
   afterAll(async () => {
@@ -140,6 +147,12 @@ suite("WP-GL-B: retention PII sweep — backstop (DM-09 / LGL-02)", () => {
     const outByRef = Object.fromEntries(outbox.map((o) => [(o.meta as { leadRef: string }).leadRef, o.subject]));
     expect(outByRef["LD-26-00001"]).toBe(REDACTED_OUTBOX_SUBJECT);
     expect(outByRef["LD-26-00002"]).toBe("Task due: live lead task stays");
+    // PRN-08: tenant B's notification + outbox referencing the SAME refId are UNTOUCHED (the sweep of
+    // tenant A must not cross the tenant wall on a colliding refId).
+    const bNotif = await db.select().from(schema.notifications).where(eq(schema.notifications.tenantId, tenantB));
+    expect(bNotif[0].title).toBe("Task due: B-tenant secret");
+    const bOutbox = await db.select().from(schema.emailOutbox).where(eq(schema.emailOutbox.tenantId, tenantB));
+    expect(bOutbox[0].subject).toBe("Task due: B-tenant secret");
 
     const l = await getLead(idSoftDeleted);
     expect(l.sellerFirst).toBeNull();
