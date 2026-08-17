@@ -20,12 +20,22 @@ const CARD_TAG_CAP = 2;
 // columns keyed on their current status (KAN-02). Drag (or the ⋯ "Move to…" menu —
 // KAN-05, the keyboard path) appends a status row through the EXISTING
 // POST /api/leads/{ref}/status: no new write path, history stays append-only (KAN-04).
-// Drag is hand-rolled on native HTML5 DnD — no new dependency (KAN-07), the same
-// house precedent as the map's pan/zoom and the RadioGroup.
+//
+// Drag is hand-rolled on POINTER events — no new dependency (KAN-07), the SAME house
+// precedent as the map's pan/zoom (also pointer-based). This replaced the original
+// native-HTML5-DnD implementation, which the owner reported as "doesn't work": native
+// DnD silently drops (a rejected drop fires no `drop` event), has no touch support, and
+// is untestable under headless automation. The pointer controller is robust across
+// mouse + touch and is exercised by both jsdom and real-browser tests. The drop target
+// is resolved from the pointer's element (`data-column-status`), never from geometry, so
+// the same code path runs in tests (no layout) and in the browser.
 //
 // Perf (KAN-10): server-paginated per column (25); the optimistic cache update returns
 // the SAME object for untouched columns, so a move re-renders only the two columns it
-// touches (BoardColumnView is memoized on those references).
+// touches (BoardColumnView is memoized on those references). The drag itself mutates the
+// DOM imperatively (data-dragging on the card, data-over on the hovered column) so an
+// in-flight drag never re-renders a column — the only React state a drag updates is the
+// cursor-following ghost on the board root, which the memoized columns bail out of.
 
 export interface BoardFilters {
   /** "" = all, a partner uuid, or the "unmatched" sentinel — mirrors the list. */
@@ -65,12 +75,30 @@ interface BoardPayload {
   pageSize: number;
 }
 
-/** What a drag is carrying. Held in a ref (never state) so starting/ending a drag
- *  never re-renders the board — only the column being hovered lights up. */
-interface DragPayload {
+/** Live state of an in-progress pointer drag. Held in a ref (never React state) so a drag
+ *  never re-renders a column — the dragged card and the hovered column are marked via
+ *  imperative DOM attributes (data-dragging / data-over), and the only re-render a drag
+ *  causes is the cursor-following ghost on the board root. */
+interface DragState {
   refId: string;
   from: string;
+  seller: string;
+  startX: number;
+  startY: number;
+  pointerId: number | null;
+  /** false until the pointer has travelled past DRAG_CLICK_THRESHOLD_PX — a press that
+   *  never moves is a click (KAN-06), so no drag begins and the dialog opens. */
+  started: boolean;
+  /** The card's DOM node, so the drag can dim it and un-dim it without a re-render. */
+  cardEl: HTMLElement;
+  /** The status column currently under the pointer that would ACCEPT a drop (never the
+   *  source column), or null. Resolved from the event target, not geometry. */
+  overStatus: string | null;
 }
+
+/** The pointerdown handler a card hands its press to — begins a potential drag. Stable
+ *  identity (built once on the board) so it never costs the memoized columns a re-render. */
+type CardPointerDown = (e: React.PointerEvent, refId: string, from: string, seller: string, cardEl: HTMLElement) => void;
 
 /**
  * TAG-04 — everything a card needs to render + edit its chips, hoisted to the board and
@@ -138,7 +166,6 @@ export function LeadsBoard({
     setPages({});
   }
 
-  const dragRef = React.useRef<DragPayload | null>(null);
   // `mutate` is identity-stable (unlike the mutation object, which changes as its state
   // does) — so the callbacks below stay stable and the memoized columns hold (KAN-10).
   const { mutate } = useMoveCard();
@@ -154,6 +181,101 @@ export function LeadsBoard({
     },
     [mutate, filterKey],
   );
+
+  // ── Pointer-drag controller (KAN-04/06/10) ──────────────────────────────────
+  // Everything a drag needs lives in refs so an in-flight drag never re-renders a column.
+  // The board root (the scroller) scopes the imperative drop-target highlight; onMove is
+  // read through a ref so the window listeners keep a stable identity across re-renders.
+  const scrollerRef = React.useRef<HTMLDivElement>(null);
+  const dragState = React.useRef<DragState | null>(null);
+  // Latest-onMove ref (kept current in an effect, never written during render) so the
+  // window listeners — created once, below — always call the freshest mutation.
+  const onMoveRef = React.useRef(onMove);
+  React.useEffect(() => { onMoveRef.current = onMove; }, [onMove]);
+  // The cursor-following drag ghost — the ONE piece of drag state that re-renders the board
+  // (never a column: their props are identity-stable, so React.memo bails — KAN-10 holds).
+  const [ghost, setGhost] = React.useState<{ x: number; y: number; label: string } | null>(null);
+
+  const clearOver = React.useCallback(() => {
+    scrollerRef.current
+      ?.querySelectorAll<HTMLElement>("[data-over='true']")
+      .forEach((el) => el.removeAttribute("data-over"));
+  }, []);
+  // clearOver reached through a ref so the once-built listeners always see the current one.
+  const clearOverRef = React.useRef(clearOver);
+  React.useEffect(() => { clearOverRef.current = clearOver; }, [clearOver]);
+
+  // The window listeners, built ONCE via a state initializer (stable identities so add/remove
+  // pair up; a state initializer runs once and is not render-phase ref access). They read the
+  // mutable drag state + latest-onMove through refs, so they never need rebinding.
+  const [handlers] = React.useState(() => {
+    const move = (e: PointerEvent) => {
+      const st = dragState.current;
+      if (!st) return;
+      if (st.pointerId != null && e.pointerId != null && e.pointerId !== st.pointerId) return;
+      if (!st.started) {
+        if (Math.hypot(e.clientX - st.startX, e.clientY - st.startY) <= DRAG_CLICK_THRESHOLD_PX) return;
+        // Past the threshold: this is a drag. Dim the card, suppress text selection, and on
+        // touch release the implicit pointer capture so move events target the column under
+        // the finger (not the origin card) — the drop hit-test depends on it.
+        st.started = true;
+        st.cardEl.setAttribute("data-dragging", "true");
+        document.body.style.userSelect = "none";
+        try { st.cardEl.releasePointerCapture?.(e.pointerId); } catch { /* jsdom / unsupported */ }
+      }
+      setGhost({ x: e.clientX, y: e.clientY, label: st.seller });
+      const col = (e.target as HTMLElement | null)?.closest?.("[data-column-status]") as HTMLElement | null;
+      const status = col?.getAttribute("data-column-status") ?? null;
+      const accepts = Boolean(status) && status !== st.from ? status : null;
+      if (accepts !== st.overStatus) {
+        clearOverRef.current();
+        if (accepts && col) col.setAttribute("data-over", "true");
+        st.overStatus = accepts;
+      }
+      e.preventDefault();
+    };
+    const up = (e: PointerEvent) => {
+      const st = dragState.current;
+      window.removeEventListener("pointermove", move, true);
+      window.removeEventListener("pointerup", up, true);
+      window.removeEventListener("pointercancel", up, true);
+      document.body.style.userSelect = "";
+      setGhost(null);
+      clearOverRef.current();
+      dragState.current = null;
+      if (!st) return;
+      st.cardEl.removeAttribute("data-dragging");
+      if (!st.started || e.type === "pointercancel") return;
+      // Prefer the last-tracked accepting column; fall back to the release point's column.
+      let target = st.overStatus;
+      if (!target) {
+        const col = (e.target as HTMLElement | null)?.closest?.("[data-column-status]") as HTMLElement | null;
+        const s = col?.getAttribute("data-column-status") ?? null;
+        target = s && s !== st.from ? s : null;
+      }
+      if (target && target !== st.from) onMoveRef.current(st.refId, st.from, target);
+    };
+    return { move, up };
+  });
+
+  const onCardPointerDown = React.useCallback<CardPointerDown>((e, refId, from, seller, cardEl) => {
+    if (typeof e.button === "number" && e.button > 0) return; // primary button / touch only
+    if (dragState.current) return; // one drag at a time
+    dragState.current = { refId, from, seller, startX: e.clientX, startY: e.clientY, pointerId: e.pointerId, started: false, cardEl, overStatus: null };
+    window.addEventListener("pointermove", handlers.move, true);
+    window.addEventListener("pointerup", handlers.up, true);
+    window.addEventListener("pointercancel", handlers.up, true);
+  }, [handlers]);
+
+  // Belt-and-braces: if the board unmounts mid-drag, tear the window listeners down.
+  React.useEffect(() => {
+    return () => {
+      window.removeEventListener("pointermove", handlers.move, true);
+      window.removeEventListener("pointerup", handlers.up, true);
+      window.removeEventListener("pointercancel", handlers.up, true);
+      document.body.style.userSelect = "";
+    };
+  }, [handlers]);
   const onLoadMore = React.useCallback((status: string) => {
     setPages((p) => ({ ...p, [status]: (p[status] ?? 1) + 1 }));
   }, []);
@@ -185,8 +307,8 @@ export function LeadsBoard({
   // WP-UX-3 (audit 2.1): a horizontal-overflow cue. Seven columns can't fit at 1440, and
   // silently clipping the terminal statuses read as "the pipeline ends at Closed". The
   // scroller reports whether MORE columns exist to the right; the fade scrim renders only
-  // then, and disappears once the user reaches the end.
-  const scrollerRef = React.useRef<HTMLDivElement>(null);
+  // then, and disappears once the user reaches the end. (scrollerRef is declared with the
+  // drag controller above — it doubles as the drop-target-highlight scope.)
   const [moreRight, setMoreRight] = React.useState(false);
   React.useEffect(() => {
     const el = scrollerRef.current;
@@ -233,7 +355,7 @@ export function LeadsBoard({
             filters={stableFilters}
             filterKey={filterKey}
             now={now}
-            dragRef={dragRef}
+            onCardPointerDown={onCardPointerDown}
             tagCtx={tagCtx}
             onOpen={onOpen}
             onMove={onMove}
@@ -250,6 +372,18 @@ export function LeadsBoard({
           />
         )}
       </div>
+      {/* The cursor-following drag ghost. Fixed to the viewport, follows the pointer, and
+          never intercepts events. Offset so it doesn't sit under the cursor's hit-test. */}
+      {ghost && (
+        <div
+          aria-hidden="true"
+          data-testid="board-drag-ghost"
+          className="pointer-events-none fixed z-50 max-w-56 truncate rounded-lg border border-border-strong bg-surface px-2.5 py-1.5 text-xs font-semibold text-text shadow-md"
+          style={{ left: ghost.x + 12, top: ghost.y + 12 }}
+        >
+          {ghost.label}
+        </div>
+      )}
     </Card>
   );
 }
@@ -264,7 +398,7 @@ interface ColumnProps {
   filters: BoardFilters;
   filterKey: string;
   now: Date;
-  dragRef: React.RefObject<DragPayload | null>;
+  onCardPointerDown: CardPointerDown;
   tagCtx: TagContext;
   onOpen: (refId: string) => void;
   onMove: (refId: string, from: string, to: string) => void;
@@ -272,29 +406,11 @@ interface ColumnProps {
 }
 
 const BoardColumnView = React.memo(function BoardColumnView({
-  status, data, loading, pagesLoaded, filters, filterKey, now, dragRef, tagCtx, onOpen, onMove, onLoadMore,
+  status, data, loading, pagesLoaded, filters, filterKey, now, onCardPointerDown, tagCtx, onOpen, onMove, onLoadMore,
 }: ColumnProps) {
-  // Drop-target highlight is column-LOCAL state: hovering one column never re-renders
-  // the other five (KAN-10).
-  const [over, setOver] = React.useState(false);
-
-  const accepts = () => {
-    const d = dragRef.current;
-    return Boolean(d) && d!.from !== status; // the source column is not a drop target
-  };
-  const onDragOver = (e: React.DragEvent) => {
-    if (!accepts()) return;
-    e.preventDefault(); // required for the drop to fire at all
-    if (e.dataTransfer) e.dataTransfer.dropEffect = "move";
-    setOver(true);
-  };
-  const onDrop = (e: React.DragEvent) => {
-    e.preventDefault();
-    setOver(false);
-    const d = dragRef.current;
-    dragRef.current = null;
-    if (d) onMove(d.refId, d.from, status);
-  };
+  // Drop-target highlight is driven imperatively by the board's drag controller (it sets
+  // data-over on the column under the pointer) — so hovering a column during a drag never
+  // re-renders any column (KAN-10). The `data-[over=true]:` variant paints the affordance.
 
   const total = data?.total ?? 0;
   const cards = data?.cards ?? [];
@@ -319,14 +435,10 @@ const BoardColumnView = React.memo(function BoardColumnView({
 
       <div
         data-testid={`board-column-${status}`}
-        data-over={over ? "true" : undefined}
-        onDragOver={onDragOver}
-        onDragLeave={() => setOver(false)}
-        onDrop={onDrop}
-        className={[
-          "flex min-h-[3.5rem] flex-col gap-2 overflow-y-auto rounded-b-lg px-2 pb-2.5 pt-1",
-          over ? "outline outline-2 -outline-offset-4 outline-dashed outline-brand-line" : "",
-        ].join(" ")}
+        // The drag controller resolves the drop target from this attribute (no geometry),
+        // and paints the drop affordance by toggling data-over on it — no re-render.
+        data-column-status={status}
+        className="flex min-h-[3.5rem] flex-col gap-2 overflow-y-auto rounded-b-lg px-2 pb-2.5 pt-1 data-[over=true]:outline data-[over=true]:outline-2 data-[over=true]:-outline-offset-4 data-[over=true]:outline-dashed data-[over=true]:outline-brand-line"
       >
         {loading ? (
           <div className="flex flex-col gap-2 p-1" aria-hidden="true">
@@ -336,7 +448,7 @@ const BoardColumnView = React.memo(function BoardColumnView({
           <EmptyState compact title="No leads" description={`Nothing is in ${status} yet.`} />
         ) : (
           cards.map((c) => (
-            <BoardCardView key={c.refId} card={c} status={status} now={now} dragRef={dragRef} tagCtx={tagCtx} onOpen={onOpen} onMove={onMove} />
+            <BoardCardView key={c.refId} card={c} status={status} now={now} onCardPointerDown={onCardPointerDown} tagCtx={tagCtx} onOpen={onOpen} onMove={onMove} />
           ))
         )}
 
@@ -350,7 +462,7 @@ const BoardColumnView = React.memo(function BoardColumnView({
             filters={filters}
             filterKey={filterKey}
             now={now}
-            dragRef={dragRef}
+            onCardPointerDown={onCardPointerDown}
             tagCtx={tagCtx}
             onOpen={onOpen}
             onMove={onMove}
@@ -374,14 +486,14 @@ const BoardColumnView = React.memo(function BoardColumnView({
 /** One extra page of a column (the "Load more" result). Its own query, its own
  *  loading/error state — the column above it stays rendered either way. */
 function ColumnExtraPage({
-  page, status, filters, filterKey, now, dragRef, tagCtx, onOpen, onMove,
+  page, status, filters, filterKey, now, onCardPointerDown, tagCtx, onOpen, onMove,
 }: {
   page: number;
   status: string;
   filters: BoardFilters;
   filterKey: string;
   now: Date;
-  dragRef: React.RefObject<DragPayload | null>;
+  onCardPointerDown: CardPointerDown;
   tagCtx: TagContext;
   onOpen: (refId: string) => void;
   onMove: (refId: string, from: string, to: string) => void;
@@ -399,7 +511,7 @@ function ColumnExtraPage({
   return (
     <>
       {cards.map((c) => (
-        <BoardCardView key={c.refId} card={c} status={status} now={now} dragRef={dragRef} tagCtx={tagCtx} onOpen={onOpen} onMove={onMove} />
+        <BoardCardView key={c.refId} card={c} status={status} now={now} onCardPointerDown={onCardPointerDown} tagCtx={tagCtx} onOpen={onOpen} onMove={onMove} />
       ))}
     </>
   );
@@ -408,46 +520,34 @@ function ColumnExtraPage({
 // ── one card ─────────────────────────────────────────────────────────────────
 
 const BoardCardView = React.memo(function BoardCardView({
-  card, status, now, dragRef, tagCtx, onOpen, onMove,
+  card, status, now, onCardPointerDown, tagCtx, onOpen, onMove,
 }: {
   card: BoardCardData;
   status: string;
   now: Date;
-  dragRef: React.RefObject<DragPayload | null>;
+  onCardPointerDown: CardPointerDown;
   tagCtx: TagContext;
   onOpen: (refId: string) => void;
   onMove: (refId: string, from: string, to: string) => void;
 }) {
-  const [dragging, setDragging] = React.useState(false);
-  // KAN-06: a press that MOVED is a drag, not a click — so a released drag never
-  // also opens the dialog. Pointer coords live in a ref (no re-render per pointerdown).
+  // KAN-06: a press that MOVED is a drag, not a click — so a released drag never also
+  // opens the dialog. Pointer coords live in a ref (no re-render per pointerdown). The
+  // board's controller owns the drag itself and dims this card via data-dragging.
   const pressRef = React.useRef<{ x: number; y: number } | null>(null);
   const age = boardAge(card.statusSince, now);
   const where = [card.city, card.state].filter(Boolean).join(", ");
 
   return (
     <article
-      draggable
       data-testid={`board-card-${card.refId}`}
-      data-dragging={dragging ? "true" : undefined}
-      onDragStart={(e) => {
-        dragRef.current = { refId: card.refId, from: status };
-        if (e.dataTransfer) {
-          e.dataTransfer.effectAllowed = "move";
-          e.dataTransfer.setData("text/plain", card.refId);
-        }
-        setDragging(true);
-      }}
-      onDragEnd={() => {
-        dragRef.current = null;
-        setDragging(false);
-      }}
       onPointerDown={(e) => {
         pressRef.current = { x: e.clientX, y: e.clientY };
+        onCardPointerDown(e, card.refId, status, card.seller, e.currentTarget);
       }}
       onClick={(e) => {
         const start = pressRef.current;
         pressRef.current = null;
+        // A press that travelled past the threshold was a drag, not a click (KAN-06).
         if (start && Math.hypot(e.clientX - start.x, e.clientY - start.y) > DRAG_CLICK_THRESHOLD_PX) return;
         onOpen(card.refId);
       }}
@@ -455,8 +555,7 @@ const BoardCardView = React.memo(function BoardCardView({
         // `group` hosts the quiet tag-add reveal (WP-UX-3 — the dashed ghost row was the
         // loudest empty chrome on every card; chips render at rest, ＋ appears on hover/focus).
         "group cursor-grab rounded-lg border border-border bg-surface px-2.5 py-2 shadow-xs transition-shadow",
-        "hover:border-border-strong hover:shadow-sm active:cursor-grabbing",
-        dragging ? "opacity-45" : "",
+        "hover:border-border-strong hover:shadow-sm active:cursor-grabbing data-[dragging=true]:opacity-45",
       ].join(" ")}
     >
       <div className="flex items-center gap-1.5">
