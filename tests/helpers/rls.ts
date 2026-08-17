@@ -35,13 +35,25 @@ export const POLICY_VIOLATION = "42501";
 
 /**
  * The RLS ENFORCEMENT suites drive the Supabase `authenticated`/PostgREST role+grant surface
- * (`set role authenticated`, table grants), which a vanilla Postgres — the CI integration service
- * container — does not have (`role "authenticated" does not exist`). Gate those suites on a
- * Supabase DB so CI stays green while the oracle runs in the local/dev loop against the real
- * surface. The pg_policies TEXT assertions in the other suites still run everywhere. Making CI
- * run the oracle (provision Supabase-like roles/grants, or a Supabase branch DB) is C-30.
+ * (`set role authenticated`, table grants), which a vanilla Postgres does not have out of the
+ * box (`role "authenticated" does not exist`, no SELECT grants). Locally this is detected by the
+ * Supabase DATABASE_URL. The pg_policies TEXT assertions in the other suites run everywhere.
  */
 export const IS_SUPABASE_DB = !!process.env.DATABASE_URL && /supabase\./i.test(process.env.DATABASE_URL);
+
+/**
+ * C-30: the enforcement oracle now also runs in CI, not just the local/dev loop. CI's integration
+ * job creates the roles (migration 0044) and, after `db:migrate`, provisions the missing SELECT
+ * grants (tests/helpers/ci-rls-grants.sql) so a vanilla Postgres presents the same surface a real
+ * Supabase DB does post-0045/0046 — then sets RLS_ORACLE=1 to opt these suites in. A regression in
+ * ACTUAL RLS enforcement now fails CI, where before only the pg_policies TEXT assertions did.
+ *
+ * To reproduce a CI-only oracle failure LOCALLY against a plain (non-Supabase) DATABASE_URL, set
+ * RLS_ORACLE=1 AND first run the companion grants — otherwise the suites un-skip without the
+ * SELECT surface and fail with confusing 42501s:
+ *   psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f tests/helpers/ci-rls-grants.sql
+ */
+export const RLS_ORACLE_ENABLED = IS_SUPABASE_DB || process.env.RLS_ORACLE === "1";
 
 /** The lead-family tables whose write DML is revoked from anon/authenticated (WP-SEC-3, migration
  *  0045). Single source of truth shared by the oracle's in-txn grant and the rls-grants tests —
