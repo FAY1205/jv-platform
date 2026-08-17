@@ -47,7 +47,7 @@ export function jsonServerError(code: string, message: string, detail: Record<st
   return jsonError(code, message, 500, traceId);
 }
 
-/** C-3 (SEC-08 availability): a TRANSIENT backend outage — not the caller's fault and expected to
+/** C-3 (SEC-09 availability): a TRANSIENT backend outage — not the caller's fault and expected to
  *  recover — returns 503 + `Retry-After` so a client or uptime monitor backs off instead of treating
  *  it as a hard failure. Same log-with-shared-traceId contract as jsonServerError (SEC-05 detail).
  *  Use only where the fault is genuinely retryable AND account-independent (a 503 vs 500 must not

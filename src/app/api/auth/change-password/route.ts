@@ -126,6 +126,11 @@ export async function POST(request: Request) {
     succeeded = true;
     return jsonOk({ code: "ok", message: "Password updated." });
   } finally {
+    // NB (audit-security F-2): unlike login, the infra-outage path (503 above) is ALSO settled here
+    // (succeeded=false). Intentional and harmless — change-password uses the SLIDING window
+    // (rateDecisionWithSelf), not the AUT-04 lockout ladder, and reserve() already created the window
+    // row, so settle(false) vs no-settle changes the rate count by zero. Do NOT "fix" it to match
+    // login's no-settle: composing the ladder here would let a session-hijacker lock the real owner out.
     await attempts.settle(attemptId, succeeded);
   }
 }
