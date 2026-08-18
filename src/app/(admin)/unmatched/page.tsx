@@ -16,6 +16,7 @@ import type { StateCoverage } from "@/modules/coverage/map";
 import { US_STATES } from "@/lib/us-states";
 import { googleSearchUrl } from "@/lib/search-links";
 import { formatWaiting, waitingTone } from "@/lib/waiting";
+import { LABEL_SEPARATOR } from "@/lib/geo/us-state-anchors";
 
 // ASN-03: the unmatched inbox. A clear "how big is the backlog" header whose state
 // chips FILTER the table (T3, owner note #4), the real county choropleth (same map
@@ -298,7 +299,10 @@ function UnmatchedBody() {
   // MAP-06: one on-map chip per gap state, formatted HERE from the stats the page already
   // holds — the map derives nothing (PRN-15). "—" (no state on the record) has no geography
   // and is already filtered out of `gapStates`, so it is never labeled.
-  const stateLabels = React.useMemo(() => gapStates.map((g) => ({ code: g.state, text: `${g.state} · ${g.count}` })), [gapStates]);
+  const stateLabels = React.useMemo(
+    () => gapStates.map((g) => ({ code: g.state, text: `${g.state}${LABEL_SEPARATOR}${g.count}` })),
+    [gapStates],
+  );
   // The gap choropleth: states WITH unmatched leads are shaded by volume (light → dark amber,
   // the hover names the exact count); everything else is calm neutral land — an uncolored
   // state here means "no unmatched leads", not "uncovered" (that's the Coverage page's story).

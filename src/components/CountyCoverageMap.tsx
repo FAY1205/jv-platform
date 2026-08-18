@@ -3,7 +3,7 @@
 import * as React from "react";
 import type { StateCoverage, CountyCoverage } from "@/modules/coverage/map";
 import { stateCodeForCounty } from "@/lib/geo/us-state-fips";
-import { STATE_LABEL_ANCHORS, LABEL_CHIP_HEIGHT, labelChipWidth, type StateLabelAnchor } from "@/lib/geo/us-state-anchors";
+import { STATE_LABEL_ANCHORS, LABEL_CHIP_HEIGHT, LABEL_SEPARATOR, labelChipWidth, type StateLabelAnchor } from "@/lib/geo/us-state-anchors";
 import { PartnerTag } from "./PartnerTag";
 import { Skeleton } from "./Skeleton";
 import { MapHatch, MapCaption, PARTNER_FILL_OPACITY, DIMMED_FILL_OPACITY, type MapCaptionProps } from "./map";
@@ -56,8 +56,8 @@ export interface StateMapLabel {
 
 // The chip splits its text at the FIRST " · " so the datum gets the max-contrast ink: the code
 // reads as `--text-2`, the separator `--text-3`, the count `--text` at 600 (ADR-0050 / PRN-14).
-// Pure — no measurement, no locale, same input ⇒ same output.
-const LABEL_SEPARATOR = " · ";
+// Pure — no measurement, no locale, same input ⇒ same output. The separator is the SHARED
+// constant (us-state-anchors) so the page's label text and this splitter can never drift.
 function splitStateLabel(text: string): { head: string; tail: string | null } {
   const i = text.indexOf(LABEL_SEPARATOR);
   return i < 0 ? { head: text, tail: null } : { head: text.slice(0, i), tail: text.slice(i + LABEL_SEPARATOR.length) };
@@ -223,7 +223,9 @@ export function CountyCoverageMap({ states, counties = [], selectedPartnerId = n
 
   // ── Opt-in state-label layer (MAP-06, ADR-0050) ─────────────────────────────────────────
   // Resolve each label to its committed anchor. Recomputes only when the (memoized) label
-  // array or the zoom scale changes — nothing here listens to hover or pointer state.
+  // array changes — deliberately NOT on view.s: the counter-scale factor 1/view.s is applied
+  // directly in the per-label transform below, so zoom never re-triggers this resolution
+  // pass. Nothing here listens to hover or pointer state either.
   const anchored = React.useMemo(() => {
     if (!stateLabels) return null;
     const out: { code: string; text: string; anchor: StateLabelAnchor }[] = [];

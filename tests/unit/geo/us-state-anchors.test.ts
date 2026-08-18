@@ -106,9 +106,9 @@ describe("MAP-06: us-state-anchors label table", () => {
   });
 
   it("MAP-06: labelChipWidth is a pure function of character count (fixed-advance mono)", () => {
-    expect(labelChipWidth("NE · 7")).toBeCloseTo(58.8, 5); // 6 chars — the spec's worked example
+    expect(labelChipWidth("NE · 7")).toBeCloseTo(60.8, 5); // 6 chars × 7.8 + 14
     expect(labelChipWidth("MM · 999")).toBeCloseTo(LABEL_CHIP_WIDTH_MAX, 5); // 8 chars = worst case
-    expect(labelChipWidth("")).toBe(12); // padding only
+    expect(labelChipWidth("")).toBe(14); // padding only (incl. the +2 fallback-metrics margin)
     expect(labelChipWidth("abcdef")).toBe(labelChipWidth("NE · 7")); // count, not glyph identity
   });
 });

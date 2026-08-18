@@ -101,12 +101,12 @@ describe("CountyCoverageMap — MAP-06 state label layer", () => {
     expect(count.getAttribute("font-weight")).toBe("600");
   });
 
-  it("MAP-06: chip width is the pure function of character count (7.8 × chars + 12)", async () => {
+  it("MAP-06: chip width is the pure function of character count (7.8 × chars + 14)", async () => {
     const { container } = await renderMap({ stateLabels: [{ code: "TX", text: "TX · 7" }] });
     const rect = container.querySelector('[data-map-label="TX"] rect')!;
-    expect(Number(rect.getAttribute("width"))).toBeCloseTo(58.8, 5); // 6 chars
+    expect(Number(rect.getAttribute("width"))).toBeCloseTo(60.8, 5); // 6 chars × 7.8 + 14
     expect(Number(rect.getAttribute("height"))).toBe(20);
-    expect(Number(rect.getAttribute("x"))).toBeCloseTo(-29.4, 5); // centered on the anchor
+    expect(Number(rect.getAttribute("x"))).toBeCloseTo(-30.4, 5); // centered on the anchor
   });
 
   it("MAP-06: the layer is presentational — aria-hidden and pointer-events none", async () => {

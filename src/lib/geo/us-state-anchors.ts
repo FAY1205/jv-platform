@@ -42,8 +42,9 @@
 //           south in the order VT, NH, MA, RI, CT, NJ, DE, MD, DC with 26 units of vertical
 //           spacing (≥ 24 required so worst-case chips can never touch at s = 1). Each keeps a
 //           `leader` at its own interior pole. The column starts at y = 228 — below Long
-//           Island's easternmost reach (y ≈ 216) — and its worst-case chips span x 880.8–955.2,
-//           clear of both NJ's coast (x ≤ 880.7) and the viewBox edge. Being a static table
+//           Island's easternmost reach (y ≈ 216) — and its worst-case chips span x 879.8–956.2,
+//           inside the viewBox with room to spare; the ≤1px graze of NJ's coast (x ≤ 880.7)
+//           is harmless — the chip is opaque, and in-place chips sit on land by design. Being a static table
 //           makes the stack deterministic: no runtime collision solver, ever.
 //   - FL, LA, MI, ID, OK and every other state whose naive center falls outside its own
 //           boundary need no manual value — step 2 above already resolves them (FL lands on
@@ -55,11 +56,19 @@
  *  terms of it (PRN-15: one home for the number). */
 export const LABEL_CHIP_HEIGHT = 20;
 /** Worst-case label ("MM · 999", 8 characters) — the footprint the anchor table is spaced for. */
-export const LABEL_CHIP_WIDTH_MAX = 74.4;
-/** Chip width for a label of `text`: 0.6em × 13px per character + 6px padding on each side. */
+export const LABEL_CHIP_WIDTH_MAX = 76.4;
+/** Chip width for a label of `text`: 0.6em × 13px per character + padding. The padding carries
+ *  a +2px safety margin (review F-2): 7.8px/char assumes IBM Plex Mono's exact 0.6em advance,
+ *  and during the next/font display:swap window a fallback mono face's metrics are close but
+ *  not guaranteed identical — the margin keeps the text on the opaque chip even then. */
 export function labelChipWidth(text: string): number {
-  return 7.8 * text.length + 12;
+  return 7.8 * text.length + 14;
 }
+
+/** The one " · " the page's label text and the chip's tone-splitting share (review F-4):
+ *  each side importing this constant is what keeps splitStateLabel finding the separator
+ *  the page actually wrote. */
+export const LABEL_SEPARATOR = " · ";
 
 export interface StateLabelAnchor {
   /** Chip center. */
@@ -74,7 +83,7 @@ export interface StateLabelAnchor {
 export const STATE_LABEL_ANCHORS: Readonly<Record<string, StateLabelAnchor>> = {
   AK: { x: 154.5, y: 489.5 },
   AL: { x: 693.5, y: 434.5 },
-  AR: { x: 586.5, y: 375.5 },
+  AR: { x: 590.5, y: 375.5 },
   AZ: { x: 249.5, y: 376.5 },
   CA: { x: 134.5, y: 306.5 },
   CO: { x: 353.5, y: 279.5 },
@@ -93,7 +102,7 @@ export const STATE_LABEL_ANCHORS: Readonly<Record<string, StateLabelAnchor>> = {
   LA: { x: 587.5, y: 441.5 },
   MA: { x: 918, y: 280, leader: { x: 904.5, y: 167.5 } },
   MD: { x: 918, y: 410, leader: { x: 835.5, y: 250.5 } },
-  ME: { x: 922.5, y: 93.5 },
+  ME: { x: 921, y: 93.5 },
   MI: { x: 702.5, y: 195.5 },
   MN: { x: 549.5, y: 115.5 },
   MO: { x: 584.5, y: 304.5 },

@@ -84,8 +84,10 @@ Canonicalizes the frontend patterns this codebase follows. Authority order:
 - Color never carries meaning alone: partner name + `JV-###` accompany every color —
   bars, rails, legends, exports (SC 1.4.1). Fills keep AA text contrast (SC 1.4.3) in
   both themes, **no exceptions**. (The former ADR-0024 carve-out for on-fill map labels
-  was retired with the hex `CoverageMap` — ADR-0029; the county map never draws
-  on-fill text.)
+  was retired with the hex `CoverageMap` — ADR-0029; the county map draws no text
+  directly on a tinted fill. The Unmatched gap map's opt-in state-label layer,
+  ADR-0050, is a different, compliant mechanism — an opaque `--surface` backing chip,
+  never text on the tint itself — and does not reopen the ADR-0024 exception.)
 - Keyboard: modals trap focus, Esc closes, focus returns to the opener; menus/selects
   operable without a pointer (SC 2.1.1); `focus-visible` styling on every interactive
   element (SC 2.4.7).
