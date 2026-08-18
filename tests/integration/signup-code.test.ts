@@ -55,6 +55,8 @@ suite("SCP-06: signup invitation codes", () => {
           await db.delete(schema.mlsPatterns).where(eq(schema.mlsPatterns.tenantId, id));
           await db.delete(schema.sourceProfiles).where(eq(schema.sourceProfiles.tenantId, id));
           await db.delete(schema.settings).where(eq(schema.settings.tenantId, id));
+          // Phase C: release the workspace-owner pin (RESTRICT FK, 0054) before deleting the seat.
+          await db.update(schema.tenants).set({ ownerUserId: null }).where(eq(schema.tenants.id, id));
           await db.delete(schema.users).where(eq(schema.users.tenantId, id));
           await db.delete(schema.tenants).where(eq(schema.tenants.id, id));
         } catch {

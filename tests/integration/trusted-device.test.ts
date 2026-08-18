@@ -28,7 +28,7 @@ suite("AUT-10: trusted-device rotation + reuse detection", () => {
     await db.delete(schema.tenants).where(eq(schema.tenants.slug, SLUG));
     const [t] = await db.insert(schema.tenants).values({ name: "Trust Iso", slug: SLUG }).returning({ id: schema.tenants.id });
     tenantId = t.id;
-    await db.insert(schema.users).values({ id: userId, tenantId, email: "trust@iso.test", role: "partner", partnerId: null });
+    await db.insert(schema.users).values({ id: userId, tenantId, email: "trust@iso.test", role: "admin" });
   });
 
   afterAll(async () => {

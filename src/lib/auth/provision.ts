@@ -81,6 +81,9 @@ export async function provisionAdmin(
 
 /** Remove a provisioned admin (auth user + users row). For test/dev cleanup only. */
 export async function deprovisionAdmin(admin: SupabaseClient, db: DB, userId: string): Promise<void> {
+  // Phase C (audit-tenancy F-1): release a workspace-owner pin before the RESTRICT FK sees
+  // the delete (tenants.owner_user_id, migration 0054).
+  await db.update(schema.tenants).set({ ownerUserId: null }).where(eq(schema.tenants.ownerUserId, userId));
   await db.delete(schema.users).where(eq(schema.users.id, userId));
   await admin.auth.admin.deleteUser(userId);
 }

@@ -134,6 +134,14 @@ async function purgeAbandonedSignup(
       .delete(schema.auditLog)
       .where(and(tenantIdWhere(schema.auditLog, tenantId), eq(schema.auditLog.action, "tenant.signup_provisioned")));
     await tx.delete(schema.tosAcceptances).where(eq(schema.tosAcceptances.userId, userId));
+    // Phase C (audit-tenancy F-1): tenants.owner_user_id → users.id is ON DELETE RESTRICT
+    // (migration 0054), and this abandoned tenant's founding admin IS its pinned owner.
+    // Release the pin before deleting the seat, or the whole purge rolls back every tick
+    // and the signup's PII is retained forever.
+    await tx
+      .update(schema.tenants)
+      .set({ ownerUserId: null })
+      .where(and(eq(schema.tenants.id, tenantId), eq(schema.tenants.ownerUserId, userId)));
     await tx.delete(schema.users).where(eq(schema.users.id, userId));
     // By userId (not a single verificationId) so a resend path's sibling rows leave no residue (item I).
     await tx.delete(schema.signupVerifications).where(eq(schema.signupVerifications.userId, userId));

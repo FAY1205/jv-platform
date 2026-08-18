@@ -379,13 +379,17 @@ suite("TSK-09: reminder sweep isolation + recipient refusal", () => {
     id.adminA = randomUUID();
     id.pxUser = randomUUID();
     id.pyUser = randomUUID();
-    id.orphanUser = randomUUID(); // role=partner, partner_id NULL — cannot be scoped at all
+    // Phase C: the old fixture here (role=partner, partner_id NULL) is now IMPOSSIBLE at
+    // write time (SCP-08 CHECK, migration 0054). The equivalent unresolvable recipient is a
+    // MEMBER assigned to a PARTNER-stream task: the staff arm of taskWhere only reads the
+    // admin stream, so they cannot see it and the sweep must skip them, not throw.
+    id.orphanUser = randomUUID();
     id.adminB = randomUUID();
     await db.insert(schema.users).values([
       { id: id.adminA, tenantId: ta.id, email: "admin@tr-scope.test", role: "admin" as const },
       { id: id.pxUser, tenantId: ta.id, email: "px@tr-scope.test", role: "partner" as const, partnerId: px.id },
       { id: id.pyUser, tenantId: ta.id, email: "py@tr-scope.test", role: "partner" as const, partnerId: py.id },
-      { id: id.orphanUser, tenantId: ta.id, email: "orphan@tr-scope.test", role: "partner" as const, partnerId: null },
+      { id: id.orphanUser, tenantId: ta.id, email: "orphan@tr-scope.test", role: "member" as const, partnerId: null },
       { id: id.adminB, tenantId: tb.id, email: "admin@tr-scope-b.test", role: "admin" as const },
     ]);
 
@@ -410,7 +414,7 @@ suite("TSK-09: reminder sweep isolation + recipient refusal", () => {
         { tenantId: ta.id, leadId: leadA.id, title: "Cross-tenant assignee", authorRole: "admin", authorUserId: id.adminA, assignedToUserId: id.adminB, dueOn: YESTERDAY },
         // Assignee is a partner user of ANOTHER ORG in the same tenant.
         { tenantId: ta.id, leadId: leadA.id, title: "Cross-org assignee", authorRole: "partner", authorUserId: id.pxUser, assignedToUserId: id.pyUser, dueOn: YESTERDAY },
-        // Assignee is a partner-role user with no org — unscopeable, must fail closed.
+        // Assignee is a member on a partner-stream task (cannot see it) — unscopeable, must fail closed.
         { tenantId: ta.id, leadId: leadA.id, title: "Orphan assignee", authorRole: "partner", authorUserId: id.pxUser, assignedToUserId: id.orphanUser, dueOn: YESTERDAY },
         // Tenant B's own due task: tenant A's sweep must not see, stamp, or mail it.
         { tenantId: tb.id, leadId: leadB.id, title: "Tenant B task", authorRole: "admin", authorUserId: id.adminB, assignedToUserId: id.adminB, dueOn: YESTERDAY },
@@ -451,9 +455,12 @@ suite("TSK-09: reminder sweep isolation + recipient refusal", () => {
     expect((await notificationsFor(id.pxUser)).filter((n) => n.title === "Task due: Cross-org assignee")).toHaveLength(1);
   });
 
-  it("TSK-09: a partner-role user with no partner_id is skipped, not thrown on", async () => {
-    // The fail-closed branch: an unscopeable user is treated as "cannot see" rather than
-    // reaching requirePartner, which would throw and abort the whole task.
+  it("TSK-09: an assignee who cannot SEE the task (member on a partner-stream task) is skipped, not thrown on", async () => {
+    // The fail-closed branch, Phase C shape: a member assignee on a partner-stream task is
+    // refused by taskVisibleTo (staff arm reads only the admin stream), so the sweep skips
+    // them and nudges the author instead. (The pre-0054 fixture — a partner row with no
+    // partner_id — is now impossible via the SCP-08 CHECK; resolveRecipient keeps that
+    // guard as defense-in-depth.)
     expect(await notificationsFor(id.orphanUser)).toHaveLength(0);
     expect((await notificationsFor(id.pxUser)).filter((n) => n.title === "Task due: Orphan assignee")).toHaveLength(1);
     expect((await taskRow(id["task:Orphan assignee"])).remindedAt).not.toBeNull();

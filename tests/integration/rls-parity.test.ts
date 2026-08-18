@@ -4,6 +4,7 @@ import postgres from "postgres";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import * as schema from "@/db/schema";
+import { pgErrorInfo } from "@/lib/db/pg-error";
 import { noteWhere, taskWhere, statusHistoryWhere, type ScopeContext } from "@/lib/scope";
 import { asRole, probeWrite, RLS_ORACLE_ENABLED, type RlsClaims } from "../helpers/rls";
 
@@ -59,14 +60,13 @@ suite("RLP: RLS parity + author-role pin (enforced)", () => {
     id.adminUser = randomUUID();
     id.pxUser = randomUUID();
     id.pyUser = randomUUID();
-    // The pathological row SCP-01 guards: an ADMIN user carrying a stray partner_id (PX).
-    // users.partner_id has no role invariant (ADR-0044 F-10 says it is immutable, but nothing
-    // stops this shape existing), so the own-org-author subquery must pin role='partner'.
-    id.adminStray = randomUUID();
+    // Phase C / SCP-08: the pathological row SCP-01 guarded — an ADMIN user carrying a stray
+    // partner_id — is now IMPOSSIBLE at write time (users_partner_link_matches_role CHECK,
+    // migration 0054). The RLP-09 legs below assert the refusal instead of read-time filtering;
+    // the role='partner' pins in the policies remain as defense-in-depth text.
     await db.insert(schema.users).values({ id: id.adminUser, tenantId: t.id, email: "admin@rlp.test", role: "admin" });
     await db.insert(schema.users).values({ id: id.pxUser, tenantId: t.id, email: "px@rlp.test", role: "partner", partnerId: px.id });
     await db.insert(schema.users).values({ id: id.pyUser, tenantId: t.id, email: "py@rlp.test", role: "partner", partnerId: py.id });
-    await db.insert(schema.users).values({ id: id.adminStray, tenantId: t.id, email: "stray@rlp.test", role: "admin", partnerId: px.id });
 
     const [up] = await db.insert(schema.uploads).values({ tenantId: t.id, refId: "IM-26-301", filename: "a.xlsx", status: "processed" }).returning({ id: schema.uploads.id });
     id.upload = up.id;
@@ -91,12 +91,8 @@ suite("RLP: RLS parity + author-role pin (enforced)", () => {
 
     // A partner note on leadZ authored by PX's org (before the re-route). PY now owns leadZ.
     await db.insert(schema.leadNotes).values({ tenantId: t.id, leadId: leadZ.id, authorUserId: id.pxUser, authorRole: "partner", body: "X-ORG note on re-routed Z" });
-    // A partner-stream note authored by the ADMIN-STRAY user (pathological SCP-01 row) on leadX.
-    await db.insert(schema.leadNotes).values({ tenantId: t.id, leadId: leadX.id, authorUserId: id.adminStray, authorRole: "partner", body: "STRAY-authored note on X" });
     // A genuine PX partner note on leadX (control: must stay visible to PX).
     await db.insert(schema.leadNotes).values({ tenantId: t.id, leadId: leadX.id, authorUserId: id.pxUser, authorRole: "partner", body: "PX genuine note on X" });
-    // Same pathological shape for tasks (SCP-01 covers taskWhere too).
-    await db.insert(schema.leadTasks).values({ tenantId: t.id, leadId: leadX.id, authorUserId: id.adminStray, authorRole: "partner", title: "STRAY-authored task on X" });
     await db.insert(schema.leadTasks).values({ tenantId: t.id, leadId: leadX.id, authorUserId: id.pxUser, authorRole: "partner", title: "PX genuine task on X" });
 
     // C-8 / WP-TSK-2a: a STILL-HELD lead owned by PX (default created_at = now, NOT released), with
@@ -223,17 +219,29 @@ suite("RLP: RLS parity + author-role pin (enforced)", () => {
     expect(out.effected).toBe(1);
   });
 
-  // ── RLP-09 / SCP-01: the own-org-author subquery must pin role='partner' ──
-  it("RLP-09/SCP-01: (RED before fix) an admin-stray-partner_id author is not counted into PX's notes", async () => {
+  // ── RLP-09 / SCP-01 → SCP-08: the pathological author row is refused at WRITE time ──
+  it("SCP-08: a non-partner row carrying a partner_id is refused by the CHECK (the stray-author class is impossible)", async () => {
+    // Before migration 0054 these legs proved noteWhere/taskWhere FILTERED a stray-admin
+    // author out at read time (SCP-01). The CHECK moves the guarantee to write time: the
+    // row that made the leak possible can no longer exist, for ANY non-partner tier.
+    for (const role of ["admin", "member", "viewer"] as const) {
+      const err = await db
+        .insert(schema.users)
+        .values({ id: randomUUID(), tenantId: id.tenant, email: `stray-${role}@rlp.test`, role, partnerId: id.px })
+        .then(() => null, (e: unknown) => pgErrorInfo(e));
+      expect(err?.code, `${role} stray link refused`).toBe("23514");
+    }
+    // And the inverse corruption: a partner row with NO org is refused the same way.
+    const orgless = await db
+      .insert(schema.users)
+      .values({ id: randomUUID(), tenantId: id.tenant, email: "orgless@rlp.test", role: "partner", partnerId: null })
+      .then(() => null, (e: unknown) => pgErrorInfo(e));
+    expect(orgless?.code, "orgless partner refused").toBe("23514");
+    // The genuine-author controls still resolve through the guards.
     const bodies = (await db.select({ body: schema.leadNotes.body }).from(schema.leadNotes).where(noteWhere(pxScope(), db))).map((r) => r.body);
-    expect(bodies).toContain("PX genuine note on X"); // genuine PX author stays
-    expect(bodies).not.toContain("STRAY-authored note on X"); // admin-with-partner_id excluded
-  });
-
-  it("RLP-09/SCP-01: (RED before fix) an admin-stray-partner_id author is not counted into PX's tasks", async () => {
+    expect(bodies).toContain("PX genuine note on X");
     const titles = (await db.select({ title: schema.leadTasks.title }).from(schema.leadTasks).where(taskWhere(pxScope(), db))).map((r) => r.title);
     expect(titles).toContain("PX genuine task on X");
-    expect(titles).not.toContain("STRAY-authored task on X");
   });
 
   it("RLP-09/SCP-01: the RLS author subqueries carry role='partner' (0044 half)", async () => {
@@ -251,19 +259,17 @@ suite("RLP: RLS parity + author-role pin (enforced)", () => {
     }
   });
 
-  it("RLP-09/SCP-01: (RLS enforcement) an admin-stray author is excluded from PX's notes AND tasks via the authenticated surface", async () => {
-    // The RLS-layer counterpart to the two app-layer SCP-01 tests above (pr-reviewer F-1): prove
-    // Postgres — not just noteWhere/taskWhere — excludes the pathological admin-with-partner_id row.
+  it("RLP-09/SCP-01: (RLS enforcement) PX's authenticated reads resolve only genuine own-org authors", async () => {
+    // The stray-author fixture is impossible post-SCP-08 (see the CHECK test above); what
+    // remains provable here is that the authenticated surface still resolves the genuine set.
     const noteBodies = await asRole(db, pxClaims(), async (tx) =>
       (await tx.select({ body: schema.leadNotes.body }).from(schema.leadNotes)).map((r) => r.body),
     );
     expect(noteBodies).toContain("PX genuine note on X");
-    expect(noteBodies).not.toContain("STRAY-authored note on X");
     const taskTitles = await asRole(db, pxClaims(), async (tx) =>
       (await tx.select({ title: schema.leadTasks.title }).from(schema.leadTasks)).map((r) => r.title),
     );
     expect(taskTitles).toContain("PX genuine task on X");
-    expect(taskTitles).not.toContain("STRAY-authored task on X");
   });
 
   it("RLP-07: (revert leg) reverting the re-route restores the prior org's note to PX and hides it from PY (ADR-0046 rule 5)", async () => {

@@ -6,8 +6,16 @@
 
 ## Context
 
-Migrations are applied by `drizzle-kit migrate`, which runs **each migration file in a single
-transaction** and applies the SQL in journal order (`src/db/migrations`, drizzle.config.ts). Two
+Migrations are applied by `drizzle-kit migrate`, which applies the SQL in journal order
+(`src/db/migrations`, drizzle.config.ts) and wraps **every migration file still pending at apply
+time into ONE transaction** — `drizzle-orm/pg-core`'s `PgDialect.migrate` opens a single
+`session.transaction(...)` around the whole pending loop, not one per file (verified in
+`drizzle-orm@0.45.2`'s `pg-core/dialect.cjs`; WP-ROLE-3 audit-data F-1 corrected this ADR, which
+originally claimed per-file transactions). Consequences: if N migrations are new since the last
+apply, **all N commit or roll back together** — a mid-batch failure rolls back every migration in
+that merge, including any `ALTER TYPE ADD VALUE` (transactional and rollback-safe since PG 12,
+though a new enum value stays unusable by ANY statement in the same batch); and the
+`CONCURRENTLY` restriction below applies to the whole batch, not per file. Two
 recurring realities do not fit that model, and both have already been worked around twice by hand:
 
 1. **Some migrations are hand-authored SQL that `drizzle-kit generate` cannot produce.** RLS
@@ -61,6 +69,12 @@ Promote the twice-written rule to the spec (**DM-13**, §5) and record the two m
    `src/db/manual/` with a run note.
 
 ## Consequences
+
+- **CHECK/FK adds on populated tables (WP-ROLE-3 audit-data F-4):** `ADD CONSTRAINT` without
+  `NOT VALID` takes an ACCESS EXCLUSIVE lock for the validating scan. Acceptable only below the
+  DM-13 populated-table bar (0054's `users` CHECK shipped while users has single-digit rows);
+  once real seat counts exist, split into `ADD CONSTRAINT ... NOT VALID` + a separate
+  `VALIDATE CONSTRAINT` step.
 
 - **Easier:** the next author of a prod index/column add, or of an RLS/grant migration, inherits
   the rule (DM-13) instead of rediscovering the `ShareLock`/`CONCURRENTLY`/txn constraints. The

@@ -64,6 +64,27 @@ export async function sweepOtpChallenges(db: DB, opts: { now?: Date; limit?: num
   });
 }
 
+// ── team_invites (Phase C, audit-tenancy F-8) — expiresAt-anchored, because RESEND re-issues
+// the expiry (created_at stays original): any row whose expiry passed more than the margin ago
+// is inert whatever its state (accepted, revoked, or simply expired), and no live link can point
+// at it. Retains the invitee's email only ~7 days past the last possible use (SET-08 posture);
+// the audit_log rows are the durable record of who was invited.
+export function teamInvitesCutoff(now: Date): Date {
+  return new Date(now.getTime() - AUTH_TABLE_RETENTION_MARGIN_MS);
+}
+
+export async function sweepTeamInvites(db: DB, opts: { now?: Date; limit?: number } = {}): Promise<{ deleted: number }> {
+  const now = opts.now ?? new Date();
+  const T = schema.teamInvites;
+  return batchedDeleteByAge(db, {
+    table: T,
+    id: T.id,
+    orderBy: T.expiresAt,
+    where: lte(T.expiresAt, teamInvitesCutoff(now)),
+    limit: opts.limit ?? AUTH_TABLE_SWEEP_BATCH,
+  });
+}
+
 // ── reset_tokens (AUT-06) — createdAt-anchored. ResetStore.findByHash looks a token up; verifyResetToken
 // then rejects it once past expiresAt (RESET_TTL_MS, 30m). A row older than the TTL is unusable; used
 // rows are single-use.

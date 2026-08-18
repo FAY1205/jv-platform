@@ -21,7 +21,10 @@ import { sql } from "drizzle-orm";
 // the SQL migration alongside this schema (API-04). Timestamps are UTC (DM-05).
 // ─────────────────────────────────────────────────────────────────────────────
 
-export const roleEnum = pgEnum("role", ["admin", "partner"]);
+// Phase C (ADR-0049): `member`/`viewer` are ADMIN-STREAM tiers — data shape follows the
+// stream (lib/scope isPartnerStream), allow/deny follows the tier (lib/authz). The
+// workspace owner is NOT an enum value: tenants.owner_user_id points at an admin.
+export const roleEnum = pgEnum("role", ["admin", "partner", "member", "viewer"]);
 export const partnerStatusEnum = pgEnum("partner_status", [
   "not_invited",
   "invited",
@@ -64,6 +67,12 @@ export const tenants = pgTable("tenants", {
   // stay exempt from the admin ToS gate — they have no acceptance record, so gating every
   // admin would lock the owner out of their own app.
   selfServe: boolean("self_serve").notNull().default(false),
+  // Phase C (ADR-0049): the WORKSPACE OWNER — the tenant's root admin seat; cannot be
+  // demoted/deactivated by anyone, only owner transfer moves it. Nullable: bare test
+  // tenants have no admin; pre-existing tenants were backfilled to their earliest admin
+  // (migration 0054); provisioning sets it for new tenants. ("Workspace owner" ≠ the
+  // ADR-0040 env-allowlist "platform owner".)
+  ownerUserId: uuid("owner_user_id"),
   createdAt: createdAt(),
 });
 
@@ -77,13 +86,66 @@ export const users = pgTable(
       .references(() => tenants.id),
     email: text("email").notNull(),
     role: roleEnum("role").notNull(),
+    // SCP-08 (migration 0054 CHECK): (role = 'partner') ⇔ (partner_id IS NOT NULL) —
+    // role and partner link move together on every provisioning path.
     partnerId: uuid("partner_id"),
+    // Phase C seat lifecycle: a deactivated seat is refused a session (resolveScope) but
+    // the row persists — authored notes/tasks/history stay attributed. Never hard-delete.
+    deactivatedAt: timestamp("deactivated_at", { withTimezone: true }),
     createdAt: createdAt(),
   },
   (t) => [
     index("users_tenant_idx").on(t.tenantId),
     uniqueIndex("users_tenant_email_idx").on(t.tenantId, t.email),
   ],
+);
+
+// Phase C (ADR-0049): staff invite flow — auth-plane table (ADR-0042 posture: deny-all
+// RLS, owner-connection only; the token is SHA-256-hashed at rest, AUT-09 constant-time
+// compare on accept). `role` is TEXT app-validated to admin|member|viewer (a CHECK would
+// couple this file to enum literals for no safety — the accept path re-validates).
+export const teamInvites = pgTable(
+  "team_invites",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenants.id),
+    email: text("email").notNull(),
+    role: text("role").notNull(),
+    tokenHash: text("token_hash").notNull(),
+    invitedByUserId: uuid("invited_by_user_id")
+      .notNull()
+      .references(() => users.id),
+    createdAt: createdAt(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    acceptedAt: timestamp("accepted_at", { withTimezone: true }),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+  },
+  (t) => [
+    uniqueIndex("team_invites_token_hash_idx").on(t.tokenHash),
+    index("team_invites_tenant_idx").on(t.tenantId),
+  ],
+);
+
+// Phase C (ADR-0049): tenant-configured capability sets for the member/viewer tiers.
+// One row per CONFIGURED tier; a missing row means the live code defaults
+// (lib/authz DEFAULT_TIER_CAPABILITIES) — no seed, no backfill; reset-to-defaults =
+// DELETE. `capabilities` is a Zod-validated jsonb array of capability keys, normalized
+// on read by effectiveCapabilities (locked/unknown keys are inert). NOT a DM-08 rules
+// table: it configures who may call which endpoints, never routing behavior — the
+// audit_log before/after entries are its history.
+export const roleCapabilities = pgTable(
+  "role_capabilities",
+  {
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenants.id),
+    role: roleEnum("role").notNull(),
+    capabilities: jsonb("capabilities").notNull().$type<string[]>(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.tenantId, t.role] })],
 );
 
 export const partners = pgTable(

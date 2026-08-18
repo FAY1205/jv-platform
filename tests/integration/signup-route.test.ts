@@ -163,6 +163,8 @@ suite("POST /api/auth/signup", () => {
   afterAll(async () => {
     if (userIds.length) await db.delete(schema.signupVerifications).where(inArray(schema.signupVerifications.userId, userIds));
     if (userIds.length) await db.delete(schema.tosAcceptances).where(inArray(schema.tosAcceptances.userId, userIds));
+    // Phase C: release the workspace-owner pin (RESTRICT FK, 0054) before deleting the seat.
+    if (userIds.length) await db.update(schema.tenants).set({ ownerUserId: null }).where(inArray(schema.tenants.ownerUserId, userIds));
     if (userIds.length) await db.delete(schema.users).where(inArray(schema.users.id, userIds));
     // tenants provisioned via the happy-path test carry an append-only audit_log row
     // (ADR-0031: the trigger rejects DELETE) whose FK (ON DELETE no action) blocks deleting

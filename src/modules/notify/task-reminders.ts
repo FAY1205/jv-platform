@@ -8,7 +8,7 @@ import { taskVisibleTo } from "../tasks/tasks";
 import { enqueueEmail } from "./outbox";
 import { createNotification } from "./notifications";
 import { buildTaskDueReminder } from "./digests";
-import { loadNotificationPrefs, resolvePref } from "./prefs";
+import { loadNotificationPrefs, resolvePref, streamPrefRole } from "./prefs";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Due-task reminders (TSK-08). A sibling duty of the drain-outbox cron, exactly like
@@ -62,11 +62,13 @@ export interface RemindDueTasksOptions {
   clockMs?: () => number;
 }
 
-/** One candidate recipient, as stored — role + org decide what they may see. */
+/** One candidate recipient, as stored — role + org decide what they may see. Phase C:
+ *  member/viewer assignees resolve like admins (taskVisibleTo's staff arm) and read the
+ *  admin-stream preference bucket (streamPrefRole). */
 interface Candidate {
   id: string;
   email: string;
-  role: "admin" | "partner";
+  role: "admin" | "partner" | "member" | "viewer";
   partnerId: string | null;
 }
 
@@ -138,7 +140,9 @@ export async function remindDueTasks(db: DB, opts: RemindDueTasksOptions): Promi
       partnerId: schema.users.partnerId,
     })
     .from(schema.users)
-    .where(and(tenantIdWhere(schema.users, opts.tenantId), inArray(schema.users.id, candidateIds)));
+    // Phase C seat lifecycle (audit-tenancy F-7): a deactivated seat is refused a session
+    // (resolveScope) and must likewise not be nudged — the staff twin of PTL-01 revocation.
+    .where(and(tenantIdWhere(schema.users, opts.tenantId), inArray(schema.users.id, candidateIds), isNull(schema.users.deactivatedAt)));
   const usersById = new Map<string, Candidate>(userRows.map((u) => [u.id, u]));
 
   let reminded = 0;
@@ -160,7 +164,7 @@ export async function remindDueTasks(db: DB, opts: RemindDueTasksOptions): Promi
         logError("task_reminder_no_visible_recipient", { tenantId: opts.tenantId, taskId: task.id });
         continue;
       }
-      const channel = resolvePref(prefs, recipient.role, "task_due");
+      const channel = resolvePref(prefs, streamPrefRole(recipient.role), "task_due");
 
       const nudged = await db.transaction(async (tx) => {
         // The SAME per-tenant lock key voidUpload / persistRun / releaseDueImports take, so a
@@ -306,9 +310,10 @@ async function retireIfExhausted(
     const admins = await tx
       .select({ id: schema.users.id })
       .from(schema.users)
-      // TODO(WP-ROLE-schema, audit-tenancy F-8): admin-tier-only recipients; resolvePref also
-      // buckets by literal role — both widen together when member/viewer seats exist.
-      .where(and(tenantIdWhere(schema.users, opts.tenantId), eq(schema.users.role, "admin")));
+      // Phase C DECISION (audit-tenancy F-8): the orphaned-task heads-up goes to the ADMIN
+      // TIER only (an ops signal). Task-due nudges themselves reach ANY staff assignee —
+      // see resolveRecipient + streamPrefRole.
+      .where(and(tenantIdWhere(schema.users, opts.tenantId), eq(schema.users.role, "admin"), isNull(schema.users.deactivatedAt)));
     // Deliberately ALWAYS-ON + in-app only (pr-reviewer F-2): unlike task_due, this retirement alert
     // has no prefs entry and never emails — it's a rare, operationally-important "someone needs to
     // re-assign this" signal an admin should not be able to mute into silence. Not a prefs-gated event.

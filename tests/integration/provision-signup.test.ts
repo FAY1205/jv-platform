@@ -112,6 +112,8 @@ suite("SCP-02: provisionSignup", () => {
       await db.delete(schema.settings).where(eq(schema.settings.tenantId, tenantId));
       await db.delete(schema.featureFlags).where(eq(schema.featureFlags.tenantId, tenantId));
       await db.delete(schema.tosAcceptances).where(eq(schema.tosAcceptances.userId, userId));
+      // Phase C: release the workspace-owner pin (RESTRICT FK, 0054) before deleting the seat.
+      await db.update(schema.tenants).set({ ownerUserId: null }).where(eq(schema.tenants.ownerUserId, userId));
       await db.delete(schema.users).where(eq(schema.users.id, userId));
     }
   });
@@ -167,7 +169,8 @@ suite("SCP-02: provisionSignup", () => {
             onConflictDoNothing: () => Promise.resolve(undefined),
           });
         };
-        await fn({ insert: () => ({ values: chain }) });
+        // Phase C: provisionSignup also sets the workspace-owner pin via tx.update — a no-op here.
+        await fn({ insert: () => ({ values: chain }), update: () => ({ set: () => ({ where: () => Promise.resolve(undefined) }) }) });
       },
     } as unknown as PostgresJsDatabase<typeof schema>;
 

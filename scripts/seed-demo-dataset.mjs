@@ -33,6 +33,15 @@ const [tenant] = await sql`select id from tenants order by created_at limit 1`;
 const [admin] = await sql`select id from users where tenant_id=${tenant.id} and role='admin' order by created_at limit 1`;
 const ADMIN_ID = admin?.id ?? null;
 
+// Phase C: demo STAFF seats for the Team roster (member + viewer). Display-only — users.id
+// mirrors a Supabase auth uid, so these random-uuid rows can never log in; they exist so the
+// team page and assignee affordances have realistic rows. Idempotent by (tenant, email).
+for (const [email, role] of [["dana.whitfield@example.com", "member"], ["sam.okafor@example.com", "viewer"]]) {
+  await sql`insert into users (id, tenant_id, email, role)
+    select gen_random_uuid(), ${tenant.id}, ${email}, ${role}
+    where not exists (select 1 from users where tenant_id=${tenant.id} and email=${email})`;
+}
+
 // ── wipe (FK-safe order) ─────────────────────────────────────────────────────
 async function wipe() {
   const T = tenant.id;

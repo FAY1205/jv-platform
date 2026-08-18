@@ -93,7 +93,7 @@ suite("AUT-14: logout revokes the trusted-device credential", () => {
     id.tenant = t.id;
     id.user = randomUUID();
     authUser.id = id.user; // the mocked Supabase session resolves to this seeded user
-    await db.insert(schema.users).values({ id: id.user, tenantId: t.id, email: "trust@logout.test", role: "partner" });
+    await db.insert(schema.users).values({ id: id.user, tenantId: t.id, email: "trust@logout.test", role: "admin" });
   });
 
   afterAll(async () => {

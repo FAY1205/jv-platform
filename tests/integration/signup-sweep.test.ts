@@ -85,6 +85,9 @@ suite("WP-SU-2: abandoned/orphan-signup cleanup sweep", () => {
     }
     if (tenantIds.length) {
       await purgeAuditLog(db, inArray(schema.auditLog.tenantId, tenantIds));
+      // Phase C: release the workspace-owner pin (tenants.owner_user_id RESTRICT FK, 0054)
+      // before deleting the seats it points at.
+      await db.update(schema.tenants).set({ ownerUserId: null }).where(inArray(schema.tenants.id, tenantIds));
       await db.delete(schema.users).where(inArray(schema.users.tenantId, tenantIds));
       await db.delete(schema.tenants).where(inArray(schema.tenants.id, tenantIds));
     }

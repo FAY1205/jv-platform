@@ -13,9 +13,17 @@ const getClaims = vi.fn();
 const getUser = vi.fn(() => {
   throw new Error("getUser must NOT be called on the local-verify path");
 });
-// Minimal drizzle-ish builder: select().from().where() resolves to the rows array.
+// Minimal drizzle-ish builder: select().from().leftJoin().where() resolves to the rows
+// array (Phase C: the role_capabilities LEFT JOIN rides the users-row read).
 let usersRows: unknown[] = [];
-const mockDb = { select: () => ({ from: () => ({ where: () => Promise.resolve(usersRows) }) }) };
+const mockDb = {
+  select: () => ({
+    from: () => ({
+      leftJoin: () => ({ where: () => Promise.resolve(usersRows) }),
+      where: () => Promise.resolve(usersRows),
+    }),
+  }),
+};
 
 vi.mock("@/lib/supabase/server", () => ({ getSupabaseServer: async () => ({ auth: { getClaims, getUser } }) }));
 vi.mock("@/lib/supabase/jwks", () => ({ getCachedJwks: async () => ({ keys: [{ kid: "k1" }] }) }));

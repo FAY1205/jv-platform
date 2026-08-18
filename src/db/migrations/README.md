@@ -17,12 +17,13 @@ Missing snapshots (all hand-authored SQL-only migrations):
 | `0045_revoke_lead_dml_grants` | `REVOKE` | ″ |
 | `0046_default_privileges_least_privilege` | `ALTER DEFAULT PRIVILEGES` + `REVOKE` | ″ |
 | `0047_task_note_hold_in_rls` | RLS policy | ″ |
+| `0054_phase_c_roles_policies` | RLS policy + backfill + CHECK/FK (non-structural; the structural half is the GENERATED, snapshotted 0053) | ″ |
 
 ## Why it's safe
 
 - `drizzle-kit migrate` applies migrations from `_journal.json` + the `.sql` files, **not** from
   snapshots — so a missing snapshot never affects applying migrations.
-- `drizzle-kit generate` diffs `schema.ts` against the **latest** snapshot (currently 0050, which
+- `drizzle-kit generate` diffs `schema.ts` against the **latest** snapshot (currently 0053, which
   reflects `schema.ts`), so the intermediate gaps are inert for future generation. The one structural
   change in the set — 0036's `lead_notes_author_user_idx` — is present in `schema.ts` and every
   snapshot from 0038 on.

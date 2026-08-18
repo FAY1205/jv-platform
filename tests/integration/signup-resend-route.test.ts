@@ -56,6 +56,8 @@ suite("POST /api/auth/signup/resend", () => {
   afterAll(async () => {
     if (userIds.length) {
       await db.delete(schema.signupVerifications).where(inArray(schema.signupVerifications.userId, userIds));
+      // Phase C: release the workspace-owner pin (RESTRICT FK, 0054) before deleting the seat.
+      await db.update(schema.tenants).set({ ownerUserId: null }).where(inArray(schema.tenants.ownerUserId, userIds));
       await db.delete(schema.users).where(inArray(schema.users.id, userIds));
     }
     if (tenantIds.length) await db.delete(schema.tenants).where(inArray(schema.tenants.id, tenantIds));
