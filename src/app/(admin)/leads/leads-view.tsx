@@ -448,10 +448,12 @@ function LeadsTable({
             <THead>
               <Tr>
                 <Th fit sortable sortDir={sortDir("lead")} onSort={() => onSort("lead")}>Lead</Th>
-                <Th sortable sortDir={sortDir("seller")} onSort={() => onSort("seller")} className="w-[14%]">Seller</Th>
-                <Th className="w-[28%]">Property</Th>
-                <Th className="w-[23%]">Partner</Th>
-                <Th>Tags</Th>
+                <Th sortable sortDir={sortDir("seller")} onSort={() => onSort("seller")} className="w-[16%]">Seller</Th>
+                <Th className="w-[32%]">Property</Th>
+                {/* Partner is now a name-only cell (owner: drop the swatch + refId chrome from the
+                    dense row) — a quarter of the table's width was more than a name needs. */}
+                <Th className="w-[14%]">Partner</Th>
+                <Th className="w-[16%]">Tags</Th>
                 <Th fit sortable sortDir={sortDir("received")} onSort={() => onSort("received")} align="right">Received</Th>
                 <Th fit sortable sortDir={sortDir("modified")} onSort={() => onSort("modified")} align="right">Modified</Th>
                 <Th fit>Status</Th>
@@ -477,16 +479,21 @@ function LeadsTable({
                       </a>
                     </Tooltip>
                   </Td>
-                  <Td clamp clampTitle={l.partner ? `${l.partner.name} (${l.partner.refId})` : undefined}>
-                    {l.partner ? <PartnerTag size="sm" name={l.partner.name} color={l.partner.color} refId={l.partner.refId} />
+                  {/* Owner: no partner swatch + refId in the dense row — name only (PartnerTag
+                      variant="name" keeps the refId in the cell title/aria, and PRN-14 holds
+                      because the row carries no color to accompany). Full identity stays on the
+                      board card, the lead dialog, the portal, exports and the coverage map. */}
+                  <Td clamp>
+                    {l.partner ? <PartnerTag variant="name" size="sm" name={l.partner.name} color={l.partner.color} refId={l.partner.refId} />
                       : l.mlsStatus === "kept" ? <span className="text-xs font-semibold text-warn">Unmatched</span>
                       : <span className="text-xs text-text-3">—</span>}
                   </Td>
-                  {/* TAG-04/TAG-05: uncapped on the list (there is room); the Hot smart tag
-                      renders from the row's own score fields, for KEPT leads only — the same
-                      rule the HotLeadMark beside the ref follows. */}
+                  {/* TAG-04/TAG-05: dense single-line chips (cap 2 + "+n", each clamped) so the
+                      row height never jitters (owner: "tags render awkwardly"). The Hot smart tag
+                      renders from the row's own score fields, for KEPT leads only. */}
                   <Td>
                     <LeadTags
+                      dense
                       editable
                       quietAdd
                       tags={l.tags}

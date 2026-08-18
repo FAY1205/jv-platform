@@ -32,8 +32,11 @@ export interface TagChipProps {
 
 export function TagChip({ name, color, onRemove, busy = false, title, className }: TagChipProps) {
   return (
-    <span className={tagChipClass(color, className)} title={title} data-tag-chip={name}>
-      <span className="truncate">{name}</span>
+    // Default the tooltip to the tag name, so a clamped chip (dense rows) can always be read
+    // on hover even when its label is truncated (an explicit `title` still wins).
+    <span className={tagChipClass(color, className)} title={title ?? name} data-tag-chip={name}>
+      {/* min-w-0 lets the name actually truncate when the chip is width-clamped (dense rows). */}
+      <span className="min-w-0 truncate">{name}</span>
       {onRemove && (
         <button
           type="button"

@@ -60,6 +60,9 @@ function wrap(initial: SavedViewFilters = EMPTY_SAVED_VIEW_FILTERS) {
           }}
         />
         <button onClick={() => setFilters((f) => ({ ...f, q: "edited" }))}>Edit filters</button>
+        {/* What the leads bar's "Clear all" does: reset filters to the default WITHOUT going
+            through the menu (the menu's applied-view selection is untouched). */}
+        <button onClick={() => setFilters(EMPTY_SAVED_VIEW_FILTERS)}>Clear all</button>
       </>
     );
   }
@@ -93,7 +96,36 @@ describe("SV-03: the views dropdown", () => {
     expect(await screen.findByRole("button", { name: /saved views — hot in az/i })).toBeInTheDocument();
   });
 
-  it("SV-03: shows no counts (recorded decision — none rather than stale)", async () => {
+  it("offers a Default view that returns the page to its opening state", async () => {
+    const user = userEvent.setup();
+    const { onApply } = wrap();
+    await openMenu(user);
+    // Apply a real view first so there is a name to clear.
+    await user.click(await screen.findByRole("menuitem", { name: "Hot in AZ" }));
+    expect(await screen.findByRole("button", { name: /saved views — hot in az/i })).toBeInTheDocument();
+
+    await openMenu(user);
+    await user.click(await screen.findByRole("menuitem", { name: /default view/i }));
+    // Applying it REPLACES the whole state with the opening defaults (list mode included).
+    expect(onApply).toHaveBeenLastCalledWith(EMPTY_SAVED_VIEW_FILTERS);
+    await waitFor(() => expect(screen.getByRole("button", { name: /^saved views$/i })).toBeInTheDocument());
+  });
+
+  it("Clear-all back to the default drops the applied view's name (no stale 'Modified')", async () => {
+    const user = userEvent.setup();
+    wrap();
+    await openMenu(user);
+    await user.click(await screen.findByRole("menuitem", { name: "Hot in AZ" }));
+    expect(await screen.findByRole("button", { name: /saved views — hot in az/i })).toBeInTheDocument();
+
+    // "Clear all" resets the filters to default without touching the menu's selection — the
+    // trigger must read truthfully (the page IS at the default), not keep the stale view name.
+    await user.click(screen.getByRole("button", { name: /^clear all$/i }));
+    await waitFor(() => expect(screen.getByRole("button", { name: /^saved views$/i })).toBeInTheDocument());
+    expect(screen.queryByText(/modified/i)).toBeNull();
+  });
+
+  it("shows no counts (recorded decision — none rather than stale)", async () => {
     const user = userEvent.setup();
     wrap();
     await openMenu(user);
