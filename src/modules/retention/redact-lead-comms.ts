@@ -48,7 +48,10 @@ export async function redactLeadCommunications(
 
   const redactedNotifications = await tx
     .update(schema.notifications)
-    .set({ title: REDACTED_NOTIFICATION_TITLE, body: null })
+    // WP-NF1 D8: deep_link joins the sentinel. It embeds the lead ref, so a redacted row kept
+    // pointing at the purged lead — clicking a "Removed" notification landed on a 404 (portal)
+    // or an empty dialog (admin). Nulling it leaves the row inert, which is what redaction means.
+    .set({ title: REDACTED_NOTIFICATION_TITLE, body: null, deepLink: null })
     .where(
       and(
         tenantIdWhere(schema.notifications, tenantId),

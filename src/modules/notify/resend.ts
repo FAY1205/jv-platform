@@ -10,6 +10,11 @@ import type { EmailTransport, OutboundEmail } from "./email";
 
 const RESEND_ENDPOINT = "https://api.resend.com/emails";
 
+/** WP-NF1 D7: a hung provider connection must not eat the cron's 60s maxDuration — one
+ *  stalled send would starve every remaining outbox row of its attempt. An abort throws,
+ *  which the drain already treats as a normal failure: attempts++ and a backoff retry. */
+const SEND_TIMEOUT_MS = 10_000;
+
 export class ResendTransport implements EmailTransport {
   constructor(
     private readonly apiKey: string,
@@ -32,6 +37,7 @@ export class ResendTransport implements EmailTransport {
         ...(email.text ? { text: email.text } : {}),
         ...(email.html ? { html: email.html } : {}),
       }),
+      signal: AbortSignal.timeout(SEND_TIMEOUT_MS),
     });
     if (!res.ok) {
       // SEC-05 + ADR-0032: this error propagates to logError → Sentry (a third party), and

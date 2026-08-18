@@ -7,6 +7,8 @@ import * as schema from "@/db/schema";
 import { enqueueRunDigests, notifyStatusChange } from "@/modules/notify/outbox";
 import { listNotifications, unreadCount, markRead } from "@/modules/notify/notifications";
 import { DEFAULT_NOTIFICATION_PREFS, mergeNotificationPrefs } from "@/modules/notify/prefs";
+import { redactLeadCommunications } from "@/modules/retention/redact-lead-comms";
+import { REDACTED_NOTIFICATION_TITLE } from "@/modules/retention/purge";
 import type { ScopeContext } from "@/lib/scope";
 import type { RunSummary } from "@/modules/analytics/run-summary";
 
@@ -106,5 +108,26 @@ suite("WP-029: notification center + prefs (NTF-04/05)", () => {
     // P-1: the deep link must open the capable leads dialog, never the retired
     // read-only /leads/[ref] page (which has no status control or history).
     expect(hit!.deepLink).toBe("/leads?open=LD-26-00001");
+  });
+
+  it("C-13: redacting a voided lead's comms clears title, body AND deep_link", async () => {
+    // WP-NF1 D8: deep_link embeds the lead ref, so a redacted row used to keep pointing at the
+    // purged lead — a "Removed" notification that still navigated somewhere (404 in the portal,
+    // an empty dialog in admin). Redaction now leaves the row fully inert.
+    await db.delete(schema.notifications).where(eq(schema.notifications.tenantId, adminScope.tenantId));
+    await notifyStatusChange(db, partnerScope, { leadRef: "LD-26-00002", status: "Contacted" });
+    const before = await listNotifications(adminScope);
+    expect(before[0].deepLink).toBe("/leads?open=LD-26-00002"); // the link exists to begin with
+
+    const res = await redactLeadCommunications(db, adminScope.tenantId, ["LD-26-00002"]);
+    expect(res.notificationsRedacted).toBe(1);
+
+    const after = await listNotifications(adminScope);
+    expect(after[0].title).toBe(REDACTED_NOTIFICATION_TITLE);
+    expect(after[0].body).toBeNull();
+    expect(after[0].deepLink).toBeNull();
+
+    // Idempotent: a second pass (the void purge AND the backstop sweep both run) is a no-op.
+    expect((await redactLeadCommunications(db, adminScope.tenantId, ["LD-26-00002"])).notificationsRedacted).toBe(0);
   });
 });

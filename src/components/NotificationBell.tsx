@@ -34,6 +34,13 @@ interface Notification {
   createdAt: string;
 }
 
+interface Feed {
+  notifications: Notification[];
+  unread: number;
+}
+
+const FEED_KEY = ["notifications"] as const;
+
 function timeAgo(iso: string): string {
   const s = Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 1000));
   if (s < 60) return "just now";
@@ -42,12 +49,30 @@ function timeAgo(iso: string): string {
   return `${Math.floor(s / 86400)}d ago`;
 }
 
+/** The full local-time reading of a timestamp, for the <time> element's tooltip: "2h ago" is
+ *  friendly but lossy, and "was that 2pm or 2am?" is a real question when a nudge matters. */
+function absoluteTime(iso: string): string {
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? iso : d.toLocaleString();
+}
+
+/** POST a read-marking endpoint; a non-2xx THROWS so the optimistic update rolls back
+ *  (a bare `fetch` resolves on 500 and would leave the row falsely marked read). */
+async function postRead(path: string): Promise<void> {
+  const res = await fetch(path, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...csrfHeaders() },
+    body: "{}",
+  });
+  if (!res.ok) throw new Error("Could not mark the notification read.");
+}
+
 export function NotificationBell() {
   const qc = useQueryClient();
 
   const { data, isPending, error, refetch } = useQuery({
-    queryKey: ["notifications"],
-    queryFn: () => apiGet<{ notifications: Notification[]; unread: number }>("/api/notifications"),
+    queryKey: FEED_KEY,
+    queryFn: () => apiGet<Feed>("/api/notifications"),
     // F-87: don't poll a backgrounded tab; refetch when the user returns to it.
     refetchInterval: () => (typeof document !== "undefined" && document.hidden ? false : 30_000),
     refetchOnWindowFocus: true,
@@ -55,15 +80,48 @@ export function NotificationBell() {
   const notifications = data?.notifications ?? [];
   const unread = data?.unread ?? 0;
 
+  // WP-NF1 D8: OPTIMISTIC read-marking (the TasksPanel toggle shape — cancel, snapshot,
+  // setQueryData, roll back on error, invalidate on settle). Invalidate-only meant the dot,
+  // the row tint and the badge count all lagged a network round-trip behind the click, which
+  // on a slow link reads as "the click didn't register" and invites a second one.
   const markRead = useMutation({
-    mutationFn: (id: string) =>
-      fetch(`/api/notifications/${id}/read`, { method: "POST", headers: { "Content-Type": "application/json", ...csrfHeaders() }, body: "{}" }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["notifications"] }),
+    mutationFn: (id: string) => postRead(`/api/notifications/${id}/read`),
+    onMutate: async (id: string) => {
+      await qc.cancelQueries({ queryKey: FEED_KEY });
+      const prev = qc.getQueryData<Feed>(FEED_KEY);
+      qc.setQueryData<Feed>(FEED_KEY, (old) => {
+        if (!old) return old;
+        const target = old.notifications.find((n) => n.id === id);
+        if (!target || target.readAt) return old; // already read → the count must not drift down
+        return {
+          notifications: old.notifications.map((n) =>
+            n.id === id ? { ...n, readAt: new Date().toISOString() } : n,
+          ),
+          unread: Math.max(0, old.unread - 1),
+        };
+      });
+      return { prev };
+    },
+    onError: (_err, _id, ctx) => {
+      if (ctx?.prev) qc.setQueryData(FEED_KEY, ctx.prev);
+    },
+    onSettled: () => qc.invalidateQueries({ queryKey: FEED_KEY }),
   });
   const markAll = useMutation({
-    mutationFn: () =>
-      fetch(`/api/notifications/read-all`, { method: "POST", headers: { "Content-Type": "application/json", ...csrfHeaders() }, body: "{}" }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["notifications"] }),
+    mutationFn: () => postRead(`/api/notifications/read-all`),
+    onMutate: async () => {
+      await qc.cancelQueries({ queryKey: FEED_KEY });
+      const prev = qc.getQueryData<Feed>(FEED_KEY);
+      const at = new Date().toISOString();
+      qc.setQueryData<Feed>(FEED_KEY, (old) =>
+        old ? { notifications: old.notifications.map((n) => (n.readAt ? n : { ...n, readAt: at })), unread: 0 } : old,
+      );
+      return { prev };
+    },
+    onError: (_err, _vars, ctx) => {
+      if (ctx?.prev) qc.setQueryData(FEED_KEY, ctx.prev);
+    },
+    onSettled: () => qc.invalidateQueries({ queryKey: FEED_KEY }),
   });
 
   const groups = groupByDay(notifications, new Date());
@@ -77,7 +135,14 @@ export function NotificationBell() {
           {n.title}
         </p>
         {n.body && <p className="text-step-1 text-text-3">{n.body}</p>}
-        <p className="num mt-0.5 text-step-1 text-text-3">{timeAgo(n.createdAt)}</p>
+        {/* The relative string is the readable one, but it's lossy and it silently goes stale
+            in a long-lived tab — <time dateTime> keeps the machine-readable instant on the
+            element and the full local time in the tooltip. */}
+        <p className="num mt-0.5 text-step-1 text-text-3">
+          <time dateTime={n.createdAt} title={absoluteTime(n.createdAt)}>
+            {timeAgo(n.createdAt)}
+          </time>
+        </p>
       </div>
       {/* Unread = a dot SHAPE on the right (never tint alone) — PRN-14. */}
       {!n.readAt && <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-brand" aria-hidden="true" />}

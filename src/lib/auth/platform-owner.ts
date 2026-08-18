@@ -10,6 +10,13 @@ import { tenantWhere, type ScopeContext } from "@/lib/scope";
 // This is the app's first email-vs-allowlist authorization check; it gates only the
 // owner-only signup-code surface.
 
+// NOTE (WP-NF1 D8, Phase D — NOT built here): this check is EMAIL-only, so an allowlisted
+// address is a platform owner in EVERY tenant that happens to hold a users row with that
+// email — the allowlist has no tenant fence. Harmless today (the allowlist is the platform
+// operator's own addresses and the surface it gates is the signup-code screen), but the
+// commercialization phase, where tenants are strangers, needs the fence: pin ownership to a
+// specific tenant (or a dedicated platform-operator table) rather than to a string that any
+// tenant could seat. Deliberately deferred — see WP candidates.
 export function isPlatformOwner(email: string | null | undefined): boolean {
   return !!email && adminAllowlist.includes(email.toLowerCase());
 }
