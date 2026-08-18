@@ -3,6 +3,8 @@
 import * as React from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useCurrentUser } from "@/lib/use-current-user";
+import type { Capability } from "@/lib/authz";
 
 // WS-7: the Settings hub left-nav. Grouped sections (Account / Workspace / Plan) under
 // /settings; the active item is derived from the URL. Sections fill in across the WS-7
@@ -10,7 +12,11 @@ import { usePathname } from "next/navigation";
 
 // WP-UX-7 (audit TM-1): `soon` marks a nav item that leads to a "coming soon" placeholder,
 // so the label carries a quiet pill and the destination isn't a surprise after the click.
-interface NavItem { href: string; label: string; soon?: boolean }
+//
+// Phase C: `requires` marks the ONE whole-route exception to the disable-don't-hide rule
+// (team-page-spec §6) — a page the role can never use hides its nav entry (the route itself
+// redirects). Everything else stays visible and degrades in place.
+interface NavItem { href: string; label: string; soon?: boolean; requires?: Capability }
 const GROUPS: { label: string; items: NavItem[] }[] = [
   { label: "Account", items: [
     { href: "/settings/profile", label: "Profile" },
@@ -25,18 +31,22 @@ const GROUPS: { label: string; items: NavItem[] }[] = [
     { href: "/settings/data", label: "Data & Export" },
     { href: "/settings/billing", label: "Billing", soon: true },
     { href: "/settings/ai", label: "AI assistant" },
-    { href: "/settings/team", label: "Team", soon: true },
+    { href: "/settings/team", label: "Team", requires: "team.manage" },
   ] },
 ];
 
 export function SettingsNav({ isPlatformOwner = false }: { isPlatformOwner?: boolean }) {
   const path = usePathname() ?? "";
+  const { canDo } = useCurrentUser();
   // SCP-07: the owner-only Invitations item appears only for platform owners
   // (ADMIN_ALLOWLIST). The flag is resolved server-side in the settings layout; the
   // route re-checks, so this only hides the link.
-  const groups = isPlatformOwner
+  const withPlatform = isPlatformOwner
     ? [...GROUPS, { label: "Platform", items: [{ href: "/settings/invitations", label: "Invitations" }] }]
     : GROUPS;
+  const groups = withPlatform
+    .map((g) => ({ ...g, items: g.items.filter((i: NavItem) => !i.requires || canDo(i.requires)) }))
+    .filter((g) => g.items.length > 0);
   const isOn = (item: NavItem) => path === item.href || path.startsWith(`${item.href}/`);
 
   return (

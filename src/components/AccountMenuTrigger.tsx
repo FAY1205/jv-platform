@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { initialsFromEmail } from "@/lib/identity";
+import { AvatarInitials } from "./AvatarInitials";
 import { cn } from "@/lib/cn";
 
 // WP-PP-6: the account-menu trigger button — avatar initials, name/role block, chevron.
@@ -24,9 +24,7 @@ export const AccountMenuTrigger = React.forwardRef<
       )}
       {...props}
     >
-      <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-surface-3 text-step-1 font-semibold text-text-2">
-        {email ? initialsFromEmail(email) : "…"}
-      </span>
+      <AvatarInitials email={email} size="md" />
       <span className="min-w-0 flex-1">
         <span className="block truncate text-sm font-semibold text-text">{email || "Account"}</span>
         {role && <span className="block truncate text-step-1 capitalize text-text-3">{role}</span>}
