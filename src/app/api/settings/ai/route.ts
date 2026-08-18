@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { getDb } from "@/db";
 import { getServerScope } from "@/lib/scope-context";
-import { authErrorResponse, requireAdminResponse, assertCsrf } from "@/lib/auth/guard";
+import { authErrorResponse, assertCsrf } from "@/lib/auth/guard";
 import { jsonOk, jsonError, newTraceId } from "@/lib/http";
 import { clientIp } from "@/lib/auth/client-ip";
 import { AuthAttemptsStore } from "@/lib/auth/attempts-store";
@@ -12,6 +12,7 @@ import { aiCredentialStatus, saveAiCredential, clearAiCredential, setAiCredentia
 import { testAiCredential } from "@/modules/ai/credential-test";
 import { isValidModel } from "@/modules/ai/models-catalog";
 import { z } from "zod";
+import { requireCapabilityResponse } from "@/lib/authz";
 
 const AI_CREDENTIAL_TEST_KIND = "ai_credential_test";
 
@@ -32,8 +33,8 @@ const CredentialSchema = z.discriminatedUnion("action", [
 export async function GET() {
   try {
     const scope = await getServerScope();
-    const adminOnly = requireAdminResponse(scope);
-    if (adminOnly) return adminOnly;
+    const gate = requireCapabilityResponse(scope, "settings.manage");
+    if (gate) return gate;
     const [settings, credential] = await Promise.all([loadAiSettings(scope), aiCredentialStatus(scope)]);
     return jsonOk({ settings, credential });
   } catch (e) {
@@ -45,8 +46,8 @@ export async function PUT(request: Request) {
   if (!assertCsrf(request, { requireToken: true })) return jsonError("csrf_rejected", "CSRF check failed.", 403);
   try {
     const scope = await getServerScope();
-    const adminOnly = requireAdminResponse(scope);
-    if (adminOnly) return adminOnly;
+    const gate = requireCapabilityResponse(scope, "settings.manage");
+    if (gate) return gate;
     const parsed = PutSchema.safeParse(await request.json().catch(() => null));
     if (!parsed.success) return jsonError("invalid_input", "Invalid AI settings.", 400);
     await saveAiSettings(scope, parsed.data);
@@ -62,8 +63,8 @@ export async function POST(request: Request) {
   if (!assertCsrf(request, { requireToken: true })) return jsonError("csrf_rejected", "CSRF check failed.", 403);
   try {
     const scope = await getServerScope();
-    const adminOnly = requireAdminResponse(scope);
-    if (adminOnly) return adminOnly;
+    const gate = requireCapabilityResponse(scope, "settings.manage");
+    if (gate) return gate;
     const parsed = CredentialSchema.safeParse(await request.json().catch(() => null));
     if (!parsed.success) return jsonError("invalid_input", parsed.error.issues[0]?.message ?? "Invalid credential.", 400);
     if (parsed.data.action === "test") {

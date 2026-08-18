@@ -1,20 +1,21 @@
 import { z } from "zod";
 import { NextResponse } from "next/server";
 import { getServerScope } from "@/lib/scope-context";
-import { authErrorResponse, requireAdminResponse, assertCsrf } from "@/lib/auth/guard";
+import { authErrorResponse, assertCsrf } from "@/lib/auth/guard";
 import { listPartners } from "@/modules/partners/queries";
 import { createPartnerWithCoverage } from "@/modules/partners/partner-with-coverage";
 import { CoverageConflictError } from "@/modules/coverage/commands";
 import { parseZipList, parseStateList } from "@/modules/coverage/parse";
 import { PartnerCreateSchema } from "@/modules/partners/schema";
 import { jsonOk, jsonError, newTraceId } from "@/lib/http";
+import { requireCapabilityResponse } from "@/lib/authz";
 
 // ADM-03 partner roster. Admin-only; reads/writes go through the scope guard.
 export async function GET() {
   try {
     const scope = await getServerScope();
-    const adminOnly = requireAdminResponse(scope);
-    if (adminOnly) return adminOnly;
+    const gate = requireCapabilityResponse(scope, "partners.manage");
+    if (gate) return gate;
     return jsonOk({ partners: await listPartners(scope) });
   } catch (e) {
     return authErrorResponse(e) ?? jsonError("partners_list_failed", "Could not load partners.", 500);
@@ -30,8 +31,8 @@ export async function POST(request: Request) {
   }
   try {
     const scope = await getServerScope();
-    const adminOnly = requireAdminResponse(scope);
-    if (adminOnly) return adminOnly;
+    const gate = requireCapabilityResponse(scope, "partners.manage");
+    if (gate) return gate;
 
     const raw = await request.json().catch(() => null);
     const parsed = PartnerCreateSchema.safeParse(raw);

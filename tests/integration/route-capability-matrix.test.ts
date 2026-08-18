@@ -40,6 +40,14 @@ import { POST as assignPost } from "@/app/api/leads/[ref]/assign/route";
 import { POST as assignBulkPost } from "@/app/api/leads/assign-bulk/route";
 import { POST as leadTagPost } from "@/app/api/leads/[ref]/tags/route";
 import { DELETE as leadTagDelete } from "@/app/api/leads/[ref]/tags/[tagId]/route";
+import { GET as runsGet } from "@/app/api/runs/route";
+import { POST as voidPost } from "@/app/api/runs/[ref]/void/route";
+import { GET as exportGet } from "@/app/api/runs/[ref]/export/route";
+import { GET as rulesGet } from "@/app/api/admin/rules/route";
+import { GET as partnersGet } from "@/app/api/admin/partners/route";
+import { GET as activityGet } from "@/app/api/activity/route";
+import { GET as notifSettingsGet } from "@/app/api/settings/notifications/route";
+import { POST as aiFeedbackPost } from "@/app/api/ai/feedback/route";
 
 const url = process.env.DATABASE_URL;
 const suite = url ? describe : describe.skip;
@@ -153,6 +161,32 @@ suite("AUTHZ-09: cluster-A route capability matrix", () => {
     expect(patch.status, "viewer saved-view rename gate").not.toBe(403);
     const del = await savedViewDelete(jsonRequest("DELETE", `/api/saved-views/${id}`), routeParams({ id }));
     expect(del.status, "viewer saved-view delete gate").not.toBe(403);
+  });
+
+  it("AUTHZ-10 (WP-ROLE-3b): cluster B–G flips — member gains ingest.run + ai.use, everything else stays admin-locked", async () => {
+    // Member (defaults): runs READ passes; void/export/rules/partners/settings/activity 403.
+    setRouteScope(staff("member"));
+    expect((await runsGet(new Request("http://localhost:3000/api/runs"))).status, "member runs read").toBe(200);
+    const fb = await aiFeedbackPost(jsonRequest("POST", "/api/ai/feedback", { rating: "up" }));
+    expect(fb.status, "member ai feedback gate").not.toBe(403);
+    for (const [name, res] of [
+      ["void", await voidPost(jsonRequest("POST", "/api/runs/IM-26-001/void", { reason: "capability probe" }), routeParams({ ref: "IM-26-001" }))],
+      ["export", await exportGet(new Request("http://localhost:3000/api/runs/IM-26-001/export"), routeParams({ ref: "IM-26-001" }))],
+      ["rules", await rulesGet()],
+      ["partners", await partnersGet()],
+      ["activity", await activityGet(new Request("http://localhost:3000/api/activity"))],
+      ["settings", await notifSettingsGet()],
+    ] as const) {
+      expect(res.status, `member ${name}`).toBe(403);
+    }
+    // Viewer (defaults): every B–G surface is closed, including the reads.
+    setRouteScope(staff("viewer"));
+    expect((await runsGet(new Request("http://localhost:3000/api/runs"))).status, "viewer runs").toBe(403);
+    expect((await aiFeedbackPost(jsonRequest("POST", "/api/ai/feedback", { rating: "up" }))).status, "viewer ai").toBe(403);
+    // Admin: unchanged.
+    setRouteScope(staff("admin"));
+    expect((await runsGet(new Request("http://localhost:3000/api/runs"))).status, "admin runs").toBe(200);
+    expect((await rulesGet()).status, "admin rules").toBe(200);
   });
 
   it("AUTHZ-09: admin passes everything (byte-identical to pre-migration)", async () => {

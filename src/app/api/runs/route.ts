@@ -1,8 +1,9 @@
 import { getServerScope } from "@/lib/scope-context";
-import { authErrorResponse, requireAdminResponse } from "@/lib/auth/guard";
+import { authErrorResponse } from "@/lib/auth/guard";
 import { listRunsPage } from "@/modules/run/queries";
 import { pageParam, pageSizeParam, dateParam } from "@/lib/query-params";
 import { jsonOk, jsonError } from "@/lib/http";
+import { requireCapabilityResponse } from "@/lib/authz";
 
 // T4: server-side paginated + processed-date-filtered imports list (FEP-03).
 // Params are graceful (invalid values degrade to defaults, never 400/500) — all
@@ -11,8 +12,8 @@ import { jsonOk, jsonError } from "@/lib/http";
 export async function GET(request: Request) {
   try {
     const scope = await getServerScope();
-    const adminOnly = requireAdminResponse(scope);
-    if (adminOnly) return adminOnly;
+    const gate = requireCapabilityResponse(scope, "ingest.run");
+    if (gate) return gate;
     const sp = new URL(request.url).searchParams;
     const result = await listRunsPage(scope, {
       page: pageParam().parse(sp.get("page")),

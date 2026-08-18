@@ -1,15 +1,16 @@
 import { getDb } from "@/db";
 import { getServerScope } from "@/lib/scope-context";
-import { authErrorResponse, requireAdminResponse, assertCsrf } from "@/lib/auth/guard";
+import { authErrorResponse, assertCsrf } from "@/lib/auth/guard";
 import { loadNotificationPrefs, saveNotificationPrefs, NotificationPrefsSchema, NOTIFICATION_EVENTS } from "@/modules/notify/prefs";
 import { jsonOk, jsonError } from "@/lib/http";
+import { requireCapabilityResponse } from "@/lib/authz";
 
 // SET-03 / NTF-05: read + update the tenant's notification preferences. Admin-only.
 export async function GET() {
   try {
     const scope = await getServerScope();
-    const adminOnly = requireAdminResponse(scope);
-    if (adminOnly) return adminOnly;
+    const gate = requireCapabilityResponse(scope, "settings.manage");
+    if (gate) return gate;
     const prefs = await loadNotificationPrefs(getDb(), scope);
     return jsonOk({ prefs, events: NOTIFICATION_EVENTS });
   } catch (e) {
@@ -23,8 +24,8 @@ export async function PUT(request: Request) {
   }
   try {
     const scope = await getServerScope();
-    const adminOnly = requireAdminResponse(scope);
-    if (adminOnly) return adminOnly;
+    const gate = requireCapabilityResponse(scope, "settings.manage");
+    if (gate) return gate;
     const parsed = NotificationPrefsSchema.safeParse(await request.json().catch(() => null));
     if (!parsed.success) return jsonError("invalid_input", "Invalid preferences.", 400);
     const prefs = await saveNotificationPrefs(getDb(), scope, parsed.data);

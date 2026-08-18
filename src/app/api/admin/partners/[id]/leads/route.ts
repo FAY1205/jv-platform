@@ -1,8 +1,9 @@
 import { z } from "zod";
 import { getServerScope } from "@/lib/scope-context";
-import { authErrorResponse, requireAdminResponse } from "@/lib/auth/guard";
+import { authErrorResponse } from "@/lib/auth/guard";
 import { recentLeadsForPartner } from "@/modules/partners/queries";
 import { jsonOk, jsonError } from "@/lib/http";
+import { requireCapabilityResponse } from "@/lib/authz";
 
 const IdSchema = z.string().uuid();
 
@@ -11,8 +12,8 @@ const IdSchema = z.string().uuid();
 export async function GET(_request: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
     const scope = await getServerScope();
-    const adminOnly = requireAdminResponse(scope);
-    if (adminOnly) return adminOnly;
+    const gate = requireCapabilityResponse(scope, "partners.manage");
+    if (gate) return gate;
     const { id } = await params;
     if (!IdSchema.safeParse(id).success) return jsonError("invalid_id", "Invalid partner id.", 400);
     const leads = await recentLeadsForPartner(scope, id);

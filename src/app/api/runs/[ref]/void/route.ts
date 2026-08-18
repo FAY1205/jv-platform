@@ -1,8 +1,9 @@
 import { z } from "zod";
 import { getServerScope } from "@/lib/scope-context";
-import { assertCsrf, authErrorResponse, requireAdminResponse } from "@/lib/auth/guard";
+import { assertCsrf, authErrorResponse } from "@/lib/auth/guard";
 import { voidUpload, UploadNotFoundError, AlreadyVoidedError, VoidWindowClosedError, NotLatestImportError, AlreadyDistributedError } from "@/modules/run/void";
 import { jsonOk, jsonError } from "@/lib/http";
+import { requireCapabilityResponse } from "@/lib/authz";
 
 const RefSchema = z.string().regex(/^IM-\d{2}-\d{3,}$/);
 const BodySchema = z.object({ reason: z.string().trim().min(3).max(500) });
@@ -24,8 +25,8 @@ export async function POST(req: Request, { params }: { params: Promise<{ ref: st
 
   try {
     const scope = await getServerScope();
-    const adminOnly = requireAdminResponse(scope);
-    if (adminOnly) return adminOnly;
+    const gate = requireCapabilityResponse(scope, "runs.void");
+    if (gate) return gate;
     const result = await voidUpload(scope, ref, body.reason);
     return jsonOk(result);
   } catch (e) {

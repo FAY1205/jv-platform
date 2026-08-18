@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { getServerScope } from "@/lib/scope-context";
-import { authErrorResponse, requireAdminResponse, assertCsrf } from "@/lib/auth/guard";
+import { authErrorResponse, assertCsrf } from "@/lib/auth/guard";
 import {
   deactivatePartner,
   PartnerNotFoundError,
@@ -12,6 +12,7 @@ import {
 import { DeactivateSchema } from "@/modules/partners/schema";
 import { jsonOk, jsonError, newTraceId } from "@/lib/http";
 import { NextResponse } from "next/server";
+import { requireCapabilityResponse } from "@/lib/authz";
 
 const IdSchema = z.string().uuid();
 
@@ -25,8 +26,8 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   }
   try {
     const scope = await getServerScope();
-    const adminOnly = requireAdminResponse(scope);
-    if (adminOnly) return adminOnly;
+    const gate = requireCapabilityResponse(scope, "partners.manage");
+    if (gate) return gate;
     const { id } = await params;
     if (!IdSchema.safeParse(id).success) return jsonError("invalid_id", "Invalid partner id.", 400);
 

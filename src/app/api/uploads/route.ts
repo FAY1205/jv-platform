@@ -6,10 +6,11 @@ import { loadProfilesForDetection } from "@/modules/sources/profile-store";
 import { runUpload } from "@/modules/run/run-upload";
 import { findDuplicateUpload } from "@/modules/run/queries";
 import { RequestInProgressError } from "@/lib/idempotency-db";
-import { assertCsrf, authErrorResponse, requireAdminResponse } from "@/lib/auth/guard";
+import { assertCsrf, authErrorResponse } from "@/lib/auth/guard";
 import { MAX_UPLOAD_ROWS, exceedsBodyLimit, parseContentLength } from "@/lib/upload-guard";
 import { jsonOk, jsonError, jsonServerError, newTraceId } from "@/lib/http";
 import { NextResponse } from "next/server";
+import { requireCapabilityResponse } from "@/lib/authz";
 
 // F-86: bound the serverless function's runtime for a large-run process.
 export const maxDuration = 60;
@@ -49,8 +50,8 @@ export async function POST(req: Request) {
 
   try {
     const scope = await getServerScope();
-    const adminOnly = requireAdminResponse(scope);
-    if (adminOnly) return adminOnly;
+    const gate = requireCapabilityResponse(scope, "ingest.run");
+    if (gate) return gate;
 
     const db = getDb();
     const profiles = await loadProfilesForDetection(db, scope);

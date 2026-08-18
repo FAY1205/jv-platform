@@ -4,11 +4,12 @@ import { getDb } from "@/db";
 import * as schema from "@/db/schema";
 import { getServerScope } from "@/lib/scope-context";
 import { tenantWhere } from "@/lib/scope";
-import { assertCsrf, authErrorResponse, requireAdminResponse } from "@/lib/auth/guard";
+import { assertCsrf, authErrorResponse } from "@/lib/auth/guard";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { provisionPartnerUser } from "@/lib/auth/provision";
 import { notifyInvite } from "@/lib/auth/notify";
 import { jsonOk, jsonError } from "@/lib/http";
+import { requireCapabilityResponse } from "@/lib/authz";
 
 // PTL-01: admin invites a partner. Creates the partner's Supabase auth user (no
 // password — OTP only), mirrors the users row, sets status→invited, and emails a
@@ -26,7 +27,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   } catch (e) {
     return authErrorResponse(e) ?? jsonError("scope_failed", "Could not resolve session.", 500);
   }
-  const forbidden = requireAdminResponse(scope);
+  const forbidden = requireCapabilityResponse(scope, "partners.manage");
   if (forbidden) return forbidden;
 
   const { id } = await params;
