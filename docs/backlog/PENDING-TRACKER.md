@@ -10,6 +10,21 @@ migration/RLS/PII/grant → owner greenlight) · B (no prod-runtime risk) · S (
 Done this session (context): CANDIDATES **C-3, C-4, C-6, C-7, C-8, C-13, C-14, C-21, C-29, C-30,
 C-32, C-33** — batches 1–3 of the old queue (PRs #88–#94, migrations 0047–0050 prod-verified).
 
+**UX/CRM effort 2026-08-18 (owner bugs + Slice-5 deferred + fresh audit) — MERGED:**
+PR #102 board drag-and-drop rewritten native-HTML5-DnD → **pointer events** (owner: "DnD doesn't
+work" — the drop never fired; now robust + touch + testable). PR #103 per-lead **task list no longer
+reorders on complete** (stable order — owner misfire fix). PR #104 leads-table density (**partner
+name-only** row, dense **tag chips**, Saved-views **Default view** row + Clear-all truthfulness).
+PR #105 leads-table **user-adjustable show/hide columns** (per-user pref). PR #106 **dark-mode pass**
+(WP-UX-8) + dark chart-hue (WP-UX-4 partial). PR #107 **WP-UX-7 polish**. PR #108 (open) three audit
+correctness fixes (board "0"-while-loading header, stale ⚠ suppressed on terminal cards, "Waiting"
+false-precision). Design specs + fresh screenshots in `_marketing/audit/` + the session scratchpad.
+STILL OPEN from that effort → **Slice 3** (C-10→12 task-assignee, C-24 tags cap/virtualize,
+WP-AI-STYLE-PERSIST, C-41 portal perf), **Scope D** AI aesthetic redesign (`ai-redesign-spec.md` ready),
+**WP-UX-4** unmatched choropleth labels/legend, and the remaining Scope-E audit findings
+(`ux-audit-fresh.md`: timeline raw-enum leak, unmatched 21-vs-1 banner/tile, mobile Partners name clip,
+drill-down dead-ends).
+
 ---
 
 ## Slice 1 — Hardening & audit closeouts (small, low-risk; batch like batch 1)
@@ -80,7 +95,7 @@ doc-extraction · Stripe (→ Phase D)._
 | Item | What | Status | Tier |
 |------|------|--------|------|
 | C-31 (WP-UX-SERIES) | **DONE — MERGED (PR #87, `c4b91cd`).** All 8 slices WP-UX-1..8 shipped (flexible tables, `PageContainer`, kanban flexibility, map/chart honesty, mobile adaptivity incl. the Critical settings-nav, chrome hierarchy, empty-state/copy, dark parity). Details + per-slice deferrals in `docs/backlog/WP-UX-SERIES.md`. (Tracker drift: this row was left ☐ when the tracker was written after the merge.) | ✅ | L |
-| WP-UX deferred cuts | Low-risk polish deferred from the 8 slices (per `WP-UX-SERIES.md`): UX-4 on-map choropleth labels + anchored legend on Unmatched (needs state centroids) + dark chart-hue separation; UX-7 small fixes (scoring-card badge width, "Required: Yes" dedup, Tags create-row colour picker, portal "My Tasks" title de-dup); **UX-8 a dedicated dark-mode pass** (portal surface/elevation lift, map stroke theme-parity, non-territory fill) — mockup-first, needs owner's eye across surfaces in dark. UX-5 admin table→card/dialog-sheet is deliberately OUT of scope (≥768px admin contract). | ☐ | B |
+| WP-UX deferred cuts | Low-risk polish deferred from the 8 slices (per `WP-UX-SERIES.md`). **UX-7 ✅ DONE (PR #107):** scoring-card range/badge fixed-width slots + "Required: Yes" dedup (annotate only the Mortgage exception), Tags create-row colour picker (+ "Auto" default), portal "My Tasks" title de-dup (`MyTasksList title` prop). **UX-8 dark-mode pass ✅ DONE (PR #106):** map stroke theme-parity + non-territory land raised (new `--map-line`/`--map-land`/`--map-land-line` token pairs, zero light change), portal `--border-soft` hairline lift, dark donut brand/warn collapse fixed (→`--info`). **UX-8 DEFERRED (owner):** dark rim-light shadows (`--sh-sm/md`) — aesthetic eyeball; `--chart-cat-*` family (ADR); re-capture PORTAL dark screenshots with a partner session (the audit-run portal captures were admin redirects). **UX-4 STILL OPEN:** on-map choropleth labels + anchored min/max legend on Unmatched (needs state centroids). UX-5 admin table→card/dialog-sheet deliberately OUT of scope (≥768px admin contract). | ◐ | B |
 
 ## Slice 6 — Roadmap phases (large, owner-sequenced)
 | Item | What | Status | Tier |
@@ -100,6 +115,7 @@ doc-extraction · Stripe (→ Phase D)._
 | Item | What | Status |
 |------|------|--------|
 | Owner hands-on UI pass | Zero owner eyes yet on shipped tasks/timeline/board/tags/search/saved-views | ⏳ |
+| **UX effort 2026-08-18 — owner decisions surfaced (deferred, safe defaults applied):** | (1) leads-table **column resize/reorder** — built show/hide only; resize recommended-against (fights the Table fit/clamp budget), reorder = future additive `order` in the same pref. (2) **Roaming/cross-device prefs** — columns use localStorage now; promote the whole prefs blob to a `user_prefs` endpoint if/when Roles-Team lands. (3) **Score/Campaign as default-off columns** — data is already in the row payload; not listed yet (owner call). (4) **Sort-by-hidden-column** — kept the server-side sort (no visible arrow); owner may prefer auto-revert to Received desc. (5) **AI redesign** — mobile scrim, launcher "Ask" copy + breathe cadence, restored-segment divider duration, drag-to-dismiss (from `ai-redesign-spec.md`). (6) **Dark rim-light shadows** (`--sh-sm/md`) + `--chart-cat-*` ADR + **re-capture portal dark** with a partner session. (7) **"Clear all location"** — interpreted as the leads filter-bar "Clear all" leaving a stale saved-view label; fixed that. If the owner meant a different control, flag it. | ⏳ |
 | C-9 | Portal "Lead received" anchor: keep `firstMatchedAt` vs `coalesce(manual_assigned_at, first_matched_at, created_at)` | ⏳ |
 | C-19 (WP-LGL-2) | ToS-gate sweep on admin data routes vs an ADR that page-level acceptance is the boundary | ⏳ |
 | C-27 | RLS admin-author asymmetry — harmless watch item; revisit only if the authenticated PostgREST surface becomes load-bearing | ⏳ |
