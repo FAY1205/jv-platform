@@ -16,7 +16,7 @@ import { walkSrc } from "../helpers/walk-src";
 
 const SRC = join(__dirname, "..", "..", "src");
 
-/** Files allowed to compare `scope.role`/`row.role` against a literal, with why. */
+/** Files allowed to compare a `.role` value against a literal, with why. */
 const ALLOWED = new Set(
   [
     "lib/scope.ts", // owns isPartnerStream/streamOf — THE stream seam
@@ -24,13 +24,26 @@ const ALLOWED = new Set(
     "lib/scope-context.ts", // resolveScope maps the users row into a scope (partner link rules)
     "lib/auth/guard.ts", // the deprecated legacy admin gate (fail-closed for new tiers)
     "lib/auth/platform-owner.ts", // ADR-0040: the platform tier requires the admin role specifically
+    // DB-ROW reads (data, not a ScopeContext decision):
+    "app/api/auth/otp/request/route.ts", // users row: only partners sign in by OTP (stream-correct)
+    "modules/notify/task-reminders.ts", // recipient users rows (stream comparisons, polarity checked)
+    "modules/retention/signup-sweep.ts", // auth-user metadata marker: only signup provisions admins
   ].map((p) => p.split("/").join(sep)),
 );
 
-// Comparisons of `scope.role` against a role literal — the hazard pattern. Constructions
-// (`role: "admin"` in provisioning/system-scope fabrication) and DB-ROW reads
-// (`user.role`, `recipient.role` — data, not a ScopeContext decision) are out of scope.
-const BAN = /\bscope\.role\s*(?:===|!==|==|!=)\s*["'](?:admin|partner|member|viewer)["']/;
+// Any `<expr>.role` (or a bare destructured `role`) compared to a role literal, either operand
+// order, plus `switch` on a role — whitespace/newline tolerant (audit-tenancy F-6). Broader
+// than needed on purpose: a false positive is a one-line allowlist entry with a reason; a
+// false negative is a silent polarity bug. Constructions (`role: "admin"` in provisioning /
+// system-scope fabrication) don't match — only comparisons do. The durable fix remains a
+// typed ESLint rule that resolves the LHS to ScopeContext (WP candidate).
+const ROLE_LIT = `["'](?:admin|partner|member|viewer)["']`;
+const BAN = new RegExp(
+  `(?:(?:\\w+\\.)*\\brole\\s*(?:===|!==|==|!=)\\s*${ROLE_LIT})` +
+    `|(?:${ROLE_LIT}\\s*(?:===|!==|==|!=)\\s*(?:\\w+\\.)*\\brole\\b)` +
+    `|(?:switch\\s*\\(\\s*(?:\\w+\\.)*\\brole\\s*\\))`,
+  "s",
+);
 
 describe("AUTHZ-04: role-literal comparisons live only in the seam modules", () => {
   it("AUTHZ-04: no `.role ===/!== <literal>` outside the allowlist", () => {

@@ -306,6 +306,8 @@ async function retireIfExhausted(
     const admins = await tx
       .select({ id: schema.users.id })
       .from(schema.users)
+      // TODO(WP-ROLE-schema, audit-tenancy F-8): admin-tier-only recipients; resolvePref also
+      // buckets by literal role — both widen together when member/viewer seats exist.
       .where(and(tenantIdWhere(schema.users, opts.tenantId), eq(schema.users.role, "admin")));
     // Deliberately ALWAYS-ON + in-app only (pr-reviewer F-2): unlike task_due, this retirement alert
     // has no prefs entry and never emails — it's a rare, operationally-important "someone needs to

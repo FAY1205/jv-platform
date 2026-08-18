@@ -59,3 +59,27 @@ here rather than enforced with a partner-only guard.
   admin-preview-portal feature is explicitly cut — at which point the pass-through's
   value disappears and a partner-only guard becomes cheap. Related: C-27 (RLS
   admin/partner author asymmetry) tracks the DB-layer side of the same surface.
+
+## Amendment — Phase C (2026-08-18): pass-through is capability-checked, not unconditional
+
+The original safety argument — "an **admin** scope degrades to an admin-scoped,
+tenant-bounded read" — was tier-specific and does not generalize. Phase C introduces
+admin-stream tiers (`member`/`viewer`) whose whole point is that they are *not* allowed
+everything an admin is; an unconditional pass-through would have handed a read-only
+viewer the full-tenant seller-PII export via `/api/portal/leads/export` and a tenant-wide
+status write via the portal status route (audit-tenancy WP-ROLE-1a F-1).
+
+The decision stands for partners and is amended for staff:
+
+- A **partner** still passes on scope alone — no tier check; partners hold no capability
+  by construction and the scope guard (PRN-08) remains their boundary.
+- An **admin-stream** caller flowing through a portal route must now hold the same
+  capability the equivalent admin surface requires: `requirePassthroughResponse(scope, cap)`
+  (`src/lib/authz.ts`) — `leads.read` for portal reads, `leads.write` for the status
+  write, `data.export` for the export. An admin holds all of these, so admin
+  pass-through (and the future admin-preview-portal affordance) is unchanged.
+- The shared notes/tasks routes (the other role-gate-free surface) carry the same gate:
+  `leads.read` on reads, `work.write` on writes (F-2).
+- Conformance is mechanical, not remembered: `tests/unit/route-gate-conformance.test.ts`
+  (AUTHZ-06) asserts every `getServerScope` route names one of the tier gates or sits on
+  a reasoned allowlist.

@@ -6,12 +6,17 @@ import { getPartnerExportData } from "@/modules/portal/queries";
 import { renderExport } from "@/modules/export/render";
 import { loadColorCoding } from "@/modules/settings/export-settings";
 import { jsonServerError } from "@/lib/http";
+import { requirePassthroughResponse } from "@/lib/authz";
 
 // GET /api/portal/leads/export — the caller's own leads as a colored .xlsx (PTL-04).
 // Reuses the export renderer (SEC-06 cell sanitization). Scoped (PRN-08).
 export async function GET() {
   try {
     const scope = await getServerScope();
+    // ADR-0047 Phase C: partners pass on scope alone; an ADMIN-STREAM caller reaches
+    // tenant-wide data through this partner-shaped code, so it must hold data.export.
+    const gate = requirePassthroughResponse(scope, "data.export");
+    if (gate) return gate;
     const tos = await requireTosResponse(getDb(), scope); // F-04: gate data on ToS acceptance
     if (tos) return tos;
     const data = await getPartnerExportData(scope);

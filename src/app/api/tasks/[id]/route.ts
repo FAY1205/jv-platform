@@ -14,6 +14,7 @@ import {
 } from "@/modules/tasks/tasks";
 import { EditTaskSchema, TaskActionSchema } from "@/modules/tasks/schema";
 import { jsonOk, jsonError, jsonServerError, newTraceId } from "@/lib/http";
+import { requirePassthroughResponse } from "@/lib/authz";
 
 // PATCH/DELETE /api/tasks/[id] — mutate ONE task by id (TSK-04/05). Shared by both roles;
 // the scope guard decides which tasks exist for the caller, so a task id from another
@@ -47,6 +48,10 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
 
   try {
     const scope = await getServerScope();
+    // ADR-0047 Phase C: partners pass on scope alone; an ADMIN-STREAM caller reaches
+    // tenant-wide data through this partner-shaped code, so it must hold work.write.
+    const gate = requirePassthroughResponse(scope, "work.write");
+    if (gate) return gate;
     const tos = await requireTosResponse(getDb(), scope); // F-04/LGL-01: partners, and self-serve admins, must have accepted the current ToS
     if (tos) return tos;
     const traceId = newTraceId();
@@ -71,6 +76,10 @@ export async function DELETE(request: Request, { params }: { params: Promise<{ i
   if (!z.string().uuid().safeParse(id).success) return jsonError("invalid_id", "Invalid task id.", 400);
   try {
     const scope = await getServerScope();
+    // ADR-0047 Phase C: partners pass on scope alone; an ADMIN-STREAM caller reaches
+    // tenant-wide data through this partner-shaped code, so it must hold work.write.
+    const gate = requirePassthroughResponse(scope, "work.write");
+    if (gate) return gate;
     const tos = await requireTosResponse(getDb(), scope); // F-04/LGL-01: partners, and self-serve admins, must have accepted the current ToS
     if (tos) return tos;
     // Author-only + open-only live in deleteLeadTask (TSK-05); a non-author sees the 404.

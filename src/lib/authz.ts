@@ -1,6 +1,6 @@
 import { type NextResponse } from "next/server";
 import { jsonError } from "@/lib/http";
-import type { ScopeContext } from "@/lib/scope";
+import { isPartnerStream, type ScopeContext } from "@/lib/scope";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // The capability seam (Phase C / WP-ROLE-1). Every allow/deny decision for the
@@ -53,28 +53,84 @@ const ALL: readonly Capability[] = [
   "ops.admin",
 ];
 
-// The role × capability matrix (role-model-recommendation §2.3). Owner-vs-admin
+// The DEFAULT role × capability matrix (role-model-recommendation §2.3). Owner-vs-admin
 // differences are NOT here — they are the two team-handler invariants (only the
 // workspace owner touches admin seats / transfers ownership; nobody touches the
 // owner). Defaults pending owner review: member gets ingest.run + ai.use (void
-// and export stay admin-only); viewer is read-only everywhere, no AI.
-const TIER_CAPABILITIES: Record<AdminTier, ReadonlySet<Capability>> = {
+// and export stay admin-only); viewer is read-only, no AI.
+//
+// CONFIGURABLE (owner requirement 2026-08-18): these are DEFAULTS, not the law. A tenant
+// may edit which capabilities its member/viewer tiers hold (stored per tenant, resolved
+// onto ScopeContext.capabilities by getServerScope in the schema WP); the ADMIN tier is
+// locked-full (the Twenty `isEditable=false` analog) so a workspace can never configure
+// itself into a lockout. A scope WITHOUT a resolved set (system-fabricated scopes, tests,
+// pre-migration tenants) falls back to these defaults.
+export const DEFAULT_TIER_CAPABILITIES: Record<AdminTier, ReadonlySet<Capability>> = {
   admin: new Set<Capability>(ALL),
   member: new Set<Capability>(["leads.read", "leads.write", "work.write", "views.own", "ingest.run", "ai.use"]),
   viewer: new Set<Capability>(["leads.read", "views.own"]),
 };
 
-/** True when `scope` may exercise `cap`. Partners are always false (stream, not tier). */
+// ── The three-band split (ADR-0049 §11.3) ────────────────────────────────────
+// Every capability belongs to exactly one band; a new capability that isn't
+// classified fails the AUTHZ-07 partition test at build time.
+
+/** Not removable from ANY staff tier: a seat that can see nothing is a lockout
+ *  foot-gun, and views.own covers own-sessions/password self-service. */
+export const ALWAYS_ON: ReadonlySet<Capability> = new Set(["leads.read", "views.own"]);
+
+/** Tenant-editable per tier (member/viewer columns of the permissions editor). */
+export const TENANT_EDITABLE: ReadonlySet<Capability> = new Set([
+  "leads.write",
+  "work.write",
+  "ingest.run",
+  "runs.void",
+  "data.export",
+  "rules.manage",
+  "partners.manage",
+  "ai.use",
+]);
+
+/** Never grantable to member/viewer in v1: settings.manage includes AI keys AND the
+ *  permissions editor itself; team.manage is lateral escalation; ops.admin is security
+ *  operations. Structurally enforced by effectiveCapabilities, not just UI. */
+export const ADMIN_LOCKED: ReadonlySet<Capability> = new Set(["team.manage", "settings.manage", "ops.admin"]);
+
+/**
+ * The ONE normalizer between stored tenant config and an enforceable capability set
+ * (ADR-0049 §11.2). `stored === null` (no row) ⇒ the live code defaults — a tenant that
+ * never expressed a choice tracks default improvements. Else `(stored ∩ TENANT_EDITABLE)
+ * ∪ ALWAYS_ON`: read-side normalization silently STRIPS locked/unknown keys (even a
+ * hand-edited DB row can never grant an admin-locked capability) and re-unions the
+ * always-on floor. The WRITE side (PATCH /api/admin/team/permissions, PR 4) Zod-rejects
+ * locked/unknown keys loudly instead — an editor bug must surface, not vanish.
+ */
+export function effectiveCapabilities(tier: AdminTier, stored: readonly string[] | null): ReadonlySet<Capability> {
+  if (tier === "admin") return DEFAULT_TIER_CAPABILITIES.admin; // locked-full
+  if (stored === null) return DEFAULT_TIER_CAPABILITIES[tier];
+  const out = new Set<Capability>(ALWAYS_ON);
+  for (const key of stored) {
+    if (TENANT_EDITABLE.has(key as Capability)) out.add(key as Capability);
+  }
+  return out;
+}
+
+/** True when `scope` may exercise `cap`. Partners are always false (stream, not tier);
+ *  admin is always true (locked-full tier); member/viewer consult the tenant-configured
+ *  set when the scope carries one, else the defaults. */
 export function can(scope: ScopeContext, cap: Capability): boolean {
   if (scope.role === "partner") return false;
-  return TIER_CAPABILITIES[scope.role].has(cap);
+  if (scope.role === "admin") return true;
+  // Deny-by-default on an unrecognized tier (audit-tenancy F-7): a role value this matrix
+  // has never heard of (a widened enum shipped ahead of a matrix row) grants NOTHING.
+  return (scope.capabilities ?? DEFAULT_TIER_CAPABILITIES[scope.role])?.has(cap) ?? false;
 }
 
 /** The full derived capability list for a scope — for /api/me → client UI gating only.
  *  The server guard below is authoritative; the client list only hides/disables chrome. */
 export function capabilitiesOf(scope: ScopeContext): Capability[] {
   if (scope.role === "partner") return [];
-  return ALL.filter((cap) => TIER_CAPABILITIES[scope.role as AdminTier].has(cap));
+  return ALL.filter((cap) => can(scope, cap));
 }
 
 /**
@@ -84,4 +140,17 @@ export function capabilitiesOf(scope: ScopeContext): Capability[] {
  */
 export function requireCapabilityResponse(scope: ScopeContext, cap: Capability): NextResponse | null {
   return can(scope, cap) ? null : jsonError("forbidden", "You don't have access to this action.", 403);
+}
+
+/**
+ * ADR-0047 pass-through gate for /api/portal/** and the shared notes/tasks routes
+ * (audit-tenancy F-1/F-2, Phase C amendment to the ADR). A PARTNER passes on scope
+ * alone — exactly as ADR-0047 decided; partners hold no capability by construction and
+ * the scope guard is their boundary. An ADMIN-STREAM caller flowing through the same
+ * partner-shaped code gets the WHOLE TENANT back (leadWhere's admin arm), so it must
+ * hold the capability the equivalent admin surface requires — without this, a viewer
+ * would pull a full-tenant seller-PII export through the portal export route.
+ */
+export function requirePassthroughResponse(scope: ScopeContext, cap: Capability): NextResponse | null {
+  return isPartnerStream(scope) ? null : requireCapabilityResponse(scope, cap);
 }

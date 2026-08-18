@@ -39,7 +39,7 @@ function liveLeadGate(scope: ScopeContext, db: DB) {
 // own. The two streams are mutually invisible (PRN-13 symmetry).
 //
 // Nothing identity-bearing is ever taken from the client: `author_role` comes from
-// scope.role, `author_user_id` from scope.userId, and `tenant_id` from the leadWhere-scoped
+// streamOf(scope), `author_user_id` from scope.userId, and `tenant_id` from the leadWhere-scoped
 // lead lookup by refId — never a raw lead_id or tenant_id off the request (audit F-1/F-3).
 // Mutations re-resolve the row through `taskWhere ∩ id`, so a stolen task id is inert.
 //

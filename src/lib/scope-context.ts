@@ -61,6 +61,11 @@ export function resolveScope(
 ): ScopeContext {
   if (!user) throw new UnauthenticatedError();
   if (!row) throw new NotProvisionedError("No workspace membership for this account.");
+  // Fail securely on an unknown role value (audit-tenancy F-7): a widened enum shipped ahead
+  // of this mapping must refuse the session, not construct a scope no gate has heard of.
+  if (!["admin", "partner", "member", "viewer"].includes(row.role)) {
+    throw new NotProvisionedError("Account role is not recognized.");
+  }
   if (row.role === "partner") {
     if (!row.partnerId) {
       throw new NotProvisionedError("Partner account is missing its partner link.");

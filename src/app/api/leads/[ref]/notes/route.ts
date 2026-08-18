@@ -5,6 +5,7 @@ import { assertCsrf, authErrorResponse } from "@/lib/auth/guard";
 import { requireTosResponse } from "@/lib/auth/tos-guard";
 import { listLeadNotes, addLeadNote, LeadNotFoundError } from "@/modules/notes/notes";
 import { jsonOk, jsonError, jsonServerError } from "@/lib/http";
+import { requirePassthroughResponse } from "@/lib/authz";
 
 // Shared note API (NTS/PRN-13): both admin and partner use it; scope decides the
 // stream. GET returns the caller's own stream; POST adds to it. Scoped + CSRF.
@@ -16,6 +17,10 @@ export async function GET(_req: Request, { params }: { params: Promise<{ ref: st
   if (!RefSchema.safeParse(ref).success) return jsonError("invalid_ref", "Invalid lead reference.", 400);
   try {
     const scope = await getServerScope();
+    // ADR-0047 Phase C: partners pass on scope alone; an ADMIN-STREAM caller reaches
+    // tenant-wide data through this partner-shaped code, so it must hold leads.read.
+    const gate = requirePassthroughResponse(scope, "leads.read");
+    if (gate) return gate;
     const tos = await requireTosResponse(getDb(), scope); // F-04/LGL-01: partners, and self-serve admins, must have accepted the current ToS
     if (tos) return tos;
     const notes = await listLeadNotes(scope, ref);
@@ -36,6 +41,10 @@ export async function POST(request: Request, { params }: { params: Promise<{ ref
   if (!parsed.success) return jsonError("invalid_input", "A note body is required.", 400);
   try {
     const scope = await getServerScope();
+    // ADR-0047 Phase C: partners pass on scope alone; an ADMIN-STREAM caller reaches
+    // tenant-wide data through this partner-shaped code, so it must hold work.write.
+    const gate = requirePassthroughResponse(scope, "work.write");
+    if (gate) return gate;
     const tos = await requireTosResponse(getDb(), scope); // F-04/LGL-01: partners, and self-serve admins, must have accepted the current ToS
     if (tos) return tos;
     const result = await addLeadNote(scope, ref, parsed.data.body);

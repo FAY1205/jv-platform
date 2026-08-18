@@ -4,6 +4,7 @@ import { authErrorResponse } from "@/lib/auth/guard";
 import { requireTosResponse } from "@/lib/auth/tos-guard";
 import { countPartnerLeads } from "@/modules/portal/queries";
 import { jsonOk, jsonServerError } from "@/lib/http";
+import { requirePassthroughResponse } from "@/lib/authz";
 
 // T7a: the shell nav badge — the partner's total visible leads (identical semantics to
 // the unfiltered /api/portal/leads count, PTL-02). Scoped via countPartnerLeads (PRN-08)
@@ -11,6 +12,10 @@ import { jsonOk, jsonServerError } from "@/lib/http";
 export async function GET() {
   try {
     const scope = await getServerScope();
+    // ADR-0047 Phase C: partners pass on scope alone; an ADMIN-STREAM caller reaches
+    // tenant-wide data through this partner-shaped code, so it must hold leads.read.
+    const gate = requirePassthroughResponse(scope, "leads.read");
+    if (gate) return gate;
     const tos = await requireTosResponse(getDb(), scope);
     if (tos) return tos;
     return jsonOk({ count: await countPartnerLeads(scope) });

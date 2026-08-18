@@ -24,6 +24,11 @@ export interface ScopeContext {
   userId: string;
   /** Required when role === "partner". */
   partnerId?: string;
+  /** Tenant-CONFIGURED capability set for member/viewer tiers, resolved once per request by
+   *  getServerScope (Phase C schema WP). Absent ⇒ lib/authz falls back to the code defaults.
+   *  Typed as strings to avoid a scope↔authz import cycle; lib/authz owns the Capability union
+   *  and is the only reader. Never consulted for admin (locked-full) or partner (stream). */
+  capabilities?: ReadonlySet<string>;
 }
 
 /**
@@ -217,11 +222,20 @@ export function leadChildWhere(
  */
 export function ownStatusAuthorScope(scope: ScopeContext): SQL | undefined {
   if (!isPartnerStream(scope)) return undefined;
-  const me = requirePartner(scope);
-  // `role <> 'partner'` (not `= 'admin'`): a status change by ANY admin-stream tier (admin,
-  // and later member) stays visible to the owning partner — the same intentional semantic,
-  // generalized. Equivalent for all existing rows; the RLS twin migrates in the schema PR.
-  return sql`${schema.leadStatusHistory.changedByUserId} in (select id from users where ${tenantWhere(schema.users, scope)} and (role <> 'partner' or partner_id = ${me}))`;
+  return sql`${schema.leadStatusHistory.changedByUserId} in ${statusAuthorOrg(scope, requirePartner(scope))}`;
+}
+
+/**
+ * The author set a partner's status timeline is restricted to: their OWN org, plus any
+ * admin-STREAM tier. `role <> 'partner'` (not `= 'admin'`): a status change by ANY staff tier
+ * (admin, and later member) stays visible to the owning partner — the same intentional
+ * semantic, generalized (equivalent for all existing rows; the RLS twin migrates in the Phase C
+ * schema PR). ONE definition (audit-tenancy F-3 / R-24): the raw analytics SQL in
+ * modules/analytics/partner-performance.ts composes this same fragment, so the portal timeline
+ * and the portal's own KPI numbers can never disagree about whose touch counts (PRN-15).
+ */
+export function statusAuthorOrg(scope: ScopeContext, partnerId: string): SQL {
+  return sql`(select id from users where ${tenantWhere(schema.users, scope)} and (role <> 'partner' or partner_id = ${partnerId}))`;
 }
 
 /**

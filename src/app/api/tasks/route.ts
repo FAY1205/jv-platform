@@ -5,6 +5,7 @@ import { requireTosResponse } from "@/lib/auth/tos-guard";
 import { listMyTasks } from "@/modules/tasks/tasks";
 import { MyTasksQuerySchema } from "@/modules/tasks/schema";
 import { jsonOk, jsonServerError } from "@/lib/http";
+import { requirePassthroughResponse } from "@/lib/authz";
 
 // GET /api/tasks — My Tasks (TSK-07), for BOTH roles: the caller's own open (or done)
 // tasks across every lead their stream can see, server-paginated. No role gate — the scope
@@ -12,6 +13,10 @@ import { jsonOk, jsonServerError } from "@/lib/http";
 export async function GET(request: Request) {
   try {
     const scope = await getServerScope();
+    // ADR-0047 Phase C: partners pass on scope alone; an ADMIN-STREAM caller reaches
+    // tenant-wide data through this partner-shaped code, so it must hold leads.read.
+    const gate = requirePassthroughResponse(scope, "leads.read");
+    if (gate) return gate;
     const tos = await requireTosResponse(getDb(), scope); // F-04/LGL-01: partners, and self-serve admins, must have accepted the current ToS
     if (tos) return tos;
     const query = MyTasksQuerySchema.parse(Object.fromEntries(new URL(request.url).searchParams));

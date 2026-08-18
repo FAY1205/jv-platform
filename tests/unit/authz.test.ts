@@ -1,5 +1,15 @@
 import { describe, it, expect } from "vitest";
-import { can, capabilitiesOf, requireCapabilityResponse, type Capability } from "@/lib/authz";
+import {
+  can,
+  capabilitiesOf,
+  requireCapabilityResponse,
+  requirePassthroughResponse,
+  effectiveCapabilities,
+  ALWAYS_ON,
+  TENANT_EDITABLE,
+  ADMIN_LOCKED,
+  type Capability,
+} from "@/lib/authz";
 import { requireAdminResponse } from "@/lib/auth/guard";
 import type { ScopeContext } from "@/lib/scope";
 
@@ -41,6 +51,65 @@ describe("AUTHZ-01: the role × capability matrix", () => {
 
   it("AUTHZ-01: a partner scope holds NO capability (stream, not tier)", () => {
     for (const cap of ALL_CAPS) expect(can(scopes.partner, cap)).toBe(false);
+  });
+});
+
+describe("AUTHZ-05: tenant-configured capabilities override the defaults (member/viewer only)", () => {
+  it("AUTHZ-05: a member scope carrying a configured set uses it, not the defaults", () => {
+    const configured: ScopeContext = { ...scopes.member, capabilities: new Set(["leads.read", "views.own", "data.export"]) };
+    expect(can(configured, "data.export")).toBe(true); // granted beyond the default
+    expect(can(configured, "leads.write")).toBe(false); // default revoked by config
+    expect(capabilitiesOf(configured)).toEqual(["leads.read", "views.own", "data.export"]);
+  });
+
+  it("AUTHZ-05: admin ignores any configured set (locked-full tier)", () => {
+    const shrunk: ScopeContext = { ...scopes.admin, capabilities: new Set(["leads.read"]) };
+    for (const cap of ALL_CAPS) expect(can(shrunk, cap)).toBe(true);
+  });
+
+  it("AUTHZ-05: partner ignores any configured set (stream, not tier)", () => {
+    const smuggled: ScopeContext = { ...scopes.partner, capabilities: new Set(ALL_CAPS) };
+    for (const cap of ALL_CAPS) expect(can(smuggled, cap)).toBe(false);
+  });
+});
+
+describe("AUTHZ-07: the three-band split partitions the capability set", () => {
+  it("AUTHZ-07: ALWAYS_ON ∪ TENANT_EDITABLE ∪ ADMIN_LOCKED ≡ Capability, pairwise disjoint", () => {
+    const union = new Set([...ALWAYS_ON, ...TENANT_EDITABLE, ...ADMIN_LOCKED]);
+    expect([...union].sort()).toEqual([...ALL_CAPS].sort());
+    expect(ALWAYS_ON.size + TENANT_EDITABLE.size + ADMIN_LOCKED.size).toBe(ALL_CAPS.length);
+  });
+
+  it("AUTHZ-07: effectiveCapabilities — null row ⇒ live defaults; stored ⇒ (∩ editable) ∪ always-on", () => {
+    expect(effectiveCapabilities("member", null)).toEqual(new Set(EXPECTED.member));
+    expect(effectiveCapabilities("viewer", null)).toEqual(new Set(EXPECTED.viewer));
+    // A stored row can grant editable caps beyond the defaults…
+    const grant = effectiveCapabilities("viewer", ["data.export"]);
+    expect(grant.has("data.export")).toBe(true);
+    // …but locked and unknown keys are silently STRIPPED, and the always-on floor holds.
+    const hostile = effectiveCapabilities("member", ["team.manage", "ops.admin", "settings.manage", "nonsense"]);
+    expect([...hostile].sort()).toEqual([...ALWAYS_ON].sort());
+    // An empty explicit row = the floor, never less (lockout-proof).
+    expect([...effectiveCapabilities("viewer", [])].sort()).toEqual([...ALWAYS_ON].sort());
+  });
+
+  it("AUTHZ-07: admin ignores stored config entirely (locked-full)", () => {
+    expect(effectiveCapabilities("admin", ["leads.read"])).toEqual(new Set(ALL_CAPS));
+  });
+});
+
+describe("AUTHZ-08: the ADR-0047 pass-through gate", () => {
+  it("AUTHZ-08: a partner passes on scope alone (no capability consulted)", () => {
+    expect(requirePassthroughResponse(scopes.partner, "data.export")).toBeNull();
+  });
+
+  it("AUTHZ-08: an admin-stream caller must hold the named capability", async () => {
+    expect(requirePassthroughResponse(scopes.admin, "data.export")).toBeNull();
+    const denied = requirePassthroughResponse(scopes.viewer, "data.export");
+    expect(denied).not.toBeNull();
+    expect(denied!.status).toBe(403);
+    expect(requirePassthroughResponse(scopes.member, "leads.read")).toBeNull();
+    expect(requirePassthroughResponse(scopes.viewer, "leads.write")).not.toBeNull();
   });
 });
 

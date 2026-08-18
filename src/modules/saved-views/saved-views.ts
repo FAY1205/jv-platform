@@ -96,7 +96,7 @@ export class SavedViewLimitError extends Error {
 
 /** The admin-stream gate, in the module (see the header for why it is not the route's job
  *  alone). Keyed to `views.own` (Phase C): saved views are per-user staff chrome. */
-function assertAdmin(scope: ScopeContext): void {
+function assertViewsOwn(scope: ScopeContext): void {
   if (!can(scope, "views.own")) throw new SavedViewScopeError();
 }
 
@@ -142,7 +142,7 @@ function readFilters(raw: unknown): SavedViewFilters {
 /** SV-02 — the caller's OWN views, newest-touched first (a re-saved view floats to the top of
  *  the menu, which is where the eye goes back to). Name is the stable tiebreak. */
 export async function listSavedViews(scope: ScopeContext): Promise<SavedViewRow[]> {
-  assertAdmin(scope);
+  assertViewsOwn(scope);
   const rows = await getDb()
     .select({
       id: schema.savedViews.id,
@@ -178,7 +178,7 @@ export async function createSavedView(
   scope: ScopeContext,
   input: CreateSavedViewInput,
 ): Promise<{ id: string; name: string }> {
-  assertAdmin(scope);
+  assertViewsOwn(scope);
   const [{ n }] = await getDb()
     .select({ n: count() })
     .from(schema.savedViews)
@@ -215,7 +215,7 @@ export async function updateSavedView(
   id: string,
   patch: UpdateSavedViewInput,
 ): Promise<void> {
-  assertAdmin(scope);
+  assertViewsOwn(scope);
   let updated: { id: string }[];
   try {
     updated = await getDb()
@@ -244,7 +244,7 @@ export async function updateSavedView(
  *  server does what it is told, once. A row that isn't the caller's 404s identically to one
  *  that never existed. */
 export async function deleteSavedView(scope: ScopeContext, id: string): Promise<void> {
-  assertAdmin(scope);
+  assertViewsOwn(scope);
   const removed = await getDb()
     .delete(schema.savedViews)
     .where(and(savedViewWhere(scope), eq(schema.savedViews.id, id)))

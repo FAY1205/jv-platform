@@ -5,6 +5,7 @@ import { getServerScope } from "@/lib/scope-context";
 import { authErrorResponse } from "@/lib/auth/guard";
 import { tenantWhere } from "@/lib/scope";
 import { isPlatformOwnerScope } from "@/lib/auth/platform-owner";
+import { capabilitiesOf } from "@/lib/authz";
 import { jsonOk, jsonError } from "@/lib/http";
 
 // WS-7: the authenticated caller's own identity for client chrome (profile menu +
@@ -25,6 +26,9 @@ export async function GET() {
     return jsonOk({
       email: row.email,
       role: scope.role,
+      // Phase C: the derived capability list, for client chrome gating ONLY — every server
+      // route re-checks via the authz seam. Empty for partners; full list for admins today.
+      capabilities: capabilitiesOf(scope),
       workspace: { name: row.name },
       isPlatformOwner: isPlatformOwnerScope(scope, row.email),
     });

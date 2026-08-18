@@ -5,6 +5,7 @@ import { requireTosResponse } from "@/lib/auth/tos-guard";
 import { listPartnerLeads, PORTAL_LEAD_SORT_FIELDS, PORTAL_STATUS_FILTERS, type PortalLeadSort } from "@/modules/portal/queries";
 import { pageParam, pageSizeParam, PORTAL_MAX_PAGE } from "@/lib/query-params";
 import { jsonOk, jsonServerError } from "@/lib/http";
+import { requirePassthroughResponse } from "@/lib/authz";
 
 // Built once (portal ceiling); admin schemas build their page field the same way.
 const portalPageSchema = pageParam({ max: PORTAL_MAX_PAGE });
@@ -42,6 +43,10 @@ function parseQ(v: string | null): string | undefined {
 export async function GET(request: Request) {
   try {
     const scope = await getServerScope();
+    // ADR-0047 Phase C: partners pass on scope alone; an ADMIN-STREAM caller reaches
+    // tenant-wide data through this partner-shaped code, so it must hold leads.read.
+    const gate = requirePassthroughResponse(scope, "leads.read");
+    if (gate) return gate;
     const tos = await requireTosResponse(getDb(), scope); // F-04: gate data on ToS acceptance
     if (tos) return tos;
     const params = new URL(request.url).searchParams;
