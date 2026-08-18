@@ -582,6 +582,39 @@ describe("TSK-13: the assignee picker's option rules", () => {
     expect(assigneeOptions([], ME.email)).toEqual([{ value: ASSIGN_TO_ME, label: "Me" }]);
   });
 
+  it("TSK-13/PRN-14 (design F-5): an assignee missing from the roster gets an option from the row's own identity", () => {
+    // A seat deactivated since the assignment: the roster (active-only) no longer carries it,
+    // so without this the Select would render BLANK on a task that IS assigned.
+    const closedSeat = { ...COLLEAGUE, deactivated: true };
+    expect(assigneeOptions(ROSTER, ME.email, { value: "u-gone", identity: closedSeat })).toEqual([
+      { value: ASSIGN_TO_ME, label: "Me" },
+      { value: "u-gone", label: "dana · deactivated" },
+      { value: "u-dana", label: "dana" },
+    ]);
+    // An ACTIVE assignee the roster simply didn't return (a failed read) is labeled plainly.
+    expect(assigneeOptions([], ME.email, { value: "u-dana", identity: COLLEAGUE })).toEqual([
+      { value: ASSIGN_TO_ME, label: "Me" },
+      { value: "u-dana", label: "dana" },
+    ]);
+  });
+
+  it("TSK-13 (design F-5): the fallback never duplicates a roster row, and never fires for 'Me'", () => {
+    // Already in the roster → no second entry.
+    expect(assigneeOptions(ROSTER, ME.email, { value: "u-dana", identity: COLLEAGUE })).toEqual([
+      { value: ASSIGN_TO_ME, label: "Me" },
+      { value: "u-dana", label: "dana" },
+    ]);
+    // Self-assigned rows resolve to the sentinel, which always has an option.
+    expect(assigneeOptions(ROSTER, ME.email, { value: ASSIGN_TO_ME, identity: MY_IDENTITY })).toEqual([
+      { value: ASSIGN_TO_ME, label: "Me" },
+      { value: "u-dana", label: "dana" },
+    ]);
+    // No resolvable identity → nothing truthful to render, so no invented option.
+    expect(assigneeOptions([], ME.email, { value: "u-ghost", identity: null })).toEqual([
+      { value: ASSIGN_TO_ME, label: "Me" },
+    ]);
+  });
+
   it("TSK-12/TSK-03: a self-assigned row starts on 'Me'; a colleague's row starts on their id", () => {
     expect(initialAssigneeValue({ assignedToUserId: "u1", assignee: MY_IDENTITY }, ME.email)).toBe(ASSIGN_TO_ME);
     expect(initialAssigneeValue({ assignedToUserId: "u2", assignee: COLLEAGUE }, ME.email)).toBe("u2");
@@ -659,11 +692,15 @@ describe("TSK-12: inline task edit", () => {
     expect(screen.getByLabelText("Due date (optional)")).toHaveTextContent(/aug 14, 2026/i);
     // TSK-13: the picker defaults to "Me" — the row is self-assigned.
     expect(screen.getByLabelText(/assignee/i)).toHaveTextContent("Me");
-    // Nothing changed yet, so Save is inert.
+    // Nothing changed yet, so Save is inert — and design F-2: it SAYS why, rather than
+    // leaving the user staring at a dead button on a form that looks perfectly valid.
     expect(screen.getByRole("button", { name: /^save task$/i })).toBeDisabled();
+    expect(screen.getByText("No changes to save.")).toBeInTheDocument();
 
     await user.clear(titleInput);
     await user.type(titleInput, "Call seller back");
+    // …and the hint clears the moment there IS something to save.
+    expect(screen.queryByText("No changes to save.")).toBeNull();
     await user.click(screen.getByRole("button", { name: /^save task$/i }));
 
     await waitFor(() => expect(spy).toHaveBeenCalledWith("/api/tasks/t1", expect.objectContaining({ method: "PATCH" })));
@@ -751,6 +788,26 @@ describe("TSK-12: inline task edit", () => {
     vi.unstubAllGlobals();
   });
 
+  it("TSK-13/PRN-14 (design F-5): an off-roster assignee renders truthfully, never as a blank picker", async () => {
+    const user = userEvent.setup();
+    // Assigned to a seat that has since been deactivated: C-11 still resolves its identity on
+    // the row, but the ACTIVE-only roster no longer carries it.
+    const closedSeat = { ...COLLEAGUE, deactivated: true };
+    stubFetch([{ ...TASK, assignedToUserId: "u-gone", assignee: closedSeat }], () => jsonRes({}));
+    wrap(<TasksPanel leadRef="LD-26-00001" today="2026-08-15" />);
+    await screen.findByText("Call seller");
+
+    await user.click(screen.getByRole("button", { name: /^edit "call seller"$/i }));
+    // The control states who holds the task — and that the seat is closed — instead of
+    // reading as "unassigned" on a task that is assigned.
+    await waitFor(() => expect(screen.getByLabelText(/assignee/i)).toHaveTextContent("dana · deactivated"));
+    // Nothing was touched, so there is still nothing to save (the fallback is display-only).
+    expect(screen.getByRole("button", { name: /^save task$/i })).toBeDisabled();
+    expect(screen.getByText("No changes to save.")).toBeInTheDocument();
+
+    vi.unstubAllGlobals();
+  });
+
   it("TSK-04: Edit is hidden on completed rows (a closed task is a permanent timeline fact)", async () => {
     stubFetch([{ ...TASK, doneAt: "2026-08-14T00:00:00.000Z" }], () => jsonRes({}));
     wrap(<TasksPanel leadRef="LD-26-00001" today="2026-08-15" />);
@@ -812,7 +869,7 @@ describe("TSK-13: the assignee picker in the add form", () => {
     vi.unstubAllGlobals();
   });
 
-  it("TSK-13/DSN-03: a failed roster read degrades to 'Me' with the reason in words", async () => {
+  it("TSK-13/DSN-03 (design F-1): a FAILED roster read is an error state, not a loading one", async () => {
     const user = userEvent.setup();
     vi.stubGlobal(
       "fetch",
@@ -827,11 +884,35 @@ describe("TSK-13: the assignee picker in the add form", () => {
     await screen.findByText(/no tasks yet/i);
     await user.click(screen.getByRole("button", { name: /add a task/i }));
 
-    // PRN-14: an explanation, not just an empty dropdown.
+    // PRN-14: an explanation, not just an empty dropdown…
     expect(await screen.findByText(/couldn't load your team/i)).toBeInTheDocument();
-    expect(screen.getByLabelText(/assignee/i)).toHaveTextContent("Me");
+    const picker = screen.getByLabelText(/assignee/i);
+    expect(picker).toHaveTextContent("Me");
+    // …and a 500 must NOT render like a slow response: the control is marked invalid, and
+    // the loading line is gone.
+    await waitFor(() => expect(picker).toHaveAttribute("aria-invalid", "true"));
+    expect(screen.queryByText(/loading your team/i)).toBeNull();
     // The form still works — the assignee simply stays the creator.
     expect(screen.getByRole("button", { name: /^add task$/i })).toBeInTheDocument();
+
+    vi.unstubAllGlobals();
+  });
+
+  it("TSK-13/DSN-03 (design F-1): a PENDING roster is a neutral hint with no invalid marking", async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string) => (url === "/api/tasks/assignees" ? new Promise(() => {}) : jsonRes({ tasks: [] }))) as unknown as typeof fetch,
+    );
+
+    wrap(<TasksPanel leadRef="LD-26-00001" today="2026-08-15" />);
+    await screen.findByText(/no tasks yet/i);
+    await user.click(screen.getByRole("button", { name: /add a task/i }));
+
+    expect(await screen.findByText(/loading your team/i)).toBeInTheDocument();
+    const picker = screen.getByLabelText(/assignee/i);
+    expect(picker).not.toHaveAttribute("aria-invalid");
+    expect(picker).toBeDisabled();
 
     vi.unstubAllGlobals();
   });

@@ -139,22 +139,44 @@ export const ASSIGN_TO_ME = "__me__";
  * address rather than offering the user two identical-looking rows. The caller's own seat is
  * folded into "Me" instead of appearing twice — while ["me"] is still loading its email is
  * unknown, so it renders as an ordinary row rather than a guess (the panel's C-11 rule).
- * Pure, so the rule is testable without a DOM.
+ *
+ * `current` (design F-5): the row being EDITED may be assigned to somebody the roster does
+ * not contain — a seat deactivated since the assignment, or any assignee at all when the
+ * roster read failed. Without an option carrying that value the Select renders BLANK, which
+ * states "unassigned" about a task that is assigned: a control misreporting state, not merely
+ * an empty one (PRN-14). The row's OWN resolved identity (C-11 already ships the email) fills
+ * the gap, flagged when the seat is closed. Nothing about the patch changes — an untouched
+ * value is still an unchanged value, so the field is simply not sent.
+ *
+ * Pure, so every rule above is testable without a DOM.
  */
-export function assigneeOptions(roster: readonly TaskAssignee[], myEmail: string | undefined): SelectOption[] {
+export function assigneeOptions(
+  roster: readonly TaskAssignee[],
+  myEmail: string | undefined,
+  current?: { value: string; identity: TaskIdentity | null },
+): SelectOption[] {
   const others = roster.filter((u) => u.email !== myEmail);
   const localPartCounts = new Map<string, number>();
   for (const u of others) {
     const local = u.email.split("@")[0];
     localPartCounts.set(local, (localPartCounts.get(local) ?? 0) + 1);
   }
-  return [
+  const options: SelectOption[] = [
     { value: ASSIGN_TO_ME, label: "Me" },
     ...others.map((u) => {
       const local = u.email.split("@")[0];
       return { value: u.id, label: (localPartCounts.get(local) ?? 0) > 1 ? u.email : local };
     }),
   ];
+  if (current && current.value !== ASSIGN_TO_ME && current.identity && !options.some((o) => o.value === current.value)) {
+    const local = current.identity.email.split("@")[0];
+    // Second position: it is the SELECTED value, so it belongs beside "Me", not buried.
+    options.splice(1, 0, {
+      value: current.value,
+      label: current.identity.deactivated ? `${local} · deactivated` : local,
+    });
+  }
+  return options;
 }
 
 /**
@@ -423,8 +445,12 @@ export function TasksPanel({ leadRef, today, onTaskChanged, canWrite: canWritePr
                     {/* TSK-12: edit is STREAM-scoped, not author-only (editLeadTask's
                         contract) — so unlike Delete it shows on a colleague's row too. It is
                         hidden on COMPLETED rows: TSK-04 permanence means the server would
-                        409, so there is nothing to disable-with-a-reason here. The capability
-                        miss disables the whole panel with a stated reason instead. */}
+                        409, so there is nothing to disable-with-a-reason here.
+                        On a CAPABILITY miss Edit HIDES rather than aria-disabling like the
+                        checkbox and Add trigger (§6 disable-don't-hide): those two are one
+                        control each, so one tooltip states the reason once — Edit is PER ROW,
+                        so disabling it would repeat the same tooltip down the whole list. The
+                        panel already says it once on the controls that stay. */}
                     {!t.doneAt && canWrite && confirmDeleteId !== t.id && (
                       <button
                         ref={(el) => {
@@ -562,22 +588,26 @@ function MaybeTooltip({ content, children }: { content: string | null; children:
  * an open form, so a panel that is merely being read never fetches it (TanStack defaults do
  * the rest of the caching — one roster per lead dialog).
  *
- * DSN-03: loading disables the control, an error degrades to "Me" alone with the reason in
- * words (PRN-14) rather than an empty dropdown with no explanation.
+ * DSN-03 (design F-1): loading and FAILURE are different states and must not render alike —
+ * `hint` is the neutral "still working" line, `error` is the Select's danger treatment plus
+ * aria-invalid. A 500 on this roster used to be indistinguishable from a slow one.
  *
  * MEMOIZED (FEP-04, "keystrokes must not re-render"): the form re-renders on every character
  * typed into the title, and this subtree is the heaviest thing in it (a Radix Select plus a
- * query subscription). Its props are all stable — a value, a state setter, a boolean — so
- * memo eliminates every keystroke-driven re-render of the dropdown.
+ * query subscription). Its props are all stable — a value, a state setter, a boolean, and a
+ * memoized `current` — so memo eliminates every keystroke-driven re-render of the dropdown.
  */
 const AssigneeSelect = React.memo(function AssigneeSelect({
   value,
   onValueChange,
   disabled,
+  current,
 }: {
   value: string;
   onValueChange: (v: string) => void;
   disabled?: boolean;
+  /** design F-5: the edited row's own assignment, so a roster gap never renders blank. */
+  current?: { value: string; identity: TaskIdentity | null };
 }) {
   const me = useCurrentUser();
   const q = useQuery({
@@ -585,8 +615,8 @@ const AssigneeSelect = React.memo(function AssigneeSelect({
     queryFn: () => apiGet<{ assignees: TaskAssignee[] }>("/api/tasks/assignees"),
   });
   const options = React.useMemo(
-    () => assigneeOptions(q.data?.assignees ?? [], me.data?.email),
-    [q.data?.assignees, me.data?.email],
+    () => assigneeOptions(q.data?.assignees ?? [], me.data?.email, current),
+    [q.data?.assignees, me.data?.email, current],
   );
   return (
     <Select
@@ -595,13 +625,9 @@ const AssigneeSelect = React.memo(function AssigneeSelect({
       onValueChange={onValueChange}
       options={options}
       disabled={disabled || q.isPending}
-      hint={
-        q.isError
-          ? "Couldn't load your team — leave this on Me, or try again."
-          : q.isPending
-            ? "Loading your team…"
-            : undefined
-      }
+      // PRN-14: both states say so in WORDS; only the failure carries the danger treatment.
+      error={q.isError ? "Couldn't load your team — leave this on Me, or try again." : undefined}
+      hint={q.isPending ? "Loading your team…" : undefined}
     />
   );
 });
@@ -641,6 +667,15 @@ const DueDateField = React.memo(function DueDateField({
  * Local state seeded ONCE from the task: this is form input, not a copy of server state
  * (§6.17) — the row's server data still lives in the query cache and the form unmounts on
  * success. `key={task.id}` at the call site is implicit: one editor at a time, per row.
+ *
+ * DELIBERATELY NOT NotesPanel's inline-edit pattern (design F-6). A note is ONE free-text
+ * body, so it edits as a single textarea that saves on blur — no explicit commit, because
+ * there is nothing to commit atomically. A task is a RECORD of three fields whose changes
+ * must travel as one patch (title + due date + assignee, `undefined` vs `null` semantics per
+ * field), and two of them are pickers with no meaningful blur moment. Save-on-blur would
+ * either fire three PATCHes or fire one at an arbitrary moment; an explicit Save/Cancel is
+ * the honest control for a multi-field record. The divergence is the shape of the data, not
+ * two authors disagreeing — the AddTaskForm in this same file is the pattern it matches.
  */
 function EditTaskForm({
   task,
@@ -665,7 +700,22 @@ function EditTaskForm({
   const patch = buildTaskPatch(task, { title, dueOn, assignee }, initialAssignee);
   // Save stays inert until something actually changed — an empty patch is exactly what the
   // server refuses ("Nothing to change"), so the button says so instead of round-tripping it.
-  const canSave = trimmed.length > 0 && !titleError && Object.keys(patch).length > 0;
+  const unchanged = Object.keys(patch).length === 0;
+  const canSave = trimmed.length > 0 && !titleError && !unchanged;
+  // design F-2: a disabled Save with no explanation is a dead end — the user can see the
+  // form is valid and cannot tell why the button won't take. Say it, but ONLY in the
+  // valid-but-unchanged state: while the title is empty or too long the Input's own error
+  // already carries the reason, and two messages would compete.
+  const noChangesHint = unchanged && trimmed.length > 0 && !titleError;
+
+  // design F-5: the row's own assignment travels into the picker so a roster gap (a seat
+  // deactivated since assignment, or a failed roster read) renders truthfully instead of
+  // blank. Memoized because AssigneeSelect is memoized — a fresh object every keystroke
+  // would defeat it.
+  const currentAssignee = React.useMemo(
+    () => ({ value: initialAssignee, identity: task.assignee }),
+    [initialAssignee, task.assignee],
+  );
 
   return (
     <form
@@ -684,8 +734,9 @@ function EditTaskForm({
         disabled={pending}
       />
       <DueDateField label="Due date (optional)" value={dueOn} onChange={setDueOn} disabled={pending} />
-      <AssigneeSelect value={assignee} onValueChange={setAssignee} disabled={pending} />
+      <AssigneeSelect value={assignee} onValueChange={setAssignee} disabled={pending} current={currentAssignee} />
       <div className="flex items-center justify-end gap-2 pt-1">
+        {noChangesHint && <span className="mr-auto text-xs text-text-3">No changes to save.</span>}
         <Button type="button" variant="ghost" size="sm" onClick={onCancel} disabled={pending}>
           Cancel
         </Button>

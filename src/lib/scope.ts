@@ -76,8 +76,17 @@ export interface StreamUsersTable {
  * viewer — is one stream (PRN-13 stays binary), so a widened enum can't silently split it.
  * Partner arm checks role AND org because `users.partner_id` carries NO role invariant
  * (SCP-01 / C-15, ADR-0046): an admin row with a stray partner_id must never count into a
- * partner org's member set. The RLS counterparts (migrations 0044 / 0054) carry the twin —
- * keep both halves in lockstep.
+ * partner org's member set.
+ *
+ * RLS parity, precisely (audit-tenancy F-2): migrations 0044 / 0054 carry the twin of this
+ * predicate on the AUTHOR/READ axis — `lead_tasks_scope` / `lead_notes_scope` USING pin
+ * `author_user_id in (select id from users where tenant_id = … and partner_id = … and role =
+ * 'partner')`. Keep THOSE halves in lockstep. The ASSIGNEE arm is deliberately NOT twinned:
+ * `lead_tasks_scope`'s WITH CHECK admits any in-tenant `assigned_to_user_id`, while
+ * `resolveAssignee` additionally requires the caller's own stream AND an active seat. The app
+ * is STRICTER than the database — the safe direction, since the builders are the primary
+ * boundary and RLS is the backstop (ENGINEERING_STANDARDS §2). Tightening the WITH CHECK to
+ * match is a logged WP candidate, not a correctness gap here.
  *
  * NOT keyed on a ScopeContext: `statusAuthorOrg` needs the OTHER stream's arm for a partner
  * caller (a partner's status timeline admits staff authors too), so the stream is a parameter.
