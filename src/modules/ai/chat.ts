@@ -41,11 +41,16 @@ export async function assistantGate(db: Db, scope: ScopeContext, opts: { hasCred
   if (!opts.hasCredential) {
     return { ok: false as const, code: "ai_disabled" as const, status: 503, message: "Add your AI provider API key in Settings → AI assistant to use the assistant." };
   }
-  const settings = await loadAiSettings(scope);
+  // Perf: the enabled-flag read and the rate-window count are independent DB reads — run
+  // them together so the gate costs one round trip, not two, before the model is reached.
+  const [settings, questionsLastMinute] = await Promise.all([
+    loadAiSettings(scope),
+    questionsInLastMinute(db, scope, scope.userId, opts.now),
+  ]);
   if (!settings.enabled) {
     return { ok: false as const, code: "ai_disabled" as const, status: 403, message: "The assistant is switched off in Settings → AI assistant." };
   }
-  if (!rateDecision({ questionsLastMinute: await questionsInLastMinute(db, scope, scope.userId, opts.now) }).allowed) {
+  if (!rateDecision({ questionsLastMinute }).allowed) {
     return { ok: false as const, code: "ai_rate_limited" as const, status: 429, message: "Too many questions — try again in a minute." };
   }
   // The monthly spend cap was removed (ADR-0036 follow-up): each tenant caps spend in
@@ -66,14 +71,18 @@ export async function assistantResponse(db: Db, scope: ScopeContext, input: Chat
   // same pre-write count — pre-inserting closes both. The authoritative rate check then runs on
   // the now-inserted attempt (`attemptsThisMinute - 1` = questions that preceded this one, the
   // same predicate the gate uses), so a burst that slipped past the stale gate check is caught.
-  const usageId = await recordAttempt(db, scope, { userId: scope.userId, model: meterModel });
+  // Perf: the attempt insert (DB) and the message conversion (CPU, no DB) don't depend on each
+  // other — overlap them. The authoritative rate count must still run AFTER the insert (it counts
+  // the just-inserted attempt, the F-1 race fix), so it stays sequential.
+  const recent = input.messages.slice(-12); // design §4: only the last 12 messages are replayed
+  const [usageId, messages] = await Promise.all([
+    recordAttempt(db, scope, { userId: scope.userId, model: meterModel }),
+    convertToModelMessages(recent as unknown as UIMessage[]),
+  ]);
   const attemptsThisMinute = await questionsInLastMinute(db, scope, scope.userId, deps.now);
   if (!rateDecision({ questionsLastMinute: attemptsThisMinute - 1 }).allowed) {
     return jsonError("ai_rate_limited", "Too many questions — try again in a minute.", 429);
   }
-
-  const recent = input.messages.slice(-12); // design §4: only the last 12 messages are replayed
-  const messages = await convertToModelMessages(recent as unknown as UIMessage[]);
   const finalize = async (inputTokens: number, outputTokens: number) => {
     const cost = costMicroUsd(meterModel, inputTokens, outputTokens) ?? 0;
     await finalizeUsage(db, scope, usageId, { inputTokens, outputTokens, costMicroUsd: cost });
