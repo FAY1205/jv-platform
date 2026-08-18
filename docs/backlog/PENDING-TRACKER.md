@@ -16,14 +16,20 @@ work" — the drop never fired; now robust + touch + testable). PR #103 per-lead
 reorders on complete** (stable order — owner misfire fix). PR #104 leads-table density (**partner
 name-only** row, dense **tag chips**, Saved-views **Default view** row + Clear-all truthfulness).
 PR #105 leads-table **user-adjustable show/hide columns** (per-user pref). PR #106 **dark-mode pass**
-(WP-UX-8) + dark chart-hue (WP-UX-4 partial). PR #107 **WP-UX-7 polish**. PR #108 (open) three audit
+(WP-UX-8) + dark chart-hue (WP-UX-4 partial). PR #107 **WP-UX-7 polish**. PR #108 three audit
 correctness fixes (board "0"-while-loading header, stale ⚠ suppressed on terminal cards, "Waiting"
-false-precision). Design specs + fresh screenshots in `_marketing/audit/` + the session scratchpad.
-STILL OPEN from that effort → **Slice 3** (C-10→12 task-assignee, C-24 tags cap/virtualize,
-WP-AI-STYLE-PERSIST, C-41 portal perf), **Scope D** AI aesthetic redesign (`ai-redesign-spec.md` ready),
-**WP-UX-4** unmatched choropleth labels/legend, and the remaining Scope-E audit findings
-(`ux-audit-fresh.md`: timeline raw-enum leak, unmatched 21-vs-1 banner/tile, mobile Partners name clip,
-drill-down dead-ends).
+false-precision). PR #110 **AI reply-quality** (inline code/path rendering, suggestion rows). PR #111
+**AI aesthetic restructure** (flat answers + marker, title-page empty state, mobile bottom-sheet,
+launcher retune, smart scroll-pin + Jump-to-latest, restored divider, cap nudge). PR #112 **AI orb
+refine** (owner: removed the MiniOrb everywhere, small minimize control when open). PR #113 **AI
+pre-model DB parallelize**. PR #114 double-JWT security audit → PR #115 **C-42 getClaims local verify**
+(app-wide, 2 network auth verifies → 1). Design specs + fresh screenshots in `_marketing/audit/` + the
+session scratchpad. **DONE this session: all owner bugs · Slice-5 UX-7/UX-8 · Scope-D AI redesign ·
+C-42.** STILL OPEN → **Slice 3** (C-10→12 task-assignee, C-24 tags cap/virtualize, C-41 portal perf),
+**WP-UX-4** unmatched choropleth labels/legend (needs state centroids), **AI redesign owner-deferred
+polish** (mobile scrim, "Ask" copy, drag-to-dismiss), and the remaining **Scope-E audit findings**
+(`ux-audit-fresh.md`: timeline raw-enum "state_fallback" leak, unmatched 21-vs-1 banner/tile mismatch,
+mobile Partners name clip, drill-down dead-ends).
 
 ---
 
@@ -58,7 +64,7 @@ trips.** The query-plan work (C-16/C-22) is confirmed premature; the wins are la
 |------|------|--------|------|
 | **Round-trip waterfalls (done)** | Parallelized the sequential per-request query waterfalls: `getAdminLeadDetail` (5→2 round trips), `getPartnerLeadDetail` (portal, 4→2), `listPartners` (3→1). Behavior-preserving `Promise.all`. | ✅ | B |
 | **Frontend flash/over-fetch (done)** | `placeholderData: keepPreviousData` on admin leads table, admin dashboard, portal desktop+mobile leads (no more full-skeleton flash on page/sort/filter/range change); code-split the `/coverage` 0.9 MB county map to match every sibling page. | ✅ | B |
-| **C-42 (WP-PERF-AUTH)** | HIGH-value infra: every `/api/*` verifies the JWT **twice over the network** — `proxy.ts` middleware `getUser()` + route `getServerScope()` `getUser()` (GoTrue HTTP calls, ~1 RTT each, not local decodes). **SECURITY AUDIT DONE 2026-08-18 (`docs/audit/2026-08-18-double-jwt-verify.md`): recommend Option A** — swap ONLY the route to `getClaims()` (local verify), keep the edge `getUser()`; reject the "trusted header" option (spoofable). **Owner-gated on dashboard actions: (1) enable asymmetric JWT signing keys — `getClaims()` is a no-op perf-wise until then (silent network fallback on HS256); (2) confirm access-token TTL ≤1h; (3) accept the ≤1h access-token revocation residual (already exists today; role/tenant/partner revocation stays immediate via live DB reads).** On greenlight → route swap + test suite (alg-confusion, expired, cross-tenant, partner-revoke, spoofed-header) as a Tier-A PR. | ☐ (audited) | A (auth) |
+| **C-42 (WP-PERF-AUTH)** | HIGH-value infra: every `/api/*` verifies the JWT **twice over the network** — `proxy.ts` middleware `getUser()` + route `getServerScope()` `getUser()` (GoTrue HTTP calls, ~1 RTT each, not local decodes). **✅ DONE 2026-08-18 (PR #115).** Audit `docs/audit/2026-08-18-double-jwt-verify.md` → Option A. Owner enabled + rotated asymmetric ECC(P-256) signing keys on BOTH projects (test+prod, TTL 3600s). Route `getServerScope` now `getClaims()` (local verify vs project JWKS, module-cached in `src/lib/supabase/jwks.ts`); edge `getUser()` kept (refresh + live check). 2 network verifies → 1 on all 67 scoped API routes app-wide. Alg-confusion guard (HS256/none→network fallback); identity from verified `sub` + live DB reads (revocation immediate). Residual accepted: ≤1h access-token window (pre-existing). Tests: subjectFromClaims reject/spoof-fence, wiring (getClaims-used/getUser-not), JWKS cache. | ✅ | A (auth) |
 | **Region co-location (done)** | Prod DB is **Frankfurt** (`eu-central-1`); functions defaulted to US → each `/api` request paid ~5–6 serial transatlantic RTTs (auth ×2 + scope + query). **Pinned `vercel.json` `regions:["fra1"]`** to co-locate functions with the DB + GoTrue — a net ~3× per-request latency win even though users are US, because it trades one browser→function hop for many local function→DB hops. Reversible one-liner. | ✅ | B |
 | **DB → US region (durable fix)** | Users are US; the co-located `fra1` pin is a stopgap. The durable fix is moving the Supabase project to a US region (e.g. `us-east-1`) so browser + function + DB are all US-local, then repointing `regions` to `iad1`. Prod data migration → **owner** (folds into Slice 7's "US prod Supabase"). | ⏳ | owner |
 | **Pooler mode** | Confirm prod `DATABASE_URL` uses the **transaction** pooler `:6543` (serverless-recommended), not session `:5432` (dev `.env.local` uses 5432). Config-only. | ⏳ | owner (verify) |
@@ -71,7 +77,8 @@ trips.** The query-plan work (C-16/C-22) is confirmed premature; the wins are la
 |------|------|--------|------|
 | C-10 → C-11 → C-12 | `useCurrentUser()` hook / scope on the lead payload → task assignee avatar+name → retire the portal's legacy "Status history" panel (C-10 unblocks C-11) | ☐ | B |
 | C-24 | Cap/paginate `GET /api/tags`, virtualize `TagPicker`, per-tenant tag limit, pin the `TAG_PALETTE` append-only contract with a test | ☐ | B |
-| WP-AI-STYLE-PERSIST | Assistant reply quality (no blank replies / raw paths / clearer chips / tone) + chat panel & transcript survive nav/refresh | ☐ | B |
+| WP-AI-STYLE-PERSIST | **✅ DONE.** Transcript/panel persistence across nav+refresh already existed (`assistant-session.ts` sessionStorage mirror). Reply-quality slice shipped (PR #110): inline code/path rendering (no raw paths), suggestion rows. Never-blank fallback already present. | ✅ | B |
+| C-41 (perf follow-ups) | Portal duplicate-fetch (align `["portal-leads"...]` query keys), lead-dialog `initialData` from list cache, merge the two nav-badge count endpoints, admin `loading.tsx`. | ☐ | B |
 
 ## Slice 4 — CRM feature build (mockup-first; owner picks order, one WP at a time) · Tier A
 The remaining capability-map "MUST ADD" / "CAN ADD" items after slices 1–3 shipped (tasks/timeline,
