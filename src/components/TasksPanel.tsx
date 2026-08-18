@@ -61,7 +61,24 @@ export function TasksPanel({ leadRef, today, onTaskChanged }: TasksPanelProps) {
   const todayStr = today ?? utcDateString(new Date());
 
   const q = useQuery({ queryKey: key, queryFn: () => apiGet<{ tasks: LeadTask[] }>(`/api/leads/${leadRef}/tasks`) });
-  const tasks = q.data?.tasks ?? [];
+  // Stable display order INDEPENDENT of completion. The server sorts `doneAt asc nulls
+  // first` (open above done) — great for the My Tasks worklist, but in this in-place panel
+  // it means completing a task makes the refetch jump it down under the cursor, so a rapid
+  // second click lands on whichever row slid up (owner-reported misfire). Here we order by
+  // due date (soonest first, undated last) then creation — both immutable, unlike doneAt —
+  // so a completed task strikes through IN PLACE and no row ever moves on a toggle.
+  const tasks = React.useMemo(() => {
+    const list = q.data?.tasks ?? [];
+    return [...list].sort((a, b) => {
+      if (a.dueOn !== b.dueOn) {
+        if (!a.dueOn) return 1;
+        if (!b.dueOn) return -1;
+        return a.dueOn < b.dueOn ? -1 : 1;
+      }
+      if (a.createdAt !== b.createdAt) return a.createdAt < b.createdAt ? -1 : 1;
+      return a.id < b.id ? -1 : 1;
+    });
+  }, [q.data?.tasks]);
   const openCount = tasks.filter((t) => !t.doneAt).length;
 
   const settle = () => {
