@@ -7,6 +7,7 @@ import { leadWhere, tenantWhere, type ScopeContext } from "@/lib/scope";
 import { pgErrorInfo } from "@/lib/db/pg-error";
 import { nextTagColor, type TagColor } from "@/lib/tokens/tokens";
 import type { CreateTagInput, UpdateTagInput } from "./schema";
+import { can } from "@/lib/authz";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Lead tags (TAG-01..07) — tenant-owned workflow LABELS on a lead.
@@ -375,7 +376,7 @@ export async function tagsByLeadRef(
   scope: ScopeContext,
   leadRefIds: readonly string[],
 ): Promise<Map<string, TagView[]>> {
-  if (scope.role !== "admin") throw new TagScopeError();
+  if (!can(scope, "leads.read")) throw new TagScopeError();
   const byRef = new Map<string, TagView[]>();
   if (leadRefIds.length === 0) return byRef;
   const rows = await db

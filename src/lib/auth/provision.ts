@@ -72,7 +72,9 @@ export async function provisionAdmin(
   await db
     .insert(schema.users)
     .values({ id: userId, tenantId, email, role: "admin" })
-    .onConflictDoUpdate({ target: schema.users.id, set: { email, role: "admin", tenantId } });
+    // SCP-01 (audit-tenancy F-4): role and partner link move together. Re-provisioning a former
+    // partner as an admin MUST clear partner_id, or resolveScope refuses the resulting row.
+    .onConflictDoUpdate({ target: schema.users.id, set: { email, role: "admin", tenantId, partnerId: null } });
 
   return { userId, created: wasCreated };
 }

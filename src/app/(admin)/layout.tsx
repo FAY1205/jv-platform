@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { getServerScope } from "@/lib/scope-context";
+import { isPartnerStream } from "@/lib/scope";
 import { AssistantMount } from "@/components/assistant/AssistantMount";
 import { GlobalSearchOverlay } from "@/components/GlobalSearch";
 
@@ -14,7 +15,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
   let target: string | null = null;
   try {
     const scope = await getServerScope();
-    if (scope.role === "partner") target = "/portal/dashboard";
+    if (isPartnerStream(scope)) target = "/portal/dashboard";
   } catch (e) {
     // redirect() signals by throwing — never swallow it; anything else (unauthenticated,
     // unprovisioned, transient) falls through to the page and the proxy/API guards.

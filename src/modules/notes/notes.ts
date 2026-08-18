@@ -2,14 +2,14 @@ import { and, desc, eq, isNull, sql } from "drizzle-orm";
 import { LeadNotFoundError } from "@/modules/leads/errors";
 import { getDb } from "@/db";
 import * as schema from "@/db/schema";
-import { leadWhere, noteWhere, type ScopeContext } from "@/lib/scope";
+import { leadWhere, noteWhere, streamOf, isPartnerStream, type ScopeContext } from "@/lib/scope";
 import { releasedLeads } from "../run/hold-filter";
 import { maskAuditValue } from "@/modules/audit/redact";
 
 // WP-J2: a partner can't note/read a recalled (soft-deleted) lead; admin keeps access — voided
 // leads stay visible to admin in the import history. Distribution hold: nor a still-held lead.
 const partnerLive = (scope: ScopeContext) =>
-  scope.role === "partner" ? and(isNull(schema.leads.deletedAt), releasedLeads()) : undefined;
+  isPartnerStream(scope) ? and(isNull(schema.leads.deletedAt), releasedLeads()) : undefined;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Two-stream lead notes (NTS, PRN-13). Every path filters by author_role AND scope
@@ -78,7 +78,9 @@ export async function addLeadNote(scope: ScopeContext, leadRefId: string, body: 
 
   const [note] = await db
     .insert(schema.leadNotes)
-    .values({ tenantId: lead.tenantId, leadId: lead.id, authorUserId: scope.userId, authorRole: scope.role, body })
+    // streamOf, not scope.role: author_role is the binary PRN-13 stream enum — every
+    // admin-stream tier (admin/member/viewer) writes the 'admin' stream (Phase C).
+    .values({ tenantId: lead.tenantId, leadId: lead.id, authorUserId: scope.userId, authorRole: streamOf(scope), body })
     .returning({ id: schema.leadNotes.id });
   return { id: note.id };
 }

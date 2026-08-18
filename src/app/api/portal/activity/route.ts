@@ -5,6 +5,7 @@ import { requireTosResponse } from "@/lib/auth/tos-guard";
 import { listPartnerActivity } from "@/modules/activity/queries";
 import { pageParam, pageSizeParam, PORTAL_MAX_PAGE } from "@/lib/query-params";
 import { jsonOk, jsonError, jsonServerError } from "@/lib/http";
+import { isPartnerStream } from "@/lib/scope";
 
 // Built once (portal ceiling); admin schemas build their page field the same way.
 const portalPageSchema = pageParam({ max: PORTAL_MAX_PAGE });
@@ -20,7 +21,7 @@ function parsePageSize(v: string | null): number | undefined {
 export async function GET(request: Request) {
   try {
     const scope = await getServerScope();
-    if (scope.role !== "partner") return jsonError("forbidden", "Partner only.", 403);
+    if (!isPartnerStream(scope)) return jsonError("forbidden", "Partner only.", 403);
     const tos = await requireTosResponse(getDb(), scope); // F-04: gate data on ToS acceptance
     if (tos) return tos;
     const params = new URL(request.url).searchParams;

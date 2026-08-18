@@ -38,7 +38,7 @@ export interface AuthedUser {
 
 export interface UserRow {
   tenantId: string;
-  role: "admin" | "partner";
+  role: "admin" | "partner" | "member" | "viewer";
   partnerId: string | null;
 }
 
@@ -61,6 +61,11 @@ export function resolveScope(
 ): ScopeContext {
   if (!user) throw new UnauthenticatedError();
   if (!row) throw new NotProvisionedError("No workspace membership for this account.");
+  // Fail securely on an unknown role value (audit-tenancy F-7): a widened enum shipped ahead
+  // of this mapping must refuse the session, not construct a scope no gate has heard of.
+  if (!["admin", "partner", "member", "viewer"].includes(row.role)) {
+    throw new NotProvisionedError("Account role is not recognized.");
+  }
   if (row.role === "partner") {
     if (!row.partnerId) {
       throw new NotProvisionedError("Partner account is missing its partner link.");
@@ -68,6 +73,11 @@ export function resolveScope(
     if (partner && (partner.status === "revoked" || partner.deletedAt != null)) {
       throw new NotProvisionedError("This partner account is no longer active.");
     }
+  } else if (row.partnerId) {
+    // SCP-01 at the source (Phase C): a NON-partner row carrying a partner_id is corrupt —
+    // no provisioning path writes it, and admitting it would let an admin-stream user be
+    // counted into a partner org's authored sets. Refuse the session rather than guess.
+    throw new NotProvisionedError("Account role does not match its partner link.");
   }
   const scope: ScopeContext = { tenantId: row.tenantId, role: row.role, userId: user.id };
   if (row.role === "partner") scope.partnerId = row.partnerId as string;

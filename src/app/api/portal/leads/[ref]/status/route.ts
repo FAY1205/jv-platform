@@ -7,6 +7,7 @@ import { updateLeadStatus, LeadNotFoundError, InvalidStatusError, LeadRemovedErr
 import { notifyStatusChange, drainOutbox } from "@/modules/notify/outbox";
 import { logError } from "@/lib/observability";
 import { jsonOk, jsonError, jsonServerError } from "@/lib/http";
+import { requirePassthroughResponse } from "@/lib/authz";
 
 const RefSchema = z.string().regex(/^LD-\d{2}-\d{5,}$/);
 const Input = z.object({ status: z.string().min(1).max(50) });
@@ -24,6 +25,10 @@ export async function POST(request: Request, { params }: { params: Promise<{ ref
 
   try {
     const scope = await getServerScope();
+    // ADR-0047 Phase C: partners pass on scope alone; an ADMIN-STREAM caller reaches
+    // tenant-wide data through this partner-shaped code, so it must hold leads.write.
+    const gate = requirePassthroughResponse(scope, "leads.write");
+    if (gate) return gate;
     const tos = await requireTosResponse(getDb(), scope); // F-04: gate data writes on ToS acceptance
     if (tos) return tos;
     const result = await updateLeadStatus(scope, ref, parsed.data.status);

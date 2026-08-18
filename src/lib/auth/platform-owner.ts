@@ -28,3 +28,11 @@ export async function isCallerPlatformOwner(scope: ScopeContext): Promise<boolea
   if (scope.role !== "admin") return false;
   return isPlatformOwner(await callerEmail(scope));
 }
+
+/** Same rule for a caller that already resolved its own email (e.g. /api/me) — no extra
+ *  read. The tier requires the `admin` role specifically: member/viewer are never platform
+ *  owners regardless of allowlist (Phase C keeps this fail-closed). */
+export function isPlatformOwnerScope(scope: ScopeContext, email: string | null): boolean {
+  if (scope.role !== "admin") return false;
+  return isPlatformOwner(email);
+}

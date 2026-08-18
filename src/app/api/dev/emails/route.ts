@@ -3,6 +3,7 @@ import { authErrorResponse, assertCsrf } from "@/lib/auth/guard";
 import { recentDevEmails, clearDevMailbox } from "@/modules/notify/dev-mailbox";
 import { isProduction } from "@/lib/env";
 import { jsonOk, jsonError } from "@/lib/http";
+import { can } from "@/lib/authz";
 
 // Dev-only "sent emails" viewer API. SEC-07: this surface must never exist in
 // production — a hard 404 before anything else. Admin-only. It reveals only what
@@ -15,7 +16,7 @@ function guardProd() {
 
 async function requireAdmin() {
   const scope = await getServerScope();
-  if (scope.role !== "admin") throw Object.assign(new Error("forbidden"), { forbidden: true });
+  if (!can(scope, "ops.admin")) throw Object.assign(new Error("forbidden"), { forbidden: true });
   return scope;
 }
 

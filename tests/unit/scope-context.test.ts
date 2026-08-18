@@ -38,6 +38,30 @@ describe("TST-12: resolveScope — session → scope", () => {
     ).toThrow(NotProvisionedError);
   });
 
+  it("SCP-01: a non-partner row carrying a partner_id is refused (corrupt link, not guessed)", () => {
+    for (const role of ["admin", "member", "viewer"] as const) {
+      expect(() =>
+        resolveScope({ id: uid }, { tenantId: tid, role, partnerId: pid }),
+      ).toThrow(NotProvisionedError);
+    }
+  });
+
+  it("SCP-01: member/viewer rows with no partner link resolve to an admin-stream scope", () => {
+    for (const role of ["member", "viewer"] as const) {
+      expect(resolveScope({ id: uid }, { tenantId: tid, role, partnerId: null })).toEqual({
+        tenantId: tid,
+        role,
+        userId: uid,
+      });
+    }
+  });
+
+  it("AUTHZ: an unrecognized role value is refused, never mapped to a scope", () => {
+    expect(() =>
+      resolveScope({ id: uid }, { tenantId: tid, role: "owner" as never, partnerId: null }),
+    ).toThrow(NotProvisionedError);
+  });
+
   it("PTL-01: a revoked partner is refused a session", () => {
     expect(() =>
       resolveScope({ id: uid }, { tenantId: tid, role: "partner", partnerId: pid }, { status: "revoked", deletedAt: null }),

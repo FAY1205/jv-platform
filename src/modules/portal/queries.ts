@@ -1,7 +1,7 @@
 import { and, asc, desc, eq, ilike, inArray, isNull, or, sql } from "drizzle-orm";
 import { getDb } from "@/db";
 import * as schema from "@/db/schema";
-import { leadWhere, leadChildWhere, statusHistoryWhere, ownStatusAuthorScope, tenantWhere, requirePartner, type ScopeContext } from "@/lib/scope";
+import { leadWhere, leadChildWhere, statusHistoryWhere, ownStatusAuthorScope, tenantWhere, requirePartner, isPartnerStream, type ScopeContext } from "@/lib/scope";
 import { releasedLeads } from "../run/hold-filter";
 import { computeRunSummary, type RunSummary } from "../analytics/run-summary";
 import { partnerPerformanceDetail } from "../analytics/partner-performance";
@@ -113,7 +113,7 @@ function visibleLeadsWhere(scope: ScopeContext) {
     leadWhere(scope),
     eq(schema.leads.mlsStatus, "kept"),
     isNull(schema.leads.deletedAt),
-    scope.role === "partner" ? releasedLeads() : undefined,
+    isPartnerStream(scope) ? releasedLeads() : undefined,
   );
 }
 
@@ -397,7 +397,7 @@ export async function getPartnerExportData(scope: ScopeContext): Promise<Partner
       .where(
         and(
           tenantWhere(schema.partners, scope),
-          scope.role === "partner" ? eq(schema.partners.id, requirePartner(scope)) : undefined,
+          isPartnerStream(scope) ? eq(schema.partners.id, requirePartner(scope)) : undefined,
         ),
       ),
   ]);
