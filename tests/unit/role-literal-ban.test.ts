@@ -29,6 +29,11 @@ const ALLOWED = new Set(
     "modules/notify/task-reminders.ts", // recipient users rows (stream comparisons, polarity checked)
     "modules/retention/signup-sweep.ts", // auth-user metadata marker: only signup provisions admins
     "modules/notify/prefs.ts", // streamPrefRole: the per-stream pref bucket (string role, not a scope)
+    // TARGET-SEAT comparisons (which TIER is the seat being acted on — data, not the caller's
+    // scope; the caller's own gate is requireCapabilityResponse + the owner invariants):
+    "modules/team/team.ts", // requireOwnerForAdminSeat(target.role === 'admin' / newRole === 'admin')
+    "app/(admin)/settings/team/page.tsx", // admin-seat rows lock for non-owner callers (TM-05)
+    "app/(admin)/settings/team/team-data.ts", // capability-catalog rendering per displayed tier
   ].map((p) => p.split("/").join(sep)),
 );
 
