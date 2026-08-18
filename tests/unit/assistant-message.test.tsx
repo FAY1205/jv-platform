@@ -69,6 +69,21 @@ describe("AssistantMessage — flat annotation + marker (AI redesign)", () => {
     expect(screen.queryByText(/below for the details/i)).toBeNull();
   });
 
+  it("AIS-05: a notFound source survives a SAME-label dedup collision (miss beats hit, any order)", () => {
+    // Three partner tools share the literal "Partner roster" label; a successful list call
+    // landing first must not swallow the miss (review F-1 — the miss is always the news).
+    render(
+      <AssistantMessage
+        id="a8b"
+        text=""
+        sources={[{ label: "Partner roster", path: "/partners" }, { label: "Partner roster", notFound: "Meridian West" }]}
+        showThumbs={false}
+      />,
+    );
+    expect(screen.getByText(/No match for that reference in Partner roster/)).toBeInTheDocument();
+    expect(screen.queryByText(/below for the details/i)).toBeNull();
+  });
+
   it("AIS-05: sources that ran but produced no prose say so, without apology theatre", () => {
     render(<AssistantMessage id="a9" text="" sources={[{ label: "Coverage map" }]} showThumbs={false} />);
     expect(screen.getByText(/the answer didn't come through/i)).toBeInTheDocument();

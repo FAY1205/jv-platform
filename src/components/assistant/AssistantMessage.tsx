@@ -93,9 +93,16 @@ function ThumbIcon({ down }: { down?: boolean }) {
 export function AssistantMessage({ id, text, sources, showThumbs = true, onFeedback, pending = false, defaultRating, firstOfRun = true }: AssistantMessageProps) {
   const [rated, setRated] = React.useState<"up" | "down" | null>(defaultRating ?? null);
 
-  // Dedupe source labels; the deep link is the first source with an internal path (PRN-10).
-  const seen = new Set<string>();
-  const uniqueSources = sources.filter((s) => (seen.has(s.label) ? false : (seen.add(s.label), true)));
+  // Dedupe source labels, but a notFound source WINS a label collision: three partner tools
+  // share the literal "Partner roster" label, and if a successful list call landed first the
+  // plain first-wins dedup would swallow the miss — reintroducing the false "found it" reply
+  // in exactly the model-silent turn fallbackText exists for (review F-1). The miss is the news.
+  const byLabel = new Map<string, AssistantSource>();
+  for (const s of sources) {
+    const existing = byLabel.get(s.label);
+    if (!existing || (!existing.notFound && s.notFound)) byLabel.set(s.label, s);
+  }
+  const uniqueSources = [...byLabel.values()];
   const link = uniqueSources.find((s) => s.path && isInternalPath(s.path));
   // The linked source renders only as the clickable pill, never also as a plain chip.
   const chips = uniqueSources.filter((s) => s !== link);
