@@ -197,6 +197,15 @@ interface UsersTableLike {
  * (role <> 'partner'), a partner sees users of their own partner org. This is the same
  * predicate resolveAssignee enforces on the WRITE path (TSK-03, audit F-2/F-4) — the
  * partner arm checks role AND org because `users.partner_id` carries no role invariant.
+ *
+ * ⚠️ SCOPE-GUARD-ADJACENT (audit-tenancy T-1): this is the tasks module's local copy of the
+ * "which users belong to this caller's stream" rule, and it must move in LOCKSTEP with its
+ * siblings — `lib/scope.ts`'s `ownAuthors` subquery inside `noteWhere`/`taskWhere` (same
+ * tenant + partner_id + role='partner' triple, with the RLS counterpart in migration 0044)
+ * and `statusAuthorOrg`. Three call sites now depend on it (resolveAssignee on the write
+ * path, both identity joins on the read path), so treat edits here with lib/scope.ts
+ * (Tier A) ceremony: a loosened arm here silently widens identity resolution across the
+ * PRN-13 wall without failing a scope test that only exercises row visibility.
  */
 function sameStreamUsers(scope: ScopeContext, t: UsersTableLike) {
   return !isPartnerStream(scope)

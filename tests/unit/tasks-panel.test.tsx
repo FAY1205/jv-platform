@@ -420,8 +420,10 @@ describe("C-11/TSK-05: Delete visibility follows authorship; the capability gate
   it("C-11/TSK-04: without work.write the checkbox and add-task trigger are disabled with a stated reason, and no Delete renders", async () => {
     renderTasks([TASK], ME_READ_ONLY);
     await screen.findByText("Call seller");
-    expect(screen.getByRole("checkbox", { name: /mark "call seller" done/i })).toBeDisabled();
-    expect(screen.getByRole("button", { name: /add a task/i })).toBeDisabled();
+    // a11y F-1: aria-disabled, not native `disabled` — the controls stay focusable so the
+    // reason below is reachable by keyboard (the dedicated a11y describe block proves it).
+    expect(screen.getByRole("checkbox", { name: /mark "call seller" done/i })).toHaveAttribute("aria-disabled", "true");
+    expect(screen.getByRole("button", { name: /add a task/i })).toHaveAttribute("aria-disabled", "true");
     expect(screen.queryByRole("button", { name: /^delete/i })).toBeNull();
     // PRN-14 / disable-don't-hide: the reason is WORDS, not just a dimmed control.
     expect(screen.getAllByText("Your role can't edit tasks.").length).toBeGreaterThan(0);
@@ -439,6 +441,89 @@ describe("C-11/TSK-05: Delete visibility follows authorship; the capability gate
     expect(screen.getByRole("checkbox", { name: /mark "call seller" done/i })).toBeEnabled();
     expect(screen.getByRole("button", { name: /add a task/i })).toBeEnabled();
     expect(screen.getByRole("button", { name: /^delete "call seller"$/i })).toBeInTheDocument();
+    vi.unstubAllGlobals();
+  });
+});
+
+// ── a11y F-1 / F-2: the read-only reason must be reachable by keyboard ──────────
+// A natively `disabled` control leaves the tab order, so a keyboard-only user could never
+// reach the tooltip explaining why the panel is inert. The standing permission miss is
+// therefore aria-disabled + a swallowed activation, and the tooltip id is wired to the
+// CONTROL rather than the label wrapping it.
+describe("C-11/DSN-03: the read-only reason is keyboard-reachable (a11y F-1/F-2)", () => {
+  const renderReadOnly = (tasks: LeadTask[] = [TASK]) => {
+    vi.stubGlobal("fetch", vi.fn(() => jsonRes({ tasks })) as unknown as typeof fetch);
+    return wrap(<TasksPanel leadRef="LD-26-00001" today="2026-08-15" />, ME_READ_ONLY);
+  };
+
+  it("C-11/a11y F-1: the read-only checkbox and add-trigger stay in the tab order, marked aria-disabled", async () => {
+    const user = userEvent.setup();
+    renderReadOnly();
+    await screen.findByText("Call seller");
+
+    const checkbox = screen.getByRole("checkbox", { name: /mark "call seller" done/i });
+    const addTrigger = screen.getByRole("button", { name: /add a task/i });
+    // Inert, but ANNOUNCED as inert rather than removed from the AT tree.
+    expect(checkbox).toHaveAttribute("aria-disabled", "true");
+    expect(addTrigger).toHaveAttribute("aria-disabled", "true");
+    // Still reachable: `disabled` would make these unfocusable and the reason unreadable.
+    expect(checkbox).not.toBeDisabled();
+    expect(addTrigger).not.toBeDisabled();
+    await user.tab();
+    expect(checkbox).toHaveFocus();
+
+    vi.unstubAllGlobals();
+  });
+
+  it("C-11/a11y F-1: activating either read-only control does nothing (no PATCH, no add form)", async () => {
+    const user = userEvent.setup();
+    const fetchSpy = vi.fn(() => jsonRes({ tasks: [TASK] }));
+    vi.stubGlobal("fetch", fetchSpy as unknown as typeof fetch);
+    wrap(<TasksPanel leadRef="LD-26-00001" today="2026-08-15" />, ME_READ_ONLY);
+    await screen.findByText("Call seller");
+
+    const checkbox = screen.getByRole("checkbox", { name: /mark "call seller" done/i });
+    await user.click(checkbox);
+    // Keyboard activation is blocked at the same seam (one controlled callback).
+    checkbox.focus();
+    await user.keyboard(" ");
+    expect(checkbox).not.toBeChecked();
+    expect(fetchSpy).not.toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ method: "PATCH" }));
+
+    await user.click(screen.getByRole("button", { name: /add a task/i }));
+    expect(screen.queryByLabelText(/task title/i)).toBeNull();
+
+    vi.unstubAllGlobals();
+  });
+
+  it("C-11/a11y F-2: aria-describedby resolves to the reason, on the CONTROL not its label", async () => {
+    renderReadOnly();
+    await screen.findByText("Call seller");
+
+    const checkbox = screen.getByRole("checkbox", { name: /mark "call seller" done/i });
+    const describedBy = checkbox.getAttribute("aria-describedby");
+    expect(describedBy).toBeTruthy();
+    expect(document.getElementById(describedBy!)?.textContent).toBe("Your role can't edit tasks.");
+    // The 44px label hit-area is NOT the described element — a screen reader focuses the box.
+    expect(checkbox.closest("label")).not.toHaveAttribute("aria-describedby");
+
+    const addTrigger = screen.getByRole("button", { name: /add a task/i });
+    const addDescribedBy = addTrigger.getAttribute("aria-describedby");
+    expect(document.getElementById(addDescribedBy!)?.textContent).toBe("Your role can't edit tasks.");
+
+    vi.unstubAllGlobals();
+  });
+
+  it("C-11/a11y F-1: a writable panel adds neither aria-disabled nor a description", async () => {
+    vi.stubGlobal("fetch", vi.fn(() => jsonRes({ tasks: [TASK] })) as unknown as typeof fetch);
+    wrap(<TasksPanel leadRef="LD-26-00001" today="2026-08-15" />, ME);
+    await screen.findByText("Call seller");
+
+    const checkbox = screen.getByRole("checkbox", { name: /mark "call seller" done/i });
+    expect(checkbox).not.toHaveAttribute("aria-disabled");
+    expect(checkbox).not.toHaveAttribute("aria-describedby");
+    expect(screen.getByRole("button", { name: /add a task/i })).not.toHaveAttribute("aria-disabled");
+
     vi.unstubAllGlobals();
   });
 });

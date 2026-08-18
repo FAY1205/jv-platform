@@ -246,17 +246,29 @@ export function TasksPanel({ leadRef, today, onTaskChanged, canWrite: canWritePr
                 {/* Design F-2 (WP-N floor): a 44x44 hit area around the 16px visual box —
                     a native `<label for>` targeting the Checkbox's underlying button, so no
                     extra click-handling is needed; the visual box itself stays desktop-dense. */}
-                <MaybeTooltip content={canWrite ? null : READ_ONLY_REASON}>
-                  <label htmlFor={checkboxId} className="-ml-2 grid h-11 w-11 shrink-0 cursor-pointer place-items-center rounded-md">
+                <label
+                  htmlFor={checkboxId}
+                  className={cn(
+                    "-ml-2 grid h-11 w-11 shrink-0 place-items-center rounded-md",
+                    canWrite ? "cursor-pointer" : "cursor-not-allowed",
+                  )}
+                >
+                  {/* a11y F-2: the Tooltip wraps the CONTROL, not the label, so its bubble id
+                      is cloned onto the element a screen reader actually focuses. */}
+                  <MaybeTooltip content={canWrite ? null : READ_ONLY_REASON}>
                     <Checkbox
                       id={checkboxId}
                       checked={Boolean(t.doneAt)}
                       onCheckedChange={() => toggle.mutate(t)}
-                      disabled={isToggling || isDeleting || !canWrite}
+                      // a11y F-1: the standing permission miss is aria-disabled (focusable, so
+                      // the reason is reachable by keyboard); only the transient in-flight
+                      // states use native `disabled`.
+                      disabled={isToggling || isDeleting}
+                      ariaDisabled={!canWrite}
                       ariaLabel={t.doneAt ? `Reopen "${t.title}"` : `Mark "${t.title}" done`}
                     />
-                  </label>
-                </MaybeTooltip>
+                  </MaybeTooltip>
+                </label>
                 <div className="min-w-0 flex-1 py-2.5">
                   <div className={cn("text-sm font-medium text-text", t.doneAt && "text-text-3 line-through")}>{t.title}</div>
                   <div className="mt-1 flex flex-wrap items-center gap-2">
@@ -342,12 +354,22 @@ export function TasksPanel({ leadRef, today, onTaskChanged, canWrite: canWritePr
         />
       ) : (
         <MaybeTooltip content={canWrite ? null : READ_ONLY_REASON}>
+          {/* a11y F-1: aria-disabled, NOT the native attribute — a natively disabled button
+              leaves the tab order, so the tooltip explaining WHY would never be reachable by
+              keyboard. The click is swallowed instead, and Tooltip clones aria-describedby
+              straight onto this button. */}
           <button
             ref={addTriggerRef}
             type="button"
-            onClick={() => setAdding(true)}
-            disabled={!canWrite}
-            className="mt-2.5 flex min-h-11 w-full items-center gap-2 rounded-lg border border-dashed border-border-strong px-3 py-2 text-left text-sm text-text-3 outline-none transition-colors hover:border-brand-line hover:text-text-2 focus-visible:ring-1 focus-visible:ring-brand-ink disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:border-border-strong disabled:hover:text-text-3"
+            onClick={() => {
+              if (!canWrite) return;
+              setAdding(true);
+            }}
+            aria-disabled={!canWrite || undefined}
+            className={cn(
+              "mt-2.5 flex min-h-11 w-full items-center gap-2 rounded-lg border border-dashed border-border-strong px-3 py-2 text-left text-sm text-text-3 outline-none transition-colors focus-visible:ring-1 focus-visible:ring-brand-ink",
+              canWrite ? "hover:border-brand-line hover:text-text-2" : "cursor-not-allowed opacity-50",
+            )}
           >
             <span className="text-base leading-none text-brand-ink" aria-hidden="true">
               +

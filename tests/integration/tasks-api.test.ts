@@ -487,18 +487,27 @@ suite("WP-TSK-2: lead tasks module (TSK-01..07)", () => {
     const { id: taskId } = await addLeadTask(admin(), REF_X, { title: "C-11 cross-tenant id task" });
     // Point both ids at a real user of ANOTHER tenant — the exact shape R-65 defends
     // against on the timeline. The row must still be returned, with no identity at all.
+    // try/finally (audit-tenancy T-2): this leg CORRUPTS a shared fixture, so the repoint is
+    // undone even when an assertion throws — otherwise one failure here cascades into every
+    // later leg that lists REF_X.
     await db
       .update(schema.leadTasks)
       .set({ authorUserId: id.adminUserB, assignedToUserId: id.adminUserB })
       .where(eq(schema.leadTasks.id, taskId));
-
-    const task = (await listLeadTasks(admin(), REF_X)).find((t) => t.id === taskId);
-    expect(task).toBeDefined(); // the LEFT joins never drop the task row
-    expect(task?.author).toBeNull();
-    expect(task?.assignee).toBeNull();
-    // The foreign email exists — it simply cannot be reached through this payload.
-    const emails = (await listLeadTasks(admin(), REF_X)).flatMap((t) => [t.author?.email, t.assignee?.email]);
-    expect(emails).not.toContain("admin@tasks-api-b.test");
+    try {
+      const task = (await listLeadTasks(admin(), REF_X)).find((t) => t.id === taskId);
+      expect(task).toBeDefined(); // the LEFT joins never drop the task row
+      expect(task?.author).toBeNull();
+      expect(task?.assignee).toBeNull();
+      // The foreign email exists — it simply cannot be reached through this payload.
+      const emails = (await listLeadTasks(admin(), REF_X)).flatMap((t) => [t.author?.email, t.assignee?.email]);
+      expect(emails).not.toContain("admin@tasks-api-b.test");
+    } finally {
+      await db
+        .update(schema.leadTasks)
+        .set({ authorUserId: id.adminUser, assignedToUserId: id.adminUser })
+        .where(eq(schema.leadTasks.id, taskId));
+    }
   });
 
   it("C-11/PRN-13: a partner-stream row never resolves an admin identity, and vice versa", async () => {
@@ -506,33 +515,46 @@ suite("WP-TSK-2: lead tasks module (TSK-01..07)", () => {
     // tenant predicate alone would happily resolve that email onto a partner's screen, so
     // the identity join carries the caller's stream too.
     const { id: partnerTaskId } = await addLeadTask(partnerX(), REF_X, { title: "C-11 PRN-13 partner task" });
-    await db.update(schema.leadTasks).set({ assignedToUserId: id.adminUser }).where(eq(schema.leadTasks.id, partnerTaskId));
-    const partnerRow = (await listLeadTasks(partnerX(), REF_X)).find((t) => t.id === partnerTaskId);
-    expect(partnerRow?.assignee).toBeNull();
-    expect(partnerRow?.author?.email).toBe("px@tasks-api.test"); // the own-org author still resolves
-
-    // Defence in depth on the AUTHOR axis: taskWhere's own `ownAuthors` gate already drops
-    // the whole row for a partner, so a cross-stream author never even reaches the join.
-    await db.update(schema.leadTasks).set({ authorUserId: id.adminUser }).where(eq(schema.leadTasks.id, partnerTaskId));
-    expect((await listLeadTasks(partnerX(), REF_X)).some((t) => t.id === partnerTaskId)).toBe(false);
-
-    // …and the mirror: an admin task mis-pointed at a PARTNER user stays visible (taskWhere's
-    // admin arm only pins author_role), so here the identity join is the whole defence.
     const { id: adminTaskId } = await addLeadTask(admin(), REF_X, { title: "C-11 PRN-13 admin task" });
-    await db
-      .update(schema.leadTasks)
-      .set({ authorUserId: id.pxUser, assignedToUserId: id.pxUser })
-      .where(eq(schema.leadTasks.id, adminTaskId));
-    const adminRow = (await listLeadTasks(admin(), REF_X)).find((t) => t.id === adminTaskId);
-    expect(adminRow?.author).toBeNull();
-    expect(adminRow?.assignee).toBeNull();
+    // try/finally (audit-tenancy T-2): both repoints below corrupt shared fixtures — restore
+    // them whatever happens, so a failure here cannot leak into the later legs.
+    try {
+      await db.update(schema.leadTasks).set({ assignedToUserId: id.adminUser }).where(eq(schema.leadTasks.id, partnerTaskId));
+      const partnerRow = (await listLeadTasks(partnerX(), REF_X)).find((t) => t.id === partnerTaskId);
+      expect(partnerRow?.assignee).toBeNull();
+      expect(partnerRow?.author?.email).toBe("px@tasks-api.test"); // the own-org author still resolves
 
-    // Nothing an admin can read carries a partner email, and nothing a partner reads
-    // carries an admin one — on the SAME lead, across both streams.
-    const adminEmails = (await listLeadTasks(admin(), REF_X)).flatMap((t) => [t.author?.email, t.assignee?.email]);
-    expect(adminEmails).not.toContain("px@tasks-api.test");
-    const partnerEmails = (await listLeadTasks(partnerX(), REF_X)).flatMap((t) => [t.author?.email, t.assignee?.email]);
-    expect(partnerEmails).not.toContain("admin@tasks-api.test");
+      // Defence in depth on the AUTHOR axis: taskWhere's own `ownAuthors` gate already drops
+      // the whole row for a partner, so a cross-stream author never even reaches the join.
+      await db.update(schema.leadTasks).set({ authorUserId: id.adminUser }).where(eq(schema.leadTasks.id, partnerTaskId));
+      expect((await listLeadTasks(partnerX(), REF_X)).some((t) => t.id === partnerTaskId)).toBe(false);
+
+      // …and the mirror: an admin task mis-pointed at a PARTNER user stays visible (taskWhere's
+      // admin arm only pins author_role), so here the identity join is the whole defence.
+      await db
+        .update(schema.leadTasks)
+        .set({ authorUserId: id.pxUser, assignedToUserId: id.pxUser })
+        .where(eq(schema.leadTasks.id, adminTaskId));
+      const adminRow = (await listLeadTasks(admin(), REF_X)).find((t) => t.id === adminTaskId);
+      expect(adminRow?.author).toBeNull();
+      expect(adminRow?.assignee).toBeNull();
+
+      // Nothing an admin can read carries a partner email, and nothing a partner reads
+      // carries an admin one — on the SAME lead, across both streams.
+      const adminEmails = (await listLeadTasks(admin(), REF_X)).flatMap((t) => [t.author?.email, t.assignee?.email]);
+      expect(adminEmails).not.toContain("px@tasks-api.test");
+      const partnerEmails = (await listLeadTasks(partnerX(), REF_X)).flatMap((t) => [t.author?.email, t.assignee?.email]);
+      expect(partnerEmails).not.toContain("admin@tasks-api.test");
+    } finally {
+      await db
+        .update(schema.leadTasks)
+        .set({ authorUserId: id.pxUser, assignedToUserId: id.pxUser })
+        .where(eq(schema.leadTasks.id, partnerTaskId));
+      await db
+        .update(schema.leadTasks)
+        .set({ authorUserId: id.adminUser, assignedToUserId: id.adminUser })
+        .where(eq(schema.leadTasks.id, adminTaskId));
+    }
   });
 
   it("C-11/PRN-13: a partner resolves their OWN org's colleague, never another org's user", async () => {
@@ -544,9 +566,13 @@ suite("WP-TSK-2: lead tasks module (TSK-01..07)", () => {
     // …while a user of ANOTHER partner org in the same tenant resolves to nothing (the
     // write path refuses this outright — this proves the read path is defended too).
     await db.update(schema.leadTasks).set({ assignedToUserId: id.pyUser }).where(eq(schema.leadTasks.id, taskId));
-    const crossOrg = (await listLeadTasks(partnerX(), REF_X)).find((t) => t.id === taskId);
-    expect(crossOrg?.assignee).toBeNull();
-    expect(crossOrg?.author?.email).toBe("px@tasks-api.test"); // the author still resolves
+    try {
+      const crossOrg = (await listLeadTasks(partnerX(), REF_X)).find((t) => t.id === taskId);
+      expect(crossOrg?.assignee).toBeNull();
+      expect(crossOrg?.author?.email).toBe("px@tasks-api.test"); // the author still resolves
+    } finally {
+      await db.update(schema.leadTasks).set({ assignedToUserId: id.pxUser2 }).where(eq(schema.leadTasks.id, taskId));
+    }
   });
 
   it("C-11: My Tasks carries the same resolved identities (one payload contract, two producers)", async () => {
@@ -555,5 +581,32 @@ suite("WP-TSK-2: lead tasks module (TSK-01..07)", () => {
     // Every row of My Tasks is the caller's own by construction, so the identity is theirs.
     expect(page.items.every((t) => t.assignee === null || t.assignee.email === "admin@tasks-api.test")).toBe(true);
     expect(page.items[0]).toHaveProperty("author");
+  });
+
+  it("C-11/TSK-07 (audit-tenancy T-3): an unresolvable identity changes neither the My Tasks row set nor `total`", async () => {
+    // The identity joins are LEFT and contribute NO conjunct to `where` — which is what lets
+    // the rows query and the separate count query keep sharing one predicate (audit-tenancy
+    // F-7's no-drift property). If a future edit made either join INNER, or moved the stream
+    // predicate from the ON clause into the WHERE, rows would silently vanish and `total`
+    // would disagree with them. This pins that: an unresolvable author changes the identity
+    // and nothing else.
+    const { id: taskId } = await addLeadTask(admin(), REF_X, { title: "C-11 T-3 invariance task" });
+    const clock = new Date("2026-08-15T12:00:00Z");
+    const before = await listMyTasks(admin(), { status: "open", page: 1, pageSize: 100 }, clock);
+    expect(before.items.some((t) => t.id === taskId)).toBe(true);
+    expect(before.total).toBe(before.items.length); // pageSize 100 holds the whole set
+
+    // Break ONLY the author identity — the assignee still pins the row into "mine".
+    await db.update(schema.leadTasks).set({ authorUserId: id.adminUserB }).where(eq(schema.leadTasks.id, taskId));
+    try {
+      const after = await listMyTasks(admin(), { status: "open", page: 1, pageSize: 100 }, clock);
+      expect(after.items.map((t) => t.id)).toEqual(before.items.map((t) => t.id)); // same rows, same order
+      expect(after.total).toBe(before.total); // and the count never drifts from them
+      const row = after.items.find((t) => t.id === taskId);
+      expect(row?.author).toBeNull(); // the only thing that changed
+      expect(row?.assignee?.email).toBe("admin@tasks-api.test");
+    } finally {
+      await db.update(schema.leadTasks).set({ authorUserId: id.adminUser }).where(eq(schema.leadTasks.id, taskId));
+    }
   });
 });
