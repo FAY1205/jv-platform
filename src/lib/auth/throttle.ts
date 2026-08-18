@@ -104,6 +104,16 @@ export const RESET_CONFIRM_THROTTLE: ThrottleConfig = {
 // + IP. Sliding-window ONLY at the call site (like RESET_CONFIRM): the caller is already
 // authenticated, so composing AUT-04's progressive account lockout would let a session-
 // hijacker lock the real owner out of changing their own password. Same shape as RESET.
+// Phase C: team-invite acceptance (AUT-03). Same shape and reasoning as
+// VERIFY/RESET_CONFIRM: the identifier is a truncated hash of the PRESENTED token
+// (never the token — SEC-05), bounding replays of one link; the per-IP limit bounds
+// guessing across tokens. Each un-throttled guess would buy a token lookup, an HIBP
+// range fetch and potentially a Supabase user-create.
+export const TEAM_ACCEPT_THROTTLE: ThrottleConfig = {
+  perIdentifier: { limit: 10, windowMs: 900_000 }, // 10 / 15min per token
+  perIp: { limit: 20, windowMs: 900_000 }, // 20 / 15min per IP
+};
+
 export const CHANGE_PASSWORD_THROTTLE: ThrottleConfig = {
   perIdentifier: { limit: 5, windowMs: 900_000 }, // 5 / 15min per email
   perIp: { limit: 20, windowMs: 900_000 }, // 20 / 15min per IP

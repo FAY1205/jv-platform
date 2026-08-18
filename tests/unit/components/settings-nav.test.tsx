@@ -4,6 +4,11 @@ import { render, screen } from "@testing-library/react";
 
 vi.mock("next/navigation", () => ({ usePathname: () => "/settings/data" }));
 
+// Phase C: the nav consults the client capability list to hide the ONE whole-route
+// exception (Settings → Team). Mocked here so the nav's own assertions stay about routing.
+const { canDo } = vi.hoisted(() => ({ canDo: vi.fn(() => true) }));
+vi.mock("@/lib/use-current-user", () => ({ useCurrentUser: () => ({ canDo }) }));
+
 import { SettingsNav } from "@/app/(admin)/settings/settings-nav";
 
 // WP-UX-5 (audit S-1, the series' one Critical): the nav renders TWICE from one item
@@ -44,6 +49,25 @@ describe("SettingsNav", () => {
     const sidebar = container.querySelector(".lg\\:flex");
     expect(sidebar).not.toBeNull();
     expect(sidebar!.className).toContain("hidden");
+  });
+
+  it("TM-13: the Team item is hidden without team.manage (the §6 whole-route exception)", () => {
+    canDo.mockReturnValue(false);
+    try {
+      const { container } = render(<SettingsNav />);
+      expect(screen.queryByRole("link", { name: "Team" })).toBeNull();
+      expect(container.querySelector(".lg\\:hidden")!.querySelectorAll("a")).toHaveLength(9);
+    } finally {
+      canDo.mockReturnValue(true);
+    }
+  });
+
+  it("TM-13: the Team item appears (no Soon pill) for a caller with team.manage", () => {
+    render(<SettingsNav />);
+    for (const link of screen.getAllByRole("link", { name: "Team" })) {
+      expect(link).toHaveAttribute("href", "/settings/team");
+      expect(link.textContent).not.toContain("Soon");
+    }
   });
 
   it("UX5-01b: the platform-owner Invitations item reaches both renders", () => {

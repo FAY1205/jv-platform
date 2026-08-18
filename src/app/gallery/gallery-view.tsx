@@ -8,6 +8,8 @@ import {
   LinkCard,
   FilterPill,
   Badge,
+  RoleBadge,
+  AvatarInitials,
   Card,
   CardHeader,
   CardTitle,
@@ -468,6 +470,34 @@ function Gallery() {
               <Badge variant="success" dot>Kept</Badge>
               <Badge variant="neutral">Unknown</Badge>
               <Badge variant="outline">heuristic</Badge>
+            </CardBody>
+          </Card>
+        </Section>
+
+        <Section title="RoleBadge + AvatarInitials — the Team roster identity pair (Phase C)">
+          <Card>
+            <CardBody className="flex flex-col gap-3">
+              <div className="flex flex-wrap items-center gap-2.5">
+                <RoleBadge role="owner" />
+                <RoleBadge role="admin" />
+                <RoleBadge role="member" />
+                <RoleBadge role="viewer" />
+              </div>
+              <div className="flex flex-wrap items-center gap-4">
+                <span className="inline-flex items-center gap-2">
+                  <AvatarInitials email="priya.nair@example.com" size="md" />
+                  <span className="text-sm text-text-2">md · from email</span>
+                </span>
+                <span className="inline-flex items-center gap-2">
+                  <AvatarInitials name="Dana Whitfield" email="dana@example.com" size="sm" />
+                  <span className="text-sm text-text-2">sm · from name</span>
+                </span>
+              </div>
+              <p className="text-step-1 text-text-3">
+                The pill always carries the role WORD, never the fill alone (PRN-14). The initials
+                circle is <code className="num">aria-hidden</code> — every call site renders the identity
+                as text beside it.
+              </p>
             </CardBody>
           </Card>
         </Section>

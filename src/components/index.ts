@@ -5,6 +5,8 @@ export { LinkCard, type LinkCardProps } from "./LinkCard";
 export { PageContainer, type PageContainerProps, type PageContainerSize } from "./PageContainer";
 export { FilterPill, type FilterPillProps } from "./FilterPill";
 export { Badge, type BadgeProps, type BadgeVariant } from "./Badge";
+export { RoleBadge, type RoleBadgeProps, type BadgeRole } from "./RoleBadge";
+export { AvatarInitials, type AvatarInitialsProps } from "./AvatarInitials";
 export { Card, CardHeader, CardTitle, CardBody } from "./Card";
 export { Stat, type StatProps } from "./Stat";
 export { PartnerTag, type PartnerTagProps } from "./PartnerTag";

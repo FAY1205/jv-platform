@@ -145,6 +145,34 @@ export function buildInviteEmail(email: string, link: string): EmailMessage {
   };
 }
 
+/** Phase C: staff-teammate invite — a set-password link (staff have passwords; the
+ *  partner invite above is the OTP stream). The link carries the single-use token;
+ *  SEC-05: the token is the link, so the message itself is never logged. */
+export function buildTeamInviteEmail(email: string, workspaceName: string, roleLabel: string, link: string): EmailMessage {
+  return {
+    to: email,
+    subject: `You've been invited to ${workspaceName} on ${APP_NAME}`,
+    text: `You've been invited to join ${workspaceName} on ${APP_NAME} as a ${roleLabel}. Open this link to set a password and sign in (the link works once and expires in 7 days):\n\n${link}`,
+    html: authNotice({
+      title: `Join ${workspaceName} on ${APP_NAME}`,
+      paragraphs: [
+        `You've been invited to join ${workspaceName} as a ${roleLabel}.`,
+        `Open the link below to set a password and sign in. The link works once and expires in 7 days.`,
+      ],
+      cta: { href: link, label: "Accept your invite →" },
+    }),
+    meta: { kind: "team_invite" },
+  };
+}
+
+export async function notifyTeamInvite(email: string, workspaceName: string, roleLabel: string, link: string): Promise<void> {
+  try {
+    await sendEmail(buildTeamInviteEmail(email, workspaceName, roleLabel, link), transport());
+  } catch (e) {
+    logError("notify_team_invite_failed", { message: errMessage(e) });
+  }
+}
+
 export function buildOtpEmail(email: string, code: string): EmailMessage {
   return {
     to: email,
