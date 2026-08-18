@@ -130,12 +130,18 @@ suite("TAG-02: tag isolation + the RLS backstop", () => {
     expect(aRows.map((r) => r.tagId)).toEqual([id.tagA]);
 
     // TAG-06: the manager's counts are per tenant — B's attachment must not inflate A's.
-    const aTags = (await listTags(adminA())).rows;
+    const a = await listTags(adminA());
+    const aTags = a.rows;
     expect(aTags).toHaveLength(1);
     expect(aTags[0]).toMatchObject({ name: "A-Probate", leadCount: 1 });
-    const bTags = (await listTags(adminB())).rows;
+    const b = await listTags(adminB());
+    const bTags = b.rows;
     expect(bTags).toHaveLength(1);
     expect(bTags[0]).toMatchObject({ name: "B-Probate", leadCount: 1 });
+    // TAG-09/SCP-01: `total` is the TENANT's count, not the table's — B's tag must not be
+    // counted into A's window total (the leg a single-tenant clamp test cannot reach).
+    expect(a.total).toBe(1);
+    expect(b.total).toBe(1);
   });
 
   // ── the isolation legs a randomUUID probe cannot reach (audit-tenancy F-3) ─────────

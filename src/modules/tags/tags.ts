@@ -208,8 +208,10 @@ export async function createTag(
   const db = getDb();
   try {
     return await db.transaction(async (tx) => {
-      // FIRST statement of the transaction — see the note above.
-      await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`tags:${scope.tenantId}`})::bigint)`);
+      // FIRST statement of the transaction — see the note above. Namespaced like
+      // ":partner" / ":retention" (suffix convention) so tag creation never blocks — or is
+      // blocked by — an in-flight import/void, which lock on hashtext(tenantId) alone.
+      await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`${scope.tenantId}:tags`})::bigint)`);
       const existing = await countTags(tx, scope);
       if (existing >= TAG_LIMIT) throw new TagLimitError();
       const color = input.color ?? nextTagColor(existing);
