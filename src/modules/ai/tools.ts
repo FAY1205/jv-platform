@@ -10,6 +10,7 @@ import { listLeads, getAdminLeadDetail, unmatchedStateStats } from "@/modules/le
 import { LeadsQuerySchema, LEAD_STATUS_FILTERS } from "@/modules/leads/schema";
 import { listRuns, getRunDetail } from "@/modules/run/queries";
 import { maskLeadDetail, maskLeadRow, maskRunDetail } from "./mask";
+import { can } from "@/lib/authz";
 
 // SEAM-07 / AIA-02: the assistant's ONLY data access. Every tool wraps an existing
 // scope-first query function; `scope` is bound by closure from the verified session
@@ -28,8 +29,8 @@ async function resolvePartner(scope: ScopeContext, q: string) {
 }
 
 export function buildAiTools(scope: ScopeContext): ToolSet {
-  if (scope.role !== "admin") {
-    throw new Error("AI tools are admin-only (WP-AI-1); a partner-scoped assistant needs partner-scoped tool variants.");
+  if (!can(scope, "ai.use")) {
+    throw new Error("AI tools require the ai.use capability (WP-AI-1); a partner-scoped assistant needs partner-scoped tool variants.");
   }
   return {
     get_dashboard_stats: tool({

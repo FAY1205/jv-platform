@@ -2,6 +2,7 @@ import * as React from "react";
 import { redirect } from "next/navigation";
 import { PortalShell } from "@/components";
 import { getServerScope } from "@/lib/scope-context";
+import { isPartnerStream } from "@/lib/scope";
 
 // WP-F.1: every /portal/* page renders inside the mobile PortalShell (top bar + bottom
 // tabs). The shell itself renders bare on the pre-auth login/tos routes.
@@ -11,14 +12,16 @@ import { getServerScope } from "@/lib/scope-context";
 export const dynamic = "force-dynamic";
 
 export default async function PortalLayout({ children }: { children: React.ReactNode }) {
-  let admin = false;
+  let staff = false;
   try {
     const scope = await getServerScope();
-    admin = scope.role === "admin";
+    // Any admin-STREAM tier (admin/member/viewer) belongs in the admin app — without this,
+    // a member landing on a portal URL would get an empty partner-shaped shell (Phase C).
+    staff = !isPartnerStream(scope);
   } catch (e) {
     // redirect() signals by throwing — never swallow it; auth failures fall through.
     if (typeof e === "object" && e !== null && "digest" in e) throw e;
   }
-  if (admin) redirect("/dashboard");
+  if (staff) redirect("/dashboard");
   return <PortalShell>{children}</PortalShell>;
 }

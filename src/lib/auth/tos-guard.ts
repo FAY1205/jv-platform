@@ -3,7 +3,7 @@ import { eq } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import * as schema from "@/db/schema";
 import { jsonError } from "@/lib/http";
-import type { ScopeContext } from "@/lib/scope";
+import { isPartnerStream, type ScopeContext } from "@/lib/scope";
 import { latestTosVersion } from "./tos-store";
 import { needsTosAcceptance } from "@/lib/legal/tos";
 
@@ -29,7 +29,7 @@ type DB = PostgresJsDatabase<typeof schema>;
  * gated — and so the escape hatch (`/tos`) is never itself gated.
  */
 export async function needsTosGate(db: DB, scope: ScopeContext): Promise<boolean> {
-  if (scope.role !== "partner") {
+  if (!isPartnerStream(scope)) {
     const [tenant] = await db
       .select({ selfServe: schema.tenants.selfServe })
       .from(schema.tenants)

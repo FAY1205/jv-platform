@@ -10,6 +10,7 @@ import {
   searchPhoneDigits,
   type SearchResults,
 } from "./schema";
+import { can } from "@/lib/authz";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Global search (SRCH-01). Two groups — leads and partners — behind one debounced
@@ -73,7 +74,7 @@ function empty(q: string): SearchResults {
  * touching the database.
  */
 export async function globalSearch(scope: ScopeContext, q: string): Promise<SearchResults> {
-  if (scope.role !== "admin") throw new SearchScopeError();
+  if (!can(scope, "leads.read")) throw new SearchScopeError();
   if (!isSearchable(q)) return empty(q);
 
   const db = getDb();

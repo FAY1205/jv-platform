@@ -1,9 +1,9 @@
-import { and, asc, count, eq, inArray, isNotNull, isNull, or, sql, type SQL } from "drizzle-orm";
+import { and, asc, count, eq, inArray, isNotNull, isNull, ne, or, sql, type SQL } from "drizzle-orm";
 import { LeadNotFoundError } from "@/modules/leads/errors";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import { getDb } from "@/db";
 import * as schema from "@/db/schema";
-import { leadWhere, taskWhere, tenantWhere, requirePartner, type ScopeContext } from "@/lib/scope";
+import { leadWhere, taskWhere, tenantWhere, requirePartner, streamOf, isPartnerStream, type ScopeContext } from "@/lib/scope";
 import { releasedLeads } from "../run/hold-filter";
 import { maskAuditValue } from "@/modules/audit/redact";
 import { groupByDue, utcDateString, type DueGroup } from "./dates";
@@ -13,7 +13,7 @@ import { MY_TASKS_PAGE_SIZE, type MyTasksQuery } from "./schema";
 // (soft-deleted) or still-HELD lead; admin keeps access. Same predicate notes.ts applies
 // at lead resolution (audit F-7) — the one place a partner's lead reachability is decided.
 const partnerLive = (scope: ScopeContext) =>
-  scope.role === "partner" ? and(isNull(schema.leads.deletedAt), releasedLeads()) : undefined;
+  isPartnerStream(scope) ? and(isNull(schema.leads.deletedAt), releasedLeads()) : undefined;
 
 /**
  * My Tasks drops tasks whose lead was RECALLED (soft-deleted), for BOTH roles (audit-tenancy
@@ -183,9 +183,11 @@ async function resolveAssignee(db: DB, scope: ScopeContext, assignedToUserId?: s
   // The partner arm checks role AND org (audit-tenancy F-4): `users.partner_id` carries no
   // role invariant — nothing stops an ADMIN row from holding one — so org membership alone
   // would let an admin be assigned a partner task and cross the PRN-13 wall.
+  // Phase C: the staff arm admits ANY admin-stream assignee (role <> 'partner'), so a
+  // member/viewer colleague is assignable exactly like an admin; the partner arm is unchanged.
   const stream =
-    scope.role === "admin"
-      ? eq(schema.users.role, "admin")
+    !isPartnerStream(scope)
+      ? ne(schema.users.role, "partner")
       : and(eq(schema.users.role, "partner"), eq(schema.users.partnerId, requirePartner(scope)));
   const [user] = await db
     .select({ id: schema.users.id })
@@ -274,7 +276,8 @@ export async function addLeadTask(
         tenantId: lead.tenantId,
         leadId: lead.id,
         authorUserId: scope.userId,
-        authorRole: scope.role,
+        // streamOf, not scope.role: author_role is the binary PRN-13 stream enum (Phase C).
+        authorRole: streamOf(scope),
         assignedToUserId,
         title: input.title,
         dueOn: input.dueOn ?? null,

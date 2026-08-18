@@ -200,8 +200,10 @@ export async function remindDueTasks(db: DB, opts: RemindDueTasksOptions): Promi
         if (!fresh) return false;
 
         const overdue = (fresh.dueOn as string) < opts.today;
+        // Stream, not tier (Phase C): any admin-STREAM recipient (admin, and later
+        // member/viewer) gets the admin deep-link; only partners get the portal one.
         const leadPath =
-          recipient.role === "admin"
+          recipient.role !== "partner"
             ? `/leads?open=${encodeURIComponent(fresh.leadRefId)}`
             : `/portal/leads/${encodeURIComponent(fresh.leadRefId)}`;
 

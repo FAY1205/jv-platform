@@ -2,7 +2,7 @@ import { and, desc, eq, isNull } from "drizzle-orm";
 import { LeadNotFoundError } from "@/modules/leads/errors";
 import { getDb } from "@/db";
 import * as schema from "@/db/schema";
-import { leadWhere, ownStatusAuthorScope, tenantWhere, type ScopeContext } from "@/lib/scope";
+import { leadWhere, ownStatusAuthorScope, tenantWhere, isPartnerStream, type ScopeContext } from "@/lib/scope";
 import { releasedLeads } from "../run/hold-filter";
 import { isValidStatus, DEFAULT_STATUS } from "./statuses";
 
@@ -44,7 +44,7 @@ export async function updateLeadStatus(
       // intentionally, because this path must FIND a removed lead to refuse it with
       // LeadRemovedError below (PRN-04). If visibility semantics (hold/soft-delete) ever
       // change, change both in lockstep.
-      .where(and(leadWhere(scope), eq(schema.leads.refId, refId), isNull(schema.leads.deletedAt), scope.role === "partner" ? releasedLeads() : undefined));
+      .where(and(leadWhere(scope), eq(schema.leads.refId, refId), isNull(schema.leads.deletedAt), isPartnerStream(scope) ? releasedLeads() : undefined));
     if (!lead) throw new LeadNotFoundError(refId);
     // PRN-04: a removed lead's status IS "Removed MLS" — refuse workflow overwrites.
     if (lead.mlsStatus === "removed") throw new LeadRemovedError(refId);

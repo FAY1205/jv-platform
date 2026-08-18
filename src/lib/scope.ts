@@ -16,10 +16,30 @@ type DB = PostgresJsDatabase<typeof schema>;
 
 export interface ScopeContext {
   tenantId: string;
-  role: "admin" | "partner";
+  /** `admin`/`member`/`viewer` are the ADMIN-STREAM tiers (Phase C); `partner` is the other
+   *  stream (PRN-13). Data shape branches ONLY on the stream (isPartnerStream) — tier
+   *  allow/deny lives in lib/authz.ts. Note: `member`/`viewer` exist in the type ahead of the
+   *  enum migration; no row carries them until the Phase C schema PR lands. */
+  role: "admin" | "partner" | "member" | "viewer";
   userId: string;
   /** Required when role === "partner". */
   partnerId?: string;
+}
+
+/**
+ * THE stream predicate (Phase C). Every data-shape decision — which arm of a scope builder,
+ * which note/task stream, hold-window applicability — keys on this, never on `role === "admin"`:
+ * a literal admin comparison would silently send the other admin-stream tiers (member/viewer)
+ * down the partner arm. Allow/deny (who may void, export, manage) is lib/authz.ts's job.
+ */
+export function isPartnerStream(scope: ScopeContext): boolean {
+  return scope.role === "partner";
+}
+
+/** The PRN-13 stream a scope writes/reads: feeds `author_role` on notes/tasks. The author_role
+ *  enum stays strictly binary — admin-stream tiers all write the 'admin' stream. */
+export function streamOf(scope: ScopeContext): "admin" | "partner" {
+  return isPartnerStream(scope) ? "partner" : "admin";
 }
 
 /** Guard: a partner scope must carry a partnerId, or it is a programming error. */
@@ -74,10 +94,10 @@ export function partnerOwnsLead(me: string): SQL {
   return or(eq(leads.manualPartnerId, me), and(isNull(leads.manualPartnerId), eq(leads.partnerId, me)))!;
 }
 
-/** Leads visibility: tenant + (admin sees all · partner sees only their own). */
+/** Leads visibility: tenant + (admin stream sees all · partner sees only their own). */
 export function leadWhere(scope: ScopeContext): SQL {
   const base = eq(leads.tenantId, scope.tenantId);
-  if (scope.role === "admin") return base;
+  if (!isPartnerStream(scope)) return base;
   return and(base, partnerOwnsLead(requirePartner(scope)))!;
 }
 
@@ -87,7 +107,7 @@ export function leadWhere(scope: ScopeContext): SQL {
  */
 export function noteWhere(scope: ScopeContext, db: DB, now?: Date): SQL {
   const base = eq(leadNotes.tenantId, scope.tenantId);
-  if (scope.role === "admin") {
+  if (!isPartnerStream(scope)) {
     return and(base, eq(leadNotes.authorRole, "admin"))!;
   }
   const me = requirePartner(scope);
@@ -137,7 +157,7 @@ export function noteWhere(scope: ScopeContext, db: DB, now?: Date): SQL {
  */
 export function taskWhere(scope: ScopeContext, db: DB, now?: Date): SQL {
   const base = eq(leadTasks.tenantId, scope.tenantId);
-  if (scope.role === "admin") {
+  if (!isPartnerStream(scope)) {
     return and(base, eq(leadTasks.authorRole, "admin"))!;
   }
   const me = requirePartner(scope);
@@ -172,7 +192,7 @@ export function leadChildWhere(
   db: DB,
 ): SQL {
   const base = eq(table.tenantId, scope.tenantId);
-  if (scope.role === "admin") return base;
+  if (!isPartnerStream(scope)) return base;
   const ownLeads = db
     .select({ id: leads.id })
     .from(leads)
@@ -196,9 +216,12 @@ export function leadChildWhere(
  * (lead_status_history_scope, migration 0037) carries the identical predicate (SEC-01).
  */
 export function ownStatusAuthorScope(scope: ScopeContext): SQL | undefined {
-  if (scope.role === "admin") return undefined;
+  if (!isPartnerStream(scope)) return undefined;
   const me = requirePartner(scope);
-  return sql`${schema.leadStatusHistory.changedByUserId} in (select id from users where ${tenantWhere(schema.users, scope)} and (role = 'admin' or partner_id = ${me}))`;
+  // `role <> 'partner'` (not `= 'admin'`): a status change by ANY admin-stream tier (admin,
+  // and later member) stays visible to the owning partner — the same intentional semantic,
+  // generalized. Equivalent for all existing rows; the RLS twin migrates in the schema PR.
+  return sql`${schema.leadStatusHistory.changedByUserId} in (select id from users where ${tenantWhere(schema.users, scope)} and (role <> 'partner' or partner_id = ${me}))`;
 }
 
 /**

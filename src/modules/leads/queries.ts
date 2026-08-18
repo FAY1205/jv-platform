@@ -8,6 +8,7 @@ import { tagsByLeadRef, type TagView } from "@/modules/tags/tags";
 import { noteAndTaskActivity, sortNewestFirst, type LeadActivity } from "./timeline";
 import { BOARD_COLUMNS, BOARD_PAGE_SIZE } from "./board";
 import type { BoardQuery, LeadsQuery } from "./schema";
+import { can } from "@/lib/authz";
 
 /**
  * TAG-03 — the `?tags=` filter predicate, shared by the list and the board so both mean the
@@ -312,7 +313,7 @@ export async function listLeadsBoard(scope: ScopeContext, query: BoardQuery): Pr
   // reads carry. A partner board would therefore bucket a re-routed lead by a PRIOR
   // owner's status change. Any future portal board must thread that predicate through
   // these subqueries FIRST — not relax this guard.
-  if (scope.role !== "admin") throw new BoardScopeError();
+  if (!can(scope, "leads.read")) throw new BoardScopeError();
 
   const db = getDb();
   const wanted = query.status ? [query.status] : [...BOARD_COLUMNS];

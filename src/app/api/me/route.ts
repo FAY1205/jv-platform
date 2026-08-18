@@ -4,7 +4,7 @@ import * as schema from "@/db/schema";
 import { getServerScope } from "@/lib/scope-context";
 import { authErrorResponse } from "@/lib/auth/guard";
 import { tenantWhere } from "@/lib/scope";
-import { isPlatformOwner } from "@/lib/auth/platform-owner";
+import { isPlatformOwnerScope } from "@/lib/auth/platform-owner";
 import { jsonOk, jsonError } from "@/lib/http";
 
 // WS-7: the authenticated caller's own identity for client chrome (profile menu +
@@ -26,7 +26,7 @@ export async function GET() {
       email: row.email,
       role: scope.role,
       workspace: { name: row.name },
-      isPlatformOwner: scope.role === "admin" && isPlatformOwner(row.email),
+      isPlatformOwner: isPlatformOwnerScope(scope, row.email),
     });
   } catch (e) {
     return authErrorResponse(e) ?? jsonError("me_failed", "Could not load your account.", 500);

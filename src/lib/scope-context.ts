@@ -38,7 +38,7 @@ export interface AuthedUser {
 
 export interface UserRow {
   tenantId: string;
-  role: "admin" | "partner";
+  role: "admin" | "partner" | "member" | "viewer";
   partnerId: string | null;
 }
 
@@ -68,6 +68,11 @@ export function resolveScope(
     if (partner && (partner.status === "revoked" || partner.deletedAt != null)) {
       throw new NotProvisionedError("This partner account is no longer active.");
     }
+  } else if (row.partnerId) {
+    // SCP-01 at the source (Phase C): a NON-partner row carrying a partner_id is corrupt —
+    // no provisioning path writes it, and admitting it would let an admin-stream user be
+    // counted into a partner org's authored sets. Refuse the session rather than guess.
+    throw new NotProvisionedError("Account role does not match its partner link.");
   }
   const scope: ScopeContext = { tenantId: row.tenantId, role: row.role, userId: user.id };
   if (row.role === "partner") scope.partnerId = row.partnerId as string;

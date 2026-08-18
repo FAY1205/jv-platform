@@ -5,6 +5,7 @@ import { ownerWhere, type ScopeContext } from "@/lib/scope";
 import { pgErrorInfo } from "@/lib/db/pg-error";
 import { SavedViewFiltersSchema, EMPTY_SAVED_VIEW_FILTERS, type SavedViewFilters } from "./schema";
 import type { CreateSavedViewInput, UpdateSavedViewInput } from "./schema";
+import { can } from "@/lib/authz";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Saved leads-page views (SV-01..05) — a NAME over the whole filter state, per USER.
@@ -93,9 +94,10 @@ export class SavedViewLimitError extends Error {
   }
 }
 
-/** The admin gate, in the module (see the header for why it is not the route's job alone). */
+/** The admin-stream gate, in the module (see the header for why it is not the route's job
+ *  alone). Keyed to `views.own` (Phase C): saved views are per-user staff chrome. */
 function assertAdmin(scope: ScopeContext): void {
-  if (scope.role !== "admin") throw new SavedViewScopeError();
+  if (!can(scope, "views.own")) throw new SavedViewScopeError();
 }
 
 export interface SavedViewRow {

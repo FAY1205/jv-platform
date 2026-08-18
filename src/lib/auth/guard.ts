@@ -53,6 +53,13 @@ export function authErrorResponse(e: unknown): NextResponse | null {
  * Admin-only gate for admin surfaces (dashboard/runs/uploads). Returns a 403
  * response when the scope is not an admin, else null. Partners share the tenant,
  * so tenant scoping alone does NOT separate them from admin routes.
+ *
+ * Phase C (WP-ROLE-1): this legacy gate passes ONLY the `admin` tier — the new
+ * admin-stream tiers (`member`/`viewer`) 403 on every route still using it, which is
+ * fail-closed by construction: an un-migrated route can never over-grant a new role.
+ * @deprecated for NEW routes — use `requireCapabilityResponse(scope, cap)` from
+ * `@/lib/authz` with the route's cluster capability instead. Existing call sites
+ * migrate cluster-by-cluster (WP-ROLE-2/3).
  */
 export function requireAdminResponse(scope: ScopeContext): NextResponse | null {
   return scope.role === "admin" ? null : jsonError("forbidden", "Admin access required.", 403);

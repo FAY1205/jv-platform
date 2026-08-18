@@ -1,7 +1,7 @@
 import { sql } from "drizzle-orm";
 import { getDb } from "@/db";
 import * as schema from "@/db/schema";
-import { tenantWhere, partnerOwnsLead, type ScopeContext } from "@/lib/scope";
+import { tenantWhere, partnerOwnsLead, isPartnerStream, type ScopeContext } from "@/lib/scope";
 import { releaseCutoff } from "../run/hold-window";
 import { DEFAULT_STATUS } from "../portal/statuses";
 import { rangeWindow, type RangeKey } from "./ranges";
@@ -147,7 +147,7 @@ export async function partnerPerformanceDetail(scope: ScopeContext, partnerId: s
   // theirs yet); the admin's view of a partner's stats sees everything.
   // Pass the cutoff as an ISO string + explicit cast: db.execute()'s raw path can't serialize a
   // Date param (unlike the query builder used elsewhere).
-  const holdGate = scope.role === "partner" ? sql`and created_at < ${releaseCutoff(new Date()).toISOString()}::timestamptz` : sql``;
+  const holdGate = isPartnerStream(scope) ? sql`and created_at < ${releaseCutoff(new Date()).toISOString()}::timestamptz` : sql``;
 
   const rows = await db.execute(sql`
     with partner_leads as (
