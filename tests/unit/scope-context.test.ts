@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   resolveScope,
+  subjectFromClaims,
   UnauthenticatedError,
   NotProvisionedError,
 } from "@/lib/scope-context";
@@ -56,5 +57,33 @@ describe("TST-12: resolveScope — session → scope", () => {
       { status: "active", deletedAt: null },
     );
     expect(scope).toEqual({ tenantId: tid, role: "partner", userId: uid, partnerId: pid });
+  });
+});
+
+// WP-PERF-AUTH (C-42): identity now comes from the LOCALLY-verified access-token claim (sub),
+// via getClaims. subjectFromClaims is the pure guard between "getClaims result" and "trusted uid"
+// — it is what rejects an invalid/expired token and what refuses to invent an id (the spoofing
+// fence: it reads ONLY the verified `sub`, never a header). See docs/audit/2026-08-18-double-jwt-verify.md.
+describe("WP-PERF-AUTH: subjectFromClaims — verified claim → user id", () => {
+  const sub = "44444444-4444-4444-4444-444444444444";
+
+  it("returns the verified sub when getClaims succeeded", () => {
+    expect(subjectFromClaims({ claims: { sub } }, null)).toBe(sub);
+  });
+
+  it("throws Unauthenticated when getClaims returned an error (bad signature / expired / rejected fallback)", () => {
+    expect(() => subjectFromClaims({ claims: { sub } }, new Error("Invalid JWT signature"))).toThrow(UnauthenticatedError);
+  });
+
+  it("throws Unauthenticated for a null result (no session)", () => {
+    expect(() => subjectFromClaims(null, null)).toThrow(UnauthenticatedError);
+    expect(() => subjectFromClaims(undefined, null)).toThrow(UnauthenticatedError);
+  });
+
+  it("throws Unauthenticated when the claim has no usable sub (never invents an id)", () => {
+    expect(() => subjectFromClaims({ claims: null }, null)).toThrow(UnauthenticatedError);
+    expect(() => subjectFromClaims({ claims: {} }, null)).toThrow(UnauthenticatedError);
+    expect(() => subjectFromClaims({ claims: { sub: "" } }, null)).toThrow(UnauthenticatedError);
+    expect(() => subjectFromClaims({ claims: { sub: 123 } }, null)).toThrow(UnauthenticatedError);
   });
 });

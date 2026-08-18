@@ -5,10 +5,11 @@ import type { ScopeContext } from "@/lib/scope";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Server-side scope resolution (WP-023, AUT-13). The authenticated Supabase
-// session is verified (getUser), then the caller is mapped to a ScopeContext via
-// the authoritative `users` row — keyed by the VERIFIED auth uid, never by
-// client-supplied claims. The scope guard (lib/scope.ts) and RLS are unchanged;
-// only the source of the scope changed (was the Phase-1 dev stub).
+// session's access token is verified (locally via getClaims against the project's asymmetric
+// signing key — WP-PERF-AUTH; falls back to a network getUser for HS256/alg:none), then the
+// caller is mapped to a ScopeContext via the authoritative `users` row — keyed by the VERIFIED
+// auth uid (the token's `sub` claim), never by client-supplied headers. The scope guard
+// (lib/scope.ts) and RLS are unchanged; only the source of the scope changed.
 //
 // The DB row is the single source of truth (PRN-15 spirit); JWT app_metadata is
 // still populated at provisioning so the RLS backstop has claims for any future
@@ -74,16 +75,47 @@ export function resolveScope(
 }
 
 /**
+ * Pure: the verified subject (auth user id) from a `getClaims()` result, or
+ * UnauthenticatedError. getClaims has ALREADY verified the token's signature + expiry against
+ * the project's asymmetric key (or bounced an HS256 / alg:none token to a network getUser that
+ * rejects a forgery), so a present, non-empty string `sub` is a trustworthy user id. Identity
+ * comes ONLY from the verified claim — never from a request header (spoofing fence, PRN-08).
+ */
+export function subjectFromClaims(
+  data: { claims?: { sub?: unknown } | null } | null | undefined,
+  error: unknown,
+): string {
+  const sub = data?.claims?.sub;
+  if (error || typeof sub !== "string" || sub.length === 0) throw new UnauthenticatedError();
+  return sub;
+}
+
+/**
  * Resolve the scope for the current request from the authenticated Supabase
  * session. Throws UnauthenticatedError when there is no valid session and
  * NotProvisionedError when the user has no membership. The Supabase client is
  * imported lazily so pure consumers of resolveScope never load `next/headers`.
+ *
+ * WP-PERF-AUTH (C-42): the token is verified LOCALLY via `getClaims()` against the project's
+ * asymmetric signing key + a module-cached JWKS — not a second network `getUser()`. The
+ * middleware (proxy.ts) already did one network verify + token refresh this request, so the
+ * route only needs to confirm the signature it just rotated, then re-read the authoritative
+ * `users`/`partners` rows (which is what actually enforces tenant/role/partner revocation,
+ * PRN-08/PTL-01 — unchanged and immediate). See docs/audit/2026-08-18-double-jwt-verify.md.
  */
 export async function getServerScope(): Promise<ScopeContext> {
   const { getSupabaseServer } = await import("@/lib/supabase/server");
+  const { getCachedJwks } = await import("@/lib/supabase/jwks");
   const supabase = await getSupabaseServer();
-  const { data, error } = await supabase.auth.getUser();
-  if (error || !data.user) throw new UnauthenticatedError();
+  const jwks = await getCachedJwks();
+  // getClaims(undefined, …) reads the access token from the session cookie (local, no network),
+  // validates exp, and verifies the ES256/RSA signature against the supplied JWKS. HS256 /
+  // alg:none / unknown-kid fall back to a network getUser INSIDE getClaims (alg-confusion guard).
+  // Cast: our cached JWKS is opaque JSON; getClaims types `jwks.keys` as the strict jose JWK[].
+  // The SDK only reads `kid` + the standard verify fields — the shapes are compatible at runtime.
+  const claimsOpts = (jwks ? { jwks } : undefined) as Parameters<typeof supabase.auth.getClaims>[1];
+  const { data, error } = await supabase.auth.getClaims(undefined, claimsOpts);
+  const userId = subjectFromClaims(data, error);
 
   const db = getDb();
   const [row] = await db
@@ -93,7 +125,7 @@ export async function getServerScope(): Promise<ScopeContext> {
       partnerId: schema.users.partnerId,
     })
     .from(schema.users)
-    .where(eq(schema.users.id, data.user.id));
+    .where(eq(schema.users.id, userId));
 
   // For a partner, consult the partner lifecycle so a revoked/soft-deleted partner
   // cannot resolve a session (PTL-01).
@@ -109,5 +141,5 @@ export async function getServerScope(): Promise<ScopeContext> {
     if (p) partner = { status: p.status, deletedAt: p.deletedAt };
   }
 
-  return resolveScope({ id: data.user.id }, row ?? null, partner);
+  return resolveScope({ id: userId }, row ?? null, partner);
 }
