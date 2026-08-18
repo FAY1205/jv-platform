@@ -26,8 +26,10 @@ describe("Uncovered map key (WP-UX-4)", () => {
       </svg>,
     );
     const html = container.innerHTML;
-    expect(html).toContain("var(--surface-3)");
-    expect(html).toContain("var(--border-strong)");
+    // WP-UX-8: the hatch now uses the map's OWN neutral land tokens (a theme pair) rather than
+    // borrowing --surface-3 / --border-strong — still neutral, and dark-parity correct.
+    expect(html).toContain("var(--map-land)");
+    expect(html).toContain("var(--map-land-line)");
     expect(html).not.toContain("--warn");
     expect(html).not.toContain("--brand");
   });

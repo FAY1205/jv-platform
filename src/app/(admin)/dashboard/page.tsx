@@ -63,10 +63,10 @@ const pct = (n: number) => `${Math.round(n * 100)}%`;
 
 // Donut palette from tokens (PRN-12); cycled per source. Names always accompany color in the
 // legend + tooltip (PRN-14). WP-UX-4/WP-UX-8: this is CATEGORICAL data, so it must not wear
-// two near-identical ambers — in DARK, --brand (#F0A63E) and --warn (#E0973A) collapse into
-// one amber and the two biggest slices merge. --info (steel blue) is the one status hue the
-// ring doesn't otherwise use and is distinct from brand-amber / success-green / danger-red /
-// grey in BOTH themes. (--warn itself is untouched — warn pills/toasts keep their AA pairs.)
+// two near-identical ambers — in DARK, --brand and --warn are the same amber and the two
+// biggest slices merge. --info (steel blue) is the one status hue the ring doesn't otherwise
+// use and is distinct from brand-amber / success-green / danger-red / grey in BOTH themes.
+// (--warn itself is untouched — warn pills/toasts keep their AA-checked pairs.)
 const SOURCE_COLORS = ["var(--brand)", "var(--success)", "var(--info)", "var(--danger)", "var(--text-3)"];
 
 // A dotted underline is the whole affordance (no ⓘ glyph) — subtler, and it matches
