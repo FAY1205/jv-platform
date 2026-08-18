@@ -16,6 +16,7 @@ import {
   reopenLeadTask,
   deleteLeadTask,
   listMyTasks,
+  listStreamAssignees,
   LeadNotFoundError,
   TaskNotFoundError,
   TaskClosedError,
@@ -607,6 +608,73 @@ suite("WP-TSK-2: lead tasks module (TSK-01..07)", () => {
       expect(row?.assignee?.email).toBe("admin@tasks-api.test");
     } finally {
       await db.update(schema.leadTasks).set({ authorUserId: id.adminUser }).where(eq(schema.leadTasks.id, taskId));
+    }
+  });
+
+  // ── TSK-13 (C-46): the assignee roster ────────────────────────────────────
+  // The picker's source of truth. It must be EXACTLY the set resolveAssignee accepts —
+  // anything wider offers a target the write path then refuses, anything narrower hides a
+  // legitimate colleague. Both halves compose the same lib/scope.ts builder (C-47).
+
+  it("TSK-13: the assignee roster is same-stream, active-only, and cross-tenant empty", async () => {
+    const staff = await listStreamAssignees(admin());
+    const staffEmails = staff.map((u) => u.email);
+    // The caller's own stream: every staff tier of this tenant, including the caller.
+    expect(staffEmails).toContain("admin@tasks-api.test");
+    expect(staffEmails).toContain("admin2@tasks-api.test");
+    // PRN-13: never a partner seat — not even one whose org this admin can otherwise see.
+    expect(staffEmails).not.toContain("px@tasks-api.test");
+    expect(staffEmails).not.toContain("py@tasks-api.test");
+    // Cross-tenant: tenant B's admin is unreachable, and tenant B's own roster is disjoint.
+    expect(staffEmails).not.toContain("admin@tasks-api-b.test");
+    const tenantBScope: ScopeContext = { tenantId: id.tenantB, role: "admin", userId: id.adminUserB };
+    expect((await listStreamAssignees(tenantBScope)).map((u) => u.email)).toEqual(["admin@tasks-api-b.test"]);
+    // Least exposure: the display identity only — no phone, no seat metadata, no partner id.
+    expect(Object.keys(staff[0]).sort()).toEqual(["email", "id", "role"]);
+    // Deterministic ordering so the dropdown never reshuffles between requests. Asserted as
+    // STABILITY across calls rather than against a JS `.sort()`: the ORDER BY runs under the
+    // database's collation, which orders punctuation differently from JS's code-unit sort
+    // ("admin@…" before "admin2@…" here) — pinning the JS order would pin the collation, not
+    // the determinism this actually cares about.
+    expect((await listStreamAssignees(admin())).map((u) => u.email)).toEqual(staffEmails);
+
+    // A partner sees their OWN org and nobody else's — not the other org, not the staff.
+    const own = (await listStreamAssignees(partnerX())).map((u) => u.email);
+    expect([...own].sort()).toEqual(["px2@tasks-api.test", "px@tasks-api.test"].sort());
+    expect((await listStreamAssignees(partnerX())).map((u) => u.email)).toEqual(own);
+  });
+
+  it("TSK-03/TSK-13: a deactivated seat is refused as an assignee and never offered", async () => {
+    // WP-N1 hardening: a nudge to a closed seat can never deliver (task-reminders refuses
+    // them as recipients), so the assignment is REFUSED rather than silently parked.
+    await db.update(schema.users).set({ deactivatedAt: new Date() }).where(eq(schema.users.id, id.adminUser2));
+    try {
+      await expect(
+        addLeadTask(admin(), REF_X, { title: "TSK-03 closed-seat probe", assignedToUserId: id.adminUser2 }),
+      ).rejects.toBeInstanceOf(InvalidAssigneeError);
+
+      const { id: taskId } = await addLeadTask(admin(), REF_X, { title: "TSK-03 reassign probe" });
+      await expect(editLeadTask(admin(), taskId, { assignedToUserId: id.adminUser2 })).rejects.toBeInstanceOf(
+        InvalidAssigneeError,
+      );
+      // The edit path refused BEFORE writing anything — the assignee is still the creator.
+      const [unchanged] = await db
+        .select({ a: schema.leadTasks.assignedToUserId })
+        .from(schema.leadTasks)
+        .where(eq(schema.leadTasks.id, taskId));
+      expect(unchanged.a).toBe(id.adminUser);
+
+      // Refusal, not a silent null: the rejected create wrote no row at all.
+      const rows = await db
+        .select({ id: schema.leadTasks.id })
+        .from(schema.leadTasks)
+        .where(and(eq(schema.leadTasks.tenantId, id.tenant), eq(schema.leadTasks.title, "TSK-03 closed-seat probe")));
+      expect(rows).toHaveLength(0);
+
+      // …and the picker can never offer the closed seat in the first place.
+      expect((await listStreamAssignees(admin())).map((u) => u.email)).not.toContain("admin2@tasks-api.test");
+    } finally {
+      await db.update(schema.users).set({ deactivatedAt: null }).where(eq(schema.users.id, id.adminUser2));
     }
   });
 });

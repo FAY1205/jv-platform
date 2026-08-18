@@ -1,10 +1,19 @@
-import { and, asc, count, eq, inArray, isNotNull, isNull, ne, or, sql, type SQL } from "drizzle-orm";
+import { and, asc, count, eq, inArray, isNotNull, isNull, or, sql, type SQL } from "drizzle-orm";
 import { alias, type PgColumn } from "drizzle-orm/pg-core";
 import { LeadNotFoundError } from "@/modules/leads/errors";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import { getDb } from "@/db";
 import * as schema from "@/db/schema";
-import { leadWhere, taskWhere, tenantWhere, requirePartner, streamOf, isPartnerStream, type ScopeContext } from "@/lib/scope";
+import {
+  leadWhere,
+  taskWhere,
+  tenantWhere,
+  sameStreamUsersWhere,
+  streamOf,
+  isPartnerStream,
+  type ScopeContext,
+  type StreamUsersTable,
+} from "@/lib/scope";
 import { releasedLeads } from "../run/hold-filter";
 import { maskAuditValue } from "@/modules/audit/redact";
 import { groupByDue, utcDateString, type DueGroup } from "./dates";
@@ -183,34 +192,12 @@ interface TaskIdentityRow {
 }
 
 /** `schema.users` OR one of its aliases — drizzle bakes the table name into every column
- *  type, so an alias is not assignable to `typeof schema.users`. Structural, so the two
- *  helpers below serve the write path (the real table) and the read joins (the aliases). */
-interface UsersTableLike {
+ *  type, so an alias is not assignable to `typeof schema.users`. Structural, so the identity
+ *  joins (aliases) compose the same tenant + stream builders the write path (the real table)
+ *  uses. Widens lib/scope.ts's `StreamUsersTable` with the two columns the join itself needs. */
+interface UsersTableLike extends StreamUsersTable {
   id: PgColumn;
-  role: PgColumn;
-  partnerId: PgColumn;
   tenantId: PgColumn;
-}
-
-/**
- * The user rows of the caller's OWN stream: an admin-stream caller sees admin-stream users
- * (role <> 'partner'), a partner sees users of their own partner org. This is the same
- * predicate resolveAssignee enforces on the WRITE path (TSK-03, audit F-2/F-4) — the
- * partner arm checks role AND org because `users.partner_id` carries no role invariant.
- *
- * ⚠️ SCOPE-GUARD-ADJACENT (audit-tenancy T-1): this is the tasks module's local copy of the
- * "which users belong to this caller's stream" rule, and it must move in LOCKSTEP with its
- * siblings — `lib/scope.ts`'s `ownAuthors` subquery inside `noteWhere`/`taskWhere` (same
- * tenant + partner_id + role='partner' triple, with the RLS counterpart in migration 0044)
- * and `statusAuthorOrg`. Three call sites now depend on it (resolveAssignee on the write
- * path, both identity joins on the read path), so treat edits here with lib/scope.ts
- * (Tier A) ceremony: a loosened arm here silently widens identity resolution across the
- * PRN-13 wall without failing a scope test that only exercises row visibility.
- */
-function sameStreamUsers(scope: ScopeContext, t: UsersTableLike) {
-  return !isPartnerStream(scope)
-    ? ne(t.role, "partner")
-    : and(eq(t.role, "partner"), eq(t.partnerId, requirePartner(scope)));
 }
 
 /**
@@ -219,9 +206,16 @@ function sameStreamUsers(scope: ScopeContext, t: UsersTableLike) {
  * mis-set / cross-tenant / cross-stream id resolves to NULL — a partner row can never
  * surface an admin's email and an admin row can never surface a partner's (PRN-13). An
  * unresolvable identity degrades to "no identity", never to somebody else's.
+ *
+ * C-47: the stream arm is `sameStreamUsersWhere` from lib/scope.ts — the module no longer
+ * keeps a local copy of "which users belong to this caller's stream" (the ⚠️
+ * SCOPE-GUARD-ADJACENT marker retired with it). The guard's `noteWhere`/`taskWhere`
+ * `ownAuthors` subqueries and `statusAuthorOrg` compose the same builder, so a stream-tier
+ * change lands once and reaches identity resolution, assignee validation, and row
+ * visibility together.
  */
 function identityJoin(t: UsersTableLike, scope: ScopeContext, idColumn: PgColumn) {
-  return and(eq(t.id, idColumn), tenantWhere(t, scope), sameStreamUsers(scope, t));
+  return and(eq(t.id, idColumn), tenantWhere(t, scope), sameStreamUsersWhere(scope, t));
 }
 
 function toIdentity(email: string | null, role: string | null, deactivatedAt: Date | null): TaskIdentity | null {
@@ -275,22 +269,72 @@ async function resolveLead(db: DB, scope: ScopeContext, leadRefId: string) {
  * own partner org. Never trust the id the client sent: it is re-read under the tenant +
  * stream predicate, and an unknown/foreign id is REFUSED (not silently nulled, which would
  * hide a mis-wired UI). Undefined/null defaults to the creator (TSK-03).
+ *
+ * WP-N1 (TSK-13, deliberate + reversible): a DEACTIVATED seat is no longer a valid target.
+ * A nudge addressed to a closed seat can never deliver — task-reminders.ts:145 already
+ * refuses them as recipients — so accepting the assignment would silently park work on
+ * nobody. Refusal, not a silent null, keeps the existing InvalidAssigneeError posture: the
+ * assignee roster (`listStreamAssignees`) omits closed seats, so a client built on it can
+ * never trip this; anything that does is a stale tab or a hand-rolled request.
+ * Attribution on EXISTING rows is untouched — C-11's read path still resolves a closed
+ * seat's identity and flags it (`deactivated: true`).
  */
 async function resolveAssignee(db: DB, scope: ScopeContext, assignedToUserId?: string | null): Promise<string> {
   const target = assignedToUserId ?? scope.userId;
   // Phase C: the staff arm admits ANY admin-stream assignee (role <> 'partner'), so a
   // member/viewer colleague is assignable exactly like an admin; the partner arm checks
-  // role AND org. C-11 reuses this same predicate READ-side (identityJoin), so the write
-  // path and identity resolution can never disagree about what "my own stream" means.
-  const stream = sameStreamUsers(scope, schema.users);
+  // role AND org. C-47: ONE builder in lib/scope.ts, also composed READ-side (identityJoin)
+  // and by the roster below — write path, roster, and identity resolution can never disagree
+  // about what "my own stream" means.
   const [user] = await db
     .select({ id: schema.users.id })
     .from(schema.users)
     // The guard's own tenant builder, not a hand-rolled eq (audit-tenancy F-1): a future
     // change to tenant filtering reaches this path instead of missing a private copy (R-24).
-    .where(and(tenantWhere(schema.users, scope), eq(schema.users.id, target), stream));
+    .where(
+      and(
+        tenantWhere(schema.users, scope),
+        eq(schema.users.id, target),
+        sameStreamUsersWhere(scope, schema.users),
+        isNull(schema.users.deactivatedAt),
+      ),
+    );
   if (!user) throw new InvalidAssigneeError();
   return user.id;
+}
+
+/** TSK-13: one assignable seat — the same {email, role} display identity C-11 resolves. */
+export interface TaskAssignee {
+  id: string;
+  email: string;
+  role: TaskIdentity["role"];
+}
+
+/**
+ * TSK-13 (C-46): the caller's own-stream ACTIVE roster — exactly the set `resolveAssignee`
+ * will accept, so the picker can never offer a target the write path then refuses. Built
+ * from the scope builders only (PRN-08): tenant + `sameStreamUsersWhere` + active seats.
+ *
+ * Least exposure: emails only, no deactivated seats, and never a cross-stream row (PRN-13) —
+ * an admin-stream caller sees staff, a partner sees their own org and nobody else's. These
+ * are the same emails the C-11 identity joins already serve to these exact callers under the
+ * identical predicate, so this adds no new PII class (SEC-05). Ordered `email asc` so the
+ * dropdown is deterministic across requests.
+ */
+export async function listStreamAssignees(scope: ScopeContext): Promise<TaskAssignee[]> {
+  const db = getDb();
+  const rows = await db
+    .select({ id: schema.users.id, email: schema.users.email, role: schema.users.role })
+    .from(schema.users)
+    .where(
+      and(
+        tenantWhere(schema.users, scope),
+        sameStreamUsersWhere(scope, schema.users),
+        isNull(schema.users.deactivatedAt),
+      ),
+    )
+    .orderBy(asc(schema.users.email));
+  return rows.map((r) => ({ id: r.id, email: r.email, role: r.role as TaskIdentity["role"] }));
 }
 
 /** Re-resolve a task through the scope guard. `taskWhere ∩ id` is the whole authorization: a task

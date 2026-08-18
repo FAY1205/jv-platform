@@ -26,6 +26,13 @@ Exemplars: `src/app/api/uploads/route.ts`, `src/app/api/admin/partners/route.ts`
 - Every Drizzle query in a request path builds its WHERE via `src/lib/scope.ts`
   builders: `tenantWhere` / `leadWhere` / `noteWhere` / `leadChildWhere`. Hand-rolled
   tenant filters are non-conforming even when correct.
+- A predicate that decides **which users belong to the caller's stream/org** is a scope
+  builder and lives in `src/lib/scope.ts` (`streamUsersWhere` / `sameStreamUsersWhere`) —
+  not in the module that happens to need it first. It is the axis a row-visibility test
+  cannot catch: a loosened arm widens *identity resolution* (whose email an assignee join
+  may surface) and *assignee validation* without changing which rows come back, so no
+  isolation probe fails. A module-local copy requires the `⚠️ SCOPE-GUARD-ADJACENT` marker
+  and a named cross-reference to every sibling definition. (C-47; audit-tenancy F-1 on C-11.)
 - The app's Postgres connection is the table owner ⇒ **RLS does not constrain app
   queries**. RLS (deny-by-default on every table) is the backstop for the PostgREST
   surface and non-app access. The scope builders are the primary boundary — treat a
