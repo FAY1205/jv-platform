@@ -6,7 +6,7 @@ import * as schema from "@/db/schema";
 import { leadWhere, tenantWhere, type ScopeContext } from "@/lib/scope";
 import { pgErrorInfo } from "@/lib/db/pg-error";
 import { nextTagColor, type TagColor } from "@/lib/tokens/tokens";
-import type { CreateTagInput, UpdateTagInput } from "./schema";
+import { TAG_LIMIT, type CreateTagInput, type UpdateTagInput } from "./schema";
 import { can } from "@/lib/authz";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -66,6 +66,21 @@ export class DuplicateTagNameError extends Error {
     this.name = "DuplicateTagNameError";
   }
 }
+/**
+ * TAG-08: the tenant is at its tag cap. A user-facing condition (409), not a bug — the
+ * message is the copy the toast shows, so it names the live limit and where to fix it rather
+ * than leaving the client to interpolate a constant it must not own.
+ */
+export class TagLimitError extends Error {
+  readonly limit: number;
+  constructor(limit: number = TAG_LIMIT) {
+    super(
+      `Tag limit reached — this workspace already has ${limit} tags. Delete or rename one in Settings → Tags.`,
+    );
+    this.name = "TagLimitError";
+    this.limit = limit;
+  }
+}
 /** TAG-02: tags are admin-only in v1 — a partner scope reaching a tag read is a programming
  *  error (the routes 403 first), not a user-facing condition. */
 export class TagScopeError extends Error {
@@ -114,11 +129,25 @@ function asDuplicate(e: unknown, name: string | undefined): unknown {
 }
 
 /**
- * TAG-06 — every tag in the tenant with its live usage count. A LEFT JOIN + group-by, not
+ * TAG-06/TAG-09 — the tenant's tag roster with live usage counts. A LEFT JOIN + group-by, not
  * N+1 counts. Attachments on RECALLED (soft-deleted) leads are excluded so the count the
  * delete confirmation shows matches what an operator can actually see on the leads list.
+ *
+ * TAG-09 — the read is BOUNDED and its order is CONTRACTUAL. `.limit(TAG_LIMIT)` is
+ * defence-in-depth against the write-side cap (the same philosophy as the `?tags=` param's
+ * bound in schema.ts): legacy pre-cap data or a bypassed create cannot turn this into an
+ * unbounded payload. Because the clamp can therefore bite, WHICH rows survive it has to be
+ * deterministic — hence the full `lower(name) asc, id asc` key (names are unique per tenant
+ * case-insensitively, so the id tiebreak is theoretically moot, but the clamp makes it
+ * contractual). `total` is the tenant's TRUE count, computed before the clamp, so an overflow
+ * is VISIBLE to the client ("Showing 100 of 103") instead of silently truncated.
+ *
+ * Ordering stays alphabetical rather than recent/frequent: type-ahead is the primary access
+ * path at scale, and alphabetical is the only STABLE secondary path — frequency ordering
+ * reshuffles rows between opens and destroys spatial memory, while the usage counts the
+ * picker already renders serve the operator who wants "what's hot".
  */
-export async function listTags(scope: ScopeContext): Promise<TagWithUsage[]> {
+export async function listTags(scope: ScopeContext): Promise<{ rows: TagWithUsage[]; total: number }> {
   const db = getDb();
   const rows = await db
     .select({
@@ -129,6 +158,9 @@ export async function listTags(scope: ScopeContext): Promise<TagWithUsage[]> {
       // (soft-deleted) leads, and on a LEFT JOIN their junction rows survive with a null
       // lead — counting `leadTags.id` would keep counting them.
       leadCount: sql<number>`count(${schema.leads.id})::int`,
+      // The window runs AFTER group-by and BEFORE the limit, so this is the number of the
+      // tenant's tags — one extra column, not a second round trip.
+      total: sql<number>`(count(*) over ())::int`,
     })
     .from(schema.tags)
     .leftJoin(
@@ -143,20 +175,30 @@ export async function listTags(scope: ScopeContext): Promise<TagWithUsage[]> {
     )
     .where(tagWhere(scope))
     .groupBy(schema.tags.id, schema.tags.name, schema.tags.color)
-    .orderBy(sql`lower(${schema.tags.name})`);
-  return rows.map((r) => ({ id: r.id, name: r.name, color: r.color, leadCount: Number(r.leadCount) }));
+    .orderBy(sql`lower(${schema.tags.name})`, asc(schema.tags.id))
+    .limit(TAG_LIMIT);
+  return {
+    rows: rows.map((r) => ({ id: r.id, name: r.name, color: r.color, leadCount: Number(r.leadCount) })),
+    // No rows ⇒ no window value to read ⇒ the tenant has no tags.
+    total: rows.length === 0 ? 0 : Number(rows[0].total),
+  };
 }
 
 /**
- * TAG-03/TAG-04 — create a tag. `color` omitted means "the next palette color, round-robin"
- * (the picker's create-inline path sends a name only).
+ * TAG-03/TAG-04/TAG-08 — create a tag. `color` omitted means "the next palette color,
+ * round-robin" (the picker's create-inline path sends a name only), and the tenant's tag
+ * count is capped at TAG_LIMIT.
  *
- * The round-robin is BEST-EFFORT. The count is read inside the transaction, but under READ
- * COMMITTED two concurrent creates can still both observe the same count and pick the same
- * slot. That is deliberate: the consequence is cosmetic — two tags sharing a hue — and it is
- * NOT an information problem, because a chip always renders its name (PRN-14) and the color
- * can be changed in Settings (TAG-06). Serializing tag creation behind a lock to make a
- * color choice unique would be a real cost for a decorative guarantee.
+ * Both facts are read from ONE count inside the transaction, and the transaction opens by
+ * taking a per-tenant advisory lock. That lock is what makes the cap EXACT rather than
+ * best-effort: under READ COMMITTED two concurrent creates at TAG_LIMIT-1 would both observe
+ * the same count and land TAG_LIMIT+1 rows. Serializing tag CREATION per tenant — a
+ * human-speed, low-frequency operation — costs nothing real and buys a cap that holds by
+ * construction instead of "usually". It also retires the round-robin color race that used to
+ * be documented here as an accepted cosmetic risk: with creation serialized, two tags can no
+ * longer read the same count and pick the same palette slot. The lock is per TENANT, so it
+ * never serializes unrelated workspaces, and it is `xact`-scoped, so it is released by the
+ * commit or rollback with no unlock path to leak.
  */
 export async function createTag(
   scope: ScopeContext,
@@ -166,7 +208,11 @@ export async function createTag(
   const db = getDb();
   try {
     return await db.transaction(async (tx) => {
-      const color = input.color ?? nextTagColor(await countTags(tx, scope));
+      // FIRST statement of the transaction — see the note above.
+      await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`tags:${scope.tenantId}`})::bigint)`);
+      const existing = await countTags(tx, scope);
+      if (existing >= TAG_LIMIT) throw new TagLimitError();
+      const color = input.color ?? nextTagColor(existing);
       const [tag] = await tx
         .insert(schema.tags)
         .values({ tenantId: scope.tenantId, name: input.name, color })

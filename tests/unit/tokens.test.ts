@@ -7,6 +7,9 @@ import {
   darkColors,
   PARTNER_PALETTE,
   PARTNER_SWATCHES,
+  TAG_PALETTE,
+  isTagColor,
+  nextTagColor,
   type ColorTokens,
 } from "@/lib/tokens/tokens";
 
@@ -173,5 +176,38 @@ describe("SET-02: partner palette", () => {
     for (const p of PARTNER_PALETTE) expect(pool).toContain(p.hex.toLowerCase());
     expect(new Set(pool).size).toBe(pool.length);
     expect(PARTNER_SWATCHES.length).toBeGreaterThanOrEqual(18);
+  });
+});
+
+// C-24: the TAG palette's append-only contract lived in a COMMENT only, so nothing stopped a
+// reorder. It sits here beside SET-02 because this file is the palette-governance suite.
+describe("TAG-04: tag palette is an append-only contract", () => {
+  it(
+    "TAG-04: pins order AND membership — rows store the KEY, so reordering or removing an " +
+      "entry silently recolors every stored tag. Changing this array (except APPENDING) " +
+      "requires a data migration over tags.color — do not just update this snapshot.",
+    () => {
+      // A literal, POSITIONAL snapshot — toEqual on the exact array, not set membership.
+      // Appending a 7th key fails only this assertion, and the correct fix is to extend the
+      // literal here, which is exactly the review conversation this test exists to force.
+      expect(TAG_PALETTE).toEqual(["teal", "blue", "amber", "plum", "rose", "gold"]);
+    },
+  );
+
+  it("TAG-04: nextTagColor is a pure, deterministic round-robin over the palette", () => {
+    // The Nth created tag's colour is a function of N alone (createTag feeds it countTags).
+    expect(Array.from({ length: 12 }, (_, n) => nextTagColor(n))).toEqual([
+      "teal", "blue", "amber", "plum", "rose", "gold",
+      "teal", "blue", "amber", "plum", "rose", "gold",
+    ]);
+    expect(nextTagColor(TAG_PALETTE.length)).toBe(TAG_PALETTE[0]);
+    // The modulo is double-wrapped: a negative or absurd count never leaves the palette.
+    expect(isTagColor(nextTagColor(-1))).toBe(true);
+    expect(isTagColor(nextTagColor(1e9))).toBe(true);
+  });
+
+  it("TAG-04: isTagColor accepts exactly the palette keys", () => {
+    for (const k of TAG_PALETTE) expect(isTagColor(k)).toBe(true);
+    for (const bad of ["TEAL", "teal ", "", "cyan", 3, null, undefined]) expect(isTagColor(bad)).toBe(false);
   });
 });

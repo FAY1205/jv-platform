@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
-  CreateTagSchema, UpdateTagSchema, AttachTagSchema, tagsParam, TAG_FILTER_MAX, TAG_NAME_MAX,
+  CreateTagSchema, UpdateTagSchema, AttachTagSchema, TagColorSchema, tagsParam,
+  TAG_FILTER_MAX, TAG_NAME_MAX, TAG_LIMIT,
 } from "@/modules/tags/schema";
 import { LeadsQuerySchema, BoardQuerySchema } from "@/modules/leads/schema";
 import { TAG_PALETTE, isTagColor, nextTagColor } from "@/lib/tokens/tokens";
@@ -104,5 +105,24 @@ describe("TAG-04: the fixed palette", () => {
     expect(isTagColor("chartreuse")).toBe(false);
     expect(tagChipClass("chartreuse")).toContain("bg-surface-3");
     expect(tagDotClass("chartreuse")).toBe("bg-text-3");
+  });
+
+  it("TAG-04: the API's colour enum cannot fork from the palette", () => {
+    // TagColorSchema is z.enum(TAG_PALETTE); pin it POSITIONALLY so the wire contract and the
+    // append-only palette pin in tests/unit/tokens.test.ts move together or not at all.
+    expect(TagColorSchema.options).toEqual([...TAG_PALETTE]);
+  });
+});
+
+describe("TAG-08: the per-tenant tag cap", () => {
+  it("TAG-08: TAG_LIMIT is bounded well under the FEP-03 virtualization threshold", () => {
+    // The whole "no virtualization needed" argument rests on this: a roster that CANNOT reach
+    // ~200 rows is a compliant plain list by construction. Raising the cap past ~150 forfeits
+    // that and needs the FEP-03 conversation (and probably an ADR for a virtualization dep).
+    expect(TAG_LIMIT).toBe(100);
+    expect(TAG_LIMIT).toBeLessThanOrEqual(150);
+    // …and comfortably above the 53-tag audit stress seed, so the cap is a guardrail, not a
+    // limit real vocabularies (5–30 tags) run into.
+    expect(TAG_LIMIT).toBeGreaterThan(53);
   });
 });

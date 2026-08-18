@@ -21,16 +21,35 @@ export interface TagRow {
   leadCount: number;
 }
 
+/**
+ * TAG-09: the bounded roster payload. `tags` carries at most `limit` rows; `total` is the
+ * tenant's true tag count, so an overflow is visible instead of silently clamped. `limit` is
+ * the SERVER's cap — no surface here duplicates the constant.
+ */
+export interface TagsResponse {
+  tags: TagRow[];
+  total: number;
+  limit: number;
+}
+
 export const TAGS_KEY = ["tags"] as const;
 
 /** The tenant's tag roster + usage counts. Shared by the picker and the manager. */
 export function useTags(enabled = true) {
   return useQuery({
     queryKey: TAGS_KEY,
-    queryFn: () => apiGet<{ tags: TagRow[] }>("/api/tags"),
+    queryFn: () => apiGet<TagsResponse>("/api/tags"),
     enabled,
   });
 }
+
+/**
+ * TAG-08: true once the roster is LOADED and at/over the server's cap — the one predicate the
+ * picker, the leads rows, the board cards and Settings all read, so they cannot disagree
+ * about when creating is off. Deliberately `false` while loading or on error: never lock a
+ * create affordance on data you don't have — the server's 409 is the backstop.
+ */
+export const atTagLimit = (d?: { total: number; limit: number }): boolean => !!d && d.total >= d.limit;
 
 /** Everything a tag write must refresh. The roster's counts move on attach/detach too, so
  *  it is in the set for every mutation — one list, no per-call guessing. */

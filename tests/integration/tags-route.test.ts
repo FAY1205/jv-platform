@@ -1,9 +1,10 @@
 import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
-import { eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, like } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import { getDb } from "@/db";
 import * as schema from "@/db/schema";
 import type { ScopeContext } from "@/lib/scope";
+import { TAG_LIMIT } from "@/modules/tags/schema";
 import { purgeAuditLog } from "../helpers/audit";
 import type * as ScopeContextModule from "@/lib/scope-context";
 import { APP_ORIGIN, adminScope, jsonRequest, routeParams, scopeContextMock, setRouteScope } from "./_route-harness";
@@ -198,6 +199,49 @@ suite("WP-TAG-1: tag route contract (status + error envelope + admin gate)", () 
       expect(partnerTag).toHaveLength(0);
     } finally {
       setRouteScope(adminScope(tenantId, adminUserId));
+    }
+  });
+
+  it("TAG-09: GET returns the BOUNDED roster contract — { tags, total, limit }", async () => {
+    await createOk("Route Bounded");
+    const listed = await listTagsRoute();
+    expect(listed.status).toBe(200);
+    const payload = await body(listed);
+    // The fields are unconditional, not overflow-only: a small roster carries them too.
+    expect(payload.limit).toBe(TAG_LIMIT);
+    expect(payload.total).toBe((payload.tags as unknown[]).length);
+    expect((payload.tags as unknown[]).length).toBeLessThanOrEqual(TAG_LIMIT);
+  });
+
+  it("TAG-08: POST /api/tags at the cap returns the 409 tag_limit_reached envelope", async () => {
+    // Fill the roster by DIRECT insert (fast, and the route's own gate is what's under test).
+    const existing = await db.select({ id: schema.tags.id }).from(schema.tags).where(eq(schema.tags.tenantId, tenantId));
+    const need = TAG_LIMIT - existing.length;
+    const filler = Array.from({ length: need }, (_, i) => ({
+      tenantId,
+      name: `cap-filler-${String(i).padStart(4, "0")}`,
+      color: "teal",
+    }));
+    for (let i = 0; i < filler.length; i += 50) await db.insert(schema.tags).values(filler.slice(i, i + 50));
+
+    try {
+      const res = await createTagRoute(jsonRequest("POST", "/api/tags", { name: "one too many" }));
+      expect(res.status).toBe(409);
+      const env = await body(res);
+      // Uniform envelope: EXACTLY the three keys, no leaked internals.
+      expect(Object.keys(env).sort()).toEqual(["code", "message", "traceId"]);
+      expect(env.code).toBe("tag_limit_reached");
+      expect(env.traceId).toEqual(expect.any(String));
+      // The copy names the live limit and where to fix it — the client hardcodes neither.
+      expect(env.message).toContain(String(TAG_LIMIT));
+      expect(env.message).toContain("Settings → Tags");
+      // Nothing landed.
+      const after = await db.select({ id: schema.tags.id }).from(schema.tags).where(eq(schema.tags.tenantId, tenantId));
+      expect(after).toHaveLength(TAG_LIMIT);
+    } finally {
+      // This suite has no per-test wipe — put the roster back under the cap for the tests
+      // that follow.
+      await db.delete(schema.tags).where(and(eq(schema.tags.tenantId, tenantId), like(schema.tags.name, "cap-filler-%")));
     }
   });
 

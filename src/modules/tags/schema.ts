@@ -14,6 +14,19 @@ export const TAG_NAME_MAX = 40;
  *  hand-crafted URL from turning into an unbounded IN-list (the pageSize discipline). */
 export const TAG_FILTER_MAX = 20;
 
+/**
+ * TAG-08: the hard per-tenant tag cap. Chosen at ≤ half the FEP-03 virtualization threshold
+ * (~200 rows) so the roster is bounded BY CONSTRUCTION and the plain (unvirtualized)
+ * TagPicker + Settings lists stay compliant without a new dependency. It is also a product
+ * guardrail: a tag vocabulary past ~100 has stopped being a scanning vocabulary and become a
+ * data-quality problem. Enforced server-side inside createTag's transaction (exactly, under a
+ * per-tenant advisory lock) and mirrored as a read-side LIMIT in listTags.
+ *
+ * The CLIENT never hardcodes this — GET /api/tags reports it as `limit`, so changing the cap
+ * is one constant plus its tests, with no client change.
+ */
+export const TAG_LIMIT = 100;
+
 export const TagNameSchema = z.string().trim().min(1).max(TAG_NAME_MAX);
 /** The stored value is a PALETTE KEY, never a hex — see lib/tokens TAG_PALETTE. */
 export const TagColorSchema = z.enum(TAG_PALETTE);
