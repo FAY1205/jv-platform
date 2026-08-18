@@ -2,8 +2,6 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { useQuery } from "@tanstack/react-query";
-import { apiGet } from "@/lib/api";
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -14,6 +12,7 @@ import {
 } from "./DropdownMenu";
 import { AccountMenuTrigger } from "./AccountMenuTrigger";
 import { useSignOut } from "@/lib/use-sign-out";
+import { useCurrentUser } from "@/lib/use-current-user";
 
 // T7a: the portal rail-foot account menu — the admin ProfileMenu pattern, portal-
 // flavored (Account · Devices · Terms of service · Sign out). Identity from /api/me
@@ -21,14 +20,9 @@ import { useSignOut } from "@/lib/use-sign-out";
 // query-cache clear → /portal/login). Desktop-rail only — the mobile chrome keeps its
 // bottom-tab Account entry.
 
-interface Me {
-  email: string;
-  role: string;
-  workspace: { name: string };
-}
 
 export function PortalProfileMenu() {
-  const { data } = useQuery({ queryKey: ["me"], queryFn: () => apiGet<Me>("/api/me") });
+  const { data } = useCurrentUser();
   const email = data?.email ?? "";
   const { signOut } = useSignOut();
 

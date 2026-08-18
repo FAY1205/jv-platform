@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { getDb } from "@/db";
 import { getServerScope } from "@/lib/scope-context";
-import { authErrorResponse, requireAdminResponse, assertCsrf } from "@/lib/auth/guard";
+import { authErrorResponse, assertCsrf } from "@/lib/auth/guard";
 import {
   manuallyAssignLead,
   LeadNotFoundError,
@@ -11,6 +11,7 @@ import {
 import { notifyLeadAssigned } from "@/modules/notify/outbox";
 import { logError } from "@/lib/observability";
 import { jsonOk, jsonError, jsonServerError } from "@/lib/http";
+import { requireCapabilityResponse } from "@/lib/authz";
 
 const RefSchema = z.string().regex(/^LD-\d{2}-\d{5,}$/);
 const BodySchema = z.object({
@@ -25,8 +26,8 @@ export async function POST(request: Request, { params }: { params: Promise<{ ref
   }
   try {
     const scope = await getServerScope();
-    const adminOnly = requireAdminResponse(scope);
-    if (adminOnly) return adminOnly;
+    const gate = requireCapabilityResponse(scope, "leads.write");
+    if (gate) return gate;
     const { ref } = await params;
     if (!RefSchema.safeParse(ref).success) return jsonError("invalid_ref", "Invalid lead reference.", 400);
     const parsed = BodySchema.safeParse(await request.json().catch(() => null));

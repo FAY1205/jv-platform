@@ -7,18 +7,18 @@ import { fmtDateTime } from "@/lib/dates";
 import { csrfHeaders } from "@/lib/csrf-client";
 import { Card, CardBody, CardHeader, CardTitle, Button, Skeleton, EmptyState, QueryErrorState, useToast } from "@/components";
 import { SettingsSection } from "../settings-section";
+import { useCurrentUser } from "@/lib/use-current-user";
 
 // SCP-06/SCP-07: owner-only signup invitation codes. Visible only to platform owners
 // (ADMIN_ALLOWLIST); the API re-checks. Generate a single-use, 48-hour code and hand
 // it to a prospective admin — they must enter it to create a workspace.
 
-interface Me { isPlatformOwner?: boolean }
 interface ActiveCode { id: string; createdBy: string; createdAt: string; expiresAt: string }
 
 export default function InvitationsPage() {
   const qc = useQueryClient();
   const { toast } = useToast();
-  const meQ = useQuery({ queryKey: ["me"], queryFn: () => apiGet<Me>("/api/me") });
+  const meQ = useCurrentUser();
   const [fresh, setFresh] = React.useState<string | null>(null);
   const [copied, setCopied] = React.useState(false);
 

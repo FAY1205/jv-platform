@@ -1,12 +1,13 @@
 import { z } from "zod";
 import { getDb } from "@/db";
 import { getServerScope } from "@/lib/scope-context";
-import { authErrorResponse, requireAdminResponse, assertCsrf } from "@/lib/auth/guard";
+import { authErrorResponse, assertCsrf } from "@/lib/auth/guard";
 import { unmatchedCoverageMatches } from "@/modules/leads/queries";
 import { bulkAssignByCoverage, InvalidAssignTargetError } from "@/modules/leads/commands";
 import { notifyLeadAssigned, notifyLeadsBulkAssigned } from "@/modules/notify/outbox";
 import { logError } from "@/lib/observability";
 import { jsonOk, jsonError, jsonServerError } from "@/lib/http";
+import { requireCapabilityResponse } from "@/lib/authz";
 
 // S6 coverage backfill (owner note #2): after adding a partner (or coverage), the
 // unmatched page offers "assign the leads their coverage now matches" in one click.
@@ -17,8 +18,8 @@ import { jsonOk, jsonError, jsonServerError } from "@/lib/http";
 export async function GET() {
   try {
     const scope = await getServerScope();
-    const adminOnly = requireAdminResponse(scope);
-    if (adminOnly) return adminOnly;
+    const gate = requireCapabilityResponse(scope, "leads.read");
+    if (gate) return gate;
     const matches = await unmatchedCoverageMatches(scope);
     return jsonOk({ matches });
   } catch (e) {
@@ -34,8 +35,8 @@ export async function POST(request: Request) {
   }
   try {
     const scope = await getServerScope();
-    const adminOnly = requireAdminResponse(scope);
-    if (adminOnly) return adminOnly;
+    const gate = requireCapabilityResponse(scope, "leads.write");
+    if (gate) return gate;
     const parsed = BodySchema.safeParse(await request.json().catch(() => null));
     if (!parsed.success) return jsonError("invalid_input", parsed.error.issues[0]?.message ?? "Invalid input.", 400);
 

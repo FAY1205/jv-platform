@@ -1,10 +1,9 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
-import { apiGet } from "@/lib/api";
 import { Card, CardHeader, CardTitle, CardBody, Button, LinkCard, Skeleton, QueryErrorState, PortalDevices } from "@/components";
 import { initialsFromEmail } from "@/lib/identity";
 import { useSignOut } from "@/lib/use-sign-out";
+import { useCurrentUser } from "@/lib/use-current-user";
 
 // WP-PW-4 Task 2: the desktop (>= lg) Account two-column grid — left Profile (identity +
 // Terms-of-service link + Sign out), right Devices (the shared PortalDevices list, ACC-02).
@@ -14,14 +13,9 @@ import { useSignOut } from "@/lib/use-sign-out";
 // parent server component (/portal/page.tsx) owns the single <main> for this route.
 // On desktop the mobile "Your devices"/"Your activity" link rows are dropped (Devices is
 // shown inline; Activity is a left-rail nav item) — only the ToS link is kept.
-interface Me {
-  email: string;
-  role: string;
-  workspace: { name: string };
-}
 
 export function AccountDesktop() {
-  const { data, isPending, error, refetch } = useQuery({ queryKey: ["me"], queryFn: () => apiGet<Me>("/api/me") });
+  const { data, isPending, error, refetch } = useCurrentUser();
   const { signOut, signingOut } = useSignOut();
 
   return (

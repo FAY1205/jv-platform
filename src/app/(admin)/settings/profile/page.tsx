@@ -1,23 +1,17 @@
 "use client";
 
 import * as React from "react";
-import { useQuery } from "@tanstack/react-query";
-import { apiGet } from "@/lib/api";
 import { Button, Card, CardBody, CardHeader, CardTitle, Skeleton, QueryErrorState, PasswordChangeForm } from "@/components";
 import { initialsFromEmail } from "@/lib/identity";
 import { SettingsSection } from "../settings-section";
+import { useCurrentUser } from "@/lib/use-current-user";
 
-interface Me {
-  email: string;
-  role: "admin" | "partner";
-  workspace: { name: string };
-}
 
 // WS-7c: Profile — identity (email read-only; no name column yet) + password change.
 // The password form sits behind a disclosure so the page doesn't open on three
 // password fields (owner feedback, testing round 2).
 export default function ProfileSettingsPage() {
-  const { data, isPending, error, refetch } = useQuery({ queryKey: ["me"], queryFn: () => apiGet<Me>("/api/me") });
+  const { data, isPending, error, refetch } = useCurrentUser();
   const [changingPassword, setChangingPassword] = React.useState(false);
 
   return (

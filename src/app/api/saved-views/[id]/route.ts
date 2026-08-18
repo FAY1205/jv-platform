@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { getDb } from "@/db";
 import { getServerScope } from "@/lib/scope-context";
-import { assertCsrf, authErrorResponse, requireAdminResponse } from "@/lib/auth/guard";
+import { assertCsrf, authErrorResponse } from "@/lib/auth/guard";
 import { requireTosResponse } from "@/lib/auth/tos-guard";
 import {
   updateSavedView, deleteSavedView, SavedViewNotFoundError, DuplicateSavedViewNameError,
@@ -9,6 +9,7 @@ import {
 import { UpdateSavedViewSchema } from "@/modules/saved-views/schema";
 import { pgErrorInfo } from "@/lib/db/pg-error";
 import { jsonOk, jsonError, jsonServerError } from "@/lib/http";
+import { requireCapabilityResponse } from "@/lib/authz";
 
 /** SEC-05 (audit-tenancy F-9): never `e.message` in a 500 detail — a driver error quotes the
  *  offending row, and `filters.q` is free text an admin types seller names into. See the
@@ -40,8 +41,8 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   if (!parsed.success) return jsonError("invalid_input", "Nothing to change.", 400);
   try {
     const scope = await getServerScope();
-    const adminOnly = requireAdminResponse(scope);
-    if (adminOnly) return adminOnly;
+    const gate = requireCapabilityResponse(scope, "views.own");
+    if (gate) return gate;
     const tos = await requireTosResponse(getDb(), scope);
     if (tos) return tos;
     await updateSavedView(scope, id, parsed.data);
@@ -60,8 +61,8 @@ export async function DELETE(request: Request, { params }: { params: Promise<{ i
   if (!z.string().uuid().safeParse(id).success) return jsonError("invalid_id", "Invalid view id.", 400);
   try {
     const scope = await getServerScope();
-    const adminOnly = requireAdminResponse(scope);
-    if (adminOnly) return adminOnly;
+    const gate = requireCapabilityResponse(scope, "views.own");
+    if (gate) return gate;
     const tos = await requireTosResponse(getDb(), scope);
     if (tos) return tos;
     await deleteSavedView(scope, id);

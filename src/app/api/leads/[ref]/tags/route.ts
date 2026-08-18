@@ -1,11 +1,12 @@
 import { z } from "zod";
 import { getDb } from "@/db";
 import { getServerScope } from "@/lib/scope-context";
-import { assertCsrf, authErrorResponse, requireAdminResponse } from "@/lib/auth/guard";
+import { assertCsrf, authErrorResponse } from "@/lib/auth/guard";
 import { requireTosResponse } from "@/lib/auth/tos-guard";
 import { listLeadTags, attachTag, LeadNotFoundError, TagNotFoundError } from "@/modules/tags/tags";
 import { AttachTagSchema } from "@/modules/tags/schema";
 import { jsonOk, jsonError, jsonServerError, newTraceId } from "@/lib/http";
+import { requireCapabilityResponse } from "@/lib/authz";
 
 // TAG-03 — the attachments on ONE lead. GET lists them; POST attaches (IDEMPOTENT: attaching
 // a tag the lead already carries is a 200 no-op, not a 409 — the ✕/＋ UI can retry safely).
@@ -18,8 +19,8 @@ export async function GET(_req: Request, { params }: { params: Promise<{ ref: st
   if (!RefSchema.safeParse(ref).success) return jsonError("invalid_ref", "Invalid lead reference.", 400);
   try {
     const scope = await getServerScope();
-    const adminOnly = requireAdminResponse(scope);
-    if (adminOnly) return adminOnly;
+    const gate = requireCapabilityResponse(scope, "leads.read");
+    if (gate) return gate;
     const tos = await requireTosResponse(getDb(), scope);
     if (tos) return tos;
     return jsonOk({ tags: await listLeadTags(scope, ref) });
@@ -41,8 +42,8 @@ export async function POST(request: Request, { params }: { params: Promise<{ ref
   if (!parsed.success) return jsonError("invalid_input", "A tag id is required.", 400);
   try {
     const scope = await getServerScope();
-    const adminOnly = requireAdminResponse(scope);
-    if (adminOnly) return adminOnly;
+    const gate = requireCapabilityResponse(scope, "leads.write");
+    if (gate) return gate;
     const tos = await requireTosResponse(getDb(), scope);
     if (tos) return tos;
     // Both references are re-resolved under the tenant predicate inside attachTag — the body

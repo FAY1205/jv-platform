@@ -1,10 +1,11 @@
 import { z } from "zod";
 import { getDb } from "@/db";
 import { getServerScope } from "@/lib/scope-context";
-import { assertCsrf, authErrorResponse, requireAdminResponse } from "@/lib/auth/guard";
+import { assertCsrf, authErrorResponse } from "@/lib/auth/guard";
 import { requireTosResponse } from "@/lib/auth/tos-guard";
 import { detachTag, LeadNotFoundError, TagNotFoundError } from "@/modules/tags/tags";
 import { jsonOk, jsonError, jsonServerError, newTraceId } from "@/lib/http";
+import { requireCapabilityResponse } from "@/lib/authz";
 
 // TAG-03 — detach ONE tag from ONE lead (the chip's ✕). IDEMPOTENT: removing a tag the lead
 // no longer carries is a 200 no-op, so a double-click or a stale row never surfaces an error.
@@ -19,8 +20,8 @@ export async function DELETE(request: Request, { params }: { params: Promise<{ r
   if (!z.string().uuid().safeParse(tagId).success) return jsonError("invalid_id", "Invalid tag id.", 400);
   try {
     const scope = await getServerScope();
-    const adminOnly = requireAdminResponse(scope);
-    if (adminOnly) return adminOnly;
+    const gate = requireCapabilityResponse(scope, "leads.write");
+    if (gate) return gate;
     const tos = await requireTosResponse(getDb(), scope);
     if (tos) return tos;
     return jsonOk(await detachTag(scope, ref, tagId, newTraceId()));

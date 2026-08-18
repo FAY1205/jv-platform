@@ -1,10 +1,11 @@
 import { getDb } from "@/db";
 import { getServerScope } from "@/lib/scope-context";
-import { assertCsrf, authErrorResponse, requireAdminResponse } from "@/lib/auth/guard";
+import { assertCsrf, authErrorResponse } from "@/lib/auth/guard";
 import { requireTosResponse } from "@/lib/auth/tos-guard";
 import { listTags, createTag, DuplicateTagNameError } from "@/modules/tags/tags";
 import { CreateTagSchema } from "@/modules/tags/schema";
 import { jsonOk, jsonError, jsonServerError, newTraceId } from "@/lib/http";
+import { requireCapabilityResponse } from "@/lib/authz";
 
 // TAG-03 — the tag roster. GET powers both the picker's type-ahead and the Settings manager
 // (one payload, usage counts included); POST is create, used by the picker's create-inline
@@ -15,8 +16,8 @@ import { jsonOk, jsonError, jsonServerError, newTraceId } from "@/lib/http";
 export async function GET() {
   try {
     const scope = await getServerScope();
-    const adminOnly = requireAdminResponse(scope);
-    if (adminOnly) return adminOnly;
+    const gate = requireCapabilityResponse(scope, "leads.read");
+    if (gate) return gate;
     const tos = await requireTosResponse(getDb(), scope); // F-04/LGL-01: self-serve admins must have accepted the current ToS
     if (tos) return tos;
     return jsonOk({ tags: await listTags(scope) });
@@ -34,8 +35,8 @@ export async function POST(request: Request) {
   if (!parsed.success) return jsonError("invalid_input", "A tag name (1–40 characters) is required.", 400);
   try {
     const scope = await getServerScope();
-    const adminOnly = requireAdminResponse(scope);
-    if (adminOnly) return adminOnly;
+    const gate = requireCapabilityResponse(scope, "rules.manage");
+    if (gate) return gate;
     const tos = await requireTosResponse(getDb(), scope);
     if (tos) return tos;
     // tenant_id comes from the scope, never the body; an omitted color resolves to the next

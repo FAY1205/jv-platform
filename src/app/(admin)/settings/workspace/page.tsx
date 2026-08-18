@@ -1,22 +1,19 @@
 "use client";
 
 import * as React from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { apiGet } from "@/lib/api";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { csrfHeaders } from "@/lib/csrf-client";
 import { Card, CardBody, Input, Button, Skeleton, QueryErrorState, useToast } from "@/components";
 import { SettingsSection } from "../settings-section";
+import { useCurrentUser } from "@/lib/use-current-user";
 
-interface Me {
-  workspace: { name: string };
-}
 
 // WS-7c: Workspace — editable name + branding placeholder. Full branding editor (SET-09)
 // is token-driven and lands later; the tokens already support rebrand.
 export default function WorkspaceSettingsPage() {
   const qc = useQueryClient();
   const { toast } = useToast();
-  const { data, isPending, error, refetch } = useQuery({ queryKey: ["me"], queryFn: () => apiGet<Me>("/api/me") });
+  const { data, isPending, error, refetch } = useCurrentUser();
 
   // Seed the field once the workspace loads; keep local edits after that. Render-time
   // guard (ADR-0008, per settings/notifications) — never copy server data into state via
