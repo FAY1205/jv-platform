@@ -169,7 +169,7 @@ export default function AssistantWidget() {
         tabIndex={-1}
         inert={!open}
         className={
-          "fixed bottom-[92px] right-6 z-50 flex h-[min(640px,calc(100vh-128px))] w-[min(400px,calc(100vw-24px))] flex-col overflow-hidden rounded-[18px] border border-border bg-surface shadow-lg transition-all duration-200 max-[520px]:inset-x-2 max-[520px]:bottom-[88px] max-[520px]:h-[calc(100vh-104px)] max-[520px]:w-auto " +
+          "fixed bottom-[92px] right-6 z-50 flex h-[min(640px,calc(100vh-128px))] w-[min(400px,calc(100vw-24px))] flex-col overflow-hidden rounded-lg border border-border bg-surface shadow-lg transition-all duration-200 max-[520px]:inset-x-2 max-[520px]:bottom-[88px] max-[520px]:h-[calc(100vh-104px)] max-[520px]:w-auto " +
           (open ? "opacity-100" : "pointer-events-none translate-y-3 scale-95 opacity-0")
         }
       >
@@ -205,7 +205,7 @@ export default function AssistantWidget() {
           )}
           {messages.map((m, i) =>
             m.role === "user" ? (
-              <div key={m.id} className="max-w-[90%] self-end rounded-[15px] rounded-br-[5px] border border-brand-line bg-brand-soft px-3 py-2.5 text-step-2 leading-relaxed text-text">
+              <div key={m.id} className="max-w-[90%] self-end rounded-md rounded-br-xs border border-brand-line bg-brand-soft px-3 py-2.5 text-step-2 leading-relaxed text-text">
                 {textOf(m)}
               </div>
             ) : (
@@ -213,7 +213,7 @@ export default function AssistantWidget() {
             ),
           )}
           {busy && messages[messages.length - 1]?.role === "user" && (
-            <div role="status" className="flex gap-1 self-start rounded-[15px] rounded-tl-[5px] border border-border-soft bg-surface px-3.5 py-3" aria-label="Assistant is thinking">
+            <div role="status" className="flex gap-1 self-start rounded-md rounded-tl-xs border border-border-soft bg-surface px-3.5 py-3" aria-label="Assistant is thinking">
               <i className="h-1.5 w-1.5 animate-[blink_1s_infinite] rounded-full bg-text-3" />
               <i className="h-1.5 w-1.5 animate-[blink_1s_infinite_.18s] rounded-full bg-text-3" />
               <i className="h-1.5 w-1.5 animate-[blink_1s_infinite_.36s] rounded-full bg-text-3" />
@@ -226,7 +226,7 @@ export default function AssistantWidget() {
             only shows for real transient failures. */}
         {!blocked && error && (
           <div role="alert" className="flex flex-none items-start gap-2.5 border-t border-border-soft bg-danger-soft px-3.5 py-2.5 text-step-1 text-text-2">
-            <span aria-hidden className="grid h-[18px] w-[18px] flex-none place-items-center rounded-[5px] bg-danger text-step-0 font-bold text-on-status">!</span>
+            <span aria-hidden className="grid h-[18px] w-[18px] flex-none place-items-center rounded-xs bg-danger text-step-0 font-bold text-on-status">!</span>
             <span>Something went wrong reaching the assistant. <button type="button" onClick={() => regenerate()} className="font-semibold text-brand-ink underline">Try again</button>{messages.length > 0 && <> or <button type="button" onClick={newChat} className="font-semibold text-brand-ink underline">start a new chat</button></>}.</span>
           </div>
         )}
@@ -234,7 +234,7 @@ export default function AssistantWidget() {
         {/* Cap / rate / disabled band */}
         {blocked && (
           <div className="flex flex-none items-start gap-2.5 border-t border-border-soft bg-warn-soft px-3.5 py-2.5 text-step-1 text-text-2">
-            <span aria-hidden="true" className="grid h-[18px] w-[18px] flex-none place-items-center rounded-[5px] bg-warn text-step-0 font-bold text-on-status">!</span>
+            <span aria-hidden="true" className="grid h-[18px] w-[18px] flex-none place-items-center rounded-xs bg-warn text-step-0 font-bold text-on-status">!</span>
             <span>{gateBandCopy(gate!)}</span>
           </div>
         )}

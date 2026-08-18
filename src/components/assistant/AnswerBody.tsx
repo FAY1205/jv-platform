@@ -9,6 +9,9 @@ function Spans({ spans }: { spans: InlineSpan[] }) {
       {spans.map((s, i) =>
         s.kind === "bold" ? <strong key={i} className="font-semibold">{s.text}</strong>
         : s.kind === "ref" ? <span key={i} className="num text-brand-ink">{s.text}</span>
+        // Inline code / file paths: mono chip. break-all so a long path can't force the
+        // panel to scroll horizontally at 375px (WP-AI-STYLE-PERSIST: no raw paths).
+        : s.kind === "code" ? <code key={i} className="break-all rounded-xs border border-border-soft bg-surface-2 px-1 py-px font-mono text-step-1">{s.text}</code>
         : <React.Fragment key={i}>{s.text}</React.Fragment>,
       )}
     </>

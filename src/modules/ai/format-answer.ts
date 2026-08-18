@@ -1,9 +1,9 @@
 // Pure no-dep renderer for streamed assistant text (design §6: plain language,
-// dash bullets for 3+ numbers, mono refs). NOT a markdown engine — only the three
-// things the system prompt actually emits: **bold**, dash/•/* bullets, ref IDs.
-// The React layer renders these spans (no dangerouslySetInnerHTML).
+// dash bullets for 3+ numbers, mono refs). NOT a markdown engine — only the four
+// things the system prompt actually emits: **bold**, `code`/paths, dash/•/* bullets,
+// ref IDs. The React layer renders these spans (no dangerouslySetInnerHTML).
 
-export type InlineSpan = { kind: "text" | "bold" | "ref"; text: string };
+export type InlineSpan = { kind: "text" | "bold" | "ref" | "code"; text: string };
 export type AnswerBlock =
   | { type: "p"; spans: InlineSpan[] }
   | { type: "ul"; items: InlineSpan[][] };
@@ -13,10 +13,8 @@ const BULLET_RE = /^\s*[-–•*]\s+(.*)$/;
 // refs (e.g. quoted from the activity log) still render as mono ref spans.
 const REF_RE = /\b(PR-\d{3,}|JV-\d{3,}|LD-\d{2}-\d{5,}|IM-\d{2}-\d{3,}|UP-\d{4}-\d{3,})\b/g;
 
-/** Split a line into text/bold/ref spans. Bold is matched first, then refs inside
- *  each non-bold segment. */
-function inlineSpans(line: string): InlineSpan[] {
-  const spans: InlineSpan[] = [];
+/** Push bold + ref spans for a segment that is NOT inside a code span. */
+function pushBoldAndRefs(segment: string, spans: InlineSpan[]): void {
   const boldRe = /\*\*([^*]+)\*\*/g;
   let last = 0;
   let m: RegExpExecArray | null;
@@ -32,12 +30,28 @@ function inlineSpans(line: string): InlineSpan[] {
     }
     if (idx < t.length) spans.push({ kind: "text", text: t.slice(idx) });
   };
-  while ((m = boldRe.exec(line))) {
-    if (m.index > last) pushText(line.slice(last, m.index));
+  while ((m = boldRe.exec(segment))) {
+    if (m.index > last) pushText(segment.slice(last, m.index));
     spans.push({ kind: "bold", text: m[1] });
     last = m.index + m[0].length;
   }
-  if (last < line.length) pushText(line.slice(last));
+  if (last < segment.length) pushText(segment.slice(last));
+}
+
+/** Split a line into spans. `code` (backtick-delimited — file paths, statuses, ZIPs the
+ *  model quotes) is matched FIRST and its content stays literal (no bold/ref inside); the
+ *  segments between code spans get bold, then refs. */
+function inlineSpans(line: string): InlineSpan[] {
+  const spans: InlineSpan[] = [];
+  const codeRe = /`([^`]+)`/g;
+  let last = 0;
+  let m: RegExpExecArray | null;
+  while ((m = codeRe.exec(line))) {
+    if (m.index > last) pushBoldAndRefs(line.slice(last, m.index), spans);
+    spans.push({ kind: "code", text: m[1] });
+    last = m.index + m[0].length;
+  }
+  if (last < line.length) pushBoldAndRefs(line.slice(last), spans);
   return spans;
 }
 
