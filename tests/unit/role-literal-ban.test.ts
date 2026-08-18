@@ -28,6 +28,7 @@ const ALLOWED = new Set(
     "app/api/auth/otp/request/route.ts", // users row: only partners sign in by OTP (stream-correct)
     "modules/notify/task-reminders.ts", // recipient users rows (stream comparisons, polarity checked)
     "modules/retention/signup-sweep.ts", // auth-user metadata marker: only signup provisions admins
+    "modules/notify/prefs.ts", // streamPrefRole: the per-stream pref bucket (string role, not a scope)
   ].map((p) => p.split("/").join(sep)),
 );
 

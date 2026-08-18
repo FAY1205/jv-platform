@@ -328,7 +328,9 @@ suite("TST-01: tenant & partner isolation", () => {
     // (pg_policies.qual re-serializes with table qualifiers, e.g. COALESCE(leads.manual_partner_id, …).)
     expect(qual).toContain("changed_by_user_id"); // the R-22 author predicate is present
     expect(qual).toContain("manual_partner_id"); // still scoped by effective-owner lead ownership
-    expect(qual).toContain("role = 'admin'"); // Option B: admin-authored entries stay visible to the owner
+    // Option B, generalized in Phase C (migration 0054): entries authored by ANY admin-stream
+    // tier stay visible to the owner — the predicate reads role <> 'partner', not = 'admin'.
+    expect(qual).toContain("role <> 'partner'");
   });
 
   it("F-31: listPartnerActivity counts a partner's action on a manually-assigned (partnerId=null) lead", async () => {

@@ -342,8 +342,9 @@ export async function notifyStatusChange(
   const admins = await db
     .select({ id: schema.users.id, email: schema.users.email })
     .from(schema.users)
-    // TODO(WP-ROLE-schema, audit-tenancy F-8): recipient selection is admin-tier-only — member
-    // seats will not receive these until this widens to ne(role,'partner') + a pref-bucket rule.
+    // Phase C DECISION (audit-tenancy F-8): ops notifications (run summaries, status alerts)
+    // go to the ADMIN TIER only — member/viewer seats do lead work, not pipeline operations.
+    // Deliberate, not pending; flagged as an owner-adjustable default.
     .where(and(tenantWhere(schema.users, scope), eq(schema.users.role, "admin")));
   if (admins.length === 0) return;
 

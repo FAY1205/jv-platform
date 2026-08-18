@@ -2,6 +2,7 @@ import { and, eq } from "drizzle-orm";
 import { getDb } from "@/db";
 import * as schema from "@/db/schema";
 import type { ScopeContext } from "@/lib/scope";
+import { effectiveCapabilities } from "@/lib/authz";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Server-side scope resolution (WP-023, AUT-13). The authenticated Supabase
@@ -40,6 +41,12 @@ export interface UserRow {
   tenantId: string;
   role: "admin" | "partner" | "member" | "viewer";
   partnerId: string | null;
+  /** Phase C seat lifecycle: a deactivated seat is refused a session. Optional so the
+   *  pure mapping stays constructible from older shapes (tests, fabricated rows). */
+  deactivatedAt?: Date | null;
+  /** Tenant-configured capability array for member/viewer (role_capabilities row), or
+   *  null/absent when the tenant has expressed no choice (⇒ code defaults). */
+  storedCapabilities?: string[] | null;
 }
 
 /** Partner lifecycle state consulted when resolving a partner scope (PTL-01). */
@@ -66,6 +73,11 @@ export function resolveScope(
   if (!["admin", "partner", "member", "viewer"].includes(row.role)) {
     throw new NotProvisionedError("Account role is not recognized.");
   }
+  // Phase C seat lifecycle: the partner-revocation twin for staff — a deactivated seat
+  // is refused a session; the row (and everything it authored) persists.
+  if (row.deactivatedAt != null) {
+    throw new NotProvisionedError("This account has been deactivated.");
+  }
   if (row.role === "partner") {
     if (!row.partnerId) {
       throw new NotProvisionedError("Partner account is missing its partner link.");
@@ -81,6 +93,12 @@ export function resolveScope(
   }
   const scope: ScopeContext = { tenantId: row.tenantId, role: row.role, userId: user.id };
   if (row.role === "partner") scope.partnerId = row.partnerId as string;
+  // ADR-0049: member/viewer carry their tenant-configured capability set, normalized
+  // through the ONE authz normalizer (locked/unknown keys stripped, always-on floor
+  // unioned; null/absent ⇒ live code defaults). Admin/partner never carry the field.
+  if (row.role === "member" || row.role === "viewer") {
+    scope.capabilities = effectiveCapabilities(row.role, row.storedCapabilities ?? null);
+  }
   return scope;
 }
 
@@ -128,13 +146,25 @@ export async function getServerScope(): Promise<ScopeContext> {
   const userId = subjectFromClaims(data, error);
 
   const db = getDb();
+  // ADR-0049: the tenant's configured capability row for this user's tier rides the SAME
+  // round trip (LEFT JOIN on (tenant, role)) — the Slice-2 lesson is that request latency
+  // is round trips, not DB work. Admin/partner rows simply join to nothing.
   const [row] = await db
     .select({
       tenantId: schema.users.tenantId,
       role: schema.users.role,
       partnerId: schema.users.partnerId,
+      deactivatedAt: schema.users.deactivatedAt,
+      storedCapabilities: schema.roleCapabilities.capabilities,
     })
     .from(schema.users)
+    .leftJoin(
+      schema.roleCapabilities,
+      and(
+        eq(schema.roleCapabilities.tenantId, schema.users.tenantId),
+        eq(schema.roleCapabilities.role, schema.users.role),
+      ),
+    )
     .where(eq(schema.users.id, userId));
 
   // For a partner, consult the partner lifecycle so a revoked/soft-deleted partner

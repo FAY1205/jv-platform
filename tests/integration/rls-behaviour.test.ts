@@ -62,9 +62,14 @@ suite("RLSB: RLS enforcement oracle (non-owner role)", () => {
     id.adminUser = randomUUID();
     id.pxUser = randomUUID();
     id.pyUser = randomUUID();
+    id.memberUser = randomUUID();
+    id.viewerUser = randomUUID();
     await db.insert(schema.users).values({ id: id.adminUser, tenantId: t.id, email: "admin@rlsbeh.test", role: "admin" });
     await db.insert(schema.users).values({ id: id.pxUser, tenantId: t.id, email: "px@rlsbeh.test", role: "partner", partnerId: px.id });
     await db.insert(schema.users).values({ id: id.pyUser, tenantId: t.id, email: "py@rlsbeh.test", role: "partner", partnerId: py.id });
+    // Phase C: the admin-STREAM tiers (0053 enum values; partner_id NULL per the SCP-08 CHECK).
+    await db.insert(schema.users).values({ id: id.memberUser, tenantId: t.id, email: "member@rlsbeh.test", role: "member" });
+    await db.insert(schema.users).values({ id: id.viewerUser, tenantId: t.id, email: "viewer@rlsbeh.test", role: "viewer" });
 
     const [up] = await db.insert(schema.uploads).values({ tenantId: t.id, refId: "IM-26-201", filename: "a.xlsx", status: "processed" }).returning({ id: schema.uploads.id });
     const [leadX] = await db
@@ -111,6 +116,8 @@ suite("RLSB: RLS enforcement oracle (non-owner role)", () => {
   const adminClaims = (): RlsClaims => ({ sub: id.adminUser, tenantId: id.tenant, role: "admin" });
   const pxClaims = (): RlsClaims => ({ sub: id.pxUser, tenantId: id.tenant, role: "partner", partnerId: id.px });
   const pyClaims = (): RlsClaims => ({ sub: id.pyUser, tenantId: id.tenant, role: "partner", partnerId: id.py });
+  const memberClaims = (): RlsClaims => ({ sub: id.memberUser, tenantId: id.tenant, role: "member" });
+  const viewerClaims = (): RlsClaims => ({ sub: id.viewerUser, tenantId: id.tenant, role: "viewer" });
 
   const taskTitlesAs = (claims: RlsClaims) =>
     asRole(db, claims, async (tx) =>
@@ -192,6 +199,58 @@ suite("RLSB: RLS enforcement oracle (non-owner role)", () => {
         (await tx.select({ id: schema.leadTasks.id }).from(schema.leadTasks).where(eq(schema.leadTasks.title, "premature"))).length,
     );
     expect(write.denied).toBe(true);
+  });
+
+  it("RLSB-07 (Phase C): member/viewer claims take the STAFF arm — tenant reads allowed, cross-tenant + partner stream denied", async () => {
+    // Staff arm (`app_current_role() <> 'partner'`, migration 0054): a member sees every
+    // in-tenant lead — including a still-HELD one (the hold is partner-only) — exactly like
+    // an admin claim. Read-only-ness of the viewer TIER is an app-layer property (lib/authz);
+    // the backstop's job is stream + tenant isolation only (ADR-0049 §11.5).
+    for (const claims of [memberClaims(), viewerClaims()]) {
+      const leads = await asRole(db, claims, async (tx) =>
+        (await tx.execute<{ n: number }>(sql`select count(*)::int as n from leads where tenant_id = ${id.tenant}`))[0].n,
+      );
+      expect(leads, claims.role).toBe(3); // leadX + leadY + leadHeld
+
+      const crossTenant = await asRole(db, claims, async (tx) =>
+        (await tx.execute<{ n: number }>(sql`select count(*)::int as n from leads where tenant_id = ${id.tenantB}`))[0].n,
+      );
+      expect(crossTenant, claims.role).toBe(0);
+
+      // PRN-13: the staff arm reads ONLY the admin stream — no partner-authored task leaks.
+      const titles = await taskTitlesAs(claims);
+      expect(titles, claims.role).toContain("ADMIN task on X");
+      expect(titles.filter((t) => t.includes("PARTNER")), claims.role).toEqual([]);
+    }
+
+    // A member's admin-stream WRITE persists (tier write-limits are app-layer; the stream
+    // boundary is the DB's job)…
+    const staffWrite = await probeWrite(
+      db,
+      memberClaims(),
+      async (tx) => {
+        await tx
+          .insert(schema.leadTasks)
+          .values({ tenantId: id.tenant, leadId: id.leadX, authorUserId: id.memberUser, authorRole: "admin", title: "member-staff-write" });
+      },
+      async (tx) =>
+        (await tx.select({ id: schema.leadTasks.id }).from(schema.leadTasks).where(eq(schema.leadTasks.title, "member-staff-write"))).length,
+    );
+    expect(staffWrite.denied).toBe(false);
+
+    // …but a member forging a PARTNER-stream row is refused (the wall holds both ways).
+    const crossStream = await probeWrite(
+      db,
+      memberClaims(),
+      async (tx) => {
+        await tx
+          .insert(schema.leadTasks)
+          .values({ tenantId: id.tenant, leadId: id.leadX, authorUserId: id.memberUser, authorRole: "partner", title: "member-forged-partner" });
+      },
+      async (tx) =>
+        (await tx.select({ id: schema.leadTasks.id }).from(schema.leadTasks).where(eq(schema.leadTasks.title, "member-forged-partner"))).length,
+    );
+    expect(crossStream.denied).toBe(true);
   });
 
   it("RLSB-04: cross-stream / cross-owner WRITES are refused; the legitimate write is allowed", async () => {

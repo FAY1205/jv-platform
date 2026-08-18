@@ -17,6 +17,7 @@ Missing snapshots (all hand-authored SQL-only migrations):
 | `0045_revoke_lead_dml_grants` | `REVOKE` | ″ |
 | `0046_default_privileges_least_privilege` | `ALTER DEFAULT PRIVILEGES` + `REVOKE` | ″ |
 | `0047_task_note_hold_in_rls` | RLS policy | ″ |
+| `0054_phase_c_roles_policies` | RLS policy + backfill + CHECK/FK (non-structural; the structural half is the GENERATED, snapshotted 0053) | ″ |
 
 ## Why it's safe
 

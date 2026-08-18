@@ -46,13 +46,15 @@ describe("TST-12: resolveScope — session → scope", () => {
     }
   });
 
-  it("SCP-01: member/viewer rows with no partner link resolve to an admin-stream scope", () => {
+  it("SCP-01: member/viewer rows with no partner link resolve to an admin-stream scope (defaults attached)", () => {
     for (const role of ["member", "viewer"] as const) {
-      expect(resolveScope({ id: uid }, { tenantId: tid, role, partnerId: null })).toEqual({
-        tenantId: tid,
-        role,
-        userId: uid,
-      });
+      const scope = resolveScope({ id: uid }, { tenantId: tid, role, partnerId: null });
+      expect(scope.tenantId).toBe(tid);
+      expect(scope.role).toBe(role);
+      expect(scope.userId).toBe(uid);
+      expect(scope.partnerId).toBeUndefined();
+      // ADR-0049: the normalized capability set rides the scope (defaults when unconfigured).
+      expect(scope.capabilities?.has("leads.read")).toBe(true);
     }
   });
 
@@ -60,6 +62,33 @@ describe("TST-12: resolveScope — session → scope", () => {
     expect(() =>
       resolveScope({ id: uid }, { tenantId: tid, role: "owner" as never, partnerId: null }),
     ).toThrow(NotProvisionedError);
+  });
+
+  it("Phase C: a deactivated seat is refused a session (any role — the partner-revoke twin)", () => {
+    for (const role of ["admin", "member", "viewer"] as const) {
+      expect(() =>
+        resolveScope({ id: uid }, { tenantId: tid, role, partnerId: null, deactivatedAt: new Date() }),
+      ).toThrow(NotProvisionedError);
+    }
+    expect(() =>
+      resolveScope({ id: uid }, { tenantId: tid, role: "partner", partnerId: pid, deactivatedAt: new Date() }),
+    ).toThrow(NotProvisionedError);
+  });
+
+  it("ADR-0049: member/viewer scopes carry the NORMALIZED tenant-configured capability set", () => {
+    // Stored config grants an editable cap; locked/unknown keys are stripped; floor unioned.
+    const scope = resolveScope(
+      { id: uid },
+      { tenantId: tid, role: "viewer", partnerId: null, storedCapabilities: ["data.export", "team.manage", "junk"] },
+    );
+    expect(scope.capabilities).toEqual(new Set(["leads.read", "views.own", "data.export"]));
+    // No stored row ⇒ the field carries the live defaults (so can() and resolveScope agree).
+    const defaulted = resolveScope({ id: uid }, { tenantId: tid, role: "member", partnerId: null });
+    expect(defaulted.capabilities?.has("leads.write")).toBe(true);
+    expect(defaulted.capabilities?.has("runs.void")).toBe(false);
+    // Admin never carries the field (locked-full).
+    const admin = resolveScope({ id: uid }, { tenantId: tid, role: "admin", partnerId: null, storedCapabilities: ["leads.read"] });
+    expect(admin.capabilities).toBeUndefined();
   });
 
   it("PTL-01: a revoked partner is refused a session", () => {

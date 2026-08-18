@@ -23,8 +23,9 @@ export interface RlsClaims {
   sub: string;
   /** app_metadata.tenant_id → app_current_tenant(). */
   tenantId: string;
-  /** app_metadata.role → app_current_role(). */
-  role: "admin" | "partner";
+  /** app_metadata.role → app_current_role(). Phase C: the admin-stream tiers take the
+   *  staff arm of every policy (`app_current_role() <> 'partner'`, migration 0054). */
+  role: "admin" | "partner" | "member" | "viewer";
   /** app_metadata.partner_id → app_current_partner(). Omit for admin. */
   partnerId?: string;
 }

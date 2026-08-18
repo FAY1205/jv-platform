@@ -15,6 +15,12 @@ type DB = PostgresJsDatabase<typeof schema>;
 export const NOTIFICATION_PREFS_KEY = "notification_prefs";
 
 export type NotifRole = "admin" | "partner";
+
+/** Phase C: preference buckets are per-STREAM, not per-tier — every admin-stream role
+ *  (admin/member/viewer) reads the "admin" bucket; only partners read "partner". */
+export function streamPrefRole(role: string): NotifRole {
+  return role === "partner" ? "partner" : "admin";
+}
 export interface NotifChannel {
   email: boolean;
   inApp: boolean;
