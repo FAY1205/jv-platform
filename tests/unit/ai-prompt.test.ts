@@ -17,8 +17,42 @@ describe("ai prompt assembly (AIA-03/PRN-10)", () => {
   });
   it("WP-AI-STYLE: prompt forbids raw paths in prose and bans empty replies", () => {
     const p = buildSystemPrompt();
-    expect(p).toMatch(/never write a url or app path/i);
+    expect(p).toMatch(/never write a url/i);
+    expect(p).toMatch(/app path \(like \/dashboard\)/i);
     expect(p).toMatch(/at least one sentence/i);
+  });
+  it("AIS-01: the tone ban-list is in the prompt (no greetings/exclamations/filler/tool narration)", () => {
+    const p = buildSystemPrompt();
+    expect(p).toMatch(/no greetings/i);
+    expect(p).toMatch(/no exclamation/i);
+    expect(p).toMatch(/filler openers/i);
+    expect(p).toMatch(/no narrating which tools you used/i);
+    // "Happy to help" may appear ONLY as the quoted ban exemplar, never as guidance.
+    expect(p.match(/happy to help/gi) ?? []).toHaveLength(1);
+    expect(p).toContain("no filler openers ('Sure', 'Happy to help')");
+  });
+  it("AIS-01: an empty result is an answer, not an apology", () => {
+    const p = buildSystemPrompt();
+    expect(p).toMatch(/plainly and confidently/i);
+    expect(p).toMatch(/never apologise for it/i);
+  });
+  it("AIS-02: refusals read as policy, not error or apology (and SEC-05 still holds)", () => {
+    const p = buildSystemPrompt();
+    expect(p).toMatch(/decline as one plain sentence of policy/i);
+    expect(p).toMatch(/never reveal seller contact/i);
+  });
+  it("AIS-03: the model may not echo internal ids/UUIDs — records are named by reference", () => {
+    const p = buildSystemPrompt();
+    expect(p).toMatch(/internal id\/UUID/i);
+    expect(p).toMatch(/PR-, LD-, IM-, UP-/);
+  });
+  it("AIS-09: the upload screen fact matches ADR-0039/ING-08 (no remap-and-confirm flow)", () => {
+    const p = buildSystemPrompt("upload");
+    expect(p).not.toMatch(/review-and-confirm/i);
+    expect(p).not.toMatch(/mapping step/i);
+    expect(p).toMatch(/rejected/i);
+    // The copy names the absence explicitly, so "remapping" appears only under a negation.
+    expect(p).toMatch(/there is no in-app remapping/i);
   });
   it("screen context is injected for a known screen and absent otherwise", () => {
     expect(buildSystemPrompt("coverage")).toContain(SCREENS.coverage);
