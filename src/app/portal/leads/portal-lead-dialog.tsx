@@ -6,7 +6,6 @@ import { apiGet } from "@/lib/api";
 import { fmtDateTime } from "@/lib/dates";
 import {
   Dialog,
-  Badge,
   Skeleton,
   QueryErrorState,
   NotesPanel,
@@ -41,8 +40,9 @@ export interface PortalLeadDetail {
   notes: string;
   receivedAt: string;
   status: string;
-  history: { status: string; changedAt: string }[];
-  /** TSK-06: the unified timeline (arrival, this org's status changes/notes/tasks). */
+  /** TSK-06: the unified timeline (arrival, this org's status changes/notes/tasks). Since
+   *  C-12 this is the ONLY status-change surface in the dialog — the `status` entries under
+   *  the Timeline's Status filter are what the retired "Status history" panel listed. */
   activity: TimelineEntry[];
   availableStatuses: string[];
   listing: { status: "pending" | "yes" | "no" | "unknown"; link: string | null };
@@ -152,29 +152,17 @@ export function PortalLeadDialog({ refId, onClose }: { refId: string; onClose: (
               parity — same components as the admin dialog, scoped to this org's own stream). */}
           {/* Tasks and Notes hold their OWN queries keyed on the ref (which the row gave us),
               so they are not held back by the partial — they load alongside the detail. */}
-          <TasksPanel leadRef={data.refId} onTaskChanged={onTaskChanged} />
+          {/* C-11: `canWrite` is passed, not derived from a capability. The portal's server
+              gate is requirePassthroughResponse — a partner passes on SCOPE alone (ADR-0047;
+              partners hold no capability at all) — and PortalLayout redirects every
+              admin-stream tier away, so this surface is partners-only. */}
+          <TasksPanel leadRef={data.refId} onTaskChanged={onTaskChanged} canWrite />
 
+          {/* C-12: the separate "Status history" panel is retired. Every row it listed is
+              already a `status` entry in this Timeline, at the same timestamp and the same
+              newest-first order — the Status filter chip is the equivalent view, and the
+              current status stays server-derived (PRN-15). */}
           {partial ? <Skeleton className="h-24 w-full rounded-xl" /> : <Timeline activity={data.activity} />}
-
-          {/* Status history — kept alongside the Timeline (pre-existing PTL-02/03 feature;
-              the Timeline's own "Status" filter already surfaces the same changes inline). */}
-          <div className="rounded-xl border border-border-soft bg-surface-2 p-4">
-            <h3 className="mb-3 text-step-1 font-semibold uppercase tracking-wide text-text-3">Status history</h3>
-            {partial ? (
-              <Skeleton className="h-4 w-40" />
-            ) : data.history.length === 0 ? (
-              <p className="text-sm text-text-3">No changes yet — the current status is the default.</p>
-            ) : (
-              <ol className="flex flex-col gap-3">
-                {data.history.map((h, i) => (
-                  <li key={i} className="flex items-center gap-3 text-sm">
-                    <Badge>{h.status}</Badge>
-                    <span className="num text-step-1 text-text-3">{fmtDateTime(h.changedAt)}</span>
-                  </li>
-                ))}
-              </ol>
-            )}
-          </div>
 
           <div className="border-t border-border-soft pt-4">
             <NotesPanel leadRef={data.refId} title="Your notes" tosHref="/portal/tos" />

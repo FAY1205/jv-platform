@@ -16,6 +16,7 @@ import { Skeleton } from "./Skeleton";
 import { EmptyState } from "./EmptyState";
 import { QueryErrorState } from "./QueryErrorState";
 import { useToast } from "./Toast";
+import type { TaskIdentity } from "./TasksPanel";
 
 // MyTasksList (TSK-07, WP-TSK-5) — the "My Tasks" view from the approved mockup Screen 2,
 // shared verbatim by the admin `/tasks` page and the portal `/portal/tasks` page (the
@@ -35,6 +36,12 @@ export interface MyTask {
   doneAt: string | null;
   createdAt: string;
   updatedAt: string;
+  /** C-11: the resolved assignee/author identity the payload now carries. Kept for
+   *  type-fidelity with /api/tasks (MyTaskItem extends LeadTaskView); NOT rendered here —
+   *  every row of "My Tasks" is by definition the viewer's own, so attribution would be a
+   *  column of "You". Surfacing it belongs to a future assignee picker (WP candidate). */
+  assignee: TaskIdentity | null;
+  author: TaskIdentity | null;
   leadRefId: string;
   // WP-UX-7: the lead's identity, so a row says WHICH lead without a click-through.
   leadSeller: string;

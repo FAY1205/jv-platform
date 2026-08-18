@@ -69,6 +69,17 @@ suite("TST-08: partner portal scoping", () => {
     await client.end();
   });
 
+  /**
+   * C-12: the status changes a caller sees, newest first. The dedicated `history` field is
+   * retired from PartnerLeadDetail — every row it carried is a `kind: "status"` entry in the
+   * unified timeline at the same timestamp, and `sortNewestFirst` preserves the same order
+   * the old `desc(created_at)` query produced. The ISOLATION semantics these legs assert
+   * (R-22 author scoping, admin sees everything) are unchanged: both surfaces are fed by the
+   * one `statusHistoryWhere`-scoped `hist` query.
+   */
+  const statusEntries = (detail: { activity: { kind: string; status?: string }[] } | null | undefined) =>
+    (detail?.activity ?? []).filter((a) => a.kind === "status").map((a) => a.status);
+
   const adminA = (): ScopeContext => ({ tenantId: id.tenant, role: "admin", userId: id.adminUser });
   const partnerX = (): ScopeContext => ({ tenantId: id.tenant, role: "partner", userId: id.pxUser, partnerId: id.px });
   const partnerY = (): ScopeContext => ({ tenantId: id.tenant, role: "partner", userId: id.pyUser, partnerId: id.py });
@@ -85,7 +96,11 @@ suite("TST-08: partner portal scoping", () => {
     await updateLeadStatus(partnerX(), "LD-26-00001", "Contacted");
     const detail = await getPartnerLeadDetail(partnerX(), "LD-26-00001");
     expect(detail?.status).toBe("Contacted");
-    expect(detail?.history[0]?.status).toBe("Contacted");
+    // C-12/PTL-03: the change is carried as a timestamped timeline entry, newest first.
+    expect(statusEntries(detail)).toEqual(["Contacted"]);
+    const first = detail?.activity.find((a) => a.kind === "status");
+    expect(typeof first?.at).toBe("string");
+    expect(first?.label).toBe("Status set to Contacted");
   });
 
   it("a partner cannot update a lead that isn't theirs", async () => {
@@ -157,7 +172,7 @@ suite("TST-08: partner portal scoping", () => {
 
     // PY now owns the lead but inherits NONE of X's timeline: empty history, reset to New.
     const detailY = await getPartnerLeadDetail(partnerY(), "LD-26-00050");
-    expect(detailY?.history).toHaveLength(0);
+    expect(statusEntries(detailY)).toHaveLength(0);
     expect(detailY?.status).toBe("New");
 
     // The list agrees with the detail — statusMap AND the raw latest-status subquery are both
@@ -168,7 +183,7 @@ suite("TST-08: partner portal scoping", () => {
 
     // The admin still sees the WHOLE timeline (admin reads are unscoped).
     const detailAdmin = await getPartnerLeadDetail(adminA(), "LD-26-00050");
-    expect(detailAdmin?.history.map((h) => h.status)).toEqual(["Contacted"]);
+    expect(statusEntries(detailAdmin)).toEqual(["Contacted"]);
   });
 
   it("R-22/R-26: after re-route, PY re-setting the status X had used is a REAL change for PY, not a no-op (the current-status the update transitions from is PY's own)", async () => {
@@ -183,11 +198,11 @@ suite("TST-08: partner portal scoping", () => {
 
     const detailY = await getPartnerLeadDetail(partnerY(), "LD-26-00051");
     expect(detailY?.status).toBe("Contacted");
-    expect(detailY?.history.map((h) => h.status)).toEqual(["Contacted"]); // only PY's entry, never X's
+    expect(statusEntries(detailY)).toEqual(["Contacted"]); // only PY's entry, never X's
 
     // Admin sees both partners' entries (two "Contacted" rows, newest first).
     const detailAdmin = await getPartnerLeadDetail(adminA(), "LD-26-00051");
-    expect(detailAdmin?.history.map((h) => h.status)).toEqual(["Contacted", "Contacted"]);
+    expect(statusEntries(detailAdmin)).toEqual(["Contacted", "Contacted"]);
   });
 
   it("R-22 (owner 2026-08-07): a partner DOES see an ADMIN's status change on their own (never re-routed) lead; re-setting the same value is a no-op", async () => {
@@ -199,7 +214,7 @@ suite("TST-08: partner portal scoping", () => {
     // partner's entries are hidden. So PX sees the admin's change, not a stale "New".
     const detailX = await getPartnerLeadDetail(partnerX(), "LD-26-00052");
     expect(detailX?.status).toBe("Appointment");
-    expect(detailX?.history.map((h) => h.status)).toEqual(["Appointment"]);
+    expect(statusEntries(detailX)).toEqual(["Appointment"]);
 
     // The write-path idempotency read is author-scoped the same way, so it sees the admin entry too:
     // PX re-setting the same value is a genuine no-op (no duplicate row, no spurious notification).

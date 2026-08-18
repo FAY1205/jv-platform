@@ -6,6 +6,7 @@ import { apiGet, apiMutate } from "@/lib/api";
 import { utcDateString } from "@/modules/tasks/dates";
 import { TASK_TITLE_MAX } from "@/modules/tasks/schema";
 import { withAdded, withRemoved } from "@/lib/pending-set";
+import { useCurrentUser } from "@/lib/use-current-user";
 import { cn } from "@/lib/cn";
 import { Badge } from "./Badge";
 import { DueChip } from "./DueChip";
@@ -16,6 +17,8 @@ import { Button } from "./Button";
 import { Skeleton } from "./Skeleton";
 import { EmptyState } from "./EmptyState";
 import { QueryErrorState } from "./QueryErrorState";
+import { AvatarInitials } from "./AvatarInitials";
+import { Tooltip } from "./Tooltip";
 import { useToast } from "./Toast";
 
 // TasksPanel (TSK-01..05, WP-TSK-4) — the per-lead work-item list from the approved
@@ -25,9 +28,19 @@ import { useToast } from "./Toast";
 // stream (PRN-13/ADR-0044) — this component only renders what the server hands back, it
 // never invents an assignee name or any other field the payload doesn't carry.
 //
-// Assignee picker: intentionally NOT built here (TSK-03 progressive disclosure — v1
+// Assignee PICKER: intentionally NOT built here (TSK-03 progressive disclosure — v1
 // silently self-assigns). Title/due EDITING is deferred too (WP candidate, noted in the
-// WP-TSK-4 summary) — v1 supports add / complete / reopen / delete only.
+// WP-TSK-4 summary) — v1 supports add / complete / reopen / delete only. C-11 added the
+// resolved assignee/author IDENTITY to the payload, so the row can now attribute work —
+// still without inventing anything: an unresolvable identity renders nothing at all.
+
+/** C-11: mirrors `TaskIdentity` in modules/tasks/tasks.ts (the leads-view re-declare
+ *  convention this file already follows for LeadTask). */
+export interface TaskIdentity {
+  email: string;
+  role: "admin" | "member" | "viewer" | "partner";
+  deactivated: boolean;
+}
 
 export interface LeadTask {
   id: string;
@@ -39,6 +52,8 @@ export interface LeadTask {
   doneAt: string | null;
   createdAt: string;
   updatedAt: string;
+  assignee: TaskIdentity | null;
+  author: TaskIdentity | null;
 }
 
 export interface TasksPanelProps {
@@ -48,11 +63,59 @@ export interface TasksPanelProps {
   /** Fires after any task add/toggle/delete settles, so the host can refresh its own
    *  lead-detail query (the Timeline's activity[] lives there, not in this panel's data). */
   onTaskChanged?: () => void;
+  /**
+   * C-11 chrome-only write gate. Default: the caller must hold `work.write` — the admin
+   * stream's rule, mirroring requireCapabilityResponse on /api/tasks/[id].
+   *
+   * The PORTAL host passes `true` instead, because on that surface the server gate is
+   * `requirePassthroughResponse`: a PARTNER passes on SCOPE alone (ADR-0047 — partners hold
+   * no capability by construction, so capabilitiesOf() returns [] for them) and the portal
+   * layout redirects every admin-stream tier away. Gating the portal on a capability the
+   * partner stream can never hold would make the partner's own task panel read-only.
+   *
+   * Chrome only either way — the routes stay authoritative (lib/use-current-user).
+   */
+  canWrite?: boolean;
 }
 
-export function TasksPanel({ leadRef, today, onTaskChanged }: TasksPanelProps) {
+/** The ONE identity a row shows: the assignee, coalescing to the author when unassigned —
+ *  the same coalesce listMyTasks's "mine" predicate and TSK-08's recipient rule use. Pure,
+ *  so the rule is unit-testable without a DOM. */
+export function taskIdentity(task: Pick<LeadTask, "assignee" | "author">): TaskIdentity | null {
+  return task.assignee ?? task.author ?? null;
+}
+
+const ROLE_WORD: Record<TaskIdentity["role"], string> = {
+  admin: "Admin",
+  member: "Member",
+  viewer: "Viewer",
+  partner: "Partner",
+};
+
+/**
+ * The identity tooltip: full email · role word, plus the seat state when the user has been
+ * deactivated (attribution persists — a closed seat keeps what it authored). When the
+ * assignee and author BOTH resolve and DIFFER — only possible for a seeded/backfilled row
+ * or a future picker — the author travels here, never as a second cluster on the row.
+ */
+export function identityTooltip(identity: TaskIdentity, author: TaskIdentity | null): string {
+  let text = `${identity.email} · ${ROLE_WORD[identity.role]}`;
+  if (identity.deactivated) text += " · deactivated";
+  if (author && author.email !== identity.email) text += ` — Added by ${author.email}`;
+  return text;
+}
+
+/** PRN-14: the read-only reason is WORDS, never a dimmed control alone. */
+const READ_ONLY_REASON = "Your role can't edit tasks.";
+
+export function TasksPanel({ leadRef, today, onTaskChanged, canWrite: canWriteProp }: TasksPanelProps) {
   const qc = useQueryClient();
   const toast = useToast();
+  const me = useCurrentUser();
+  // `??`, not `||`: an explicit `false` from a host must not fall through to the capability.
+  const canWrite = canWriteProp ?? me.canDo("work.write");
+  /** The viewer's own email — `undefined` until ["me"] resolves. Read once per render. */
+  const myEmail = me.data?.email;
   // Namespaces the per-row checkbox DOM id (design F-2's hit-area label needs an id to
   // point `htmlFor` at) so two TasksPanel instances on one page — the gallery renders
   // several — can never collide even if their demo task ids happen to match.
@@ -169,25 +232,49 @@ export function TasksPanel({ leadRef, today, onTaskChanged }: TasksPanelProps) {
             const isToggling = pendingToggleIds.has(t.id);
             const isDeleting = pendingDeleteIds.has(t.id);
             const checkboxId = `${panelId}-task-${t.id}`;
+            const identity = taskIdentity(t);
+            // C-11 / C-10: Delete is author-only server-side (an indistinguishable 404), so
+            // an authorship miss HIDES the affordance rather than disabling it — a per-row,
+            // non-actionable fact, and the click was a guaranteed rejection. The CAPABILITY
+            // miss is different: it disables the whole panel with a stated reason (§6
+            // disable-don't-hide). The `myEmail !== undefined` guard is load-bearing: while
+            // ["me"] is loading BOTH sides are undefined, and a bare `===` would read an
+            // authorless row as the viewer's own and reveal a guaranteed-404 Delete.
+            const ownOpenTask = !t.doneAt && myEmail !== undefined && t.author?.email === myEmail;
             return (
               <li key={t.id} className="flex items-start gap-2 border-t border-border-soft first:border-t-0">
                 {/* Design F-2 (WP-N floor): a 44x44 hit area around the 16px visual box —
                     a native `<label for>` targeting the Checkbox's underlying button, so no
                     extra click-handling is needed; the visual box itself stays desktop-dense. */}
-                <label htmlFor={checkboxId} className="-ml-2 grid h-11 w-11 shrink-0 cursor-pointer place-items-center rounded-md">
-                  <Checkbox
-                    id={checkboxId}
-                    checked={Boolean(t.doneAt)}
-                    onCheckedChange={() => toggle.mutate(t)}
-                    disabled={isToggling || isDeleting}
-                    ariaLabel={t.doneAt ? `Reopen "${t.title}"` : `Mark "${t.title}" done`}
-                  />
+                <label
+                  htmlFor={checkboxId}
+                  className={cn(
+                    "-ml-2 grid h-11 w-11 shrink-0 place-items-center rounded-md",
+                    canWrite ? "cursor-pointer" : "cursor-not-allowed",
+                  )}
+                >
+                  {/* a11y F-2: the Tooltip wraps the CONTROL, not the label, so its bubble id
+                      is cloned onto the element a screen reader actually focuses. */}
+                  <MaybeTooltip content={canWrite ? null : READ_ONLY_REASON}>
+                    <Checkbox
+                      id={checkboxId}
+                      checked={Boolean(t.doneAt)}
+                      onCheckedChange={() => toggle.mutate(t)}
+                      // a11y F-1: the standing permission miss is aria-disabled (focusable, so
+                      // the reason is reachable by keyboard); only the transient in-flight
+                      // states use native `disabled`.
+                      disabled={isToggling || isDeleting}
+                      ariaDisabled={!canWrite}
+                      ariaLabel={t.doneAt ? `Reopen "${t.title}"` : `Mark "${t.title}" done`}
+                    />
+                  </MaybeTooltip>
                 </label>
                 <div className="min-w-0 flex-1 py-2.5">
                   <div className={cn("text-sm font-medium text-text", t.doneAt && "text-text-3 line-through")}>{t.title}</div>
                   <div className="mt-1 flex flex-wrap items-center gap-2">
                     <DueChip dueOn={t.dueOn} doneAt={t.doneAt} today={todayStr} />
-                    {!t.doneAt &&
+                    {ownOpenTask &&
+                      canWrite &&
                       (confirmDeleteId === t.id ? (
                         <span className="inline-flex items-center gap-1.5">
                           <button
@@ -226,6 +313,24 @@ export function TasksPanel({ leadRef, today, onTaskChanged }: TasksPanelProps) {
                           Delete
                         </button>
                       ))}
+                    {/* C-11: ONE identity per row, right-aligned in the meta row that
+                        already exists — the row height is unchanged and the title keeps its
+                        full width. Both-null renders nothing at all (never a placeholder
+                        glyph: this panel does not invent identity). PRN-14: the identity is
+                        the TEXT beside the circle, never the circle itself. */}
+                    {identity && (
+                      <Tooltip content={identityTooltip(identity, t.author)}>
+                        <span
+                          tabIndex={0}
+                          className="ml-auto inline-flex min-w-0 items-center gap-1.5 rounded text-xs text-text-3 outline-none transition-colors hover:text-text-2 focus-visible:ring-1 focus-visible:ring-brand-ink"
+                        >
+                          <AvatarInitials email={identity.email} size="xs" />
+                          <span className="max-w-[16ch] truncate">
+                            {myEmail === identity.email ? "You" : identity.email}
+                          </span>
+                        </span>
+                      </Tooltip>
+                    )}
                   </div>
                 </div>
               </li>
@@ -248,20 +353,40 @@ export function TasksPanel({ leadRef, today, onTaskChanged }: TasksPanelProps) {
           }}
         />
       ) : (
-        <button
-          ref={addTriggerRef}
-          type="button"
-          onClick={() => setAdding(true)}
-          className="mt-2.5 flex min-h-11 w-full items-center gap-2 rounded-lg border border-dashed border-border-strong px-3 py-2 text-left text-sm text-text-3 outline-none transition-colors hover:border-brand-line hover:text-text-2 focus-visible:ring-1 focus-visible:ring-brand-ink"
-        >
-          <span className="text-base leading-none text-brand-ink" aria-hidden="true">
-            +
-          </span>
-          Add a task
-        </button>
+        <MaybeTooltip content={canWrite ? null : READ_ONLY_REASON}>
+          {/* a11y F-1: aria-disabled, NOT the native attribute — a natively disabled button
+              leaves the tab order, so the tooltip explaining WHY would never be reachable by
+              keyboard. The click is swallowed instead, and Tooltip clones aria-describedby
+              straight onto this button. */}
+          <button
+            ref={addTriggerRef}
+            type="button"
+            onClick={() => {
+              if (!canWrite) return;
+              setAdding(true);
+            }}
+            aria-disabled={!canWrite || undefined}
+            className={cn(
+              "mt-2.5 flex min-h-11 w-full items-center gap-2 rounded-lg border border-dashed border-border-strong px-3 py-2 text-left text-sm text-text-3 outline-none transition-colors focus-visible:ring-1 focus-visible:ring-brand-ink",
+              canWrite ? "hover:border-brand-line hover:text-text-2" : "cursor-not-allowed opacity-50",
+            )}
+          >
+            <span className="text-base leading-none text-brand-ink" aria-hidden="true">
+              +
+            </span>
+            Add a task
+          </button>
+        </MaybeTooltip>
       ))}
     </div>
   );
+}
+
+/** Wrap `children` in a Tooltip only when there is something to say. Keeps the read-only
+ *  reason attached to the disabled control without adding a wrapper (and an extra DOM
+ *  node) on the far more common writable path. */
+function MaybeTooltip({ content, children }: { content: string | null; children: React.ReactElement }) {
+  return content ? <Tooltip content={content}>{children}</Tooltip> : children;
 }
 
 function AddTaskForm({ leadRef, onCancel, onAdded }: { leadRef: string; onCancel: () => void; onAdded: () => void }) {

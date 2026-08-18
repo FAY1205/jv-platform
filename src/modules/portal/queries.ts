@@ -245,10 +245,15 @@ export interface PartnerLeadDetail {
   notes: string;
   receivedAt: string;
   status: string;
-  history: { status: string; changedAt: string }[];
-  /** TSK-06: the unified timeline — the lead's arrival, its (own-org, R-22) status
-   *  changes, and this org's notes and task events, newest first. `history` stays as
-   *  it was for the existing status list. */
+  /**
+   * TSK-06: the unified timeline — the lead's arrival, its (own-org, R-22) status changes,
+   * and this org's notes and task events, newest first.
+   *
+   * C-12: the separate `history` field is retired. Every status-history row already appears
+   * here as a `kind: "status"` entry at the same timestamp (and unbounded, unlike the
+   * note/task streams), so the retired portal panel had no data of its own. `hist` below
+   * still drives BOTH those entries and the server-derived `status` (PRN-15).
+   */
   activity: LeadActivity[];
   availableStatuses: string[];
   /** LST-01: listing-check flag (never affects delivery) + a link to verify. */
@@ -319,7 +324,6 @@ export async function getPartnerLeadDetail(scope: ScopeContext, refId: string): 
     notes: lead.notes ?? "",
     receivedAt,
     status: currentStatus(history.map((h) => ({ status: h.status, createdAt: h.changedAt }))),
-    history,
     activity,
     availableStatuses: [...SEED_LEAD_STATUSES],
     listing,

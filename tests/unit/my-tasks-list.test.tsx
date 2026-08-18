@@ -40,6 +40,10 @@ function task(overrides: Partial<MyTask>): MyTask {
     doneAt: null,
     createdAt: "2026-08-10T00:00:00.000Z",
     updatedAt: "2026-08-10T00:00:00.000Z",
+    // C-11: the payload's resolved identities. My Tasks does not render them (every row is
+    // the viewer's own) — they are here so the fixture matches the /api/tasks shape.
+    assignee: { email: "casey@meridian.test", role: "admin", deactivated: false },
+    author: { email: "casey@meridian.test", role: "admin", deactivated: false },
     leadRefId: "LD-25-01847",
     leadSeller: "Marcus Whitfield",
     leadCity: "Phoenix",

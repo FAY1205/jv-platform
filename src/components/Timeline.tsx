@@ -78,7 +78,13 @@ export function Timeline({ activity }: { activity: TimelineEntry[] }) {
       {activity.length === 0 ? (
         <EmptyState compact title="No activity yet." />
       ) : filtered.length === 0 ? (
-        <EmptyState compact title="Nothing matches this filter." />
+        /* C-12: the Status filter inherits the retired portal panel's line, which explains
+           WHY the list is empty rather than only that it is. The other filters keep the
+           generic copy (per-filter wording for notes/tasks is a WP candidate). */
+        <EmptyState
+          compact
+          title={filter === "status" ? "No status changes yet — the current status is the default." : "Nothing matches this filter."}
+        />
       ) : (
         <ol className="flex flex-col">
           {filtered.map((a, i) => (

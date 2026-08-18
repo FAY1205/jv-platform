@@ -12,6 +12,12 @@ import { taskWhere } from "@/lib/scope";
 // taskWhere directly (module functions land in WP-TSK-2) + asserts the RLS backstop
 // predicate via pg_policies (isolation.test.ts precedent). Self-skips without
 // DATABASE_URL. Run with node --env-file=.env.local.
+//
+// SCOPE NOTE (audit-tenancy T-2): this file covers ROW visibility only. C-11 added a second
+// isolation axis — which USER IDENTITY a visible row may resolve (the assignee/author joins
+// in modules/tasks/tasks.ts, guarded by sameStreamUsers). Those legs live in
+// tests/integration/tasks-api.test.ts ("C-11/R-65", "C-11/PRN-13") because they need the
+// module's read path, not taskWhere alone. A change to sameStreamUsers must run BOTH files.
 const url = process.env.DATABASE_URL;
 const suite = url ? describe : describe.skip;
 
