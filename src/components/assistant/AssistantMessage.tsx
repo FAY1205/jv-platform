@@ -6,7 +6,14 @@ import { isInternalPath } from "@/modules/ai/internal-path";
 import { AnswerBody } from "./AnswerBody";
 import { AssistantIconButton } from "./AssistantIconButton";
 
-export interface AssistantSource { label: string; path?: string }
+export interface AssistantSource {
+  label: string;
+  path?: string;
+  /** The reference a tool looked up and could not find (`{source, notFound}` outputs,
+   *  tools.ts:54/74/111/127). Without it a NOT-FOUND turn is indistinguishable from a
+   *  successful one and the fallback would claim "here's what I found" (WP-AI-STYLE). */
+  notFound?: string;
+}
 export interface AssistantMessageProps {
   id: string;
   text: string;
@@ -40,13 +47,39 @@ export function AssistantMarker() {
 /** The body indent that lines the answer up under the marker's label (past the tick + gap). */
 const ANSWER_INDENT = "pl-3";
 
-/** A never-empty reply: if the model returned only chips/links (or nothing yet), fall
- *  back to a sentence so the bubble is never blank (WP-AI-STYLE). */
+/** Tool labels are built for source pills, not prose ("Dashboard stats · 30d"). Strip the
+ *  range suffix; NEVER change case — "Lead LD-25-00123" must keep its ref-ID casing (the
+ *  REF_RE mono-ref span in format-answer.ts is case-sensitive, so lowercasing would break
+ *  the chip as well as the reference itself). */
+const detok = (label: string) => label.replace(/\s·\s.*$/, "");
+
+/** The one thinking string, shared by the message pending branch and the widget's thinking
+ *  row — no trailing ellipsis, because the animated dots ARE the ellipsis (WP-AI-STYLE). */
+export const THINKING_COPY = "Checking your workspace";
+
+/** The animated three-dot span that follows THINKING_COPY, shared by both call sites. */
+export function ThinkingDots() {
+  return (
+    <span className="flex gap-1" aria-hidden="true">
+      <i className="h-1 w-1 animate-[blink_1s_infinite] rounded-full bg-text-3" />
+      <i className="h-1 w-1 animate-[blink_1s_infinite_.18s] rounded-full bg-text-3" />
+      <i className="h-1 w-1 animate-[blink_1s_infinite_.36s] rounded-full bg-text-3" />
+    </span>
+  );
+}
+
+/** A never-empty reply: if the model returned only chips/links (or nothing at all), fall back
+ *  to a sentence so the bubble is never blank (WP-AI-STYLE). First match wins, and NOT-FOUND
+ *  outranks a link — a mixed turn's news is the miss, not the other tool's page. */
 function fallbackText(sources: AssistantSource[]): string {
-  const link = sources.find((s) => s.path);
-  if (link) return `Here's your ${link.label.toLowerCase()} — open it below.`;
-  if (sources.length > 0) return "Here's what I found — see the sources below.";
-  return "I don't have anything to show for that.";
+  const missing = sources.find((s) => s.notFound);
+  if (missing) return `No match for that reference in ${detok(missing.label)} — check it and try again.`;
+  const link = sources.find((s) => s.path && isInternalPath(s.path));
+  if (link) return `Open ${detok(link.label)} below for the details.`;
+  // Sources ran but the model produced no prose: a model failure, stated as fact. The
+  // "From: …" chip below already names the source, so don't repeat it here.
+  if (sources.length > 0) return "The answer didn't come through — try asking again.";
+  return "I don't have an answer for that — try a question about partners, leads, coverage or imports.";
 }
 
 function ThumbIcon({ down }: { down?: boolean }) {
@@ -60,9 +93,16 @@ function ThumbIcon({ down }: { down?: boolean }) {
 export function AssistantMessage({ id, text, sources, showThumbs = true, onFeedback, pending = false, defaultRating, firstOfRun = true }: AssistantMessageProps) {
   const [rated, setRated] = React.useState<"up" | "down" | null>(defaultRating ?? null);
 
-  // Dedupe source labels; the deep link is the first source with an internal path (PRN-10).
-  const seen = new Set<string>();
-  const uniqueSources = sources.filter((s) => (seen.has(s.label) ? false : (seen.add(s.label), true)));
+  // Dedupe source labels, but a notFound source WINS a label collision: three partner tools
+  // share the literal "Partner roster" label, and if a successful list call landed first the
+  // plain first-wins dedup would swallow the miss — reintroducing the false "found it" reply
+  // in exactly the model-silent turn fallbackText exists for (review F-1). The miss is the news.
+  const byLabel = new Map<string, AssistantSource>();
+  for (const s of sources) {
+    const existing = byLabel.get(s.label);
+    if (!existing || (!existing.notFound && s.notFound)) byLabel.set(s.label, s);
+  }
+  const uniqueSources = [...byLabel.values()];
   const link = uniqueSources.find((s) => s.path && isInternalPath(s.path));
   // The linked source renders only as the clickable pill, never also as a plain chip.
   const chips = uniqueSources.filter((s) => s !== link);
@@ -75,7 +115,7 @@ export function AssistantMessage({ id, text, sources, showThumbs = true, onFeedb
   const body = hasText ? (
     <AnswerBody text={text} />
   ) : pending ? (
-    <p className="text-text-3">Checking your workspace…</p>
+    <p className="flex items-center gap-2 text-text-3">{THINKING_COPY}<ThinkingDots /></p>
   ) : (
     <AnswerBody text={fallbackText(uniqueSources)} />
   );

@@ -1,5 +1,5 @@
 import type { AdminLeadDetail, GlobalLeadRow } from "@/modules/leads/queries";
-import type { RunDetail } from "@/modules/run/queries";
+import type { RunDetail, RunListItem } from "@/modules/run/queries";
 
 // SEC-05 / PRN-10 / AIA-05: what the assistant's tools may return. THE RULE — the
 // model sees exactly what the ADR-0025 PII purge would keep: city/state/zip +
@@ -44,6 +44,22 @@ export function maskLeadRow(r: GlobalLeadRow) {
     status: r.status,
     partner: partnerRef(r.partner),
     receivedAt: r.receivedAt,
+  };
+}
+
+/** The imports LIST row. `listRuns` happens to project exactly these five scalars today
+ *  (run/queries.ts), so this is cheap insurance, not a fix: it puts list_imports under the
+ *  same explicit-projection convention as every other tool, so a column added to listRuns
+ *  later cannot reach the model unreviewed and the BANNED_KEYS leak test covers this shape.
+ *  `filename` is operator-originated text and stays DATA (PRN-10) — same class maskRunDetail
+ *  already keeps. */
+export function maskRunListItem(r: RunListItem) {
+  return {
+    refId: r.refId,
+    filename: r.filename,
+    status: r.status,
+    rowCount: r.rowCount,
+    createdAt: r.createdAt,
   };
 }
 

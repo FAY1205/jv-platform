@@ -9,7 +9,7 @@ import { coverageMapData } from "@/modules/coverage/queries";
 import { listLeads, getAdminLeadDetail, unmatchedStateStats } from "@/modules/leads/queries";
 import { LeadsQuerySchema, LEAD_STATUS_FILTERS } from "@/modules/leads/schema";
 import { listRuns, getRunDetail } from "@/modules/run/queries";
-import { maskLeadDetail, maskLeadRow, maskRunDetail } from "./mask";
+import { maskLeadDetail, maskLeadRow, maskRunDetail, maskRunListItem } from "./mask";
 import { can } from "@/lib/authz";
 
 // SEAM-07 / AIA-02: the assistant's ONLY data access. Every tool wraps an existing
@@ -116,7 +116,7 @@ export function buildAiTools(scope: ScopeContext): ToolSet {
       inputSchema: z.object({}),
       execute: async () => {
         const runs = await listRuns(scope);
-        return { source: "Imports", path: "/imports", imports: runs.slice(0, 12) };
+        return { source: "Imports", path: "/imports", imports: runs.slice(0, 12).map(maskRunListItem) };
       },
     }),
     get_import: tool({

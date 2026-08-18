@@ -12,7 +12,7 @@ import { screenForPath } from "@/modules/ai/screen";
 import { gateStateFromCode, type AssistantGate } from "@/modules/ai/gate-error";
 import { Orb } from "./Orb";
 import { SuggestionChips } from "./SuggestionChips";
-import { AssistantMessage, AssistantMarker, type AssistantSource } from "./AssistantMessage";
+import { AssistantMessage, AssistantMarker, ThinkingDots, THINKING_COPY, type AssistantSource } from "./AssistantMessage";
 import { AssistantIconButton } from "./AssistantIconButton";
 import { loadOpen, saveOpen, loadMessages, saveMessages } from "./assistant-session";
 
@@ -24,12 +24,14 @@ const EMPTY_SUBLINE = "Partners, leads, coverage, imports — or what any screen
 // the user hits the resulting error band.
 const CAP_NUDGE_AT = 20;
 
-/** Exhaustive gate-band copy (E): a future 4th AssistantGate value fails to compile here
+/** Exhaustive gate-band copy (E): a future AssistantGate value fails to compile here
  *  instead of silently rendering a blank band. */
 function gateBandCopy(gate: AssistantGate): React.ReactNode {
   switch (gate) {
-    case "budget":
-      return (<>You&rsquo;ve used this month&rsquo;s AI allowance. Raise the limit in <Link href="/settings/ai" className="font-semibold text-brand-ink">Settings → AI assistant</Link>.</>);
+    case "no_key":
+      // 503 — first run: nothing is "switched off", setup was never done. Mirrors the
+      // server's own message (chat.ts:42).
+      return (<>The assistant needs a provider API key. Add one in <Link href="/settings/ai" className="font-semibold text-brand-ink">Settings → AI assistant</Link>.</>);
     case "rate":
       return (<>That&rsquo;s a lot of questions at once — give it a minute and try again.</>);
     case "disabled":
@@ -70,7 +72,8 @@ export default function AssistantWidget() {
     const res = await fetch(input, init);
     if (!res.ok) {
       const body = (await res.clone().json().catch(() => null)) as { code?: string } | null;
-      const g = gateStateFromCode(body?.code);
+      // The status separates ai_disabled's two causes (503 no credential vs 403 switched off).
+      const g = gateStateFromCode(body?.code, res.status);
       if (g) setGate(g);
     }
     return res;
@@ -182,8 +185,10 @@ export default function AssistantWidget() {
   const sourcesOf = (m: UIMessage): AssistantSource[] =>
     m.parts.flatMap((p) => {
       if (!isToolUIPart(p) || p.state !== "output-available") return [];
-      const out = p.output as { source?: string; path?: string } | undefined;
-      return out?.source ? [{ label: out.source, path: out.path }] : [];
+      // `notFound` must be forwarded: without it the message-level fallback can't tell a
+      // miss from a hit and would claim "here's what I found" (WP-AI-STYLE bug B).
+      const out = p.output as { source?: string; path?: string; notFound?: string } | undefined;
+      return out?.source ? [{ label: out.source, path: out.path, notFound: out.notFound }] : [];
     });
 
   return (
@@ -272,12 +277,8 @@ export default function AssistantWidget() {
                   <div role="status" aria-label="Assistant is thinking" className="flex flex-col gap-1.5 self-stretch">
                     <AssistantMarker />
                     <div className="flex items-center gap-2 pl-[26px] text-step-1 text-text-3">
-                      <span>Checking your workspace</span>
-                      <span className="flex gap-1" aria-hidden="true">
-                        <i className="h-1 w-1 animate-[blink_1s_infinite] rounded-full bg-text-3" />
-                        <i className="h-1 w-1 animate-[blink_1s_infinite_.18s] rounded-full bg-text-3" />
-                        <i className="h-1 w-1 animate-[blink_1s_infinite_.36s] rounded-full bg-text-3" />
-                      </span>
+                      <span>{THINKING_COPY}</span>
+                      <ThinkingDots />
                     </div>
                   </div>
                 )}
