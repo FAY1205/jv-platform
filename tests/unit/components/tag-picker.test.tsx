@@ -187,11 +187,12 @@ describe("FEP-03/TAG-09: TagPicker at roster scale", () => {
     scrollIntoView.mockClear();
 
     await user.type(input, "{ArrowDown}{ArrowDown}{ArrowDown}");
-    await waitFor(() => expect(scrollIntoView).toHaveBeenCalled());
+    // The LAST follow targeted the row the highlight actually landed on. Waited-on as the
+    // assertion itself: waitFor(toHaveBeenCalled) resolves on the FIRST call, and under CI
+    // timing the third keypress's effect may not have flushed yet (flaked on verify).
+    await waitFor(() => expect(scrollIntoView.mock.instances.at(-1)).toBe(document.getElementById(`${listboxId}-3`)));
     // "nearest" = the minimal correction; a row already on screen must not jump.
     for (const call of scrollIntoView.mock.calls) expect(call[0]).toEqual({ block: "nearest" });
-    // The LAST follow targeted the row the highlight actually landed on.
-    expect(scrollIntoView.mock.instances.at(-1)).toBe(document.getElementById(`${listboxId}-3`));
 
     // …and hovering must NOT scroll: yanking the list out from under a moving cursor is
     // exactly the bug the keyboard-only placement avoids.
