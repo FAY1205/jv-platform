@@ -4,7 +4,7 @@ import * as React from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiGet, apiMutate } from "@/lib/api";
 import { statusDotClass } from "@/lib/status-pill";
-import { BOARD_COLUMNS, BOARD_PAGE_SIZE, DRAG_CLICK_THRESHOLD_PX, boardAge } from "@/modules/leads/board";
+import { BOARD_COLUMNS, BOARD_PAGE_SIZE, DRAG_CLICK_THRESHOLD_PX, boardAge, isTerminalStatus } from "@/modules/leads/board";
 import {
   Card, EmptyState, PartnerTag, QueryErrorState, RowOpenButton, Skeleton, useToast,
   DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel,
@@ -420,7 +420,9 @@ const BoardColumnView = React.memo(function BoardColumnView({
 
   return (
     <section
-      aria-label={`${status} — ${total} ${total === 1 ? "lead" : "leads"}`}
+      // While the board is loading the total isn't known yet — don't claim "0 leads" over a
+      // skeleton (audit: the header read "NEW · 0" while cards were still loading).
+      aria-label={loading ? status : `${status} — ${total} ${total === 1 ? "lead" : "leads"}`}
       // WP-UX-3 (audit 2.1/2.2): flexible width (floor 14rem, cap 20rem) so wide viewports
       // fit more columns; viewport-relative height so the deck uses the page instead of
       // stopping at a fixed 34rem with 40% of the screen empty below.
@@ -430,7 +432,8 @@ const BoardColumnView = React.memo(function BoardColumnView({
         {/* Decorative dot — the status WORD is always present (PRN-14). */}
         <span className={`h-2 w-2 shrink-0 rounded-full ${statusDotClass(status)}`} aria-hidden="true" />
         <h2 className="text-step-0 font-bold uppercase tracking-wide text-text-2">{status}</h2>
-        <span className="num ml-auto text-step-0 font-bold text-text-3">{total}</span>
+        {/* No count while loading — a "0" over skeletons reads as an empty column. */}
+        {loading ? <span className="ml-auto h-3 w-4 animate-pulse rounded bg-surface-3" aria-hidden="true" /> : <span className="num ml-auto text-step-0 font-bold text-text-3">{total}</span>}
       </header>
 
       <div
@@ -535,6 +538,9 @@ const BoardCardView = React.memo(function BoardCardView({
   // board's controller owns the drag itself and dims this card via data-dragging.
   const pressRef = React.useRef<{ x: number; y: number } | null>(null);
   const age = boardAge(card.statusSince, now);
+  // A long dwell in a TERMINAL column (Closed/Dead) is not "stale" — the lead is done, so
+  // suppress the ⚠/amber alarm (audit). The dwell label still renders, in neutral ink.
+  const showStale = age.stale && !isTerminalStatus(status);
   const where = [card.city, card.state].filter(Boolean).join(", ");
 
   return (
@@ -604,9 +610,10 @@ const BoardCardView = React.memo(function BoardCardView({
         )}
       </div>
 
-      {/* KAN-03: stale carries the ⚠ AND the amber tint AND the day count — never colour alone. */}
-      <p className={`mt-1.5 text-step-0 ${age.stale ? "font-bold text-warn" : "text-text-3"}`}>
-        {age.stale ? "⚠ " : ""}
+      {/* KAN-03: stale carries the ⚠ AND the amber tint AND the day count — never colour alone.
+          Suppressed in terminal columns (a done lead is not stale). */}
+      <p className={`mt-1.5 text-step-0 ${showStale ? "font-bold text-warn" : "text-text-3"}`}>
+        {showStale ? "⚠ " : ""}
         {age.label}
       </p>
     </article>

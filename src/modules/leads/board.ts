@@ -26,6 +26,14 @@ export const DRAG_CLICK_THRESHOLD_PX = 5;
  *  the single source of truth (SEAM-06) — the board never invents its own list. */
 export const BOARD_COLUMNS = SEED_LEAD_STATUSES;
 
+/** Terminal statuses — a lead here needs no further action, so a long dwell is NOT stale
+ *  (a Closed/Dead card showing "⚠ 16d in status" reads as an alarm on a finished lead; audit
+ *  finding). The dwell label still renders, just without the stale ⚠/amber treatment. */
+export const TERMINAL_STATUSES: readonly string[] = ["Closed", "Dead"];
+export function isTerminalStatus(status: string): boolean {
+  return TERMINAL_STATUSES.includes(status);
+}
+
 export interface BoardAge {
   /** Whole days between the last status change and `now`; never negative. */
   days: number;

@@ -134,6 +134,19 @@ describe("KAN-02: LeadsBoard renders six columns of cards", () => {
     expect(within(stale).getByText(/⚠\s*16d in status/)).toBeInTheDocument();
   });
 
+  it("audit: a long dwell in a TERMINAL column (Closed) shows the day count but NOT the stale ⚠", async () => {
+    vi.stubGlobal("fetch", vi.fn(() => json(payload({
+      Closed: { cards: [card("LD-26-00050", { statusSince: daysAgo(90) })] },
+    }))) as unknown as typeof fetch);
+
+    wrap(<LeadsBoard filters={noFilters} onOpen={() => {}} now={NOW} />);
+    const done = await screen.findByTestId("board-card-LD-26-00050");
+    // The dwell label still renders (informational)…
+    expect(within(done).getByText("90d in status")).toBeInTheDocument();
+    // …but a finished lead is not "stale" — no ⚠ alarm on a Closed card.
+    expect(within(done).queryByText(/⚠/)).toBeNull();
+  });
+
   it("DSN-03: each column shows its own empty state, and a failed board fetch offers Retry", async () => {
     vi.stubGlobal("fetch", vi.fn(() => json(payload({}))) as unknown as typeof fetch);
     const { unmount } = wrap(<LeadsBoard filters={noFilters} onOpen={() => {}} now={NOW} />);

@@ -16,4 +16,11 @@ describe("formatWaiting (ASN-03)", () => {
   it("ASN-03: future/zero clamps to 0h", () => {
     expect(formatWaiting(new Date(now + 3_600_000).toISOString(), now)).toBe("0h");
   });
+  it("ASN-03: a long wait drops the false-precision tenth (whole days from 14d up)", () => {
+    // The audit's "647.1d" — a wait measured in weeks should read as whole days.
+    expect(formatWaiting(new Date(now - 647.1 * 86_400_000).toISOString(), now)).toBe("647d");
+    expect(formatWaiting(new Date(now - 14 * 86_400_000).toISOString(), now)).toBe("14d");
+    // Just under two weeks keeps the tenth (it's still useful there).
+    expect(formatWaiting(new Date(now - 13.4 * 86_400_000).toISOString(), now)).toBe("13.4d");
+  });
 });
