@@ -11,7 +11,6 @@ import { suggestionsFor } from "@/modules/ai/suggestions";
 import { screenForPath } from "@/modules/ai/screen";
 import { gateStateFromCode, type AssistantGate } from "@/modules/ai/gate-error";
 import { Orb } from "./Orb";
-import { MiniOrb } from "./MiniOrb";
 import { SuggestionChips } from "./SuggestionChips";
 import { AssistantMessage, AssistantMarker, type AssistantSource } from "./AssistantMessage";
 import { AssistantIconButton } from "./AssistantIconButton";
@@ -212,7 +211,6 @@ export default function AssistantWidget() {
           {/* Bottom-sheet grab affordance (mobile only, decorative — Esc / close button remain
               the controls). */}
           <span aria-hidden="true" className="absolute left-1/2 top-1.5 hidden h-1 w-9 -translate-x-1/2 rounded-full bg-border-strong max-[520px]:block" />
-          <MiniOrb size={30} className="shrink-0" />
           <div className="min-w-0 flex-1">
             <div className="font-display text-step-3 leading-tight">Assistant</div>
             <div className="mt-0.5 flex min-w-0 items-center gap-1.5 text-step-0 text-text-3">
@@ -240,12 +238,13 @@ export default function AssistantWidget() {
         <div className="relative flex min-h-0 flex-1 flex-col">
           <div ref={scrollRef} onScroll={onTranscriptScroll} role="log" aria-live={busy ? "off" : "polite"} aria-relevant="additions" className="flex flex-1 flex-col gap-3 overflow-y-auto bg-bg px-3.5 pb-3 pt-4">
             {messages.length === 0 ? (
-              // Empty = a title-page composition, not a fake first message.
-              <div className="flex flex-1 flex-col items-center px-3 pt-8 text-center">
-                <MiniOrb size={40} />
-                <h2 className="mt-4 font-display text-step-4 leading-tight text-text">{EMPTY_HEADING}</h2>
-                <p className="mt-1.5 text-step-1 text-text-3">{EMPTY_SUBLINE}</p>
-                <div className="mt-6 w-full">
+              // Empty = a confident title page, not a fake first message and not a flat disc.
+              // No orb in the panel at all: the living orb stays special to the launcher — the
+              // display-face heading is the focal point here.
+              <div className="flex flex-1 flex-col items-center justify-center px-4 pb-6 text-center">
+                <h2 className="font-display text-step-5 leading-tight text-text">{EMPTY_HEADING}</h2>
+                <p className="mt-2 max-w-[22rem] text-step-1 text-text-3">{EMPTY_SUBLINE}</p>
+                <div className="mt-7 w-full">
                   <SuggestionChips items={suggestionsFor(screen)} onSelect={send} disabled={blocked || busy} />
                 </div>
               </div>
@@ -344,8 +343,11 @@ export default function AssistantWidget() {
         </footer>
       </section>
 
-      {/* Launcher — the orb (always gently breathing) when closed; a brand X disc when open,
-          so exactly one orb is ever on screen (the panel header's MiniOrb). */}
+      {/* Launcher — the living orb (gently breathing) when closed. When OPEN it becomes a
+          SMALL, quiet minimize control, not a second big X: the panel already carries its own
+          close button + Esc, so the corner just needs an ergonomic "collapse" affordance. On
+          mobile the panel is a full bottom sheet, so the corner control is hidden there (it
+          would overlap the sheet) — the sheet's own ✕ / grab-handle / Esc close it. */}
       <button
         ref={launcherRef}
         type="button"
@@ -357,7 +359,7 @@ export default function AssistantWidget() {
         onClick={() => setOpen((v) => !v)}
         className={
           "group fixed bottom-6 right-6 z-40 grid h-[58px] w-[58px] place-items-center rounded-full border-none bg-transparent p-0 transition-transform duration-150 hover:scale-[1.06] active:scale-95 " +
-          (open ? "" : "assistant-breathe")
+          (open ? "max-[520px]:hidden" : "assistant-breathe")
         }
       >
         {/* "Ask" hover label — pointer devices only, so it never flashes on a touch tap. */}
@@ -370,9 +372,10 @@ export default function AssistantWidget() {
           </span>
         )}
         {open ? (
-          <span className="grid h-[52px] w-[52px] place-items-center rounded-full bg-brand text-brand-contrast shadow-md">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" className="h-5 w-5" aria-hidden="true">
-              <path d="M18 6 6 18M6 6l12 12" strokeLinecap="round" strokeLinejoin="round" />
+          // A small neutral disc with a down-chevron — "collapse", quiet, clearly not the orb.
+          <span className="grid h-9 w-9 place-items-center rounded-full border border-border bg-surface text-text-2 shadow-sm transition-colors group-hover:border-border-strong group-hover:text-text">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" className="h-4 w-4" aria-hidden="true">
+              <path d="m6 9 6 6 6-6" strokeLinecap="round" strokeLinejoin="round" />
             </svg>
           </span>
         ) : (
