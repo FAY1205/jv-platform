@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { getServerScope } from "@/lib/scope-context";
-import { assertCsrf, authErrorResponse, requireAdminResponse } from "@/lib/auth/guard";
+import { assertCsrf, authErrorResponse } from "@/lib/auth/guard";
 import {
   updateLeadStatus,
   LeadNotFoundError,
@@ -9,6 +9,7 @@ import {
 } from "@/modules/portal/status-update";
 import { SEED_LEAD_STATUSES } from "@/modules/portal/statuses";
 import { jsonOk, jsonError } from "@/lib/http";
+import { requireCapabilityResponse } from "@/lib/authz";
 
 const RefSchema = z.string().regex(/^LD-\d{2}-\d{5,}$/);
 const Input = z.object({ status: z.enum(SEED_LEAD_STATUSES) });
@@ -28,7 +29,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ ref
 
   try {
     const scope = await getServerScope();
-    const adminOnly = requireAdminResponse(scope);
+    const adminOnly = requireCapabilityResponse(scope, "leads.write");
     if (adminOnly) return adminOnly;
     const result = await updateLeadStatus(scope, ref, parsed.data.status);
     return jsonOk({ refId: result.refId, status: result.status });

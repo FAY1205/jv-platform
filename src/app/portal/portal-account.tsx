@@ -1,12 +1,11 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
-import { apiGet } from "@/lib/api";
 import { Card, CardBody, Button, LinkCard, Skeleton, QueryErrorState } from "@/components";
 import { initialsFromEmail } from "@/lib/identity";
 import { useIsDesktop } from "@/lib/use-media-query";
 import { useSignOut } from "@/lib/use-sign-out";
 import { AccountDesktop } from "./account-desktop";
+import { useCurrentUser } from "@/lib/use-current-user";
 
 // WP-F.2 (mobile body) / WP-PW-4 Task 2 (desktop gate): the portal "Account" tab.
 // PortalAccount is now the useIsDesktop() gate — unconditional hook, before any return —
@@ -20,11 +19,6 @@ import { AccountDesktop } from "./account-desktop";
 // vs. bottom nav) at md (768), but this content gates at lg (1024, useIsDesktop) for
 // portal-wide consistency — so 768-1024 shows desktop chrome + the mobile body. Don't
 // "fix" this to md.
-interface Me {
-  email: string;
-  role: string;
-  workspace: { name: string };
-}
 
 const LINKS = [
   { href: "/portal/devices", label: "Your devices", hint: "Remembered browsers you can sign out" },
@@ -38,7 +32,7 @@ export function PortalAccount() {
 }
 
 function AccountMobile() {
-  const { data, isPending, error, refetch } = useQuery({ queryKey: ["me"], queryFn: () => apiGet<Me>("/api/me") });
+  const { data, isPending, error, refetch } = useCurrentUser();
   const { signOut, signingOut } = useSignOut();
 
   return (

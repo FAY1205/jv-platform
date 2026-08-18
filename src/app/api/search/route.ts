@@ -1,8 +1,9 @@
 import { getServerScope } from "@/lib/scope-context";
-import { authErrorResponse, requireAdminResponse } from "@/lib/auth/guard";
+import { authErrorResponse } from "@/lib/auth/guard";
 import { SearchQuerySchema } from "@/modules/search/schema";
 import { globalSearch } from "@/modules/search/queries";
 import { jsonOk, jsonServerError } from "@/lib/http";
+import { requireCapabilityResponse } from "@/lib/authz";
 
 // SRCH-01: the global (Ctrl-K) search endpoint. Admin-only, exactly like the sibling
 // admin list routes — partners have their own scoped portal search. Params are
@@ -11,7 +12,7 @@ import { jsonOk, jsonServerError } from "@/lib/http";
 export async function GET(request: Request) {
   try {
     const scope = await getServerScope();
-    const adminOnly = requireAdminResponse(scope);
+    const adminOnly = requireCapabilityResponse(scope, "leads.read");
     if (adminOnly) return adminOnly;
     const params = Object.fromEntries(new URL(request.url).searchParams);
     const { q } = SearchQuerySchema.parse(params);

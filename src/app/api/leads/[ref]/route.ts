@@ -1,13 +1,14 @@
 import { z } from "zod";
 import { getDb } from "@/db";
 import { getServerScope } from "@/lib/scope-context";
-import { assertCsrf, authErrorResponse, requireAdminResponse } from "@/lib/auth/guard";
+import { assertCsrf, authErrorResponse } from "@/lib/auth/guard";
 import { getAdminLeadDetail } from "@/modules/leads/queries";
 import { editLead, LeadNotFoundError, InvalidAssignTargetError, CannotUnassignRoutedLeadError } from "@/modules/leads/commands";
 import { notifyLeadAssigned } from "@/modules/notify/outbox";
 import { EditLeadSchema } from "@/modules/leads/schema";
 import { logError } from "@/lib/observability";
 import { jsonOk, jsonError, jsonServerError } from "@/lib/http";
+import { requireCapabilityResponse } from "@/lib/authz";
 
 // Lead ref format (v2, ADR-0019). Sibling routes validate this before touching the DB (F-13).
 const RefSchema = z.string().regex(/^LD-\d{2}-\d{5,}$/);
@@ -17,7 +18,7 @@ const RefSchema = z.string().regex(/^LD-\d{2}-\d{5,}$/);
 export async function GET(_request: Request, { params }: { params: Promise<{ ref: string }> }) {
   try {
     const scope = await getServerScope();
-    const adminOnly = requireAdminResponse(scope);
+    const adminOnly = requireCapabilityResponse(scope, "leads.read");
     if (adminOnly) return adminOnly;
     const { ref } = await params;
     if (!RefSchema.safeParse(ref).success) return jsonError("invalid_ref", "Invalid lead reference.", 400);
@@ -41,7 +42,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ re
   }
   try {
     const scope = await getServerScope();
-    const adminOnly = requireAdminResponse(scope);
+    const adminOnly = requireCapabilityResponse(scope, "leads.write");
     if (adminOnly) return adminOnly;
     const { ref } = await params;
     if (!RefSchema.safeParse(ref).success) return jsonError("invalid_ref", "Invalid lead reference.", 400);

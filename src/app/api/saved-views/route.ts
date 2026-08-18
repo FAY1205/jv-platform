@@ -1,6 +1,6 @@
 import { getDb } from "@/db";
 import { getServerScope } from "@/lib/scope-context";
-import { assertCsrf, authErrorResponse, requireAdminResponse } from "@/lib/auth/guard";
+import { assertCsrf, authErrorResponse } from "@/lib/auth/guard";
 import { requireTosResponse } from "@/lib/auth/tos-guard";
 import {
   listSavedViews, createSavedView, DuplicateSavedViewNameError, SavedViewLimitError,
@@ -8,6 +8,7 @@ import {
 import { CreateSavedViewSchema } from "@/modules/saved-views/schema";
 import { pgErrorInfo } from "@/lib/db/pg-error";
 import { jsonOk, jsonError, jsonServerError } from "@/lib/http";
+import { requireCapabilityResponse } from "@/lib/authz";
 
 /**
  * SEC-05 (audit-tenancy F-9): what a 500 may carry into the logs. NOT `e.message` — a driver
@@ -30,7 +31,7 @@ function failureDetail(e: unknown): Record<string, unknown> {
 export async function GET() {
   try {
     const scope = await getServerScope();
-    const adminOnly = requireAdminResponse(scope);
+    const adminOnly = requireCapabilityResponse(scope, "views.own");
     if (adminOnly) return adminOnly;
     const tos = await requireTosResponse(getDb(), scope);
     if (tos) return tos;
@@ -49,7 +50,7 @@ export async function POST(request: Request) {
   if (!parsed.success) return jsonError("invalid_input", "A view name (1–60 characters) and a filter set are required.", 400);
   try {
     const scope = await getServerScope();
-    const adminOnly = requireAdminResponse(scope);
+    const adminOnly = requireCapabilityResponse(scope, "views.own");
     if (adminOnly) return adminOnly;
     const tos = await requireTosResponse(getDb(), scope);
     if (tos) return tos;

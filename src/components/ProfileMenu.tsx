@@ -2,8 +2,6 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { useQuery } from "@tanstack/react-query";
-import { apiGet } from "@/lib/api";
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -14,6 +12,7 @@ import {
 } from "./DropdownMenu";
 import { AccountMenuTrigger } from "./AccountMenuTrigger";
 import { useSignOut } from "@/lib/use-sign-out";
+import { useCurrentUser } from "@/lib/use-current-user";
 
 // WS-7d / WP-B: the account menu, now a user block at the sidebar foot (theme moved to the
 // topbar ThemeToggle). Identity from /api/me; links to Settings + (dev) the gallery and the
@@ -24,16 +23,11 @@ import { useSignOut } from "@/lib/use-sign-out";
 // destination yet, so the dev email preview is now honestly labeled and dev-gated (like the
 // gallery); a genuine Help link is a follow-up when help content exists.
 
-interface Me {
-  email: string;
-  role: string;
-  workspace: { name: string };
-}
 
 const isDev = process.env.NODE_ENV !== "production";
 
 export function ProfileMenu() {
-  const { data } = useQuery({ queryKey: ["me"], queryFn: () => apiGet<Me>("/api/me") });
+  const { data } = useCurrentUser();
   const email = data?.email ?? "";
   // WP-PP-6: the shared sign-out hook, admin variant → /login (portal callers default to
   // /portal/login). AUT-14: server-side revoke → cache clear → full navigation.

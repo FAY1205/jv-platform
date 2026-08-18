@@ -1,11 +1,12 @@
 import { z } from "zod";
 import { getDb } from "@/db";
 import { getServerScope } from "@/lib/scope-context";
-import { assertCsrf, authErrorResponse, requireAdminResponse } from "@/lib/auth/guard";
+import { assertCsrf, authErrorResponse } from "@/lib/auth/guard";
 import { requireTosResponse } from "@/lib/auth/tos-guard";
 import { updateTag, deleteTag, TagNotFoundError, DuplicateTagNameError } from "@/modules/tags/tags";
 import { UpdateTagSchema } from "@/modules/tags/schema";
 import { jsonOk, jsonError, jsonServerError, newTraceId } from "@/lib/http";
+import { requireCapabilityResponse } from "@/lib/authz";
 
 // TAG-06 — the Settings manager's writes: PATCH renames and/or recolors, DELETE removes the
 // tag AND detaches it everywhere in one transaction. Admin-only + CSRF, like the collection
@@ -30,7 +31,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   if (!parsed.success) return jsonError("invalid_input", "Nothing to change.", 400);
   try {
     const scope = await getServerScope();
-    const adminOnly = requireAdminResponse(scope);
+    const adminOnly = requireCapabilityResponse(scope, "rules.manage");
     if (adminOnly) return adminOnly;
     const tos = await requireTosResponse(getDb(), scope);
     if (tos) return tos;
@@ -52,7 +53,7 @@ export async function DELETE(request: Request, { params }: { params: Promise<{ i
   if (!z.string().uuid().safeParse(id).success) return jsonError("invalid_id", "Invalid tag id.", 400);
   try {
     const scope = await getServerScope();
-    const adminOnly = requireAdminResponse(scope);
+    const adminOnly = requireCapabilityResponse(scope, "rules.manage");
     if (adminOnly) return adminOnly;
     const tos = await requireTosResponse(getDb(), scope);
     if (tos) return tos;

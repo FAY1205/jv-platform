@@ -1,8 +1,9 @@
 import { getServerScope } from "@/lib/scope-context";
-import { authErrorResponse, requireAdminResponse } from "@/lib/auth/guard";
+import { authErrorResponse } from "@/lib/auth/guard";
 import { LeadsQuerySchema } from "@/modules/leads/schema";
 import { listLeads } from "@/modules/leads/queries";
 import { jsonOk, jsonServerError } from "@/lib/http";
+import { requireCapabilityResponse } from "@/lib/authz";
 
 // ADM: the global leads list — searchable, filterable, server-paginated.
 // Admin-only; scoped via the guard (PRN-08). Params are Zod-normalized
@@ -10,7 +11,7 @@ import { jsonOk, jsonServerError } from "@/lib/http";
 export async function GET(request: Request) {
   try {
     const scope = await getServerScope();
-    const adminOnly = requireAdminResponse(scope);
+    const adminOnly = requireCapabilityResponse(scope, "leads.read");
     if (adminOnly) return adminOnly;
     const params = Object.fromEntries(new URL(request.url).searchParams);
     const query = LeadsQuerySchema.parse(params);
