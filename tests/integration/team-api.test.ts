@@ -134,6 +134,37 @@ suite("TM: team management API", () => {
     expect(dead.status).toBe(404);
   });
 
+  it("TM-03/OQ-1: only the workspace owner resends or revokes an ADMIN-role invite", async () => {
+    // The most fragile owner-invariant path (pr-reviewer F-2): the gate must hold on the
+    // invite's LIFECYCLE actions, not just its creation.
+    setRouteScope(scopeFor(ownerId, "admin"));
+    const created = await invitePost(jsonRequest("POST", "/api/admin/team/invites", { email: "admin-invite@team.test", role: "admin" }));
+    expect(created.status).toBe(200);
+    const { inviteId } = await created.json();
+    setRouteScope(scopeFor(adminId, "admin")); // a non-owner admin
+    expect((await resendPost(jsonRequest("POST", `/api/admin/team/invites/${inviteId}`, {}), routeParams({ id: inviteId }))).status).toBe(403);
+    expect((await revokeDelete(jsonRequest("DELETE", `/api/admin/team/invites/${inviteId}`), routeParams({ id: inviteId }))).status).toBe(403);
+    setRouteScope(scopeFor(ownerId, "admin"));
+    expect((await revokeDelete(jsonRequest("DELETE", `/api/admin/team/invites/${inviteId}`), routeParams({ id: inviteId }))).status).toBe(200);
+  });
+
+  it("TM-05 (pr-reviewer F-1): a retry after a failed metadata sync RE-SYNCS instead of no-opping", async () => {
+    setRouteScope(scopeFor(ownerId, "admin"));
+    // First call: DB commits, sync fails → 502.
+    updateUserById.mockResolvedValueOnce({ data: {}, error: { message: "auth down" } } as never);
+    const first = await rolePatch(jsonRequest("PATCH", `/api/admin/team/members/${memberId}`, { role: "viewer" }), routeParams({ userId: memberId }));
+    expect(first.status).toBe(502);
+    const [committed] = await db.select({ role: schema.users.role }).from(schema.users).where(eq(schema.users.id, memberId));
+    expect(committed.role).toBe("viewer"); // the row DID change
+    // Retry with the SAME role: must call updateUserById again (heal), not early-return.
+    updateUserById.mockClear();
+    const retry = await rolePatch(jsonRequest("PATCH", `/api/admin/team/members/${memberId}`, { role: "viewer" }), routeParams({ userId: memberId }));
+    expect(retry.status).toBe(200);
+    expect(updateUserById).toHaveBeenCalledWith(memberId, { app_metadata: { tenant_id: tenantId, role: "viewer" } });
+    // Restore for the later legs.
+    await rolePatch(jsonRequest("PATCH", `/api/admin/team/members/${memberId}`, { role: "member" }), routeParams({ userId: memberId }));
+  });
+
   it("TM-07: self role-change is refused; TM-06: the owner's seat is immutable to everyone", async () => {
     setRouteScope(scopeFor(adminId, "admin"));
     const self = await rolePatch(jsonRequest("PATCH", `/api/admin/team/members/${adminId}`, { role: "member" }), routeParams({ userId: adminId }));

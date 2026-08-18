@@ -14,6 +14,7 @@ import {
 import { issueTeamInviteToken, TEAM_INVITE_TTL_MS, type InvitableRole } from "@/lib/auth/team-invite";
 import { workspaceOwnerId } from "@/lib/auth/workspace-owner";
 import type { PermissionsPatch } from "./schema";
+import { logError } from "@/lib/observability";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Team management (Phase C, ADR-0049 / team-page-spec). The STAFF axis only —
@@ -25,6 +26,9 @@ import type { PermissionsPatch } from "./schema";
 // ─────────────────────────────────────────────────────────────────────────────
 
 type DB = PostgresJsDatabase<typeof schema>;
+
+/** ~100 years — the Supabase Admin API has no "forever" ban; "none" lifts it. */
+const PERMANENT_BAN_DURATION = "876000h";
 
 export class TeamTargetNotFoundError extends Error {
   constructor() {
@@ -325,27 +329,36 @@ export async function changeRole(
 ): Promise<void> {
   const target = await resolveTarget(db, scope, userId);
   await requireOwnerForAdminSeat(db, scope, target.role === "admin" || newRole === "admin");
-  if (target.role === newRole) return;
-  await db.transaction(async (tx) => {
-    await tx
-      .update(schema.users)
-      .set({ role: newRole })
-      .where(and(tenantWhere(schema.users, scope), eq(schema.users.id, userId)));
-    await tx.insert(schema.auditLog).values({
-      tenantId: scope.tenantId,
-      actorUserId: scope.userId,
-      action: "team.role_changed",
-      entityType: "user",
-      entityRef: userId,
-      before: { role: target.role },
-      after: { role: newRole },
-      traceId: traceId ?? null,
+  // Skip ONLY the DB write when unchanged — the metadata sync below always runs (idempotent),
+  // so the documented recovery for a failed sync ("retry the change") actually re-syncs
+  // instead of no-opping on the already-committed row (pr-reviewer F-1).
+  if (target.role !== newRole) {
+    await db.transaction(async (tx) => {
+      await tx
+        .update(schema.users)
+        .set({ role: newRole })
+        .where(and(tenantWhere(schema.users, scope), eq(schema.users.id, userId)));
+      await tx.insert(schema.auditLog).values({
+        tenantId: scope.tenantId,
+        actorUserId: scope.userId,
+        action: "team.role_changed",
+        entityType: "user",
+        entityRef: userId,
+        before: { role: target.role },
+        after: { role: newRole },
+        traceId: traceId ?? null,
+      });
     });
-  });
+  }
   const sync = await admin.auth.admin.updateUserById(userId, {
     app_metadata: { tenant_id: scope.tenantId, role: newRole },
   });
-  if (sync.error) throw new RoleSyncFailedError();
+  if (sync.error) {
+    // The root cause must reach ops (pr-reviewer F-3): jsonError never logs, and the
+    // discarded Supabase message is the only diagnostic for a Tier-A metadata desync.
+    logError("team_role_sync_failed", { userId, tenantId: scope.tenantId, message: sync.error.message }, traceId);
+    throw new RoleSyncFailedError();
+  }
 }
 
 /** Deactivate: scope refusal is immediate (resolveScope reads the row per request);
@@ -378,9 +391,23 @@ export async function deactivateMember(
     });
   });
   // Best-effort session teardown (AUT-14 spirit): the scope refusal above is the real
-  // enforcement; these kill the refresh path and remembered devices.
-  await deps.revokeAllForUser(userId, Date.now());
-  await admin.auth.admin.updateUserById(userId, { ban_duration: "876000h" }).catch(() => {});
+  // enforcement — the seat IS deactivated once the transaction committed. Teardown failures
+  // are LOGGED, never allowed to bubble into a dishonest "could not deactivate" 500
+  // (pr-reviewer F-4/F-5).
+  const devicesRevoked = await deps
+    .revokeAllForUser(userId, Date.now())
+    .then(() => true)
+    .catch((e) => {
+      logError("team_deactivate_device_revoke_failed", { userId, message: e instanceof Error ? e.message : String(e) }, traceId);
+      return false;
+    });
+  const banned = await admin.auth.admin
+    .updateUserById(userId, { ban_duration: PERMANENT_BAN_DURATION })
+    .then((r) => !r.error)
+    .catch(() => false);
+  if (!devicesRevoked || !banned) {
+    logError("team_deactivate_teardown_incomplete", { userId, devicesRevoked, banned }, traceId);
+  }
 }
 
 export async function reactivateMember(
@@ -409,7 +436,9 @@ export async function reactivateMember(
       traceId: traceId ?? null,
     });
   });
-  await admin.auth.admin.updateUserById(userId, { ban_duration: "none" }).catch(() => {});
+  await admin.auth.admin
+    .updateUserById(userId, { ban_duration: "none" })
+    .catch((e) => logError("team_reactivate_unban_failed", { userId, message: e instanceof Error ? e.message : String(e) }, traceId));
 }
 
 // ── ADR-0049: the tenant permissions editor ──
@@ -457,16 +486,21 @@ export async function updatePermissions(
   traceId?: string,
 ): Promise<PermissionsView> {
   const before = await getPermissions(db, scope);
+  // The audit `after` records what was PERSISTED per tier (deduped/sorted, or null for a
+  // reset), never the raw client patch (pr-reviewer F-6).
+  const persisted: Record<string, string[] | null | undefined> = {};
   await db.transaction(async (tx) => {
     for (const tier of CONFIGURABLE_TIERS) {
       const value = patch[tier];
       if (value === undefined) continue;
       if (value === null) {
+        persisted[tier] = null;
         await tx
           .delete(schema.roleCapabilities)
           .where(and(tenantWhere(schema.roleCapabilities, scope), eq(schema.roleCapabilities.role, tier)));
       } else {
         const cleaned = [...new Set(value)].sort();
+        persisted[tier] = cleaned;
         await tx
           .insert(schema.roleCapabilities)
           .values({ tenantId: scope.tenantId, role: tier, capabilities: cleaned, updatedAt: sql`now()` })
@@ -476,7 +510,7 @@ export async function updatePermissions(
           });
       }
     }
-    const after = { member: patch.member, viewer: patch.viewer };
+    const after = { member: persisted.member, viewer: persisted.viewer };
     await tx.insert(schema.auditLog).values({
       tenantId: scope.tenantId,
       actorUserId: scope.userId,
