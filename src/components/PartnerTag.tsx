@@ -8,6 +8,14 @@ export interface PartnerTagProps {
   /** Human-readable reference ID, e.g. "PR-003" (DM-07). */
   refId?: string;
   size?: "sm" | "md";
+  /**
+   * "full" (default) = swatch + name + reference ID — the signature identity element.
+   * "name" = name only, for DENSE rows (the admin leads table) where the owner asked to
+   * drop the swatch + refId chrome. PRN-14 stays satisfied: with NO color present, the
+   * "color never alone" rule has nothing to accompany — and the refId is not lost, it
+   * moves to the cell's `title`/aria. Every lower-density surface keeps the full identity.
+   */
+  variant?: "full" | "name";
   className?: string;
 }
 
@@ -17,8 +25,18 @@ export interface PartnerTagProps {
  * component that turns the color-independence rule into the product's visual
  * fingerprint; reuse it everywhere a partner appears (rows, legend, portal).
  */
-export function PartnerTag({ name, color, refId, size = "md", className }: PartnerTagProps) {
+export function PartnerTag({ name, color, refId, size = "md", variant = "full", className }: PartnerTagProps) {
   const swatch = size === "sm" ? 14 : 18;
+  if (variant === "name") {
+    // Name-only cell: no swatch, no visible refId (both survive in the title/aria), one weight
+    // lighter than the full badge because here it's a data cell, not an identity element.
+    const label = refId && refId !== "HOUSE" ? `${name} (${refId})` : name;
+    return (
+      <span className={cn("block min-w-0 truncate font-medium text-text-2", className)} title={label} aria-label={label}>
+        {name}
+      </span>
+    );
+  }
   return (
     // WP-UX-1: `max-w-full` + a shrinkable, truncating NAME span. Without min-w-0 the
     // name refused to shrink inside width-constrained cells, so ancestors' `truncate`

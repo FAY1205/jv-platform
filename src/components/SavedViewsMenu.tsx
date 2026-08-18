@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { cn } from "@/lib/cn";
-import { savedViewKey, SAVED_VIEW_NAME_MAX, type SavedViewFilters } from "@/modules/saved-views/schema";
+import { savedViewKey, SAVED_VIEW_NAME_MAX, EMPTY_SAVED_VIEW_FILTERS, type SavedViewFilters } from "@/modules/saved-views/schema";
 import { useSavedViews, useSavedViewMutations, type SavedViewRow } from "@/lib/saved-views-client";
 import {
   DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem,
@@ -58,6 +58,14 @@ const TrashIcon = () => (
   </svg>
 );
 
+// The Default view's mark — a grid/home glyph, deliberately NOT a star (it is not one of the
+// user's saved views, it is the always-there way back).
+const HomeIcon = ({ className }: { className?: string }) => (
+  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className={className}>
+    <path d="M3 10.5 12 3l9 7.5M5 9.5V20h14V9.5" />
+  </svg>
+);
+
 /** Case-insensitive name lookup — the same rule the unique index enforces server-side, so the
  *  overwrite prompt appears BEFORE a request that would 409 (the 409 stays as the race guard). */
 function findByName(views: readonly SavedViewRow[], name: string): SavedViewRow | undefined {
@@ -88,17 +96,32 @@ export function SavedViewsMenu({ filters, onApply, className }: SavedViewsMenuPr
   const [saveError, setSaveError] = React.useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = React.useState<SavedViewRow | null>(null);
 
-  const modified = active !== null && savedViewKey(filters) !== savedViewKey(active.filters);
+  // The current filters ARE the default (opening) state. When true, we are not looking at any
+  // named view — even if one was applied and then edited back down (the leads bar's "Clear all"
+  // does exactly that). Deriving the shown-active from this keeps the trigger truthful: after a
+  // Clear all the trigger reads "Views" / the Default row highlights, instead of the old view's
+  // name with a stale "Modified" badge (owner: "Clear all … is wrong" + "no way back to default").
+  const atDefault = React.useMemo(() => savedViewKey(filters) === savedViewKey(EMPTY_SAVED_VIEW_FILTERS), [filters]);
+  const shownActive = atDefault ? null : active;
+  const modified = shownActive !== null && savedViewKey(filters) !== savedViewKey(shownActive.filters);
 
   const apply = (v: SavedViewRow) => {
     setActive({ id: v.id, name: v.name, filters: v.filters });
     onApply(v.filters); // SV-04: REPLACES the whole state, view mode included
   };
 
+  // The always-present "Default view" row: return the whole page to its opening state (SV-04
+  // REPLACE semantics, list mode included) and drop any applied-view selection.
+  const applyDefault = () => {
+    setActive(null);
+    onApply(EMPTY_SAVED_VIEW_FILTERS);
+  };
+
   const openSave = () => {
     // Pre-fill with the applied view's name: the common gesture after tweaking a view is to
-    // re-save it, and typing the name again just to be asked "overwrite?" is busywork.
-    setDraftName(active?.name ?? "");
+    // re-save it, and typing the name again just to be asked "overwrite?" is busywork. Uses the
+    // SHOWN active — at the default state there is no name to carry over.
+    setDraftName(shownActive?.name ?? "");
     setOverwriting(null);
     setSaveError(null);
     setSaveOpen(true);
@@ -170,7 +193,7 @@ export function SavedViewsMenu({ filters, onApply, className }: SavedViewsMenuPr
         <DropdownMenuTrigger asChild>
           <button
             type="button"
-            aria-label={active ? `Saved views — ${active.name}${modified ? ", modified" : ""}` : "Saved views"}
+            aria-label={shownActive ? `Saved views — ${shownActive.name}${modified ? ", modified" : ""}` : "Saved views"}
             className={cn(
               // States (DSN-03): focus-visible is deliberately NOT opted out of — the global
               // brand-ink outline (globals.css @layer base) is this control's focus treatment,
@@ -181,8 +204,8 @@ export function SavedViewsMenu({ filters, onApply, className }: SavedViewsMenuPr
               "active:scale-[.98] disabled:cursor-not-allowed disabled:opacity-50",
             )}
           >
-            <StarIcon className={active ? "text-warn" : "text-text-3"} />
-            <span className="truncate">{active ? active.name : "Views"}</span>
+            <StarIcon className={shownActive ? "text-warn" : "text-text-3"} />
+            <span className="truncate">{shownActive ? shownActive.name : "Views"}</span>
             {modified && (
               // PRN-14: the divergence is stated in words, never by color alone.
               <span className="shrink-0 rounded bg-surface-3 px-1 py-px text-step-0 font-semibold text-text-3">
@@ -195,6 +218,18 @@ export function SavedViewsMenu({ filters, onApply, className }: SavedViewsMenuPr
 
         <DropdownMenuContent align="start" className="w-64">
           <DropdownMenuLabel>Saved views</DropdownMenuLabel>
+
+          {/* The always-present way back to the opening state — pinned above the user's views,
+              never deletable, highlighted when the page IS at the default. */}
+          <DropdownMenuItem
+            className={cn(atDefault && "bg-brand-soft font-semibold text-brand-ink")}
+            title="Reset all filters and view mode to the default."
+            onSelect={applyDefault}
+          >
+            <HomeIcon className={atDefault ? "text-brand-ink" : "text-text-3"} />
+            <span className="truncate">Default view</span>
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
 
           {viewsQ.isPending ? (
             <div className="flex flex-col gap-1.5 p-2" aria-busy="true">
@@ -218,10 +253,10 @@ export function SavedViewsMenu({ filters, onApply, className }: SavedViewsMenuPr
             views.map((v) => (
               <div key={v.id} className="group flex items-center gap-0.5">
                 <DropdownMenuItem
-                  className={cn("min-w-0 flex-1", v.id === active?.id && "bg-brand-soft font-semibold text-brand-ink")}
+                  className={cn("min-w-0 flex-1", v.id === shownActive?.id && "bg-brand-soft font-semibold text-brand-ink")}
                   onSelect={() => apply(v)}
                 >
-                  <StarIcon className={v.id === active?.id ? "text-warn" : "text-text-3"} />
+                  <StarIcon className={v.id === shownActive?.id ? "text-warn" : "text-text-3"} />
                   <span className="truncate">{v.name}</span>
                 </DropdownMenuItem>
                 {/* WP-UX-6 (audit 4.1): the delete is GHOSTED (text-3) until the row is

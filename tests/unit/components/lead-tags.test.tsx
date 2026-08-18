@@ -178,4 +178,37 @@ describe("TAG-04/TAG-05: the card cap and the Hot smart tag", () => {
     render(<LeadTags editable tags={[PROBATE]} options={ALL} onAttach={vi.fn()} />);
     expect(screen.queryByTestId("quiet-add")).toBeNull();
   });
+
+  // Dense = the admin leads TABLE row: one line, cap 2 + "+n", each chip width-clamped, so the
+  // row height never jitters (owner: "tags render awkwardly").
+  describe("dense (admin table row)", () => {
+    const EXTRA = { id: "t4", name: "Vacant", color: "gold" };
+    it("caps at 2 chips + '+n' and does not wrap", () => {
+      const { container } = render(<LeadTags dense tags={[PROBATE, FOLLOW, CASH, EXTRA]} />);
+      expect(screen.getByText("Probate")).toBeInTheDocument();
+      expect(screen.getByText("Follow-up")).toBeInTheDocument();
+      expect(screen.queryByText("Cash buyer ask")).toBeNull();
+      // the overflow marker names the hidden tags for the record
+      expect(screen.getByText("+2")).toBeInTheDocument();
+      expect(screen.getByLabelText(/2 more tags: Cash buyer ask, Vacant/i)).toBeInTheDocument();
+      // single-line: the row container is not flex-wrap
+      const row = container.firstElementChild as HTMLElement;
+      expect(row.className).not.toContain("flex-wrap");
+    });
+
+    it("clamps each dense chip's width so a long name truncates instead of pushing the row", () => {
+      render(<LeadTags dense tags={[CASH]} />);
+      const chip = screen.getByText("Cash buyer ask").closest("[data-tag-chip]") as HTMLElement;
+      expect(chip.className).toContain("max-w-32");
+      // the name survives in the tooltip even when clamped
+      expect(chip).toHaveAttribute("title", "Cash buyer ask");
+    });
+
+    it("an explicit max still wins over the dense default of 2", () => {
+      render(<LeadTags dense max={1} tags={[PROBATE, FOLLOW, CASH]} />);
+      expect(screen.getByText("Probate")).toBeInTheDocument();
+      expect(screen.queryByText("Follow-up")).toBeNull();
+      expect(screen.getByText("+2")).toBeInTheDocument();
+    });
+  });
 });

@@ -66,6 +66,18 @@ describe("PRN-14: partner identity is never color alone", () => {
     expect(screen.getByText("PR-003")).toBeInTheDocument();
   });
 
+  it('variant="name" shows the NAME only (no swatch, no visible refId) but keeps identity in title/aria', () => {
+    const { container } = render(<PartnerTag variant="name" name="Josh Ax" color="#8fbfe8" refId="PR-003" />);
+    expect(screen.getByText("Josh Ax")).toBeInTheDocument();
+    // No visible refId text and no color swatch element — PRN-14 holds because there is no
+    // color in the cell to accompany; the refId survives in the title + aria-label.
+    expect(screen.queryByText("PR-003")).toBeNull();
+    expect(container.querySelector("[style*='background']")).toBeNull();
+    const el = screen.getByText("Josh Ax");
+    expect(el).toHaveAttribute("title", "Josh Ax (PR-003)");
+    expect(el).toHaveAttribute("aria-label", "Josh Ax (PR-003)");
+  });
+
   it("Badge always carries text, not just a color", () => {
     render(<Badge variant="removed">Removed</Badge>);
     expect(screen.getByText("Removed")).toBeInTheDocument();

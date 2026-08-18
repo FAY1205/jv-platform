@@ -27,6 +27,11 @@ export interface LeadTagsProps {
   hotScore?: number | null;
   /** Max STORED chips to render; the rest collapse into "+n" (board cards pass 2). */
   max?: number;
+  /** Dense single-line row treatment (the admin leads TABLE): no wrapping, a default cap of
+   *  2 chips, and each chip width-clamped so one long name can't push the row's other cells
+   *  off. Keeps row heights constant (the owner-reported "tags render awkwardly"). Board
+   *  cards keep their own (capped, wrapping) treatment. */
+  dense?: boolean;
   /** Omit the picker + ✕ entirely (a read-only surface). */
   editable?: boolean;
   /** The tenant's tag roster for the picker's type-ahead. */
@@ -49,6 +54,7 @@ export function LeadTags({
   hot = false,
   hotScore = null,
   max,
+  dense = false,
   editable = false,
   options = [],
   onAttach,
@@ -58,12 +64,14 @@ export function LeadTags({
   quietAdd = false,
   className,
 }: LeadTagsProps) {
-  const shown = max === undefined ? tags : tags.slice(0, max);
-  const hidden = max === undefined ? [] : tags.slice(max).map((t) => t.name);
+  // Dense rows cap at 2 stored chips by default (an explicit `max` still wins) and never wrap.
+  const effectiveMax = max ?? (dense ? 2 : undefined);
+  const shown = effectiveMax === undefined ? tags : tags.slice(0, effectiveMax);
+  const hidden = effectiveMax === undefined ? [] : tags.slice(effectiveMax).map((t) => t.name);
   const showHot = hot && hotScore !== null && hotScore !== undefined;
 
   return (
-    <div className={cn("flex flex-wrap items-center gap-1", className)}>
+    <div className={cn("flex items-center gap-1", !dense && "flex-wrap", className)}>
       {/* The smart tag leads the row: it is the one chip that is always true of the lead. */}
       {showHot && <HotTagChip score={hotScore} />}
       {shown.map((t) => (
@@ -72,6 +80,9 @@ export function LeadTags({
           name={t.name}
           color={t.color}
           busy={busy}
+          // Dense: clamp each chip so a long name truncates (with its name in the tooltip)
+          // instead of shoving the row's date/status cells sideways.
+          className={dense ? "max-w-32" : undefined}
           onRemove={editable && onDetach ? () => onDetach(t.id) : undefined}
         />
       ))}
