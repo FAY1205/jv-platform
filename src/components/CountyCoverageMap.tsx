@@ -3,6 +3,7 @@
 import * as React from "react";
 import type { StateCoverage, CountyCoverage } from "@/modules/coverage/map";
 import { stateCodeForCounty } from "@/lib/geo/us-state-fips";
+import { STATE_LABEL_ANCHORS, LABEL_CHIP_HEIGHT, LABEL_SEPARATOR, labelChipWidth, type StateLabelAnchor } from "@/lib/geo/us-state-anchors";
 import { PartnerTag } from "./PartnerTag";
 import { Skeleton } from "./Skeleton";
 import { MapHatch, MapCaption, PARTNER_FILL_OPACITY, DIMMED_FILL_OPACITY, type MapCaptionProps } from "./map";
@@ -40,6 +41,26 @@ export interface CountyCoverageMapProps {
    *  ("No partner covers X"); the Unmatched gap map (T3) overrides it — there, an
    *  uncolored state means "no unmatched leads here", not "uncovered". */
   uncoveredHoverLabel?: (stateName: string) => string;
+  /** Opt-in on-map state labels (WP-UX-4 / MAP-06, ADR-0050). Rendered as opaque `--surface`
+   *  chips anchored by STATE_LABEL_ANCHORS. Absent (the default) ⇒ the layer renders NOTHING —
+   *  /coverage, /dashboard and the portal keep byte-identical DOM. Only /unmatched passes it. */
+  stateLabels?: readonly StateMapLabel[];
+}
+
+export interface StateMapLabel {
+  /** USPS code — the key into STATE_LABEL_ANCHORS. An unknown code is skipped (dev warn). */
+  code: string;
+  /** The full label text, formatted by the page ("NE · 7"). The map formats nothing (PRN-15). */
+  text: string;
+}
+
+// The chip splits its text at the FIRST " · " so the datum gets the max-contrast ink: the code
+// reads as `--text-2`, the separator `--text-3`, the count `--text` at 600 (ADR-0050 / PRN-14).
+// Pure — no measurement, no locale, same input ⇒ same output. The separator is the SHARED
+// constant (us-state-anchors) so the page's label text and this splitter can never drift.
+function splitStateLabel(text: string): { head: string; tail: string | null } {
+  const i = text.indexOf(LABEL_SEPARATOR);
+  return i < 0 ? { head: text, tail: null } : { head: text.slice(0, i), tail: text.slice(i + LABEL_SEPARATOR.length) };
 }
 
 // Module-level cache so the ~0.9 MB geometry is fetched once per session.
@@ -52,7 +73,7 @@ let geoCache: CountyGeo | null = null;
  * render once; hover/click use event delegation and a single highlight overlay so mouse-move never
  * re-renders the whole map.
  */
-export function CountyCoverageMap({ states, counties = [], selectedPartnerId = null, onSelectPartner, caption, interactive = true, neutralUncovered = false, ariaLabel, uncoveredHoverLabel }: CountyCoverageMapProps) {
+export function CountyCoverageMap({ states, counties = [], selectedPartnerId = null, onSelectPartner, caption, interactive = true, neutralUncovered = false, ariaLabel, uncoveredHoverLabel, stateLabels }: CountyCoverageMapProps) {
   const [geo, setGeo] = React.useState<CountyGeo | null>(geoCache);
   const [failed, setFailed] = React.useState(false);
   const wrapRef = React.useRef<HTMLDivElement>(null);
@@ -200,6 +221,27 @@ export function CountyCoverageMap({ states, counties = [], selectedPartnerId = n
     setHover({ fips, name: el.getAttribute("data-name") ?? "", x, y });
   };
 
+  // ── Opt-in state-label layer (MAP-06, ADR-0050) ─────────────────────────────────────────
+  // Resolve each label to its committed anchor. Recomputes only when the (memoized) label
+  // array changes — deliberately NOT on view.s: the counter-scale factor 1/view.s is applied
+  // directly in the per-label transform below, so zoom never re-triggers this resolution
+  // pass. Nothing here listens to hover or pointer state either.
+  const anchored = React.useMemo(() => {
+    if (!stateLabels) return null;
+    const out: { code: string; text: string; anchor: StateLabelAnchor }[] = [];
+    for (const l of stateLabels) {
+      const anchor: StateLabelAnchor | undefined = STATE_LABEL_ANCHORS[l.code];
+      if (!anchor) {
+        if (process.env.NODE_ENV !== "production") {
+          console.warn(`CountyCoverageMap: no label anchor for state code "${l.code}" — label skipped.`);
+        }
+        continue;
+      }
+      out.push({ code: l.code, text: l.text, anchor });
+    }
+    return out;
+  }, [stateLabels]);
+
   if (failed) {
     return <p className="py-10 text-center text-sm text-text-3">Couldn&apos;t load the county map.</p>;
   }
@@ -233,6 +275,64 @@ export function CountyCoverageMap({ states, counties = [], selectedPartnerId = n
           <path d={geo.borders} fill="none" stroke="var(--map-line)" strokeWidth={0.8} strokeLinejoin="round" vectorEffect="non-scaling-stroke" pointerEvents="none" opacity={0.9} />
           {hover && dByFips.get(hover.fips) && (
             <path d={dByFips.get(hover.fips)!} fill="none" stroke="var(--text)" strokeWidth={1.4} vectorEffect="non-scaling-stroke" pointerEvents="none" />
+          )}
+          {/* State labels — LAST child of the zoom group, so a chip is never occluded by the
+              hover outline. `pointerEvents: none` keeps the data-fips hover/click delegation
+              working straight through the layer; `aria-hidden` because the SVG is already
+              role="img" and the page's chip row + stat tiles are the accessible path
+              (ADR-0050). Every leader is drawn BEFORE every chip so a converging leader can
+              never cut across a neighbouring chip. */}
+          {anchored && anchored.length > 0 && (
+            <g data-map-labels="" aria-hidden="true" pointerEvents="none" fontFamily="var(--font-mono)" fontSize={13} textAnchor="middle">
+              {anchored.map(({ code, anchor }) =>
+                anchor.leader ? (
+                  <line
+                    key={`leader-${code}`}
+                    x1={anchor.leader.x}
+                    y1={anchor.leader.y}
+                    x2={anchor.x}
+                    y2={anchor.y}
+                    stroke="var(--text-3)"
+                    strokeWidth={1}
+                    vectorEffect="non-scaling-stroke"
+                    opacity={0.8}
+                  />
+                ) : null,
+              )}
+              {anchored.map(({ code, text, anchor }) => {
+                const w = labelChipWidth(text);
+                const { head, tail } = splitStateLabel(text);
+                return (
+                  // translate glues the chip to the geometry; scale(1/view.s) holds it at a
+                  // constant 13px at every zoom — the text counterpart of the borders'
+                  // non-scaling-stroke. The chip is centered on the anchor, so it always
+                  // covers its leader's terminus.
+                  <g key={code} data-map-label={code} transform={`translate(${anchor.x} ${anchor.y}) scale(${1 / view.s})`}>
+                    <rect
+                      x={-w / 2}
+                      y={-LABEL_CHIP_HEIGHT / 2}
+                      width={w}
+                      height={LABEL_CHIP_HEIGHT}
+                      rx={4}
+                      fill="var(--surface)"
+                      stroke="var(--border-strong)"
+                      strokeWidth={1}
+                    />
+                    <text y={4.5} className="num">
+                      {tail === null ? (
+                        <tspan fill="var(--text)" fontWeight={600}>{text}</tspan>
+                      ) : (
+                        <>
+                          <tspan fill="var(--text-2)">{head}</tspan>
+                          <tspan fill="var(--text-3)">{LABEL_SEPARATOR}</tspan>
+                          <tspan fill="var(--text)" fontWeight={600}>{tail}</tspan>
+                        </>
+                      )}
+                    </text>
+                  </g>
+                );
+              })}
+            </g>
           )}
         </g>
       </svg>

@@ -44,3 +44,30 @@ describe("CON-01: WCAG relativeLuminance / contrastRatio (reference-pinned)", ()
     expect(() => contrastRatio("garbage", "#FFFFFF")).not.toThrow();
   });
 });
+
+// WP-UX-4 / ADR-0050 (NOT the retired ADR-0024 carve-out). The Unmatched gap map draws each
+// state's code + unmatched count on an OPAQUE `--surface` backing chip. That opacity is the
+// whole argument: label contrast becomes independent of the heat-ramp fill underneath, so
+// there is no fill×theme matrix to fight (the failure mode that measured a worst ~3.74:1 and
+// killed on-fill text in ADR-0024). SC 1.4.3 is met outright, and FRONTEND_STANDARDS §7 stays
+// "fills keep AA text contrast, no exceptions". Values mirror src/app/globals.css.
+describe("MAP-06 / SC 1.4.3: on-map label chip text on its opaque backing (ADR-0050)", () => {
+  const LIGHT = { surface: "#ffffff", text: "#16242b", text2: "#46565d", text3: "#566268" };
+  const DARK = { surface: "#17232a", text: "#eaf0ee", text2: "#a9b8bc", text3: "#85969b" };
+
+  for (const [theme, t] of [["light", LIGHT], ["dark", DARK]] as const) {
+    it(`MAP-06: ${theme} — the count (--text on --surface) clears AA with room to spare`, () => {
+      expect(contrastRatio(t.text, t.surface)).toBeGreaterThanOrEqual(4.5);
+      expect(contrastRatio(t.text, t.surface)).toBeGreaterThan(13); // ≈15.9 light / ≈13.9 dark
+    });
+
+    it(`MAP-06: ${theme} — the state code (--text-2 on --surface) clears AA`, () => {
+      expect(contrastRatio(t.text2, t.surface)).toBeGreaterThanOrEqual(4.5);
+      expect(contrastRatio(t.text2, t.surface)).toBeGreaterThan(7); // ≈7.4 light / ≈7.9 dark
+    });
+
+    it(`MAP-06: ${theme} — even the decorative "·" separator (--text-3) clears AA`, () => {
+      expect(contrastRatio(t.text3, t.surface)).toBeGreaterThanOrEqual(4.5);
+    });
+  }
+});

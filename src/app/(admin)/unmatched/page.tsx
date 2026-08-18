@@ -16,6 +16,7 @@ import type { StateCoverage } from "@/modules/coverage/map";
 import { US_STATES } from "@/lib/us-states";
 import { googleSearchUrl } from "@/lib/search-links";
 import { formatWaiting, waitingTone } from "@/lib/waiting";
+import { LABEL_SEPARATOR } from "@/lib/geo/us-state-anchors";
 
 // ASN-03: the unmatched inbox. A clear "how big is the backlog" header whose state
 // chips FILTER the table (T3, owner note #4), the real county choropleth (same map
@@ -64,14 +65,35 @@ function StatTile({ label, value, accent }: { label: string; value: string; acce
   );
 }
 
-function HeatLegend() {
+/** MAP-07 (WP-UX-4): the ramp anchored to the REAL data range. The numbers come from the
+ *  served stats the map fills and the chips already use (PRN-15) — nothing is re-derived —
+ *  and they anchor the DATA range, not `heatFill`'s quartile bucket edges: the honest read is
+ *  "lightest ≈ {min}, darkest ≈ {max}". Because it now carries values it stops being
+ *  `aria-hidden` decoration and becomes a role="img" with a range sentence (PRN-14). */
+function HeatLegend({ min, max }: { min: number; max: number }) {
+  const plural = (n: number) => (n === 1 ? "" : "s");
+  const single = min === max;
+  const label = single
+    ? `Every state with gaps has ${min} unmatched lead${plural(min)}`
+    : `Shading ranges from ${min} unmatched lead${plural(min)} (lightest) to ${max} (darkest) per state`;
   return (
-    <div className="flex items-center gap-2 text-step-0 text-text-3" aria-hidden="true">
-      <span>Fewer</span>
-      <span className="flex overflow-hidden rounded-full border border-border-soft">
-        {HEAT_RAMP.map((c) => <span key={c} className="h-3 w-5" style={{ background: c }} />)}
-      </span>
-      <span>More</span>
+    <div className="flex items-center gap-2 text-step-0 text-text-3" role="img" aria-label={label}>
+      {single ? (
+        <>
+          <span className="h-3 w-5 rounded-full border border-border-soft" style={{ background: HEAT_RAMP[3] }} />
+          <span><span className="num font-semibold text-text-2">{min}</span> per state</span>
+        </>
+      ) : (
+        <>
+          <span>Fewer</span>
+          <span className="num font-semibold text-text-2">{min}</span>
+          <span className="flex overflow-hidden rounded-full border border-border-soft">
+            {HEAT_RAMP.map((c) => <span key={c} className="h-3 w-5" style={{ background: c }} />)}
+          </span>
+          <span className="num font-semibold text-text-2">{max}</span>
+          <span>More</span>
+        </>
+      )}
     </div>
   );
 }
@@ -273,6 +295,14 @@ function UnmatchedBody() {
   const gapStates = React.useMemo(() => (stats?.byState ?? []).filter((g) => g.state !== "—"), [stats]);
   const noStateCount = React.useMemo(() => stats?.byState.find((g) => g.state === "—")?.count ?? 0, [stats]);
   const maxCount = React.useMemo(() => gapStates.reduce((m, g) => Math.max(m, g.count), 0), [gapStates]);
+  const minCount = React.useMemo(() => (gapStates.length ? gapStates.reduce((m, g) => Math.min(m, g.count), Infinity) : 0), [gapStates]);
+  // MAP-06: one on-map chip per gap state, formatted HERE from the stats the page already
+  // holds — the map derives nothing (PRN-15). "—" (no state on the record) has no geography
+  // and is already filtered out of `gapStates`, so it is never labeled.
+  const stateLabels = React.useMemo(
+    () => gapStates.map((g) => ({ code: g.state, text: `${g.state}${LABEL_SEPARATOR}${g.count}` })),
+    [gapStates],
+  );
   // The gap choropleth: states WITH unmatched leads are shaded by volume (light → dark amber,
   // the hover names the exact count); everything else is calm neutral land — an uncolored
   // state here means "no unmatched leads", not "uncovered" (that's the Coverage page's story).
@@ -463,12 +493,13 @@ function UnmatchedBody() {
           <section className="rounded-2xl border border-border-soft bg-surface p-5 shadow-sm">
             <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
               <h2 className="font-display text-step-3 font-semibold tracking-tight">Where the gaps are</h2>
-              <HeatLegend />
+              {gapStates.length > 0 && <HeatLegend min={minCount} max={maxCount} />}
             </div>
             <CountyCoverageMap
               states={gapMapStates}
+              stateLabels={stateLabels}
               neutralUncovered
-              ariaLabel="United States map shading states by their number of unmatched leads"
+              ariaLabel="United States map shading states by their number of unmatched leads; each shaded state is labeled with its code and count"
               uncoveredHoverLabel={(name) => `No unmatched leads in ${name}`}
               caption={{ title: "Coverage gaps", subtitle: `${stats!.total} lead${stats!.total === 1 ? "" : "s"} · ${gapStates.length} state${gapStates.length === 1 ? "" : "s"}` }}
             />
