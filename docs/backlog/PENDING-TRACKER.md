@@ -100,7 +100,7 @@ doc-extraction · Stripe (→ Phase D)._
 ## Slice 6 — Roadmap phases (large, owner-sequenced)
 | Item | What | Status | Tier |
 |------|------|--------|------|
-| Phase C — Roles/Permissions/Team | Real roles beyond admin/partner + the team-management page (currently a "coming soon" stub); touches many screens | ☐ | L |
+| Phase C — Roles/Permissions/Team | **BUILT 2026-08-18 (5-PR chain).** Model: ADR-0049 — fixed staff tiers admin/member/viewer on the admin STREAM (partner untouched, PRN-13 binary), capability seam `lib/authz.ts` (13 caps, can()/requireCapabilityResponse/requirePassthroughResponse), **tenant-configurable member/viewer capabilities** (role_capabilities, three-band split, editable matrix on the Team page), workspace owner = tenants.owner_user_id ("workspace owner" ≠ ADR-0040 "platform owner"). ✅ MERGED: #117 seam · #118 cluster-A routes + useCurrentUser (C-10 closed). ⏳ OPEN: **#119 TIER A (migrations 0053/0054 + staff-arm RLS — OWNER GREENLIGHT to merge)** → #120 team page/invites/permissions editor → #121 B–G flips (stacked, merge in order, retargeting). Audits: audit-tenancy ×2 + audit-data + pr-reviewer ×3, all findings applied. | ◐ | L |
 | Phase D — Commercialize | Self-serve / billing (Stripe) — owner's original "Phase 5" | ☐ | L |
 | _Phase B — AI Assistant_ | _✅ built (chat widget + BYO-key encryption); only WP-AI-STYLE-PERSIST remains → Slice 3_ | ✅ | — |
 
@@ -121,6 +121,7 @@ doc-extraction · Stripe (→ Phase D)._
 | C-27 | RLS admin-author asymmetry — harmless watch item; revisit only if the authenticated PostgREST surface becomes load-bearing | ⏳ |
 | Reminder rollup vs per-task | Digest vs per-task reminder emails | ⏳ |
 | Deal-economics un-skip | Whether to build deal economics (Slice 4) now | ⏳ |
+| **Phase C owner decisions (defaults applied, tenant-adjustable via the permissions editor):** merge greenlight for #119 (prod migrations 0053/0054 + RLS staff-arm allowlist rewrite; then #120/#121). Defaults: member = leads work + upload + AI, NO void/export/rules/partners; viewer = read-only, no AI; viewer sees admin notes/tasks (PRN-13 is an org wall, not intra-staff); only the workspace owner touches admin seats (OQ-1); ops notifications stay admin-tier; invite expiry 7d; Team page hidden from member/viewer. DEFERRED (candidates): owner-transfer endpoint+UI · pre-acceptance invite role change · "Last active" column · OQ-8 role-change email · SCP-09/SET-08 spec IDs backfill to SPEC.md · WP-SEC-5 users_scope WITH CHECK tightening · typed ESLint role-literal rule · prod drizzle-ledger orphan check (test DB had one, inert). | ⏳ |
 
 ## Ongoing — Maintenance / hygiene
 | Item | What | Status |
