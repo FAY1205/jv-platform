@@ -36,8 +36,7 @@ vi.mock("@/lib/api", () => ({
   apiGet: vi.fn(async (url: string) => {
     if (url.includes("/api/admin/partners")) return { partners: [] };
     if (url.includes("/api/leads/sources")) return { sources: [] };
-    if (url.includes("/api/leads/unmatched/count")) return { count: 0 };
-    if (url.includes("/api/leads/count")) return { count: 0 };
+    if (url.includes("/api/leads/counts")) return { total: 0, unmatched: 0 };
     if (url.startsWith("/api/leads?")) return { leads: [], page: 1, pageSize: 25, total: 0 };
     return { email: "admin@dev.test", role: "admin", workspace: { name: "W" }, notifications: [], unread: 0 };
   }),

@@ -9,6 +9,8 @@ import { fmtDate } from "@/lib/dates";
 import { SegmentedControl, Skeleton, EmptyState, QueryErrorState, PartnerTag, Table, THead, TBody, Th, Tr, Td, HeroKpi } from "@/components";
 import { statusPillClass } from "@/lib/status-pill";
 import { useIsDesktop } from "@/lib/use-media-query";
+import { usePortalLeads } from "@/lib/portal-leads-client";
+import { portalLeadsParams } from "@/modules/portal/leads-contract";
 import type { RangeKey } from "@/modules/analytics/ranges";
 import type { PartnerTerritory } from "@/modules/coverage/partner-territory";
 import type { PartnerDashboardStats } from "@/modules/portal/queries";
@@ -47,22 +49,6 @@ const RANGE_LABELS: Record<RangeKey, string> = {
 };
 const label13 = "text-step-1"; // 13px chrome floor (no sub-13px)
 
-interface RecentLead {
-  refId: string;
-  address: string;
-  city: string;
-  state: string;
-  zip: string;
-  receivedAt: string;
-  status: string;
-}
-interface PortalLeadsPage {
-  leads: RecentLead[];
-  page: number;
-  pageSize: number;
-  total: number;
-}
-
 export function PortalDashboard() {
   const [range, setRange] = React.useState<RangeKey>("30d");
   const stats = useQuery({
@@ -71,16 +57,16 @@ export function PortalDashboard() {
     placeholderData: keepPreviousData, // range switches keep prior numbers instead of flashing to blank
   });
   const territory = useQuery({ queryKey: ["portal-territory"], queryFn: () => apiGet<PartnerTerritory>("/api/portal/territory") });
-  // Recent-leads preview (desktop only) — same endpoint/query-key as the full Leads page
-  // (page 1), sliced to 5 here so navigating to /portal/leads reuses the cached page.
-  const recentLeads = useQuery({
-    queryKey: ["portal-leads", 1],
-    queryFn: () => apiGet<PortalLeadsPage>("/api/portal/leads?page=1"),
-  });
   // WP-PW-2 final fix: which breakpoint is active, so the heavy CountyCoverageMap mounts
   // in exactly ONE of the two DOM locations below instead of both (only `display` was
   // toggling before). Called unconditionally alongside the other hooks, above any return.
   const isDesktop = useIsDesktop();
+  // Recent-leads preview — the canonical default portal-leads read (C-41a), sliced to 5 here,
+  // so navigating on to /portal/leads genuinely reuses this page. It used to claim that reuse
+  // with a key (["portal-leads", 1]) and a url (?page=1) that matched NEITHER leads list.
+  // `enabled: isDesktop` honours the render condition below: the preview section is `hidden
+  // lg:block`, so on a phone this was a request for a table nobody could see.
+  const recentLeads = usePortalLeads(portalLeadsParams(), { enabled: isDesktop });
 
   const s = stats.data;
   const recent = (recentLeads.data?.leads ?? []).slice(0, 5);

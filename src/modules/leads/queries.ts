@@ -648,23 +648,34 @@ export async function getAdminLeadDetail(scope: ScopeContext, refId: string): Pr
   };
 }
 
-/** Count of currently-unmatched leads (the backlog) — drives the nav badge and
- *  the dashboard alert. Excludes leads already routed manually. */
-export async function unmatchedCount(scope: ScopeContext): Promise<number> {
-  const db = getDb();
-  const [row] = await db.select({ n: sql<number>`count(*)::int` }).from(schema.leads).where(unmatchedWhere(scope));
-  return Number(row?.n ?? 0);
+/** The two admin nav-badge counts. */
+export interface LeadNavCounts {
+  /** Total leads in the workspace — the Leads badge. */
+  total: number;
+  /** Currently-unmatched leads (the backlog) — the Unmatched badge. */
+  unmatched: number;
 }
 
-/** Total lead count for the workspace — drives the Leads nav badge. Tenant-scoped (PRN-08),
- *  excluding soft-deleted rows to match the /leads list total (every sibling read does). */
-export async function leadsCount(scope: ScopeContext): Promise<number> {
+/** C-41d: BOTH nav-badge counts in ONE round trip. They were two near-identical endpoints
+ *  (`/api/leads/count` + `/api/leads/unmatched/count`) fired side by side on every admin
+ *  page, each paying its own scope resolution and its own scan of the same table.
+ *
+ *  The outer predicate is the total's (tenant-scoped — PRN-08 — and excluding soft-deleted
+ *  rows so it matches the /leads list total, as every sibling read does); the unmatched
+ *  number is a FILTER over that same scan, composing the existing `unmatchedWhere` so the
+ *  backlog definition lives in exactly one place. `unmatchedWhere` is a strict narrowing of
+ *  the outer predicate (it repeats the tenant + soft-delete clauses), so the FILTER can only
+ *  ever select a subset of the counted rows. */
+export async function leadNavCounts(scope: ScopeContext): Promise<LeadNavCounts> {
   const db = getDb();
   const [row] = await db
-    .select({ n: sql<number>`count(*)::int` })
+    .select({
+      total: sql<number>`count(*)::int`,
+      unmatched: sql<number>`(count(*) filter (where ${unmatchedWhere(scope)}))::int`,
+    })
     .from(schema.leads)
     .where(and(tenantWhere(schema.leads, scope), isNull(schema.leads.deletedAt)));
-  return Number(row?.n ?? 0);
+  return { total: Number(row?.total ?? 0), unmatched: Number(row?.unmatched ?? 0) };
 }
 
 export interface UnmatchedStateStats {

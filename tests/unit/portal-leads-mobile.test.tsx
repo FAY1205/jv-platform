@@ -63,3 +63,21 @@ describe("Portal mobile leads (WP-UX-5)", () => {
     expect(calls[calls.length - 1]).toContain("page=1");
   });
 });
+
+// C-41a: the view gate renders this list during the hydration window (it is the markup the
+// server sent) but holds its query until the viewport is known — otherwise every DESKTOP
+// first paint paid for a page of mobile leads it was about to discard.
+describe("C-41a: LeadsMobile fetches only for a resolved mobile viewport", () => {
+  it("C-41a: mobile view does not fetch before the viewport resolves", async () => {
+    wrap(<LeadsMobile onOpen={() => {}} enabled={false} />);
+    // The chrome renders — it is the skeleton state, not a blank screen.
+    expect(await screen.findByRole("textbox", { name: /search your leads/i })).toBeInTheDocument();
+    expect(calls).toEqual([]);
+  });
+
+  it("C-41a: once enabled it asks the ONE canonical url the desktop table and dashboard use", async () => {
+    wrap(<LeadsMobile onOpen={() => {}} />);
+    await screen.findByText("Robert Thompson");
+    expect(calls).toEqual(["/api/portal/leads?page=1&pageSize=20&sort=received&dir=desc"]);
+  });
+});

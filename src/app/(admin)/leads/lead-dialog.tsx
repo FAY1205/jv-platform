@@ -30,6 +30,7 @@ import type { ScoreBreakdown, ScoreGroup } from "@/modules/pipeline/score";
 import { routedByLabel } from "@/lib/match-method";
 import { googleSearchUrl } from "@/lib/search-links";
 import { offersUnassign } from "@/lib/unassign";
+import { adminLeadPlaceholder } from "./lead-placeholder";
 
 // ADM: the lead dialog — opened from the global Leads table (no page navigation).
 // Read-only by default; the Edit button unlocks every field (owner decision). The
@@ -151,12 +152,19 @@ export function LeadDialog({ refId, onClose }: { refId: string; onClose: () => v
   const detailQ = useQuery({
     queryKey: ["lead", refId],
     queryFn: () => apiGet<LeadDetail>(`/api/leads/${refId}`),
+    // C-41b: paint the identity the clicked row already carries instead of six skeleton
+    // bars. placeholderData (never initialData): it stays out of the cache and always
+    // background-fetches, so this partial can never be mistaken for the real record.
+    placeholderData: () => adminLeadPlaceholder(qc, refId),
   });
   const roster = useQuery({
     queryKey: ["partners"],
     queryFn: () => apiGet<{ partners: Partner[] }>("/api/admin/partners"),
   });
   const d = detailQ.data;
+  // True while `d` is the row-derived partial: the sections it cannot supply stay skeletons
+  // and editing is held (an edit form must never seed from a partial record).
+  const partial = detailQ.isPlaceholderData;
 
   return (
     <Dialog
@@ -202,7 +210,7 @@ export function LeadDialog({ refId, onClose }: { refId: string; onClose: () => v
           }}
         />
       ) : (
-        <ViewMode d={d} onEdit={() => setEditing(true)} />
+        <ViewMode d={d} partial={partial} onEdit={() => setEditing(true)} />
       )}
     </Dialog>
   );
@@ -228,7 +236,18 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   );
 }
 
-function ViewMode({ d, onEdit }: { d: LeadDetail; onEdit: () => void }) {
+/** C-41b: a field the clicked list row cannot supply — labelled, so the layout is the final
+ *  one and nothing jumps when the detail lands. */
+function PendingField({ label }: { label: string }) {
+  return (
+    <div className="flex flex-col gap-0.5">
+      <span className="text-step-1 font-semibold uppercase tracking-wide text-text-3">{label}</span>
+      <Skeleton className="h-4 w-28" />
+    </div>
+  );
+}
+
+function ViewMode({ d, partial = false, onEdit }: { d: LeadDetail; partial?: boolean; onEdit: () => void }) {
   const qc = useQueryClient();
   const property = [d.address, d.city, d.state, d.zip].filter(Boolean).join(", ");
   // A task add/complete/reopen/delete changes the Timeline's activity[] too (task_created /
@@ -252,7 +271,9 @@ function ViewMode({ d, onEdit }: { d: LeadDetail; onEdit: () => void }) {
             <span className="text-xs font-semibold text-warn">Unmatched</span>
           ) : null}
         </div>
-        <Button size="sm" variant="primary" onClick={onEdit}>
+        {/* Held while the detail is still the row-derived partial: EditForm seeds its
+            baseline from `d`, and a save from a partial baseline would blank real fields. */}
+        <Button size="sm" variant="primary" onClick={onEdit} disabled={partial}>
           Edit
         </Button>
       </div>
@@ -260,9 +281,11 @@ function ViewMode({ d, onEdit }: { d: LeadDetail; onEdit: () => void }) {
       {/* The why-routed sentence was removed (owner testing note #3, 2026-07-14) — the
           partner tag + the Assignment fields below already carry how the lead routed. */}
       <div className="grid grid-cols-2 gap-x-5 gap-y-4 sm:grid-cols-3">
+        {/* C-41b: Seller / Property / Source / Received / partner / status all come straight
+            from the clicked row, so they paint at once; the rest wait as labelled skeletons. */}
         <Field label="Seller">{`${d.seller.first} ${d.seller.last}`.trim() || "—"}</Field>
-        <Field label="Phone">{d.seller.phone || "—"}</Field>
-        <Field label="Email">{d.seller.email || "—"}</Field>
+        {partial ? <PendingField label="Phone" /> : <Field label="Phone">{d.seller.phone || "—"}</Field>}
+        {partial ? <PendingField label="Email" /> : <Field label="Email">{d.seller.email || "—"}</Field>}
         <div className="col-span-2 sm:col-span-3">
           <Field label="Property">
             {property ? (
@@ -285,15 +308,19 @@ function ViewMode({ d, onEdit }: { d: LeadDetail; onEdit: () => void }) {
           </Field>
         </div>
         <Field label="Source">{d.campaign || "—"}</Field>
-        <Field label="Routed by">
-          {d.assignment.manual ? (
-            <Badge variant="neutral">Manual assignment</Badge>
-          ) : (
-            <Badge variant={routedByLabel(d.assignment.matchMethod, d.assignment.matchedOn).badge}>
-              {routedByLabel(d.assignment.matchMethod, d.assignment.matchedOn).label}
-            </Badge>
-          )}
-        </Field>
+        {partial ? (
+          <PendingField label="Routed by" />
+        ) : (
+          <Field label="Routed by">
+            {d.assignment.manual ? (
+              <Badge variant="neutral">Manual assignment</Badge>
+            ) : (
+              <Badge variant={routedByLabel(d.assignment.matchMethod, d.assignment.matchedOn).badge}>
+                {routedByLabel(d.assignment.matchMethod, d.assignment.matchedOn).label}
+              </Badge>
+            )}
+          </Field>
+        )}
         <Field label="Received">{fmtDateTime(d.receivedAt)}</Field>
         {d.assignment.manual && d.assignment.original && (
           <Field label="Original routing">
@@ -302,11 +329,11 @@ function ViewMode({ d, onEdit }: { d: LeadDetail; onEdit: () => void }) {
         )}
         {/* "Motivation" dropped (VP-4c): for Lead Source 1 it is never populated —
             reason-for-selling carries the seller's motivation, and the scorer uses it as such. */}
-        <Field label="Reason for selling">{d.reasonForSelling || "—"}</Field>
-        <Field label="Time to sell">{d.timeToSell || "—"}</Field>
+        {partial ? <PendingField label="Reason for selling" /> : <Field label="Reason for selling">{d.reasonForSelling || "—"}</Field>}
+        {partial ? <PendingField label="Time to sell" /> : <Field label="Time to sell">{d.timeToSell || "—"}</Field>}
         {d.mlsStatus === "removed" && (
           <div className="col-span-2 sm:col-span-3">
-            <Field label="MLS removal reason">{d.mlsReason || "—"}</Field>
+            {partial ? <PendingField label="MLS removal reason" /> : <Field label="MLS removal reason">{d.mlsReason || "—"}</Field>}
           </div>
         )}
         {d.notes && (
@@ -320,12 +347,15 @@ function ViewMode({ d, onEdit }: { d: LeadDetail; onEdit: () => void }) {
         )}
       </div>
 
-      <ScorePanel score={d.score} kept={d.mlsStatus === "kept"} />
+      {/* The row carries the headline score but never the per-criterion breakdown. */}
+      {partial ? <Skeleton className="h-28 w-full rounded-xl" /> : <ScorePanel score={d.score} kept={d.mlsStatus === "kept"} />}
 
-      {/* Tasks panel sits ABOVE the Timeline per the approved mockup. */}
+      {/* Tasks panel sits ABOVE the Timeline per the approved mockup. Tasks and Notes hold
+          their OWN queries keyed on the ref (which the row gave us), so they are not held
+          back by the partial — they load in parallel with the detail rather than after it. */}
       <TasksPanel leadRef={d.refId} onTaskChanged={onTaskChanged} />
 
-      <Timeline activity={d.activity} />
+      {partial ? <Skeleton className="h-24 w-full rounded-xl" /> : <Timeline activity={d.activity} />}
 
       <div className="border-t border-border-soft pt-4">
         <NotesPanel leadRef={d.refId} title="Admin notes" />

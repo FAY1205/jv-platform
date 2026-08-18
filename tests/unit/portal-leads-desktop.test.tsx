@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import * as React from "react";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -20,7 +20,13 @@ const LEADS_PAGE = {
 };
 
 vi.mock("@/lib/api", () => ({ apiGet: vi.fn(async () => LEADS_PAGE) }));
-vi.mock("@/lib/use-media-query", () => ({ useIsDesktop: () => true }));
+// C-41a: the gate reads the THREE-state viewport now ("unresolved" through hydration), so
+// the mock is a mutable value the tests below drive.
+let viewport: "unresolved" | "desktop" | "mobile" = "desktop";
+vi.mock("@/lib/use-media-query", () => ({
+  useDesktopState: () => viewport,
+  useIsDesktop: () => viewport === "desktop",
+}));
 
 import { apiGet } from "@/lib/api";
 import { ToastProvider } from "@/components";
@@ -43,6 +49,42 @@ function lastCallUrl(): string {
   const calls = vi.mocked(apiGet).mock.calls;
   return calls[calls.length - 1][0] as string;
 }
+
+beforeEach(() => {
+  viewport = "desktop";
+  vi.mocked(apiGet).mockClear();
+});
+
+describe("C-41a: one fetch per portal-leads first paint", () => {
+  it("C-41a: a desktop first paint issues exactly ONE canonical request", async () => {
+    renderPage();
+    await screen.findByText("JV-2001");
+    // Was two: LeadsMobile mounted and fetched during hydration, then LeadsDesktop fetched
+    // its own differently-keyed url. Now the mobile list never fetches for a desktop.
+    expect(vi.mocked(apiGet).mock.calls).toHaveLength(1);
+    const url = lastCallUrl();
+    expect(url).toContain("page=1");
+    expect(url).toContain("pageSize=20");
+    expect(url).toContain("sort=received");
+    expect(url).toContain("dir=desc");
+  });
+
+  it("C-41a: the view does not fetch at all before the viewport resolves", async () => {
+    viewport = "unresolved";
+    renderPage();
+    // The mobile markup renders (it is what the server sent) — with its query held.
+    await screen.findByRole("textbox", { name: /search your leads/i });
+    expect(apiGet).not.toHaveBeenCalled();
+  });
+
+  it("C-41a: a resolved mobile viewport fetches once, on the SAME canonical url as desktop", async () => {
+    viewport = "mobile";
+    renderPage();
+    await screen.findByText("Ana Ruiz");
+    expect(vi.mocked(apiGet).mock.calls).toHaveLength(1);
+    expect(lastCallUrl()).toBe("/api/portal/leads?page=1&pageSize=20&sort=received&dir=desc");
+  });
+});
 
 describe("WP-PW-3 Task 2 LeadsDesktop (sortable, filterable, paginated table)", () => {
   it("PW3-02: renders the desktop table with the mocked lead refs", async () => {

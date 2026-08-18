@@ -4,7 +4,7 @@ import postgres from "postgres";
 import { inArray } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import * as schema from "@/db/schema";
-import { leadsCount } from "@/modules/leads/queries";
+import { leadNavCounts } from "@/modules/leads/queries";
 import type { ScopeContext } from "@/lib/scope";
 
 const url = process.env.DATABASE_URL;
@@ -14,7 +14,9 @@ const SLUG_B = "test-leads-count-b-wpb";
 
 // WP-B: the Leads nav badge count. PRN-08 — it must count only the scope's own leads;
 // F-2 — it must exclude soft-deleted rows, matching the /leads list total.
-suite("WP-B: leadsCount (PRN-08 isolation + soft-delete exclusion)", () => {
+// C-41d: the two count queries merged into one round trip (leadNavCounts → { total, unmatched }),
+// so the unmatched half is asserted here too — the FILTER must narrow, never widen.
+suite("WP-B: leadNavCounts (PRN-08 isolation + soft-delete exclusion)", () => {
   let client: ReturnType<typeof postgres>;
   let db: PostgresJsDatabase<typeof schema>;
   let scopeA: ScopeContext;
@@ -44,6 +46,8 @@ suite("WP-B: leadsCount (PRN-08 isolation + soft-delete exclusion)", () => {
       db.insert(schema.leads).values({ tenantId, refId: `LD-26-${Math.floor(Math.random() * 100000)}`, uploadId, dedupeKey: randomUUID(), rawJson: {}, mlsStatus: "kept", matchMethod: "none", ...v });
     await mk(ta.id, ua.id);
     await mk(ta.id, ua.id);
+    // MLS-removed → counted in the total, but NOT part of the unmatched backlog (C-41d).
+    await mk(ta.id, ua.id, { mlsStatus: "removed" });
     await mk(ta.id, ua.id, { deletedAt: new Date() }); // soft-deleted → excluded (F-2)
     await mk(tb.id, ub.id); // other tenant → must not leak into A's count (PRN-08)
   });
@@ -54,6 +58,13 @@ suite("WP-B: leadsCount (PRN-08 isolation + soft-delete exclusion)", () => {
   });
 
   it("PRN-08: counts only the scope's own, non-deleted leads", async () => {
-    expect(await leadsCount(scopeA)).toBe(2);
+    expect((await leadNavCounts(scopeA)).total).toBe(3);
+  });
+
+  it("C-41d: the unmatched FILTER narrows the same scan — backlog only, never wider than the total", async () => {
+    const counts = await leadNavCounts(scopeA);
+    // 3 non-deleted in A; the MLS-removed one is not backlog.
+    expect(counts).toEqual({ total: 3, unmatched: 2 });
+    expect(counts.unmatched).toBeLessThanOrEqual(counts.total);
   });
 });
