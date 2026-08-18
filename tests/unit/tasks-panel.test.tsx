@@ -107,6 +107,47 @@ describe("TSK-04: checkbox toggle is optimistic and rolls back on failure", () =
   });
 });
 
+// ── TSK-04: completing a task never reorders the list (owner-reported misfire) ──
+describe("TSK-04: the list order is stable across completion (no reorder-under-cursor)", () => {
+  it("completing a task strikes it through IN PLACE — the row order is unchanged even after the refetch re-sorts server-side", async () => {
+    const user = userEvent.setup();
+    const alpha: LeadTask = { ...TASK, id: "t-alpha", title: "Alpha task", dueOn: "2026-08-12" };
+    const beta: LeadTask = { ...TASK, id: "t-beta", title: "Beta task", dueOn: "2026-08-14" };
+    // A mutable backing list that reflects the completion — the server orders done-last
+    // (doneAt asc nulls first → Beta would jump above Alpha after Alpha completes). The panel
+    // must NOT follow that: it keeps its own due-date order so the row stays put.
+    let serverTasks: LeadTask[] = [alpha, beta];
+    const fetchSpy = vi.fn((url: string, opts?: RequestInit) => {
+      const method = opts?.method ?? "GET";
+      if (method === "GET") {
+        // Mirror the server's done-last ordering so the test proves the CLIENT re-sorts.
+        const ordered = [...serverTasks].sort((a, b) => Number(Boolean(a.doneAt)) - Number(Boolean(b.doneAt)));
+        return jsonRes({ tasks: ordered });
+      }
+      if (method === "PATCH") {
+        serverTasks = serverTasks.map((t) => (`/api/tasks/${t.id}` === url ? { ...t, doneAt: "2026-08-15T00:00:00.000Z" } : t));
+        return jsonRes({ ok: true });
+      }
+      throw new Error(`unexpected ${method} ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchSpy as unknown as typeof fetch);
+
+    wrap(<TasksPanel leadRef="LD-26-00001" today="2026-08-15" />);
+    await screen.findByText("Alpha task");
+
+    const order = () => screen.getAllByRole("listitem").map((li) => li.textContent?.match(/Alpha|Beta/)?.[0]);
+    expect(order()).toEqual(["Alpha", "Beta"]);
+
+    await user.click(screen.getByRole("checkbox", { name: /mark "alpha task" done/i }));
+    // Alpha is now completed (struck through) but still FIRST — the row did not move, even
+    // after the refetch returned Beta-first.
+    await waitFor(() => expect(screen.getByRole("checkbox", { name: /reopen "alpha task"/i })).toBeChecked());
+    expect(order()).toEqual(["Alpha", "Beta"]);
+
+    vi.unstubAllGlobals();
+  });
+});
+
 // ── TSK-05: two-click delete confirm, optimistic + rollback ─────────────────────
 describe("TSK-05: delete is a two-click inline confirm (pr F-1)", () => {
   it("TSK-05: delete removes the row", async () => {
