@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 // Deliberately do NOT mock @ai-sdk/react here: this test exercises the REAL useChat +
@@ -21,6 +21,10 @@ function noKeyResponse() {
 /** chat.ts:50-52 — the assistant switch is off in Settings. */
 function switchedOffResponse() {
   return jsonResponse(403, { code: "ai_disabled", message: "The assistant is switched off in Settings → AI assistant.", traceId: "t1" });
+}
+/** The per-tenant chat rate limit — a PASSING condition, unlike the two above. */
+function rateLimitedResponse() {
+  return jsonResponse(429, { code: "ai_rate_limited", message: "Too many questions — try again shortly.", traceId: "t4" });
 }
 
 async function ask() {
@@ -100,5 +104,67 @@ describe("WP-AI-2 AssistantWidget — ai_disabled gate wiring (real transport)",
     await waitFor(() =>
       expect((screen.getByRole("textbox", { name: /ask the assistant/i }) as HTMLInputElement).disabled).toBe(false),
     );
+  });
+});
+
+// C-45c: `rate` is the only gate that describes a condition which passes on its own — the
+// band literally says "give it a minute". Before this, only "New chat" cleared it, so a user
+// who hit the limit stared at a dead composer with a live transcript.
+describe("C-45c AssistantWidget — rate gate self-clears (AIS-12)", () => {
+  // shouldAdvanceTime keeps RTL/user-event's own async plumbing alive under fake timers.
+  beforeEach(() => {
+    window.sessionStorage.clear();
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
+
+  async function askWithFakeTimers() {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    render(<AssistantWidget />);
+    await user.click(screen.getByRole("button", { name: /open assistant/i }));
+    await user.type(screen.getByRole("textbox", { name: /ask the assistant/i }), "how many leads this month?");
+    await user.click(screen.getByRole("button", { name: /^send$/i }));
+  }
+  const composer = () => screen.getByRole("textbox", { name: /ask the assistant/i }) as HTMLInputElement;
+  const advance = async (ms: number) => { await act(async () => { await vi.advanceTimersByTimeAsync(ms); }); };
+
+  it("AIS-12: a 429 blocks the composer, then clears itself after 60s and re-enables it", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => rateLimitedResponse()));
+    await askWithFakeTimers();
+
+    await waitFor(() => expect(screen.queryByText(/give it a minute/i)).toBeTruthy());
+    await waitFor(() => expect(composer().disabled).toBe(true));
+
+    // Still blocked just short of the window — the clear is a timer, not a re-render artifact.
+    await advance(59_000);
+    expect(composer().disabled).toBe(true);
+    expect(screen.queryByText(/give it a minute/i)).toBeTruthy();
+
+    await advance(1_500);
+    await waitFor(() => expect(composer().disabled).toBe(false));
+    expect(screen.queryByText(/give it a minute/i)).toBeNull();
+  });
+
+  it("AIS-12: no_key is configuration, not a passing condition — it never auto-clears", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => noKeyResponse()));
+    await askWithFakeTimers();
+
+    await waitFor(() => expect(screen.queryByText(/needs a provider api key/i)).toBeTruthy());
+    await advance(5 * 60_000);
+    expect(screen.queryByText(/needs a provider api key/i)).toBeTruthy();
+    expect(composer().disabled).toBe(true);
+  });
+
+  it("AIS-12: the switched-off gate never auto-clears either", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => switchedOffResponse()));
+    await askWithFakeTimers();
+
+    await waitFor(() => expect(screen.queryByText(/switched off/i)).toBeTruthy());
+    await advance(5 * 60_000);
+    expect(screen.queryByText(/switched off/i)).toBeTruthy();
+    expect(composer().disabled).toBe(true);
   });
 });

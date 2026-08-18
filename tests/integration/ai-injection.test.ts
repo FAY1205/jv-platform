@@ -167,7 +167,7 @@ suite("WP-AI-1 Task 13: TST-10 injection + isolation + link-whitelist suite", ()
   });
 
   // Benign, valid args for every tool `buildAiTools` returns — used by the two
-  // structural-absence tests below so ALL 9 tools get exercised, not just the
+  // structural-absence tests below so ALL 10 tools get exercised, not just the
   // ones an attacker could plausibly target directly. Throwing on a missing
   // entry (rather than skipping) keeps this list honest if the tool surface grows.
   const BENIGN_ARGS: Record<string, unknown> = {
@@ -180,6 +180,9 @@ suite("WP-AI-1 Task 13: TST-10 injection + isolation + link-whitelist suite", ()
     get_lead: { refId: LEAD_REF },
     list_imports: {},
     get_import: { ref: UPLOAD_REF },
+    // AIS-11 (C-45b): the audit trail. Its projection drops before/after — the jsonb columns
+    // where a note body or a seller email would ride along — so it belongs in these sweeps.
+    get_recent_activity: { category: "all" },
   };
   function execAll(name: string, t: unknown) {
     if (!(name in BENIGN_ARGS)) throw new Error(`TST-10: no benign args registered for tool "${name}" — add one so it stays covered`);
@@ -194,7 +197,7 @@ suite("WP-AI-1 Task 13: TST-10 injection + isolation + link-whitelist suite", ()
 
   it("TST-10: note bodies are structurally absent from every tool output", async () => {
     const names = Object.keys(toolsA);
-    expect(names).toHaveLength(9); // guards this test actually covers the full tool surface
+    expect(names).toHaveLength(10); // guards this test actually covers the full tool surface
     for (const name of names) {
       const out = JSON.stringify(await execAll(name, (toolsA as Record<string, unknown>)[name]));
       expect(out, name).not.toContain(NOTE_SENTINEL);
@@ -203,7 +206,7 @@ suite("WP-AI-1 Task 13: TST-10 injection + isolation + link-whitelist suite", ()
 
   it("TST-10/SEC-05: partner email/phone/dealTerms/adminNotes are structurally absent from every tool output", async () => {
     const names = Object.keys(toolsA);
-    expect(names).toHaveLength(9); // guards this test actually covers the full tool surface
+    expect(names).toHaveLength(10); // guards this test actually covers the full tool surface
     for (const name of names) {
       const out = JSON.stringify(await execAll(name, (toolsA as Record<string, unknown>)[name]));
       expect(out, name).not.toContain(PARTNER_EMAIL_SENTINEL);

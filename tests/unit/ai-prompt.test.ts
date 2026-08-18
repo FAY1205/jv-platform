@@ -54,6 +54,49 @@ describe("ai prompt assembly (AIA-03/PRN-10)", () => {
     // The copy names the absence explicitly, so "remapping" appears only under a negation.
     expect(p).toMatch(/there is no in-app remapping/i);
   });
+  it("C-45: the primitives block separates the vocabulary the model kept conflating", () => {
+    const p = buildSystemPrompt();
+    // leads in vs distributed
+    expect(p).toMatch(/leads in = every row/i);
+    expect(p).toMatch(/distributed = the kept leads actually routed/i);
+    // removed vs unmatched vs voided — three distinct definitions in one block
+    expect(p).toMatch(/removed = dropped by the mls filter/i);
+    expect(p).toMatch(/unmatched = kept, but no partner covers/i);
+    expect(p).toMatch(/voided = a whole import recalled/i);
+    // ASN-01 precedence, stated as a rule the model may assert
+    expect(p).toMatch(/zip override beats state rule/i);
+    // Hot is a scoring band, not a status
+    expect(p).toMatch(/hot is a scoring band \(38\+ of 50/i);
+    expect(p).toMatch(/not a lead status/i);
+    // partner roster status vs per-lead status
+    expect(p).toMatch(/partner status is a roster state/i);
+    expect(p).toMatch(/lead status is a partner's progress on one lead/i);
+    // held vs distributed
+    expect(p).toMatch(/held = a brand-new import inside its 5-minute window/i);
+  });
+
+  it("C-45: the data-efficiency block bans redundant calls and over-broad tools", () => {
+    const p = buildSystemPrompt();
+    expect(p).toMatch(/reuse tool results already in this conversation/i);
+    expect(p).toMatch(/never call the same tool twice for the same range/i);
+    expect(p).toMatch(/one tool call when one suffices/i);
+    expect(p).toMatch(/get_partner_performance, not the whole-workspace dashboard stats/i);
+    expect(p).toMatch(/ask ONE short question and stop/);
+  });
+
+  it("C-45: the new blocks are STATIC — the skeleton is identical with or without a screen", () => {
+    // Provider prompt caching only pays off if the per-request delta is the single screen
+    // line; a primitives/efficiency block that varied by screen would break the cache prefix.
+    const base = buildSystemPrompt();
+    expect(buildSystemPrompt("leads").startsWith(base)).toBe(true);
+    expect(buildSystemPrompt("coverage").startsWith(base)).toBe(true);
+  });
+
+  it("C-45: the settings screen catalog no longer promises a usage panel (dropped 2026-08-19)", () => {
+    expect(SCREENS.settings).toMatch(/enable switch and provider api key/i);
+    expect(SCREENS.settings).not.toMatch(/usage/i);
+  });
+
   it("screen context is injected for a known screen and absent otherwise", () => {
     expect(buildSystemPrompt("coverage")).toContain(SCREENS.coverage);
     expect(buildSystemPrompt()).not.toContain(SCREENS.coverage);
