@@ -11,7 +11,7 @@ import {
   AppShell, Card, Table, THead, TBody, Th, Tr, Td, PartnerTag, EmptyState, QueryErrorState, Skeleton,
   Input, Combobox, DateRangePicker, Pagination, RowOpenButton, StatusSelect, SegmentedControl,
   DEFAULT_PAGE_SIZE, usePageHeader, FilterPill, Tooltip, HotLeadIcon, StatusFilterMenu,
-  LeadTags, TagChip, TagPicker, SavedViewsMenu, type LeadTagView,
+  LeadTags, TagChip, TagPicker, SavedViewsMenu, ColumnsMenu, type ColumnDef, type LeadTagView,
 } from "@/components";
 import type { SavedViewFilters } from "@/modules/saved-views/schema";
 import { US_STATES } from "@/lib/us-states";
@@ -63,6 +63,22 @@ interface AppliedView {
 const DEFAULT_DIR: Record<LeadSortField, "asc" | "desc"> = { lead: "desc", received: "desc", modified: "desc", seller: "asc" };
 // "" = no partner filter (all). The pipeline treats the "unmatched" sentinel specially.
 const PARTNER_UNMATCHED = "unmatched";
+
+// The leads table's column roster. Lead + Status are PINNED (the row's open affordance/key and
+// its workflow control); the rest are user-hideable via the Columns menu, persisted in the one
+// UI-preferences store (PRN-15). Default = every column visible = today's table, so the feature
+// changes nothing for anyone who never opens the menu. (Reorder/resize deliberately out of scope
+// here — the Table's fit/clamp width budget owns sizing; reorder is a future additive `order`.)
+const LEADS_COLUMNS: readonly ColumnDef[] = [
+  { id: "lead", label: "Lead", pinned: true },
+  { id: "seller", label: "Seller" },
+  { id: "property", label: "Property" },
+  { id: "partner", label: "Partner" },
+  { id: "tags", label: "Tags" },
+  { id: "received", label: "Received" },
+  { id: "modified", label: "Modified" },
+  { id: "status", label: "Status", pinned: true },
+];
 
 export function LeadsView({ initialQ, initialOpenRef = null, initialHot = false }: { initialQ: string; initialOpenRef?: string | null; initialHot?: boolean }) {
   return (
@@ -420,17 +436,31 @@ function LeadsTable({
   const allTags = useTags().data?.tags ?? [];
   const { attach, detach, createAndAttach, busy } = useLeadTagMutations();
 
+  // User-hidden columns (a UI preference — §6.17). `shown` gates the pinned columns too so a
+  // stray stored id can never hide the Lead/Status columns.
+  const hiddenColumns = usePreferences().leadsColumns.hidden;
+  const shown = (id: string) => LEADS_COLUMNS.find((c) => c.id === id)?.pinned || !hiddenColumns.includes(id);
+  const toggleColumn = (id: string, visible: boolean) =>
+    setPreferences({ leadsColumns: { hidden: visible ? hiddenColumns.filter((x) => x !== id) : [...new Set([...hiddenColumns, id])] } });
+  const resetColumns = () => setPreferences({ leadsColumns: { hidden: [] } });
+
   return (
     <>
-      {/* Live result count (owner note #2) — re-announces as filters narrow the set.
-          Suppressed at zero and on error (D2): the EmptyState below announces those
-          settles; a "0 leads" line would double-announce, and a failed background
-          refetch keeps stale `data` while the error branch renders. */}
-      {data && data.total > 0 && !leadsQ.error && (
-        <p className="mb-2 text-step-1 text-text-3" aria-live="polite">
-          <span className="num font-semibold text-text-2">{data.total.toLocaleString()}</span>{" "}
-          {data.total === 1 ? "lead" : "leads"}{hasFilters ? " match the filters" : ""}
-        </p>
+      {/* Live result count (owner note #2) + the Columns control. The count re-announces as
+          filters narrow the set; it is suppressed at zero and on error (D2 — the EmptyState
+          announces those), while the Columns menu stays available whenever the table has data. */}
+      {data && !leadsQ.error && (
+        <div className="mb-2 flex min-h-[1.5rem] items-center justify-between gap-2">
+          <p className="text-step-1 text-text-3" aria-live="polite">
+            {data.total > 0 && (
+              <>
+                <span className="num font-semibold text-text-2">{data.total.toLocaleString()}</span>{" "}
+                {data.total === 1 ? "lead" : "leads"}{hasFilters ? " match the filters" : ""}
+              </>
+            )}
+          </p>
+          <ColumnsMenu columns={LEADS_COLUMNS} hidden={hiddenColumns} onToggle={toggleColumn} onReset={resetColumns} />
+        </div>
       )}
       <Card>
         {leadsQ.isPending ? (
@@ -448,14 +478,14 @@ function LeadsTable({
             <THead>
               <Tr>
                 <Th fit sortable sortDir={sortDir("lead")} onSort={() => onSort("lead")}>Lead</Th>
-                <Th sortable sortDir={sortDir("seller")} onSort={() => onSort("seller")} className="w-[16%]">Seller</Th>
-                <Th className="w-[32%]">Property</Th>
+                {shown("seller") && <Th sortable sortDir={sortDir("seller")} onSort={() => onSort("seller")} className="w-[16%]">Seller</Th>}
+                {shown("property") && <Th className="w-[32%]">Property</Th>}
                 {/* Partner is now a name-only cell (owner: drop the swatch + refId chrome from the
                     dense row) — a quarter of the table's width was more than a name needs. */}
-                <Th className="w-[14%]">Partner</Th>
-                <Th className="w-[16%]">Tags</Th>
-                <Th fit sortable sortDir={sortDir("received")} onSort={() => onSort("received")} align="right">Received</Th>
-                <Th fit sortable sortDir={sortDir("modified")} onSort={() => onSort("modified")} align="right">Modified</Th>
+                {shown("partner") && <Th className="w-[14%]">Partner</Th>}
+                {shown("tags") && <Th className="w-[16%]">Tags</Th>}
+                {shown("received") && <Th fit sortable sortDir={sortDir("received")} onSort={() => onSort("received")} align="right">Received</Th>}
+                {shown("modified") && <Th fit sortable sortDir={sortDir("modified")} onSort={() => onSort("modified")} align="right">Modified</Th>}
                 <Th fit>Status</Th>
               </Tr>
             </THead>
@@ -467,47 +497,53 @@ function LeadsTable({
                       <RowOpenButton className="text-xs" onClick={() => onOpen(l.refId)}>{l.refId}</RowOpenButton>
                     </span>
                   </Td>
-                  <Td clamp clampTitle={l.seller}><span className="text-sm text-text">{l.seller}</span></Td>
+                  {shown("seller") && <Td clamp clampTitle={l.seller}><span className="text-sm text-text">{l.seller}</span></Td>}
                   {/* One flowing line, single wrap point (audit 4.3): street + muted
                       city/state/zip as inline runs that truncate together — the city
                       fragment no longer lands at a different x-offset per row. */}
-                  <Td clamp>
-                    <Tooltip content="Search this property on Google">
-                      <a href={googleSearchUrl([l.address, l.city, l.state, l.zip])} target="_blank" rel="noopener noreferrer" className="group hover:underline">
-                        <span className="text-sm text-text-2 group-hover:text-brand-ink">{l.address}</span>{" "}
-                        <span className="text-xs text-text-3">{[l.city, l.state].filter(Boolean).join(", ")} <span className="num">{l.zip}</span></span>
-                      </a>
-                    </Tooltip>
-                  </Td>
+                  {shown("property") && (
+                    <Td clamp>
+                      <Tooltip content="Search this property on Google">
+                        <a href={googleSearchUrl([l.address, l.city, l.state, l.zip])} target="_blank" rel="noopener noreferrer" className="group hover:underline">
+                          <span className="text-sm text-text-2 group-hover:text-brand-ink">{l.address}</span>{" "}
+                          <span className="text-xs text-text-3">{[l.city, l.state].filter(Boolean).join(", ")} <span className="num">{l.zip}</span></span>
+                        </a>
+                      </Tooltip>
+                    </Td>
+                  )}
                   {/* Owner: no partner swatch + refId in the dense row — name only (PartnerTag
                       variant="name" keeps the refId in the cell title/aria, and PRN-14 holds
                       because the row carries no color to accompany). Full identity stays on the
                       board card, the lead dialog, the portal, exports and the coverage map. */}
-                  <Td clamp>
-                    {l.partner ? <PartnerTag variant="name" size="sm" name={l.partner.name} color={l.partner.color} refId={l.partner.refId} />
-                      : l.mlsStatus === "kept" ? <span className="text-xs font-semibold text-warn">Unmatched</span>
-                      : <span className="text-xs text-text-3">—</span>}
-                  </Td>
+                  {shown("partner") && (
+                    <Td clamp>
+                      {l.partner ? <PartnerTag variant="name" size="sm" name={l.partner.name} color={l.partner.color} refId={l.partner.refId} />
+                        : l.mlsStatus === "kept" ? <span className="text-xs font-semibold text-warn">Unmatched</span>
+                        : <span className="text-xs text-text-3">—</span>}
+                    </Td>
+                  )}
                   {/* TAG-04/TAG-05: dense single-line chips (cap 2 + "+n", each clamped) so the
                       row height never jitters (owner: "tags render awkwardly"). The Hot smart tag
                       renders from the row's own score fields, for KEPT leads only. */}
-                  <Td>
-                    <LeadTags
-                      dense
-                      editable
-                      quietAdd
-                      tags={l.tags}
-                      hot={l.mlsStatus === "kept" && l.scoreGroup === "hot"}
-                      hotScore={l.scoreTotal}
-                      options={allTags}
-                      busy={busy}
-                      onAttach={(tagId) => attach.mutate({ refId: l.refId, tagId })}
-                      onDetach={(tagId) => detach.mutate({ refId: l.refId, tagId })}
-                      onCreate={(name) => createAndAttach.mutate({ refId: l.refId, name })}
-                    />
-                  </Td>
-                  <Td fit align="right"><span className="num text-xs text-text-3 tabular-nums">{fmtDate(l.receivedAt)}</span></Td>
-                  <Td fit align="right"><span className="num text-xs text-text-3 tabular-nums">{l.modifiedAt ? fmtDate(l.modifiedAt) : "—"}</span></Td>
+                  {shown("tags") && (
+                    <Td>
+                      <LeadTags
+                        dense
+                        editable
+                        quietAdd
+                        tags={l.tags}
+                        hot={l.mlsStatus === "kept" && l.scoreGroup === "hot"}
+                        hotScore={l.scoreTotal}
+                        options={allTags}
+                        busy={busy}
+                        onAttach={(tagId) => attach.mutate({ refId: l.refId, tagId })}
+                        onDetach={(tagId) => detach.mutate({ refId: l.refId, tagId })}
+                        onCreate={(name) => createAndAttach.mutate({ refId: l.refId, name })}
+                      />
+                    </Td>
+                  )}
+                  {shown("received") && <Td fit align="right"><span className="num text-xs text-text-3 tabular-nums">{fmtDate(l.receivedAt)}</span></Td>}
+                  {shown("modified") && <Td fit align="right"><span className="num text-xs text-text-3 tabular-nums">{l.modifiedAt ? fmtDate(l.modifiedAt) : "—"}</span></Td>}
                   <Td fit><StatusSelect refId={l.refId} status={l.status} mlsStatus={l.mlsStatus} /></Td>
                 </Tr>
               ))}
