@@ -28,14 +28,31 @@ describe("DSN-01/SEAM-08: design tokens", () => {
     expect(missing).toEqual([]);
   });
 
+  const DIRECT_ONLY = new Set<keyof ColorTokens>([
+    // Applied directly, not as bg/text/border Tailwind utilities → no --color-* mapping.
+    "scrim", "swatchBorder",
+    // WP-UX-8: the map tokens are consumed as raw var() in SVG fill/stroke attributes, so they
+    // deliberately carry no Tailwind utility (skipping @theme avoids dead --color-map-* utilities).
+    "mapLine", "mapLand", "mapLandLine",
+  ]);
+
   it("maps every semantic color into a Tailwind theme utility", () => {
     const unmapped = (Object.keys(lightColors) as (keyof ColorTokens)[])
-      // scrim + swatchBorder are applied directly (scrim overlay, inline swatch border),
-      // not as bg/text/border utilities — so they carry no --color-* Tailwind mapping.
-      .filter((k) => k !== "scrim" && k !== "swatchBorder")
+      .filter((k) => !DIRECT_ONLY.has(k))
       .map((k) => `--color-${toCssVar(k).slice(2)}`)
       .filter((themeVar) => !globalsCss.includes(`${themeVar}:`));
     expect(unmapped).toEqual([]);
+  });
+
+  it("WP-UX-8: the map tokens are declared in all three theme blocks and light is a no-op", () => {
+    for (const v of ["--map-line", "--map-land", "--map-land-line"]) {
+      const count = globalsCss.split(`${v}:`).length - 1;
+      expect(count, `${v} should be declared in light + both dark blocks`).toBeGreaterThanOrEqual(3);
+    }
+    // Light values equal the values the map rendered before this pass → zero light-mode change.
+    expect(lightColors.mapLine).toBe("#FFFFFF");
+    expect(lightColors.mapLand).toBe(lightColors.surface3);
+    expect(lightColors.mapLandLine).toBe(lightColors.borderStrong);
   });
 
   it("defines matching light and dark values for every color role", () => {

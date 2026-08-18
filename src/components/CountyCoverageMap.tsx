@@ -105,7 +105,7 @@ export function CountyCoverageMap({ states, counties = [], selectedPartnerId = n
           key={c.f}
           d={c.d}
           data-fips={c.f}
-          fill={covered ? cov!.color! : neutralUncovered ? "var(--surface-3)" : `url(#${hatchId})`}
+          fill={covered ? cov!.color! : neutralUncovered ? "var(--map-land)" : `url(#${hatchId})`}
           fillOpacity={dimmed ? DIMMED_FILL_OPACITY : covered ? PARTNER_FILL_OPACITY : 1}
           className={covered ? "cursor-pointer" : "cursor-default"}
         />
@@ -230,7 +230,7 @@ export function CountyCoverageMap({ states, counties = [], selectedPartnerId = n
         <g transform={transform}>
           {countyPaths}
           {/* State borders — non-scaling so they stay crisp when zoomed */}
-          <path d={geo.borders} fill="none" stroke="var(--surface)" strokeWidth={0.8} strokeLinejoin="round" vectorEffect="non-scaling-stroke" pointerEvents="none" opacity={0.9} />
+          <path d={geo.borders} fill="none" stroke="var(--map-line)" strokeWidth={0.8} strokeLinejoin="round" vectorEffect="non-scaling-stroke" pointerEvents="none" opacity={0.9} />
           {hover && dByFips.get(hover.fips) && (
             <path d={dByFips.get(hover.fips)!} fill="none" stroke="var(--text)" strokeWidth={1.4} vectorEffect="non-scaling-stroke" pointerEvents="none" />
           )}

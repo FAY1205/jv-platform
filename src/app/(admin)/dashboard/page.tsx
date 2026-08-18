@@ -61,11 +61,13 @@ const panel = "rounded-2xl border border-border-soft bg-surface p-5 shadow-sm";
 const label13 = "text-step-1"; // ≥13px chrome text (no sub-13px — WP-A/C rule)
 const pct = (n: number) => `${Math.round(n * 100)}%`;
 
-// Donut palette from tokens (PRN-12); cycled per source. Names always accompany
-// color in the legend + tooltip (PRN-14). WP-UX-4 (audit D-2): the old cycle put THREE
-// amber-family hues (brand/warn/brand-strong) in one five-slice ring; the order below
-// keeps the two remaining ambers separated by green so no two neighbours share a family.
-const SOURCE_COLORS = ["var(--brand)", "var(--success)", "var(--warn)", "var(--danger)", "var(--text-3)"];
+// Donut palette from tokens (PRN-12); cycled per source. Names always accompany color in the
+// legend + tooltip (PRN-14). WP-UX-4/WP-UX-8: this is CATEGORICAL data, so it must not wear
+// two near-identical ambers — in DARK, --brand (#F0A63E) and --warn (#E0973A) collapse into
+// one amber and the two biggest slices merge. --info (steel blue) is the one status hue the
+// ring doesn't otherwise use and is distinct from brand-amber / success-green / danger-red /
+// grey in BOTH themes. (--warn itself is untouched — warn pills/toasts keep their AA pairs.)
+const SOURCE_COLORS = ["var(--brand)", "var(--success)", "var(--info)", "var(--danger)", "var(--text-3)"];
 
 // A dotted underline is the whole affordance (no ⓘ glyph) — subtler, and it matches
 // the match-rate figure. tabIndex=0 keeps the tooltip keyboard-reachable (Tooltip
