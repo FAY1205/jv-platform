@@ -72,6 +72,7 @@ export { TagChip, HotTagChip, TagOverflowChip, type TagChipProps, type HotTagChi
 export { TagPicker, type TagPickerProps, type TagPickerOption } from "./TagPicker";
 export { LeadTags, type LeadTagsProps, type LeadTagView } from "./LeadTags";
 export { SavedViewsMenu, type SavedViewsMenuProps } from "./SavedViewsMenu";
+export { ColumnsMenu, type ColumnsMenuProps, type ColumnDef } from "./ColumnsMenu";
 export { ProfileMenu } from "./ProfileMenu";
 export { PortalProfileMenu } from "./PortalProfileMenu";
 export { ListingBadge, type ListingStatus } from "./ListingBadge";

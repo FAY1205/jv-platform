@@ -16,7 +16,16 @@ describe("parsePreferences", () => {
   });
 
   it("fills missing keys from defaults", () => {
-    expect(parsePreferences(JSON.stringify({ theme: "dark" }))).toEqual({ theme: "dark", navCollapsed: false, navCollapsedPortal: false, leadsView: "list" });
+    expect(parsePreferences(JSON.stringify({ theme: "dark" }))).toEqual({ theme: "dark", navCollapsed: false, navCollapsedPortal: false, leadsView: "list", leadsColumns: { hidden: [] } });
+  });
+
+  it("leadsColumns: round-trips a hidden set and degrades any garbage to nothing-hidden", () => {
+    expect(DEFAULT_PREFERENCES.leadsColumns).toEqual({ hidden: [] });
+    expect(parsePreferences(JSON.stringify({ leadsColumns: { hidden: ["seller", "tags"] } })).leadsColumns).toEqual({ hidden: ["seller", "tags"] });
+    // Non-string entries are dropped; a non-array (or missing) hidden degrades to [].
+    expect(parsePreferences(JSON.stringify({ leadsColumns: { hidden: ["seller", 3, null] } })).leadsColumns).toEqual({ hidden: ["seller"] });
+    expect(parsePreferences(JSON.stringify({ leadsColumns: "nope" })).leadsColumns).toEqual({ hidden: [] });
+    expect(parsePreferences(JSON.stringify({ navCollapsed: true })).leadsColumns).toEqual({ hidden: [] });
   });
 
   it("KAN-01: the Leads view choice round-trips, defaulting to the list (PRN-11)", () => {

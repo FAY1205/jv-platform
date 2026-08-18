@@ -24,14 +24,30 @@ export interface Preferences {
   navCollapsedPortal: boolean;
   /** KAN-01: List vs Board on the admin Leads page. Defaults to the list (PRN-11). */
   leadsView: LeadsViewPref;
+  /** Which admin leads-table columns the user has hidden (stored as the HIDDEN set so a
+   *  column added in a later release defaults to visible without a migration). The column
+   *  vocabulary + which are pinned/toggleable lives with the view — this store only keeps
+   *  the user's choice, so it stays a pure UI preference (PRN-15). */
+  leadsColumns: LeadsColumnsPref;
 }
 
-export const DEFAULT_PREFERENCES: Preferences = { theme: "system", navCollapsed: false, navCollapsedPortal: false, leadsView: "list" };
+export interface LeadsColumnsPref {
+  hidden: string[];
+}
+
+export const DEFAULT_PREFERENCES: Preferences = { theme: "system", navCollapsed: false, navCollapsedPortal: false, leadsView: "list", leadsColumns: { hidden: [] } };
 
 const STORAGE_KEY = "jv.prefs";
 
 function isThemePref(v: unknown): v is ThemePref {
   return v === "system" || v === "light" || v === "dark";
+}
+
+/** Tolerate any stored shape: a hidden set is a string array, everything else degrades to
+ *  "nothing hidden" (garbage, an old payload, a future key). Never throws. */
+function parseLeadsColumns(v: unknown): LeadsColumnsPref {
+  const hidden = (v as { hidden?: unknown } | null)?.hidden;
+  return { hidden: Array.isArray(hidden) ? hidden.filter((x): x is string => typeof x === "string") : [] };
 }
 
 /** Parse stored prefs, tolerating null/garbage — never throws (falls back to defaults). */
@@ -44,6 +60,7 @@ export function parsePreferences(raw: string | null): Preferences {
       navCollapsed: o.navCollapsed === true,
       navCollapsedPortal: o.navCollapsedPortal === true,
       leadsView: o.leadsView === "board" ? "board" : DEFAULT_PREFERENCES.leadsView,
+      leadsColumns: parseLeadsColumns(o.leadsColumns),
     };
   } catch {
     return DEFAULT_PREFERENCES;
