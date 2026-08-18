@@ -74,7 +74,7 @@ suite("WP-SU-14: canary-safe trusted_devices retention", () => {
     tenantId = t.id;
     await db
       .insert(schema.users)
-      .values({ id: userId, tenantId, email: "su14@ret.test", role: "partner", partnerId: null });
+      .values({ id: userId, tenantId, email: "su14@ret.test", role: "admin" });
 
     // ACTIVE family: an OLD rotated canary (expiresAt past cutoff) + a LIVE head (expiresAt future).
     await row(active, activeOldToken, { expiresAt: new Date(now.getTime() - 10 * DAY), rotatedTo: randomUUID() });

@@ -345,7 +345,8 @@ export async function notifyStatusChange(
     // Phase C DECISION (audit-tenancy F-8): ops notifications (run summaries, status alerts)
     // go to the ADMIN TIER only — member/viewer seats do lead work, not pipeline operations.
     // Deliberate, not pending; flagged as an owner-adjustable default.
-    .where(and(tenantWhere(schema.users, scope), eq(schema.users.role, "admin")));
+    // Phase C (audit-tenancy F-7): deactivated seats receive nothing.
+    .where(and(tenantWhere(schema.users, scope), eq(schema.users.role, "admin"), isNull(schema.users.deactivatedAt)));
   if (admins.length === 0) return;
 
   const title = `Lead ${input.leadRef} → ${input.status}`;

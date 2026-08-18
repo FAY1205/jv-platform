@@ -140,7 +140,9 @@ export async function remindDueTasks(db: DB, opts: RemindDueTasksOptions): Promi
       partnerId: schema.users.partnerId,
     })
     .from(schema.users)
-    .where(and(tenantIdWhere(schema.users, opts.tenantId), inArray(schema.users.id, candidateIds)));
+    // Phase C seat lifecycle (audit-tenancy F-7): a deactivated seat is refused a session
+    // (resolveScope) and must likewise not be nudged — the staff twin of PTL-01 revocation.
+    .where(and(tenantIdWhere(schema.users, opts.tenantId), inArray(schema.users.id, candidateIds), isNull(schema.users.deactivatedAt)));
   const usersById = new Map<string, Candidate>(userRows.map((u) => [u.id, u]));
 
   let reminded = 0;
@@ -311,7 +313,7 @@ async function retireIfExhausted(
       // Phase C DECISION (audit-tenancy F-8): the orphaned-task heads-up goes to the ADMIN
       // TIER only (an ops signal). Task-due nudges themselves reach ANY staff assignee —
       // see resolveRecipient + streamPrefRole.
-      .where(and(tenantIdWhere(schema.users, opts.tenantId), eq(schema.users.role, "admin")));
+      .where(and(tenantIdWhere(schema.users, opts.tenantId), eq(schema.users.role, "admin"), isNull(schema.users.deactivatedAt)));
     // Deliberately ALWAYS-ON + in-app only (pr-reviewer F-2): unlike task_due, this retirement alert
     // has no prefs entry and never emails — it's a rare, operationally-important "someone needs to
     // re-assign this" signal an admin should not be able to mute into silence. Not a prefs-gated event.

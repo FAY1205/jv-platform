@@ -118,6 +118,11 @@ export async function provisionSignup(
       // owner/script-provisioned tenants, which have no acceptance record and stay exempt.
       await tx.insert(schema.tenants).values({ id: tenantId, name: workspaceName, slug: finalSlug, selfServe: true });
       await tx.insert(schema.users).values({ id: userId, tenantId, email, role: "admin" });
+      // Phase C (ADR-0049, audit-tenancy F-10): the founding admin IS the workspace owner.
+      // Migration 0054 backfilled existing tenants; new ones must not land owner-less (the
+      // owner-only team invariants would be vacuous). After the users insert so the FK resolves;
+      // the abandoned-signup sweep releases this pin before purging (F-1).
+      await tx.update(schema.tenants).set({ ownerUserId: userId }).where(eq(schema.tenants.id, tenantId));
       // SCP-06: burn the invitation code atomically with the tenant it creates. The
       // conditional `used_at IS NULL` guard makes it single-use even under a concurrent
       // race; if it lost the race (0 rows), the whole signup rolls back + compensates.

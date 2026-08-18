@@ -39,6 +39,9 @@ suite("SCP-02: self-serve signup tenant isolation", () => {
     if (tenantIds.length === 0) return;
     await db.delete(schema.leads).where(inArray(schema.leads.tenantId, tenantIds));
     await db.delete(schema.uploads).where(inArray(schema.uploads.tenantId, tenantIds));
+    // Phase C: release the workspace-owner pin (tenants.owner_user_id RESTRICT FK, 0054)
+    // before deleting the seats it points at.
+    await db.update(schema.tenants).set({ ownerUserId: null }).where(inArray(schema.tenants.id, tenantIds));
     await db.delete(schema.users).where(inArray(schema.users.tenantId, tenantIds));
     // provisionSignup seeds the tenant's ingestion config via seedTenantRules (WP-SU-21):
     // feature flags, MLS patterns, settings and a source profile. Each FKs the tenant, so

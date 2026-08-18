@@ -23,9 +23,10 @@ export interface RlsClaims {
   sub: string;
   /** app_metadata.tenant_id → app_current_tenant(). */
   tenantId: string;
-  /** app_metadata.role → app_current_role(). Phase C: the admin-stream tiers take the
-   *  staff arm of every policy (`app_current_role() <> 'partner'`, migration 0054). */
-  role: "admin" | "partner" | "member" | "viewer";
+  /** app_metadata.role → app_current_role(). Phase C: the admin-stream tiers take the staff
+   *  arm of every policy (the SCP-09 allowlist, migration 0054). OMIT to probe an UNBOUND
+   *  claim — RLSB-08 proves every arm denies it. */
+  role?: "admin" | "partner" | "member" | "viewer";
   /** app_metadata.partner_id → app_current_partner(). Omit for admin. */
   partnerId?: string;
 }
@@ -65,7 +66,8 @@ export const LEAD_FAMILY_TABLES = ["leads", "lead_notes", "lead_tasks", "lead_st
 class Rollback extends Error {}
 
 function claimsJson(c: RlsClaims): string {
-  const appMetadata: Record<string, string> = { tenant_id: c.tenantId, role: c.role };
+  const appMetadata: Record<string, string> = { tenant_id: c.tenantId };
+  if (c.role) appMetadata.role = c.role;
   if (c.partnerId) appMetadata.partner_id = c.partnerId;
   return JSON.stringify({ sub: c.sub, app_metadata: appMetadata });
 }

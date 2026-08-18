@@ -113,6 +113,8 @@ vi.mock("@/modules/retention/auth-tables", () => ({
     if (h.trustedDevicesThrows) throw new Error("trusted_devices pass down");
     return { deleted: h.trustedDevicesDeleted };
   }),
+  // Phase C: the team-invites pass (SET-08) rides the same best-effort block.
+  sweepTeamInvites: vi.fn(async () => ({ deleted: 0 })),
   sweepNoticeClaims: vi.fn(async () => {
     if (h.noticeClaimsThrows) throw new Error("notice_claims pass down");
     return { deleted: h.noticeClaimsDeleted };

@@ -253,6 +253,21 @@ suite("RLSB: RLS enforcement oracle (non-owner role)", () => {
     expect(crossStream.denied).toBe(true);
   });
 
+  it("RLSB-08 (Phase C/SCP-09): an UNBOUND role claim denies every staff arm (allowlist, not denylist)", async () => {
+    // The load-bearing property of the 0054 rewrite: a claim with NO app_metadata.role must
+    // never take a staff arm. With `= ANY('admin','member','viewer')` a NULL role is simply
+    // not in the list; the partner arms collapse too (app_current_partner() is NULL).
+    // A random sub: users_scope's self-arm (id = app_current_user()) is role-independent by
+    // design, so the probe's subject must not match any seeded row.
+    const unbound: RlsClaims = { sub: randomUUID(), tenantId: id.tenant };
+    for (const t of ["users", "partners", "audit_log", "leads", "lead_notes", "lead_tasks", "tags", "lead_tags"]) {
+      const n = await asRole(db, unbound, async (tx) =>
+        (await tx.execute<{ n: number }>(sql.raw(`select count(*)::int as n from ${t}`)))[0].n,
+      );
+      expect(n, `${t} denies an unbound claim`).toBe(0);
+    }
+  });
+
   it("RLSB-04: cross-stream / cross-owner WRITES are refused; the legitimate write is allowed", async () => {
     const insertTask = (v: { leadId: string; authorUserId: string; authorRole: "admin" | "partner"; title: string }) =>
       async (tx: typeof db) => {

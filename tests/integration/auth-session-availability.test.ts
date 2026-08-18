@@ -137,7 +137,7 @@ suite("C-34/SEC-09: auth session-mint availability mapping", () => {
   // ── trust/refresh ─────────────────────────────────────────────────────────────
   async function issueTrust(): Promise<string> {
     const userId = randomUUID();
-    await db.insert(schema.users).values({ id: userId, tenantId, email: `trust-${userId}@avail.test`, role: "partner" });
+    await db.insert(schema.users).values({ id: userId, tenantId, email: `trust-${userId}@avail.test`, role: "admin" });
     const { token } = await new TrustedDeviceService(db).issue(
       { tenantId, userId, partnerId: null, deviceLabel: null, ip: null },
       Date.now(),

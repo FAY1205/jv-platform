@@ -8,6 +8,7 @@ import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { sweepAuthAttempts } from "@/modules/retention/auth-attempts";
 import {
   sweepOtpChallenges,
+  sweepTeamInvites,
   sweepResetTokens,
   sweepSignupVerifications,
   sweepSignupCodes,
@@ -101,7 +102,7 @@ export async function GET(request: Request) {
       // with hygiene work. trusted_devices is now swept here too (WP-SU-14) — but CANARY-SAFE: it
       // prunes a row only when its family has no live head, so an active family's reuse canaries
       // survive (AUT-10 preserved).
-      const [authAttempts, otpChallenges, resetTokens, signupVerifications, signupCodes, trustedDevices, noticeClaims, idempotencyKeys, emailOutbox, aiFeedback, notifications, savedViewsCleared] = await Promise.all([
+      const [authAttempts, otpChallenges, resetTokens, signupVerifications, signupCodes, trustedDevices, noticeClaims, idempotencyKeys, emailOutbox, aiFeedback, notifications, savedViewsCleared, teamInvites] = await Promise.all([
         sweepAuthAttempts(db)
           .then((r) => r.deleted)
           .catch((e) => {
@@ -183,10 +184,16 @@ export async function GET(request: Request) {
           .catch((e) => {
             logError("cron_saved_views_pii_sweep_failed", { message: e instanceof Error ? e.message : String(e) });
             return 0;
-          }),
+          }),,
+        sweepTeamInvites(db)
+          .then((r) => r.deleted)
+          .catch((e) => {
+            logError("cron_team_invites_sweep_failed", { message: e instanceof Error ? e.message : String(e) });
+            return 0;
+          })
       ]);
 
-      return { tenants: swept, purged, notesRedacted, tasksRedacted, notificationsRedacted, outboxRedacted, exportsRemoved, authAttempts, otpChallenges, resetTokens, signupVerifications, signupCodes, trustedDevices, noticeClaims, idempotencyKeys, emailOutbox, aiFeedback, notifications, savedViewsCleared };
+      return { tenants: swept, purged, notesRedacted, tasksRedacted, notificationsRedacted, outboxRedacted, exportsRemoved, authAttempts, otpChallenges, resetTokens, signupVerifications, signupCodes, trustedDevices, noticeClaims, idempotencyKeys, emailOutbox, aiFeedback, notifications, savedViewsCleared, teamInvites };
     },
   ).then(
     (r) => jsonOk({ code: "ok", ...r }),

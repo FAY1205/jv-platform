@@ -23,7 +23,7 @@ Missing snapshots (all hand-authored SQL-only migrations):
 
 - `drizzle-kit migrate` applies migrations from `_journal.json` + the `.sql` files, **not** from
   snapshots — so a missing snapshot never affects applying migrations.
-- `drizzle-kit generate` diffs `schema.ts` against the **latest** snapshot (currently 0050, which
+- `drizzle-kit generate` diffs `schema.ts` against the **latest** snapshot (currently 0053, which
   reflects `schema.ts`), so the intermediate gaps are inert for future generation. The one structural
   change in the set — 0036's `lead_notes_author_user_idx` — is present in `schema.ts` and every
   snapshot from 0038 on.

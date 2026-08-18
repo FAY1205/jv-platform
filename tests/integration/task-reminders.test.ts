@@ -414,7 +414,7 @@ suite("TSK-09: reminder sweep isolation + recipient refusal", () => {
         { tenantId: ta.id, leadId: leadA.id, title: "Cross-tenant assignee", authorRole: "admin", authorUserId: id.adminA, assignedToUserId: id.adminB, dueOn: YESTERDAY },
         // Assignee is a partner user of ANOTHER ORG in the same tenant.
         { tenantId: ta.id, leadId: leadA.id, title: "Cross-org assignee", authorRole: "partner", authorUserId: id.pxUser, assignedToUserId: id.pyUser, dueOn: YESTERDAY },
-        // Assignee is a partner-role user with no org — unscopeable, must fail closed.
+        // Assignee is a member on a partner-stream task (cannot see it) — unscopeable, must fail closed.
         { tenantId: ta.id, leadId: leadA.id, title: "Orphan assignee", authorRole: "partner", authorUserId: id.pxUser, assignedToUserId: id.orphanUser, dueOn: YESTERDAY },
         // Tenant B's own due task: tenant A's sweep must not see, stamp, or mail it.
         { tenantId: tb.id, leadId: leadB.id, title: "Tenant B task", authorRole: "admin", authorUserId: id.adminB, assignedToUserId: id.adminB, dueOn: YESTERDAY },
