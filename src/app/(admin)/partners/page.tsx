@@ -38,6 +38,7 @@ import {
   useToast,
   usePageHeader,
 } from "@/components";
+import { coverageSummary } from "@/lib/coverage-summary";
 import { US_STATES } from "@/lib/us-states";
 import type { CoverageMapResponse } from "@/modules/coverage/map";
 
@@ -749,13 +750,24 @@ function PartnersBody() {
               <TBody>
                 {roster.map((p) => (
                   <Tr key={p.id}>
-                    <Td clamp clampTitle={`${p.name} (${p.refId})`}>
+                    {/* UXF-10.1 (Scope-E audit §10.1): at 390px this cell used to render the
+                        swatch and a clipped reference ID with NO partner name at all — the
+                        row lost its identity. Two changes, both pure layout: a min-width
+                        floor so the column can't be squeezed to nothing, and the reference
+                        ID moved onto its OWN line (the /coverage partner-list pattern) so it
+                        stops competing with the name for horizontal space. The name is now
+                        the part that gets the width and ellipsizes last; PRN-14 still holds —
+                        swatch, name AND reference ID are all present. */}
+                    <Td clamp clampTitle={`${p.name} (${p.refId})`} className="min-w-[10rem]">
                       <Link
                         href={`/partners/${p.id}`}
-                        className="inline-flex max-w-full rounded-md transition-opacity hover:opacity-70 focus-visible:opacity-70"
+                        className="block max-w-full rounded-md transition-opacity hover:opacity-70 focus-visible:opacity-70"
                         title={`Open ${p.name}`}
                       >
-                        <PartnerTag name={p.name} color={p.color} refId={p.refId} />
+                        <PartnerTag name={p.name} color={p.color} />
+                        <span className="num mt-0.5 block text-step-0 font-medium text-text-3" aria-label={`Reference ${p.refId}`}>
+                          {p.refId}
+                        </span>
                       </Link>
                     </Td>
                     <Td clamp clampTitle={p.email ?? undefined}>
@@ -766,10 +778,9 @@ function PartnersBody() {
                       <Badge variant={STATUS[p.status].variant}>{STATUS[p.status].label}</Badge>
                     </Td>
                     <Td fit>
-                      <span className="num text-xs text-text-3">
-                        {p.zipCount} ZIP{p.zipCount === 1 ? "" : "s"}
-                        {p.stateCount > 0 && ` · ${p.stateCount} state${p.stateCount === 1 ? "" : "s"}`}
-                      </span>
+                      {/* UXF-10.2: zero segments are omitted — "0 ZIPs · 2 states" read as a
+                          defect rather than as a fact (lib/coverage-summary). */}
+                      <span className="num text-xs text-text-3">{coverageSummary(p.zipCount, p.stateCount)}</span>
                     </Td>
                     <Td fit align="right">
                       <RowActions p={p} onEdit={() => setEditing(p)} onDeactivate={() => setDeactivating(p)} />
