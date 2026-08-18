@@ -1,4 +1,4 @@
-import { and, inArray, ne, sql } from "drizzle-orm";
+import { and, inArray, isNotNull, ne, or, sql } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import * as schema from "@/db/schema";
 import { tenantIdWhere } from "@/lib/scope";
@@ -56,7 +56,13 @@ export async function redactLeadCommunications(
       and(
         tenantIdWhere(schema.notifications, tenantId),
         inArray(schema.notifications.leadRef, leadRefs),
-        ne(schema.notifications.title, REDACTED_NOTIFICATION_TITLE),
+        // Idempotency, widened for the D8 deep_link backfill (audit F-8): a row sentineled
+        // BEFORE deep_link joined the redaction set still carries its link — re-touch those
+        // once too, instead of letting the title guard strand them.
+        or(
+          ne(schema.notifications.title, REDACTED_NOTIFICATION_TITLE),
+          isNotNull(schema.notifications.deepLink),
+        ),
       ),
     )
     .returning({ leadRef: schema.notifications.leadRef });

@@ -35,8 +35,10 @@ export async function POST(request: Request, { params }: { params: Promise<{ ref
 
     const result = await manuallyAssignLead(scope, { leadRef: ref, partnerId: parsed.data.partnerId });
     // F-40: tell the receiving partner (best-effort, in-app; ADR-0020 / ADR-0014).
+    // audit-tenancy (WP-NF1): address the fan-out by the SERVER-VALIDATED id the command
+    // returned, never the request body — the fan-out is now org-wide and includes email.
     try {
-      await notifyLeadAssigned(getDb(), scope, { leadRef: ref, partnerId: parsed.data.partnerId });
+      await notifyLeadAssigned(getDb(), scope, { leadRef: ref, partnerId: result.assignedPartnerId });
     } catch (e) {
       logError("assign_notify_failed", { message: e instanceof Error ? e.message : String(e) });
     }

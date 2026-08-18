@@ -25,7 +25,7 @@ type DB = PostgresJsDatabase<typeof schema>;
 
 export const MAX_OUTBOX_ATTEMPTS = 5;
 const BASE_BACKOFF_MS = 60_000; // 1 minute
-const MAX_BACKOFF_MS = 6 * 60 * 60_000; // 6 hours
+const MAX_BACKOFF_MS = 6 * 60 * 60_000; // 6 hours (jitter can stretch to MAX * (1 + BACKOFF_JITTER) = 7.5h)
 
 /** Exponential backoff for retry number `attempts` (1-based), capped. Pure. */
 export function backoffMs(attempts: number): number {

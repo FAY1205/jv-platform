@@ -39,7 +39,10 @@ export interface ManualAssignInput {
 
 /** Manually route an unmatched lead to a partner (fills the gap, never rewrites
  *  history). Returns the partner's ref for the caller's confirmation message. */
-export async function manuallyAssignLead(scope: ScopeContext, input: ManualAssignInput): Promise<{ partnerRefId: string }> {
+export async function manuallyAssignLead(
+  scope: ScopeContext,
+  input: ManualAssignInput,
+): Promise<{ partnerRefId: string; assignedPartnerId: string }> {
   const db = getDb();
   return db.transaction(async (tx) => {
     const [lead] = await tx
@@ -98,7 +101,9 @@ export async function manuallyAssignLead(scope: ScopeContext, input: ManualAssig
       traceId: globalThis.crypto.randomUUID(),
     });
 
-    return { partnerRefId: partner.refId };
+    // audit-tenancy on WP-NF1: the SERVER-VALIDATED partner id travels back so notify
+    // fan-outs address the org this transaction actually assigned — never the request body.
+    return { partnerRefId: partner.refId, assignedPartnerId: partner.id };
   });
 }
 
@@ -111,6 +116,9 @@ export interface BulkAssignInput {
 
 export interface BulkAssignResult {
   partnerRefId: string;
+  /** The server-validated internal partner id — the ONLY value a notify fan-out may
+   *  address (audit-tenancy on WP-NF1: never echo the request body's partnerId). */
+  assignedPartnerId: string;
   /** Refs actually assigned (were eligible: kept, no snapshot owner, no overlay). */
   assigned: string[];
   /** Refs requested but not assigned (already routed/assigned, removed, or unknown). */
@@ -139,7 +147,9 @@ export async function bulkAssignLeads(scope: ScopeContext, input: BulkAssignInpu
         ),
       );
     if (!partner) throw new InvalidAssignTargetError();
-    if (input.leadRefs.length === 0) return { partnerRefId: partner.refId, assigned: [], skipped: [] };
+    if (input.leadRefs.length === 0) {
+      return { partnerRefId: partner.refId, assignedPartnerId: partner.id, assigned: [], skipped: [] };
+    }
 
     const eligible = await tx
       .select({ id: schema.leads.id, refId: schema.leads.refId, state: schema.leads.state, zip: schema.leads.zip })
@@ -177,7 +187,7 @@ export async function bulkAssignLeads(scope: ScopeContext, input: BulkAssignInpu
         })),
       );
     }
-    return { partnerRefId: partner.refId, assigned: eligible.map((l) => l.refId), skipped };
+    return { partnerRefId: partner.refId, assignedPartnerId: partner.id, assigned: eligible.map((l) => l.refId), skipped };
   });
 }
 
