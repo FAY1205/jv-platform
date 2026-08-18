@@ -34,6 +34,8 @@ export default function TagsSettingsPage() {
   /** The row queued for deletion — the dialog reads its live usage count from this row. */
   const [confirmDelete, setConfirmDelete] = React.useState<TagRow | null>(null);
   const [newName, setNewName] = React.useState("");
+  /** Chosen create colour, or null = "Auto" (server assigns the next palette slot, round-robin). */
+  const [newColor, setNewColor] = React.useState<(typeof TAG_PALETTE)[number] | null>(null);
 
   const invalidate = () => {
     qc.invalidateQueries({ queryKey: TAGS_KEY });
@@ -44,9 +46,13 @@ export default function TagsSettingsPage() {
   };
 
   const create = useMutation({
-    mutationFn: (name: string) => apiMutate<{ id: string }>("/api/tags", "POST", { name }),
+    // An omitted color lets the server pick the next palette slot (round-robin); a chosen one
+    // is passed through (POST /api/tags already accepts an optional palette-key `color`).
+    mutationFn: (v: { name: string; color: (typeof TAG_PALETTE)[number] | null }) =>
+      apiMutate<{ id: string }>("/api/tags", "POST", v.color ? { name: v.name, color: v.color } : { name: v.name }),
     onSuccess: () => {
       setNewName("");
+      setNewColor(null);
       invalidate();
       toast("Tag created.", "success");
     },
@@ -98,7 +104,7 @@ export default function TagsSettingsPage() {
             className="flex flex-wrap items-center gap-2"
             onSubmit={(e) => {
               e.preventDefault();
-              if (newName.trim()) create.mutate(newName.trim());
+              if (newName.trim()) create.mutate({ name: newName.trim(), color: newColor });
             }}
           >
             <div className="w-full max-w-[280px]">
@@ -110,8 +116,41 @@ export default function TagsSettingsPage() {
                 aria-label="New tag name"
               />
             </div>
-            {/* The color is assigned server-side (next palette slot, round-robin) and can be
-                changed on the row below — one fewer decision at creation time. */}
+            {/* WP-UX-7: pick a colour up front (the same fixed palette the rows recolor from),
+                or leave it on "Auto" for the round-robin next slot. Each swatch carries its
+                palette key as its accessible name, so the choice is never colour-only (PRN-14). */}
+            <div className="flex items-center gap-1.5" role="group" aria-label="New tag colour">
+              <button
+                type="button"
+                aria-pressed={newColor === null}
+                disabled={busy}
+                onClick={() => setNewColor(null)}
+                className={cn(
+                  "rounded-md border px-2 py-0.5 text-step-0 font-semibold outline-none transition-colors",
+                  "focus-visible:ring-1 focus-visible:ring-brand-ink disabled:cursor-not-allowed disabled:opacity-50",
+                  newColor === null ? "border-brand-line bg-brand-soft text-brand-ink" : "border-border bg-surface text-text-3 hover:text-text-2",
+                )}
+              >
+                Auto
+              </button>
+              {TAG_PALETTE.map((c) => (
+                <button
+                  key={c}
+                  type="button"
+                  aria-label={c}
+                  aria-pressed={newColor === c}
+                  disabled={busy}
+                  onClick={() => setNewColor(c)}
+                  className={cn(
+                    "h-5 w-5 rounded-sm outline-none transition-transform",
+                    tagDotClass(c),
+                    "hover:scale-110 focus-visible:ring-1 focus-visible:ring-brand-ink active:scale-95",
+                    "disabled:cursor-not-allowed disabled:opacity-50",
+                    newColor === c ? "ring-2 ring-text-2 ring-offset-1 ring-offset-surface" : "",
+                  )}
+                />
+              ))}
+            </div>
             <Button type="submit" disabled={!newName.trim() || busy} loading={create.isPending}>
               Add tag
             </Button>

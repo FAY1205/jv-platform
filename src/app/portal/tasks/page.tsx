@@ -17,7 +17,10 @@ export default function PortalTasksPage() {
   return (
     <main className="mx-auto w-full flex-1 p-4 md:p-0">
       <h1 className="mb-4 font-display text-xl font-semibold tracking-tight text-text md:hidden">Your tasks</h1>
-      <MyTasksList leadHrefBase="/portal/leads?open=" />
+      {/* WP-UX-7: the portal already labels this surface ("Your tasks" on mobile, the "Tasks"
+          rail item on desktop), so MyTasksList drops its own "My Tasks" card title here — the
+          two no longer repeat. The overdue badge + status filter stay in the card header. */}
+      <MyTasksList leadHrefBase="/portal/leads?open=" title={null} />
     </main>
   );
 }

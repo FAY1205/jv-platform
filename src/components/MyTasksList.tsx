@@ -60,6 +60,10 @@ export interface MyTasksListProps {
   /** Injected "today" (TSK-10 discipline) — tests pass a fixed date; defaults to now,
    *  computed ONCE at this component's boundary, never re-derived per row. */
   today?: string;
+  /** The card heading. Defaults to "My Tasks"; pass `null` to omit it where the surrounding
+   *  page already supplies the heading (the portal shows "Your tasks"), so the two don't
+   *  repeat (WP-UX-7). The header's overdue badge + status filter are unaffected. */
+  title?: string | null;
 }
 
 const GROUP_LABEL: Record<DueGroup, string> = {
@@ -85,7 +89,7 @@ const STATUS_OPTIONS = [
   { value: "done", label: "Done" },
 ] as const;
 
-export function MyTasksList({ leadHrefBase, today }: MyTasksListProps) {
+export function MyTasksList({ leadHrefBase, today, title = "My Tasks" }: MyTasksListProps) {
   const qc = useQueryClient();
   const toast = useToast();
   const todayStr = today ?? utcDateString(new Date());
@@ -142,7 +146,7 @@ export function MyTasksList({ leadHrefBase, today }: MyTasksListProps) {
   return (
     <Card>
       <CardHeader>
-        <CardTitle as="h2">My Tasks</CardTitle>
+        {title !== null && <CardTitle as="h2">{title}</CardTitle>}
         {overdueOnPage > 0 && (
           // PRN-14: color never carries the meaning alone — the text "N overdue" says it too.
           <Badge variant="removed">{overdueOnPage} overdue</Badge>

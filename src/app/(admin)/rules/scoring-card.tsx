@@ -47,9 +47,13 @@ export function ScoringCard() {
                       {i === 0 && (
                         <td className="px-3 py-2 align-top font-semibold text-text" rowSpan={criterion.tiers.length}>
                           {criterion.name}
-                          <span className="mt-0.5 block text-step-0 font-normal text-text-3">
-                            Required: {criterion.required}
-                          </span>
+                          {/* WP-UX-7: the intro already says all five are required, so "Required: Yes"
+                              on every row was noise — annotate ONLY the criterion whose rule differs. */}
+                          {criterion.required !== "Yes" && (
+                            <span className="mt-0.5 block text-step-0 font-normal text-text-3">
+                              Required {criterion.required.toLowerCase()}
+                            </span>
+                          )}
                         </td>
                       )}
                       <td className="px-3 py-2 text-text-2">{tier.values}</td>
@@ -76,11 +80,15 @@ export function ScoringCard() {
                 .sort((a, b) => b.min - a.min)
                 .map((group) => (
                   <li key={group.key} className="flex items-center gap-3 px-3 py-2.5 text-sm">
-                    <Badge variant={GROUP_BADGE[group.key]} className="gap-1.5">
-                      {group.key === "hot" && <HotLeadIcon size={12} />}
-                      {group.label}
-                    </Badge>
-                    <span className="tabular-nums text-text-2">
+                    {/* WP-UX-7: fixed-width badge + range slots so the ranges (and the text after
+                        them) line up down the column regardless of label/number width. */}
+                    <span className="flex w-24 shrink-0">
+                      <Badge variant={GROUP_BADGE[group.key]} className="gap-1.5">
+                        {group.key === "hot" && <HotLeadIcon size={12} />}
+                        {group.label}
+                      </Badge>
+                    </span>
+                    <span className="w-14 shrink-0 text-right tabular-nums text-text-2">
                       {group.min}–{group.max}
                     </span>
                     <span className="text-text-3">
