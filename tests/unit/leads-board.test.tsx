@@ -148,8 +148,21 @@ describe("KAN-02: LeadsBoard renders six columns of cards", () => {
   });
 });
 
-// ── KAN-04: drag → the EXISTING status endpoint, optimistic + rollback ────────
+// ── KAN-04/06: pointer drag → the EXISTING status endpoint, optimistic + rollback ──
+// The board's drag is POINTER-based (not native HTML5 DnD, which fired no `drop` on a
+// rejected target, had no touch support and was untestable under real automation). A
+// press that travels past the threshold onto another column is a drag; the controller
+// resolves the drop target from the pointer's element (`data-column-status`), so the same
+// code path runs here (no layout) and in the browser.
 describe("KAN-04: dragging a card moves it via POST /api/leads/{ref}/status", () => {
+  const P = { pointerId: 1, button: 0 } as const;
+  /** Press `cardEl`, travel past the 5px threshold onto `targetCol`, release there. */
+  function pointerDrag(cardEl: HTMLElement, targetCol: HTMLElement) {
+    fireEvent.pointerDown(cardEl, { ...P, clientX: 10, clientY: 10 });
+    fireEvent.pointerMove(targetCol, { ...P, clientX: 400, clientY: 240 });
+    fireEvent.pointerUp(targetCol, { ...P, clientX: 400, clientY: 240 });
+  }
+
   function dragBoard(statusPost: (url: string) => ReturnType<typeof json>) {
     const calls: { url: string; method: string; body?: string }[] = [];
     const fetchSpy = vi.fn((url: string, opts?: RequestInit) => {
@@ -170,14 +183,13 @@ describe("KAN-04: dragging a card moves it via POST /api/leads/{ref}/status", ()
     wrap(<LeadsBoard filters={noFilters} onOpen={() => {}} now={NOW} />);
     const cardEl = await screen.findByTestId("board-card-LD-26-00001");
 
-    fireEvent.dragStart(cardEl);
-    // DSN-03 drag states: the dragged card dims, and the column under the pointer
-    // marks itself a valid drop target.
+    // DSN-03 drag states: past the threshold the dragged card dims (data-dragging) and the
+    // column under the pointer marks itself a valid drop target (data-over).
+    fireEvent.pointerDown(cardEl, { ...P, clientX: 10, clientY: 10 });
+    fireEvent.pointerMove(column("Contacted"), { ...P, clientX: 400, clientY: 240 });
     await waitFor(() => expect(cardEl).toHaveAttribute("data-dragging", "true"));
-    fireEvent.dragOver(column("Contacted"));
-    await waitFor(() => expect(column("Contacted")).toHaveAttribute("data-over", "true"));
-
-    fireEvent.drop(column("Contacted"));
+    expect(column("Contacted")).toHaveAttribute("data-over", "true");
+    fireEvent.pointerUp(column("Contacted"), { ...P, clientX: 400, clientY: 240 });
 
     // Optimistic: it is in Contacted while the POST is still in flight.
     await waitFor(() => expect(within(column("Contacted")).getByTestId("board-card-LD-26-00001")).toBeInTheDocument());
@@ -197,8 +209,7 @@ describe("KAN-04: dragging a card moves it via POST /api/leads/{ref}/status", ()
     wrap(<LeadsBoard filters={noFilters} onOpen={() => {}} now={NOW} />);
     const cardEl = await screen.findByTestId("board-card-LD-26-00001");
 
-    fireEvent.dragStart(cardEl);
-    fireEvent.drop(column("Dead"));
+    pointerDrag(cardEl, column("Dead"));
 
     // Scoped to the visible toast stack — the message is mirrored into an sr-only
     // aria-live region too, so an unscoped query matches twice and never resolves.
@@ -208,20 +219,41 @@ describe("KAN-04: dragging a card moves it via POST /api/leads/{ref}/status", ()
     expect(within(column("Dead")).queryByTestId("board-card-LD-26-00001")).toBeNull();
   });
 
-  it("KAN-04: dropping a card on its OWN column is a no-op — no request at all", async () => {
+  it("KAN-04: releasing a card on its OWN column is a no-op — no request at all", async () => {
     const calls = dragBoard(() => json({}));
 
     wrap(<LeadsBoard filters={noFilters} onOpen={() => {}} now={NOW} />);
     const cardEl = await screen.findByTestId("board-card-LD-26-00001");
 
-    fireEvent.dragStart(cardEl);
-    fireEvent.dragOver(column("New"));
-    fireEvent.drop(column("New"));
+    pointerDrag(cardEl, column("New"));
 
     await waitFor(() => expect(within(column("New")).getByTestId("board-card-LD-26-00001")).toBeInTheDocument());
     expect(calls.filter((c) => c.method === "POST")).toHaveLength(0);
     // The source column never lights up as a drop target either.
     expect(column("New")).not.toHaveAttribute("data-over");
+  });
+
+  it("KAN-06: a press that never travels opens the lead; the drop-highlight and ghost clear on release", async () => {
+    dragBoard(() => json({}));
+    const onOpen = vi.fn();
+    wrap(<LeadsBoard filters={noFilters} onOpen={onOpen} now={NOW} />);
+    const cardEl = await screen.findByTestId("board-card-LD-26-00001");
+
+    // A tap: down then up within the threshold, then the click — the dialog opens.
+    fireEvent.pointerDown(cardEl, { ...P, clientX: 10, clientY: 10 });
+    fireEvent.pointerUp(cardEl, { ...P, clientX: 11, clientY: 11 });
+    fireEvent.click(cardEl, { clientX: 11, clientY: 11 });
+    expect(onOpen).toHaveBeenCalledWith("LD-26-00001");
+
+    // A drag: travelled past the threshold — the following click is ignored, and nothing
+    // is left dimmed or highlighted.
+    onOpen.mockClear();
+    pointerDrag(cardEl, column("Contacted"));
+    fireEvent.click(cardEl, { clientX: 400, clientY: 240 });
+    expect(onOpen).not.toHaveBeenCalled();
+    await waitFor(() => expect(cardEl).not.toHaveAttribute("data-dragging"));
+    expect(column("Contacted")).not.toHaveAttribute("data-over");
+    expect(screen.queryByTestId("board-drag-ghost")).toBeNull();
   });
 });
 
@@ -248,8 +280,13 @@ describe("KAN-10: moving a card does not re-render the whole board", () => {
     const before = Object.fromEntries(untouched.map((s) => [s, emptyStateRenders[`Nothing is in ${s} yet.`] ?? 0]));
     expect(Object.values(before).every((n) => n > 0)).toBe(true); // the probe really is wired up
 
-    fireEvent.dragStart(screen.getByTestId("board-card-LD-26-00001"));
-    fireEvent.drop(column("Contacted"));
+    const P = { pointerId: 1, button: 0 } as const;
+    fireEvent.pointerDown(screen.getByTestId("board-card-LD-26-00001"), { ...P, clientX: 10, clientY: 10 });
+    // The pointermove re-renders the board (the cursor-following ghost is board state), but
+    // every untouched column's props are identity-stable, so React.memo bails — the probe
+    // below proves the ghost re-render alone doesn't reach them.
+    fireEvent.pointerMove(column("Contacted"), { ...P, clientX: 400, clientY: 240 });
+    fireEvent.pointerUp(column("Contacted"), { ...P, clientX: 400, clientY: 240 });
 
     // The move landed (both touched columns re-rendered — the card left one and joined
     // the other)…
@@ -309,26 +346,8 @@ describe("KAN-05: every card has a keyboard-operable Move to… menu", () => {
   });
 });
 
-// ── KAN-06: click vs drag ────────────────────────────────────────────────────
-describe("KAN-06: a card opens the lead dialog on click, but never after a drag", () => {
-  it("KAN-06: a press that stayed put opens the lead; one that travelled past the threshold does not", async () => {
-    vi.stubGlobal("fetch", vi.fn(() => json(payload({ New: { cards: [card("LD-26-00001")] } }))) as unknown as typeof fetch);
-    const onOpen = vi.fn();
-
-    wrap(<LeadsBoard filters={noFilters} onOpen={onOpen} now={NOW} />);
-    const cardEl = await screen.findByTestId("board-card-LD-26-00001");
-
-    // A drag: pointer travelled 40px before release — the click must be ignored.
-    fireEvent.pointerDown(cardEl, { clientX: 10, clientY: 10 });
-    fireEvent.click(cardEl, { clientX: 50, clientY: 50 });
-    expect(onOpen).not.toHaveBeenCalled();
-
-    // A click: within the threshold.
-    fireEvent.pointerDown(cardEl, { clientX: 10, clientY: 10 });
-    fireEvent.click(cardEl, { clientX: 11, clientY: 12 });
-    expect(onOpen).toHaveBeenCalledWith("LD-26-00001");
-  });
-
+// ── KAN-06: keyboard path to the dialog ──────────────────────────────────────
+describe("KAN-06: a card's ref id opens the lead dialog from the keyboard", () => {
   it("KAN-06: the ref id is a real button, so the dialog has a keyboard path too", async () => {
     vi.stubGlobal("fetch", vi.fn(() => json(payload({ New: { cards: [card("LD-26-00001")] } }))) as unknown as typeof fetch);
     const onOpen = vi.fn();

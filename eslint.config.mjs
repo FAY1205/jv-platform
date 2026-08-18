@@ -21,6 +21,10 @@ const eslintConfig = defineConfig([
     // capture scripts. They are not ours to lint (C-1).
     "laravel-crm-2.2/**",
     "_marketing/**",
+    // The open-source "Twenty" CRM checkout kept locally for UI/UX reference only
+    // (untracked, never committed). Its global type declarations otherwise collide
+    // with ours and pollute typecheck/lint.
+    "twenty-main*/**",
   ]),
 ]);
 
