@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { NextResponse } from "next/server";
 import { getServerScope } from "@/lib/scope-context";
-import { authErrorResponse, requireAdminResponse, assertCsrf } from "@/lib/auth/guard";
+import { authErrorResponse, assertCsrf } from "@/lib/auth/guard";
 import { getPartner } from "@/modules/partners/queries";
 import { updatePartner, PartnerNotFoundError } from "@/modules/partners/commands";
 import { updatePartnerWithCoverage } from "@/modules/partners/partner-with-coverage";
@@ -9,6 +9,7 @@ import { CoverageConflictError } from "@/modules/coverage/commands";
 import { parseZipList, parseStateList } from "@/modules/coverage/parse";
 import { PartnerUpdateSchema } from "@/modules/partners/schema";
 import { jsonOk, jsonError, newTraceId } from "@/lib/http";
+import { requireCapabilityResponse } from "@/lib/authz";
 
 const IdSchema = z.string().uuid();
 // WP-C: coverage may ride along with a contact edit so both are one atomic request.
@@ -18,8 +19,8 @@ const CoverageBody = z.object({ zips: z.string().max(200_000).default(""), state
 export async function GET(_request: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
     const scope = await getServerScope();
-    const adminOnly = requireAdminResponse(scope);
-    if (adminOnly) return adminOnly;
+    const gate = requireCapabilityResponse(scope, "partners.manage");
+    if (gate) return gate;
     const { id } = await params;
     if (!IdSchema.safeParse(id).success) return jsonError("invalid_id", "Invalid partner id.", 400);
     const partner = await getPartner(scope, id);
@@ -36,8 +37,8 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   }
   try {
     const scope = await getServerScope();
-    const adminOnly = requireAdminResponse(scope);
-    if (adminOnly) return adminOnly;
+    const gate = requireCapabilityResponse(scope, "partners.manage");
+    if (gate) return gate;
     const { id } = await params;
     if (!IdSchema.safeParse(id).success) return jsonError("invalid_id", "Invalid partner id.", 400);
 

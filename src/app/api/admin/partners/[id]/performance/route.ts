@@ -1,9 +1,10 @@
 import { z } from "zod";
 import { getServerScope } from "@/lib/scope-context";
-import { authErrorResponse, requireAdminResponse } from "@/lib/auth/guard";
+import { authErrorResponse } from "@/lib/auth/guard";
 import { partnerPerformanceDetail } from "@/modules/analytics/partner-performance";
 import { RANGE_KEYS, type RangeKey } from "@/modules/analytics/ranges";
 import { jsonOk, jsonError } from "@/lib/http";
+import { requireCapabilityResponse } from "@/lib/authz";
 
 const IdSchema = z.string().uuid();
 const RangeSchema = z.enum(RANGE_KEYS as unknown as [RangeKey, ...RangeKey[]]).catch("12mo");
@@ -13,8 +14,8 @@ const RangeSchema = z.enum(RANGE_KEYS as unknown as [RangeKey, ...RangeKey[]]).c
 export async function GET(request: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
     const scope = await getServerScope();
-    const adminOnly = requireAdminResponse(scope);
-    if (adminOnly) return adminOnly;
+    const gate = requireCapabilityResponse(scope, "partners.manage");
+    if (gate) return gate;
     const { id } = await params;
     if (!IdSchema.safeParse(id).success) return jsonError("invalid_id", "Invalid partner id.", 400);
     const range = RangeSchema.parse(new URL(request.url).searchParams.get("range"));

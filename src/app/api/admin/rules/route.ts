@@ -1,7 +1,8 @@
 import { getServerScope } from "@/lib/scope-context";
-import { authErrorResponse, requireAdminResponse } from "@/lib/auth/guard";
+import { authErrorResponse } from "@/lib/auth/guard";
 import { listMlsPatterns } from "@/modules/rules/queries";
 import { jsonOk, jsonError } from "@/lib/http";
+import { requireCapabilityResponse } from "@/lib/authz";
 
 // CVG-02: the Rules area — MLS phrases only. Coverage moved to Partners (WS-5); recodes
 // removed (ADR-0018); file formats (Source Profiles, SET-12) moved to Settings → Data &
@@ -9,8 +10,8 @@ import { jsonOk, jsonError } from "@/lib/http";
 export async function GET() {
   try {
     const scope = await getServerScope();
-    const adminOnly = requireAdminResponse(scope);
-    if (adminOnly) return adminOnly;
+    const gate = requireCapabilityResponse(scope, "rules.manage");
+    if (gate) return gate;
     const mlsPatterns = await listMlsPatterns(scope);
     return jsonOk({ mlsPatterns });
   } catch (e) {

@@ -4,7 +4,7 @@ import { getDb } from "@/db";
 import * as schema from "@/db/schema";
 import { tenantWhere } from "@/lib/scope";
 import { getServerScope } from "@/lib/scope-context";
-import { authErrorResponse, requireAdminResponse } from "@/lib/auth/guard";
+import { authErrorResponse } from "@/lib/auth/guard";
 import { getRunExportData } from "@/modules/run/export-data";
 import { renderExport } from "@/modules/export/render";
 import { loadColorCoding } from "@/modules/settings/export-settings";
@@ -12,6 +12,7 @@ import { signedExportUrl } from "@/modules/export/storage";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { logError } from "@/lib/observability";
 import { jsonError } from "@/lib/http";
+import { requireCapabilityResponse } from "@/lib/authz";
 
 const RefSchema = z.string().regex(/^IM-\d{2}-\d{3,}$/);
 
@@ -26,8 +27,8 @@ export async function GET(_req: Request, { params }: { params: Promise<{ ref: st
 
   try {
     const scope = await getServerScope();
-    const adminOnly = requireAdminResponse(scope);
-    if (adminOnly) return adminOnly;
+    const gate = requireCapabilityResponse(scope, "data.export");
+    if (gate) return gate;
 
     const [upload] = await getDb()
       .select({ status: schema.uploads.status, storagePath: schema.uploads.storagePath })

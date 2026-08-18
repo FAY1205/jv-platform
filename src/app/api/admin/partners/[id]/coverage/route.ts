@@ -1,11 +1,12 @@
 import { z } from "zod";
 import { getServerScope } from "@/lib/scope-context";
-import { authErrorResponse, requireAdminResponse, assertCsrf } from "@/lib/auth/guard";
+import { authErrorResponse, assertCsrf } from "@/lib/auth/guard";
 import { setPartnerCoverage, CoverageConflictError } from "@/modules/coverage/commands";
 import { parseZipList, parseStateList } from "@/modules/coverage/parse";
 import { PartnerNotFoundError } from "@/modules/partners/commands";
 import { jsonOk, jsonError, newTraceId } from "@/lib/http";
 import { NextResponse } from "next/server";
+import { requireCapabilityResponse } from "@/lib/authz";
 
 const IdSchema = z.string().uuid();
 const Body = z.object({ zips: z.string().max(200_000).default(""), states: z.string().max(20_000).default("") });
@@ -19,8 +20,8 @@ export async function PUT(request: Request, { params }: { params: Promise<{ id: 
   }
   try {
     const scope = await getServerScope();
-    const adminOnly = requireAdminResponse(scope);
-    if (adminOnly) return adminOnly;
+    const gate = requireCapabilityResponse(scope, "partners.manage");
+    if (gate) return gate;
     const { id } = await params;
     if (!IdSchema.safeParse(id).success) return jsonError("invalid_id", "Invalid partner id.", 400);
 

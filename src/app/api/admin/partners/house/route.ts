@@ -1,7 +1,8 @@
 import { getServerScope } from "@/lib/scope-context";
-import { authErrorResponse, requireAdminResponse, assertCsrf } from "@/lib/auth/guard";
+import { authErrorResponse, assertCsrf } from "@/lib/auth/guard";
 import { ensureHousePartner } from "@/modules/partners/commands";
 import { jsonOk, jsonError } from "@/lib/http";
+import { requireCapabilityResponse } from "@/lib/authz";
 
 // WP-D (ADR-0037): create (or return) the tenant's house partner — the admin's own territory.
 // Idempotent; the command's advisory lock + is_house partial unique index guarantee one per tenant.
@@ -12,8 +13,8 @@ export async function POST(request: Request) {
   }
   try {
     const scope = await getServerScope();
-    const adminOnly = requireAdminResponse(scope);
-    if (adminOnly) return adminOnly;
+    const gate = requireCapabilityResponse(scope, "partners.manage");
+    if (gate) return gate;
 
     const partner = await ensureHousePartner(scope);
     return jsonOk({ code: "ok", message: "House territory ready.", partner });

@@ -1,17 +1,18 @@
 import { getDb } from "@/db";
 import { getServerScope } from "@/lib/scope-context";
-import { authErrorResponse, requireAdminResponse } from "@/lib/auth/guard";
+import { authErrorResponse } from "@/lib/auth/guard";
 import { findProfileById } from "@/modules/sources/profile-store";
 import { renderTemplate } from "@/modules/sources/template";
 import { jsonError } from "@/lib/http";
+import { requireCapabilityResponse } from "@/lib/authz";
 
 // ING-05: download an .xlsx template for a known source format (header row + one
 // example row) — a saved version or a built-in. Admin-only; no tenant data.
 export async function GET(_req: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
     const scope = await getServerScope();
-    const adminOnly = requireAdminResponse(scope);
-    if (adminOnly) return adminOnly;
+    const gate = requireCapabilityResponse(scope, "ingest.run");
+    if (gate) return gate;
 
     const { id } = await params;
     const profile = await findProfileById(getDb(), scope, id);

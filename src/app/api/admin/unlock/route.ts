@@ -4,9 +4,10 @@ import { getDb } from "@/db";
 import * as schema from "@/db/schema";
 import { getServerScope } from "@/lib/scope-context";
 import { tenantWhere, type ScopeContext } from "@/lib/scope";
-import { assertCsrf, authErrorResponse, requireAdminResponse } from "@/lib/auth/guard";
+import { assertCsrf, authErrorResponse } from "@/lib/auth/guard";
 import { AuthAttemptsStore } from "@/lib/auth/attempts-store";
 import { jsonOk, jsonError } from "@/lib/http";
+import { requireCapabilityResponse } from "@/lib/authz";
 
 // AUT-04: an admin can clear a locked account's recent failed attempts. Admin-only,
 // CSRF-protected. (A button surfaces with the admin activity screens — WP-034.)
@@ -30,7 +31,7 @@ export async function POST(request: Request) {
   } catch (e) {
     return authErrorResponse(e) ?? jsonError("scope_failed", "Could not resolve session.", 500);
   }
-  const forbidden = requireAdminResponse(scope);
+  const forbidden = requireCapabilityResponse(scope, "ops.admin");
   if (forbidden) return forbidden;
 
   const parsed = Input.safeParse(await request.json().catch(() => null));

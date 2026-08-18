@@ -1,10 +1,11 @@
 import { getDb } from "@/db";
 import { getServerScope } from "@/lib/scope-context";
-import { authErrorResponse, requireAdminResponse, assertCsrf } from "@/lib/auth/guard";
+import { authErrorResponse, assertCsrf } from "@/lib/auth/guard";
 import { jsonError } from "@/lib/http";
 import { ChatBodySchema, assistantGate, assistantResponse } from "@/modules/ai/chat";
 import { resolveTenantModel, tenantModelId } from "@/modules/ai/model";
 import { loadAiCredential } from "@/modules/ai/credential";
+import { requireCapabilityResponse } from "@/lib/authz";
 
 // AIA-01: the assistant chat endpoint. Admin-only, CSRF-gated, Zod-validated,
 // budget/rate/tier gated BEFORE any model call. Streaming UIMessage response.
@@ -14,8 +15,8 @@ export async function POST(request: Request) {
   }
   try {
     const scope = await getServerScope();
-    const adminOnly = requireAdminResponse(scope);
-    if (adminOnly) return adminOnly;
+    const denied = requireCapabilityResponse(scope, "ai.use");
+    if (denied) return denied;
     const parsed = ChatBodySchema.safeParse(await request.json().catch(() => null));
     if (!parsed.success) return jsonError("invalid_input", "Invalid chat payload.", 400);
     const db = getDb();
