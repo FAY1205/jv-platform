@@ -1,9 +1,12 @@
 // ASN-03: how long an unmatched lead has waited. PURE — `now` is injected, never read
-// (mirrors the analytics discipline). Hours under 2 days, otherwise days, one decimal.
+// (mirrors the analytics discipline). Hours under 2 days, otherwise days.
 export function formatWaiting(receivedISO: string, nowMs: number): string {
   const hours = Math.max(0, (nowMs - new Date(receivedISO).getTime()) / 3_600_000);
   if (hours < 48) return `${Math.round(hours * 10) / 10}h`;
-  return `${Math.round((hours / 24) * 10) / 10}d`;
+  const days = hours / 24;
+  // The tenth of a day only helps for a short wait; from two weeks up it is false precision
+  // (a lead that waited "647.1d" — the audit finding — reads as a bug). Whole days past 14.
+  return days >= 14 ? `${Math.round(days)}d` : `${Math.round(days * 10) / 10}d`;
 }
 
 // WP-UX-6 (audit U-1): let the WAITING value carry urgency so the eye is drawn by the
