@@ -29,7 +29,9 @@ const LeadsBoard = dynamic(() => import("./leads-board").then((m) => m.LeadsBoar
 // status is a pill Select; pagination has rows-per-page (FEP-03). Server-side
 // filtered/sorted/paged; the LeadDialog is code-split (F-56).
 
-interface LeadRow {
+// Exported for C-41b: lead-placeholder.ts reshapes a cached row of this list into the
+// partial detail the dialog paints while the real one loads (type-only import there).
+export interface LeadRow {
   refId: string; seller: string; address: string; city: string | null; state: string | null;
   zip: string | null; campaign: string | null; mlsStatus: "kept" | "removed"; status: string;
   scoreTotal: number | null; scoreGroup: "hot" | "warm" | "nurture" | null;
@@ -38,7 +40,7 @@ interface LeadRow {
   /** TAG-04: the row's chips, ordered by lower(name) server-side. */
   tags: LeadTagView[];
 }
-interface LeadsPage { leads: LeadRow[]; page: number; pageSize: number; total: number }
+export interface LeadsPage { leads: LeadRow[]; page: number; pageSize: number; total: number }
 interface Partner { id: string; refId: string; name: string; color: string }
 
 /**

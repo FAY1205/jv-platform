@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { portalLeadsKey, portalLeadsParams } from "@/modules/portal/leads-contract";
 
 const LEAD = {
   refId: "JV-2001",
@@ -24,12 +25,14 @@ const LEAD = {
   listing: { status: "no", link: null },
 };
 
+const defaultApiGet = async (url: string) => (url.includes("/notes") ? { notes: [] } : url.includes("/tasks") ? { tasks: [] } : LEAD);
 vi.mock("@/lib/api", () => ({
   // TasksPanel's GET (/api/leads/[ref]/tasks) is a different endpoint from the lead
   // detail/notes fetches this fixture already stubs — route it to an empty list too.
   apiGet: vi.fn(async (url: string) => (url.includes("/notes") ? { notes: [] } : url.includes("/tasks") ? { tasks: [] } : LEAD)),
 }));
 
+import { apiGet } from "@/lib/api";
 import { ToastProvider } from "@/components";
 import { PortalLeadDialog } from "@/app/portal/leads/portal-lead-dialog";
 
@@ -63,5 +66,53 @@ describe("VP-4: PortalLeadDialog carries every partner feature from the old page
     await screen.findByText("Ana Ruiz");
     expect(screen.queryByText("Motivation")).toBeNull();
     expect(screen.queryByText("SHOULD NOT APPEAR")).toBeNull();
+  });
+});
+
+// C-41b: the tapped row already carries the seller, address and status — a partner should
+// see them at once, not five skeleton bars, while the detail loads behind them.
+describe("C-41b: PortalLeadDialog renders from the list cache while the detail loads", () => {
+  // The row as the portal list caches it (C-41a key): separate sellerFirst/sellerLast, and
+  // none of the phone/email/reason/history the detail adds.
+  const ROW = {
+    refId: "JV-2001", sellerFirst: "Ana", sellerLast: "Ruiz",
+    address: "20 Bluffside Dr", city: "Covington", state: "KY", zip: "41017",
+    receivedAt: "2026-08-04T15:33:00.000Z", status: "New", scoreTotal: null, scoreGroup: null,
+  };
+
+  afterEach(() => {
+    vi.mocked(apiGet).mockImplementation(defaultApiGet);
+  });
+
+  it("C-41b: the row's identity paints immediately; detail-only fields wait, then fill in", async () => {
+    let release: () => void = () => {};
+    const gate = new Promise<void>((r) => { release = r; });
+    vi.mocked(apiGet).mockImplementation(async (url: string) => {
+      if (url.includes("/notes")) return { notes: [] };
+      if (url.includes("/tasks")) return { tasks: [] };
+      await gate;
+      return LEAD;
+    });
+
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    qc.setQueryData(portalLeadsKey(portalLeadsParams()), { leads: [ROW], page: 1, pageSize: 20, total: 1 });
+    render(
+      <QueryClientProvider client={qc}>
+        <ToastProvider>
+          <PortalLeadDialog refId="JV-2001" onClose={() => {}} />
+        </ToastProvider>
+      </QueryClientProvider>,
+    );
+
+    // From the cached row, with no detail round trip completed.
+    expect(await screen.findByText("Ana Ruiz")).toBeTruthy();
+    expect(screen.getByText(/20 Bluffside Dr/)).toBeTruthy();
+    // Detail-only: the phone a partner is about to call is NOT guessed from the row.
+    expect(screen.queryByRole("link", { name: "(859) 938-9128" })).toBeNull();
+    expect(screen.queryByText("Relocation / moving")).toBeNull();
+
+    release();
+    expect(await screen.findByText("Relocation / moving")).toBeTruthy();
+    expect(screen.getByRole("link", { name: "(859) 938-9128" })).toHaveAttribute("href", "tel:8599389128");
   });
 });

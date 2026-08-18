@@ -5,6 +5,9 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { apiGet } from "@/lib/api";
+// TYPE-ONLY (erased at compile): a VALUE import from queries would pull its
+// @/db → postgres → node:fs chain into this client bundle.
+import type { LeadNavCounts } from "@/modules/leads/queries";
 import { APP_NAME } from "@/lib/app";
 import { NotificationBell } from "./NotificationBell";
 import { ProfileMenu } from "./ProfileMenu";
@@ -96,18 +99,18 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   };
 
   // Nav-badge counts — cheap, cached across pages, from the server (PRN-15, never derived).
-  const unmatched = useQuery({
-    queryKey: ["unmatched", "count"],
-    queryFn: () => apiGet<{ count: number }>("/api/leads/unmatched/count"),
+  // C-41d: ONE query over ONE endpoint. This was two near-identical requests fired side by
+  // side on every admin page (/api/leads/count + /api/leads/unmatched/count), each resolving
+  // the scope and scanning the same table; the server now answers both in one round trip.
+  // The key stays under the ["leads"] prefix so the existing lead-write invalidations
+  // (qc.invalidateQueries({ queryKey: ["leads"] })) keep refreshing the badges.
+  const counts = useQuery({
+    queryKey: ["leads", "counts"],
+    queryFn: () => apiGet<LeadNavCounts>("/api/leads/counts"),
     staleTime: 30_000,
   });
-  const unmatchedCount = unmatched.data?.count ?? 0;
-  const leads = useQuery({
-    queryKey: ["leads", "count"],
-    queryFn: () => apiGet<{ count: number }>("/api/leads/count"),
-    staleTime: 30_000,
-  });
-  const leadsTotal = leads.data?.count ?? 0;
+  const unmatchedCount = counts.data?.unmatched ?? 0;
+  const leadsTotal = counts.data?.total ?? 0;
 
   // Rail contents, shared by the desktop column and the mobile drawer.
   const rail = (onNavigate?: () => void) => (

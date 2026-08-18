@@ -19,6 +19,7 @@ import {
   type TimelineEntry,
 } from "@/components";
 import { googleSearchUrl } from "@/lib/search-links";
+import { portalLeadPlaceholder } from "./portal-lead-placeholder";
 
 // VP-4: the partner-facing lead dialog (mirrors the admin LeadDialog pattern, portal-scoped).
 // Replaces the retired /portal/leads/[ref] PAGE — same data + every feature it had (status
@@ -26,7 +27,9 @@ import { googleSearchUrl } from "@/lib/search-links";
 // partner may see (no routing internals, no other-partner data — PRN-08). "Motivation" is
 // dropped: for Lead Source 1 it is never populated; reason-for-selling carries the content.
 
-interface LeadDetail {
+// Exported for C-41b: portal-lead-placeholder.ts builds the partial the dialog paints while
+// the real detail loads (type-only import there, so no runtime cycle).
+export interface PortalLeadDetail {
   refId: string;
   seller: { first: string; last: string; phone: string; email: string };
   address: string;
@@ -56,10 +59,15 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 
 export function PortalLeadDialog({ refId, onClose }: { refId: string; onClose: () => void }) {
   const qc = useQueryClient();
-  const { data, isPending, error, refetch } = useQuery({
+  const { data, isPending, isPlaceholderData, error, refetch } = useQuery({
     queryKey: ["portal-lead", refId],
-    queryFn: () => apiGet<LeadDetail>(`/api/portal/leads/${refId}`),
+    queryFn: () => apiGet<PortalLeadDetail>(`/api/portal/leads/${refId}`),
+    // C-41b: paint the identity the tapped row already carries instead of five skeleton
+    // bars. placeholderData, never initialData — see portal-lead-placeholder.
+    placeholderData: () => portalLeadPlaceholder(qc, refId),
   });
+  /** True while `data` is the row-derived partial: everything the row can't supply stays a skeleton. */
+  const partial = isPlaceholderData;
   // The Timeline's activity[] (task_created/task_completed entries) lives in this same
   // lead-detail payload, so a task add/complete/reopen/delete refreshes it too.
   const onTaskChanged = () => qc.invalidateQueries({ queryKey: ["portal-lead", refId] });
@@ -86,6 +94,9 @@ export function PortalLeadDialog({ refId, onClose }: { refId: string; onClose: (
           <div className="flex flex-col gap-1">
             <span className="text-base font-semibold text-text">{`${data.seller.first} ${data.seller.last}`.trim() || "—"}</span>
             <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
+              {/* C-41b: the row gives the name; the phone/email a partner is about to use
+                  are detail-only, so they hold a labelled space instead of appearing late. */}
+              {partial ? <Skeleton className="h-4 w-48" /> : null}
               {data.seller.phone ? (
                 <a href={`tel:${data.seller.phone.replace(/[^\d+]/g, "")}`} className="text-brand-ink hover:underline">{data.seller.phone}</a>
               ) : null}
@@ -119,11 +130,12 @@ export function PortalLeadDialog({ refId, onClose }: { refId: string; onClose: (
 
           {/* Details */}
           <div className="grid grid-cols-2 gap-x-5 gap-y-4">
-            <Field label="Reason for selling">{data.reasonForSelling || "—"}</Field>
-            <Field label="Time to sell">{data.timeToSell || "—"}</Field>
+            <Field label="Reason for selling">{partial ? <Skeleton className="h-4 w-28" /> : data.reasonForSelling || "—"}</Field>
+            <Field label="Time to sell">{partial ? <Skeleton className="h-4 w-28" /> : data.timeToSell || "—"}</Field>
             <Field label="Received">{fmtDateTime(data.receivedAt)}</Field>
             <Field label="Listing check">
-              <ListingBadge status={data.listing.status} link={data.listing.link} />
+              {/* Not a lead column — a server-side lookup, so it can only come from the detail. */}
+              {partial ? <Skeleton className="h-4 w-24" /> : <ListingBadge status={data.listing.status} link={data.listing.link} />}
             </Field>
           </div>
 
@@ -138,15 +150,19 @@ export function PortalLeadDialog({ refId, onClose }: { refId: string; onClose: (
 
           {/* Tasks panel sits ABOVE the Timeline per the approved mockup (WP-TSK-4, portal
               parity — same components as the admin dialog, scoped to this org's own stream). */}
+          {/* Tasks and Notes hold their OWN queries keyed on the ref (which the row gave us),
+              so they are not held back by the partial — they load alongside the detail. */}
           <TasksPanel leadRef={data.refId} onTaskChanged={onTaskChanged} />
 
-          <Timeline activity={data.activity} />
+          {partial ? <Skeleton className="h-24 w-full rounded-xl" /> : <Timeline activity={data.activity} />}
 
           {/* Status history — kept alongside the Timeline (pre-existing PTL-02/03 feature;
               the Timeline's own "Status" filter already surfaces the same changes inline). */}
           <div className="rounded-xl border border-border-soft bg-surface-2 p-4">
             <h3 className="mb-3 text-step-1 font-semibold uppercase tracking-wide text-text-3">Status history</h3>
-            {data.history.length === 0 ? (
+            {partial ? (
+              <Skeleton className="h-4 w-40" />
+            ) : data.history.length === 0 ? (
               <p className="text-sm text-text-3">No changes yet — the current status is the default.</p>
             ) : (
               <ol className="flex flex-col gap-3">

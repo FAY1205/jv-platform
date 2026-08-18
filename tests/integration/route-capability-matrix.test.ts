@@ -21,11 +21,10 @@ vi.mock("@/lib/scope-context", async (orig) => scopeContextMock(await orig<typeo
 
 import { GET as dashboardGet } from "@/app/api/dashboard/route";
 import { GET as leadsGet } from "@/app/api/leads/route";
-import { GET as leadsCountGet } from "@/app/api/leads/count/route";
+import { GET as leadsCountsGet } from "@/app/api/leads/counts/route";
 import { GET as boardGet } from "@/app/api/leads/board/route";
 import { GET as sourcesGet } from "@/app/api/leads/sources/route";
 import { GET as unmatchedGet } from "@/app/api/leads/unmatched/route";
-import { GET as unmatchedCountGet } from "@/app/api/leads/unmatched/count/route";
 import { GET as searchGet } from "@/app/api/search/route";
 import { GET as coverageGet } from "@/app/api/coverage/route";
 import { GET as tagsGet, POST as tagsPost } from "@/app/api/tags/route";
@@ -85,11 +84,10 @@ suite("AUTHZ-09: cluster-A route capability matrix", () => {
   const READS: [string, () => Promise<Response>][] = [
     ["dashboard", () => dashboardGet(new Request("http://localhost:3000/api/dashboard"))],
     ["leads list", () => leadsGet(new Request("http://localhost:3000/api/leads"))],
-    ["leads count", () => leadsCountGet()],
+    ["leads nav counts", () => leadsCountsGet()],
     ["board", () => boardGet(new Request("http://localhost:3000/api/leads/board"))],
     ["sources", () => sourcesGet()],
     ["unmatched", () => unmatchedGet()],
-    ["unmatched count", () => unmatchedCountGet()],
     ["search", () => searchGet(new Request("http://localhost:3000/api/search?q=smith"))],
     ["coverage", () => coverageGet()],
     ["tags roster", () => tagsGet()],

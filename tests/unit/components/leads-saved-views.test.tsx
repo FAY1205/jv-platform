@@ -94,8 +94,7 @@ beforeEach(() => {
     if (url.startsWith("/api/tags")) return { tags: [{ id: TAG_ID, name: "Probate", color: "teal", leadCount: 3 }] };
     if (url.includes("/api/admin/partners")) return { partners: [{ id: PARTNER_ID, refId: "JV-101", name: "Desert", color: "#111" }] };
     if (url.includes("/api/leads/sources")) return { sources: ["Lead Source 1"] };
-    if (url.includes("/api/leads/unmatched/count")) return { count: 0 };
-    if (url.includes("/api/leads/count")) return { count: 0 };
+    if (url.includes("/api/leads/counts")) return { total: 0, unmatched: 0 };
     if (url.startsWith("/api/leads?")) return { leads: [], page: 1, pageSize: 25, total: 0 };
     return { email: "admin@dev.test", role: "admin", workspace: { name: "W" }, notifications: [], unread: 0 };
   });

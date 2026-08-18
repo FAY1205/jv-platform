@@ -44,13 +44,15 @@ const TERRITORY = {
   ownStateCount: 3,
   partner: { name: "Meridian Buyers", refId: "JV-001", color: "#5B7A9E" },
 };
+// C-41a: the preview reads the SAME payload the leads list does, so the fixture carries the
+// full PartnerLeadRow shape (seller + score fields included), not just the columns drawn here.
 const LEADS_PAGE = {
   leads: [
-    { refId: "JV-1001", address: "12 Elm St", city: "Austin", state: "TX", zip: "78701", receivedAt: "2026-07-10T00:00:00.000Z", status: "New" },
-    { refId: "JV-1002", address: "88 Oak Ave", city: "Dallas", state: "TX", zip: "75201", receivedAt: "2026-07-09T00:00:00.000Z", status: "Contacted" },
+    { refId: "JV-1001", sellerFirst: "Ana", sellerLast: "Ruiz", address: "12 Elm St", city: "Austin", state: "TX", zip: "78701", receivedAt: "2026-07-10T00:00:00.000Z", status: "New", scoreTotal: null, scoreGroup: null },
+    { refId: "JV-1002", sellerFirst: "Bo", sellerLast: "Kim", address: "88 Oak Ave", city: "Dallas", state: "TX", zip: "75201", receivedAt: "2026-07-09T00:00:00.000Z", status: "Contacted", scoreTotal: null, scoreGroup: null },
   ],
   page: 1,
-  pageSize: 50,
+  pageSize: 20,
   total: 2,
 };
 
@@ -72,12 +74,17 @@ import { PortalDashboard } from "@/app/portal/dashboard/portal-dashboard";
 // KPI markup itself is still CSS-only (both stay in the DOM per the note below), so which
 // boolean this returns doesn't affect the existing KPI/headline assertions — only which of
 // the two map sections actually mounts the (stubbed) CountyCoverageMap.
-beforeEach(() => {
+// C-41a: it DOES now decide whether the recent-leads preview fetches at all (the section is
+// `hidden lg:block`, so on a phone it was a request for a table nobody could see). The stub
+// therefore defaults to the DESKTOP breakpoint — the viewport the preview exists for — and
+// the C-41a describe below flips it to prove the phone case.
+let matchesMedia = true;
+function stubMatchMedia() {
   Object.defineProperty(window, "matchMedia", {
     writable: true,
     configurable: true,
     value: vi.fn().mockImplementation((query: string) => ({
-      matches: false,
+      matches: matchesMedia,
       media: query,
       onchange: null,
       addEventListener: vi.fn(),
@@ -87,6 +94,10 @@ beforeEach(() => {
       dispatchEvent: vi.fn(),
     })),
   });
+}
+beforeEach(() => {
+  matchesMedia = true;
+  stubMatchMedia();
 });
 
 function renderDashboard() {
@@ -188,6 +199,32 @@ describe("WP-PW-2 PortalDashboard (desktop hero + recent-leads)", () => {
       const allTime = await screen.findAllByText(/all time/i);
       expect(allTime.length).toBeGreaterThan(0);
       expect(screen.queryAllByText(/vs prior/i).length).toBe(0);
+    });
+  });
+
+  // C-41a: the preview used to claim it shared the leads page's cache with a key
+  // (["portal-leads", 1]) and a url (?page=1) that matched NEITHER leads list — so the claim
+  // was false and a dashboard → leads navigation always refetched. It now asks the one
+  // canonical question, and only on the breakpoint that renders it.
+  describe("C-41a: the recent-leads preview shares one cache entry, and skips the phone", () => {
+    it("C-41a: requests the canonical portal-leads url the leads list opens on", async () => {
+      vi.mocked(apiGet).mockClear();
+      renderDashboard();
+      await screen.findByText("JV-1001");
+      const leadUrls = vi.mocked(apiGet).mock.calls.map((c) => c[0] as string).filter((u) => u.startsWith("/api/portal/leads"));
+      expect(leadUrls).toEqual(["/api/portal/leads?page=1&pageSize=20&sort=received&dir=desc"]);
+    });
+
+    it("C-41a: on a phone the desktop-only preview does not fetch leads at all", async () => {
+      matchesMedia = false;
+      stubMatchMedia();
+      vi.mocked(apiGet).mockClear();
+      renderDashboard();
+      // The dashboard still loads its own (breakpoint-independent) data...
+      expect((await screen.findAllByText("42")).length).toBeGreaterThan(0);
+      // ...but nothing asked for a leads page.
+      const leadUrls = vi.mocked(apiGet).mock.calls.map((c) => c[0] as string).filter((u) => u.startsWith("/api/portal/leads"));
+      expect(leadUrls).toEqual([]);
     });
   });
 });

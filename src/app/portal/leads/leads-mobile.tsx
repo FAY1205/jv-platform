@@ -1,13 +1,12 @@
 "use client";
 
 import * as React from "react";
-import { useQuery, keepPreviousData } from "@tanstack/react-query";
-import { apiGet } from "@/lib/api";
 import { fmtDate } from "@/lib/dates";
 import { useDebouncedValue } from "@/lib/use-debounced-value";
+import { usePortalLeads } from "@/lib/portal-leads-client";
 import { Button, EmptyState, FilterPill, Input, QueryErrorState, Skeleton, HotLeadMark } from "@/components";
 import { statusPillClass } from "@/lib/status-pill";
-import { PORTAL_STATUS_FILTERS } from "@/modules/portal/leads-contract";
+import { PORTAL_STATUS_FILTERS, PORTAL_LEADS_DEFAULT_PAGE_SIZE, portalLeadsParams } from "@/modules/portal/leads-contract";
 
 // WP-PW-3 Task 2: the mobile (< lg) Leads view.
 // WP-UX-5 (audit portal-mobile 1–3): mobile no longer loses capability — the desktop's
@@ -17,27 +16,16 @@ import { PORTAL_STATUS_FILTERS } from "@/modules/portal/leads-contract";
 // datum the card omitted; info-design is first-class UX, owner 2026-08-16), address
 // second, and carries a chevron so the tap-through is discoverable.
 
-interface Lead {
-  refId: string;
-  sellerFirst: string;
-  sellerLast: string;
-  address: string;
-  city: string;
-  state: string;
-  zip: string;
-  receivedAt: string;
-  status: string;
-  scoreTotal: number | null;
-  scoreGroup: "hot" | "warm" | "nurture" | null;
-}
-interface LeadsPage {
-  leads: Lead[];
-  page: number;
-  pageSize: number;
-  total: number;
-}
+// C-41a: the row/page shapes come from the shared contract (they were re-declared here and
+// had already drifted from the desktop's copy) — and so do the query key and url.
 
-export function LeadsMobile({ onOpen }: { onOpen: (refId: string) => void }) {
+/**
+ * `enabled` (C-41a): the view gate renders this list during the hydration window, BEFORE the
+ * media query has resolved, because that is the markup the server sent. Fetching then would
+ * be a wasted request on every desktop first paint, so the gate holds the query until the
+ * viewport is genuinely known to be mobile.
+ */
+export function LeadsMobile({ onOpen, enabled = true }: { onOpen: (refId: string) => void; enabled?: boolean }) {
   const [page, setPage] = React.useState(1);
   const [qInput, setQInput] = React.useState("");
   const qCommitted = useDebouncedValue(qInput.trim());
@@ -54,21 +42,13 @@ export function LeadsMobile({ onOpen }: { onOpen: (refId: string) => void }) {
 
   const toggleStatus = (s: string) => setStatuses((prev) => (prev.includes(s) ? prev.filter((x) => x !== s) : [...prev, s]));
 
-  const { data, isLoading, error, refetch } = useQuery({
-    queryKey: ["portal-leads", filterKey, page],
-    queryFn: () => {
-      const params = new URLSearchParams({ page: String(page) });
-      if (qCommitted) params.set("q", qCommitted);
-      if (statuses.length) params.set("status", statuses.join(","));
-      return apiGet<LeadsPage>(`/api/portal/leads?${params.toString()}`);
-    },
-    // Perf: keep the prior page while the next loads (mobile users on slow networks feel the flash most).
-    placeholderData: keepPreviousData,
-  });
+  // The canonical params: page 1 with no search and no status filter is BYTE-IDENTICAL to
+  // what the desktop table and the dashboard preview ask for, so the three share one entry.
+  const { data, isPending, error, refetch } = usePortalLeads(portalLeadsParams({ page, statuses, q: qCommitted }), { enabled });
 
   const leads = data?.leads ?? [];
   const total = data?.total ?? 0;
-  const pageSize = data?.pageSize ?? 50;
+  const pageSize = data?.pageSize ?? PORTAL_LEADS_DEFAULT_PAGE_SIZE;
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
   const hasFilters = qCommitted !== "" || statuses.length > 0;
 
@@ -109,7 +89,9 @@ export function LeadsMobile({ onOpen }: { onOpen: (refId: string) => void }) {
 
       {error ? (
         <QueryErrorState title="Couldn't load your leads" error={error} onRetry={() => refetch()} />
-      ) : isLoading ? (
+      ) : isPending ? (
+        // isPending (not isLoading): a HELD query is pending-but-not-fetching, and the
+        // skeleton is what the hydration window should show.
         <div className="flex flex-col gap-3">
           <Skeleton className="h-24 rounded-xl" />
           <Skeleton className="h-24 rounded-xl" />

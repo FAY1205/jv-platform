@@ -1,23 +1,24 @@
 "use client";
 
 import * as React from "react";
-import { useQuery, keepPreviousData } from "@tanstack/react-query";
-import { apiGet } from "@/lib/api";
 import { fmtDate } from "@/lib/dates";
 import { useDebouncedValue } from "@/lib/use-debounced-value";
+import { usePortalLeads } from "@/lib/portal-leads-client";
 import {
-  Button, Card, Input, Table, THead, TBody, Th, Tr, Td, Pagination, DEFAULT_PAGE_SIZE, Skeleton, EmptyState, QueryErrorState, HotLeadMark, RowOpenButton, StatusSelect, StatusFilterMenu,
+  Button, Card, Input, Table, THead, TBody, Th, Tr, Td, Pagination, Skeleton, EmptyState, QueryErrorState, HotLeadMark, RowOpenButton, StatusSelect, StatusFilterMenu,
 } from "@/components";
 // leads-contract, NOT ./queries: this is a "use client" component and a VALUE import
 // from queries would pull its @/db → postgres → node:fs chain into the client bundle.
-import { PORTAL_STATUS_FILTERS, type PortalLeadSort, type PartnerLeadPage } from "@/modules/portal/leads-contract";
+import { PORTAL_STATUS_FILTERS, PORTAL_LEADS_DEFAULT_PAGE_SIZE, portalLeadsParams, type PortalLeadSort } from "@/modules/portal/leads-contract";
 
 // WP-PW-3 Task 2: the desktop (>= lg) Leads table — admin-style sortable, status-
 // filterable, server-side-paginated (mirrors src/app/(admin)/leads/leads-view.tsx, portal-scoped).
-// Owns its own query/state entirely (no shared state with LeadsMobile) — exactly one of
-// the two mounts after the media query settles. Note: on a desktop first paint,
-// useIsDesktop() is false until that first render resolves, so LeadsMobile briefly
-// mounts (and fetches) before page.tsx swaps to this component.
+// Owns its own filter/sort/page STATE (no shared state with LeadsMobile) — exactly one of
+// the two mounts after the media query settles. C-41a: the query itself is no longer its
+// own; it goes through the shared usePortalLeads hook so the default page-1 view is the
+// same cache entry the dashboard preview already filled. The mobile list no longer fetches
+// during the hydration window either (see portal-leads-view), so a desktop first paint is
+// exactly ONE request.
 
 const DEFAULT_DIR: Record<PortalLeadSort, "asc" | "desc"> = {
   received: "desc",
@@ -32,7 +33,9 @@ export function LeadsDesktop({ onOpen }: { onOpen: (refId: string) => void }) {
   const [dir, setDir] = React.useState<"asc" | "desc">("desc");
   const [statuses, setStatuses] = React.useState<string[]>([]);
   const [page, setPage] = React.useState(1);
-  const [pageSize, setPageSize] = React.useState<number>(DEFAULT_PAGE_SIZE);
+  // The canonical default (= the Pagination primitive's DEFAULT_PAGE_SIZE; a unit test pins
+  // them together) — so opening this table asks the question the dashboard already asked.
+  const [pageSize, setPageSize] = React.useState<number>(PORTAL_LEADS_DEFAULT_PAGE_SIZE);
 
   // WP-PP-3: debounced free-text search (mirrors the admin leads-view 300ms debounce so
   // keystrokes don't refetch on every character; the committed value drives the query).
@@ -57,18 +60,7 @@ export function LeadsDesktop({ onOpen }: { onOpen: (refId: string) => void }) {
   };
 
 
-  const leadsQ = useQuery({
-    queryKey: ["portal-leads-desktop", filterKey, page, pageSize],
-    queryFn: () => {
-      const params = new URLSearchParams({ sort, dir, page: String(page), pageSize: String(pageSize) });
-      if (statuses.length) params.set("status", statuses.join(","));
-      if (qCommitted) params.set("q", qCommitted);
-      return apiGet<PartnerLeadPage>(`/api/portal/leads?${params.toString()}`);
-    },
-    // Perf: keep the prior page visible while the next page/sort/filter loads (mirrors the admin
-    // leads table + portal-dashboard) rather than flashing the table to skeletons.
-    placeholderData: keepPreviousData,
-  });
+  const leadsQ = usePortalLeads(portalLeadsParams({ page, pageSize, sort, dir, statuses, q: qCommitted }));
 
   const data = leadsQ.data;
   const sortDir = (f: PortalLeadSort) => (sort === f ? dir : null);

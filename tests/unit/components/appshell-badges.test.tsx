@@ -20,19 +20,21 @@ vi.mock("next/dynamic", () => ({
     };
   },
 }));
+const urls: string[] = [];
 vi.mock("@/lib/api", () => ({
-  apiGet: vi.fn(async (url: string) =>
-    url.includes("/api/leads/unmatched/count")
-      ? { count: counts.unmatched }
-      : url.includes("/api/leads/count")
-        ? { count: counts.leads }
-        : { email: "admin@dev.test", role: "admin", workspace: { name: "W" }, notifications: [], unread: 0 }),
+  apiGet: vi.fn(async (url: string) => {
+    urls.push(url);
+    return url.includes("/api/leads/counts")
+      ? { total: counts.leads, unmatched: counts.unmatched }
+      : { email: "admin@dev.test", role: "admin", workspace: { name: "W" }, notifications: [], unread: 0 };
+  }),
 }));
 
 import { AppShell } from "@/components/AppShell";
 
 afterEach(() => {
   counts = { leads: 0, unmatched: 0 };
+  urls.length = 0;
 });
 
 function renderShell() {
@@ -61,5 +63,14 @@ describe("D2: AppShell nav badge accessible names (SC 4.1.2)", () => {
     expect(screen.getByRole("link", { name: "Unmatched" })).toBeInTheDocument();
     expect(screen.queryByRole("link", { name: /Leads, \d/ })).toBeNull();
     expect(screen.queryByRole("link", { name: /Unmatched, \d/ })).toBeNull();
+  });
+
+  it("C-41d: both badges come from ONE /api/leads/counts request — the old count pair is gone", async () => {
+    counts = { leads: 412, unmatched: 3 };
+    renderShell();
+    await screen.findByRole("link", { name: "Leads, 412" });
+    await screen.findByRole("link", { name: "Unmatched, 3" });
+    const countUrls = urls.filter((u) => u.includes("count"));
+    expect(countUrls).toEqual(["/api/leads/counts"]);
   });
 });
