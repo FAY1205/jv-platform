@@ -5,7 +5,6 @@ import Link from "next/link";
 import { isInternalPath } from "@/modules/ai/internal-path";
 import { AnswerBody } from "./AnswerBody";
 import { AssistantIconButton } from "./AssistantIconButton";
-import { MiniOrb } from "./MiniOrb";
 
 export interface AssistantSource { label: string; path?: string }
 export interface AssistantMessageProps {
@@ -20,24 +19,26 @@ export interface AssistantMessageProps {
   /** Seed the initial thumb selection (uncontrolled). Used by the /gallery showcase to
    *  render the confirmed "rated" state statically; unset in the live widget. */
   defaultRating?: "up" | "down";
-  /** First message of a consecutive assistant run → show the MiniOrb + "Assistant" marker
-   *  above the answer (redesign: flat annotations, a quiet brand marker per turn, not a box
-   *  per message). Defaults to true so single/standalone renders (the gallery) still mark. */
+  /** First message of a consecutive assistant run → show the "Assistant" marker above the
+   *  answer (redesign: flat annotations with a quiet brand signature per turn, not a box per
+   *  message). Defaults to true so single/standalone renders (the gallery) still mark. */
   firstOfRun?: boolean;
 }
 
-/** The quiet brand signature above the first answer in a run — an 18px MiniOrb + label. */
+/** The quiet brand signature above the first answer in a run — a short brand tick + label
+ *  (a margin-mark on survey paper), no orb: the living orb stays special to the launcher +
+ *  the empty title-page, not sprinkled as a flat disc on every reply. */
 export function AssistantMarker() {
   return (
     <div className="flex items-center gap-2">
-      <MiniOrb size={18} />
+      <span aria-hidden="true" className="h-3 w-0.5 rounded-full bg-brand-line" />
       <span className="text-step-0 font-semibold uppercase tracking-[.08em] text-text-3">Assistant</span>
     </div>
   );
 }
 
-/** The body indent that aligns an answer's text under the marker's label (past the orb). */
-const ANSWER_INDENT = "pl-[26px]";
+/** The body indent that lines the answer up under the marker's label (past the tick + gap). */
+const ANSWER_INDENT = "pl-3";
 
 /** A never-empty reply: if the model returned only chips/links (or nothing yet), fall
  *  back to a sentence so the bubble is never blank (WP-AI-STYLE). */

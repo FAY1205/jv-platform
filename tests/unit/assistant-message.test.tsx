@@ -4,8 +4,8 @@ import { render, screen } from "@testing-library/react";
 import { AssistantMessage } from "@/components/assistant/AssistantMessage";
 
 // AI redesign: assistant answers are FLAT annotations (no boxed chat bubble), each run led by
-// a MiniOrb + "Assistant" marker. These lock the structure the live AI call couldn't exercise
-// in the dev harness (no CSRF session).
+// a quiet "Assistant" marker (brand tick + label — no orb). These lock the structure the live
+// AI call couldn't exercise in the dev harness (no CSRF session).
 describe("AssistantMessage — flat annotation + marker (AI redesign)", () => {
   it("firstOfRun shows the 'Assistant' marker above the answer, and renders the answer text", () => {
     render(<AssistantMessage id="a1" text="You have **13** active partners." sources={[]} showThumbs={false} />);
