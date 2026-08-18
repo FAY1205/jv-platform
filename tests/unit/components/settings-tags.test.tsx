@@ -145,12 +145,24 @@ describe("TAG-06: Settings → Tags manager", () => {
     expect(apiMutate).not.toHaveBeenCalled();
   });
 
-  it("creating a tag posts the trimmed name and lets the server pick the colour", async () => {
+  it("creating a tag posts the trimmed name and lets the server pick the colour (Auto default)", async () => {
     const user = userEvent.setup();
     apiMutate.mockResolvedValue({ id: "t3" });
     wrap();
     await user.type(await screen.findByRole("textbox", { name: /new tag name/i }), "  Cash buyer ask  ");
     await user.click(screen.getByRole("button", { name: /add tag/i }));
     await waitFor(() => expect(apiMutate).toHaveBeenCalledWith("/api/tags", "POST", { name: "Cash buyer ask" }));
+  });
+
+  it("WP-UX-7: picking a colour on the create row passes it through to the POST", async () => {
+    const user = userEvent.setup();
+    apiMutate.mockResolvedValue({ id: "t3" });
+    wrap();
+    await user.type(await screen.findByRole("textbox", { name: /new tag name/i }), "Vacant");
+    // Choose a specific palette swatch in the "New tag colour" group (not the Auto default).
+    const picker = screen.getByRole("group", { name: /new tag colour/i });
+    await user.click(within(picker).getByRole("button", { name: "rose" }));
+    await user.click(screen.getByRole("button", { name: /add tag/i }));
+    await waitFor(() => expect(apiMutate).toHaveBeenCalledWith("/api/tags", "POST", { name: "Vacant", color: "rose" }));
   });
 });
