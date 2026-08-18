@@ -14,9 +14,12 @@
 --
 -- DROP: `notifications_user_idx` (user_id alone) is superseded — every read path filters
 -- tenant AND user, so a user-only index was never the one the planner wanted. It was, however,
--- also the users.id FK cover; acceptable under the Phase C deactivation model (a users row is
--- never hard-deleted, so no ON DELETE/UPDATE scan of this table can be triggered). Called out
--- for audit-data in the PR body rather than buried here.
+-- also the users.id FK cover. Acceptable because users are hard-deleted only PRE-ACTIVATION
+-- (deprovisionAdmin, dev/test cleanup — src/lib/auth/provision.ts; signup-sweep, abandoned
+-- never-verified signups — src/modules/retention/signup-sweep.ts): neither path can have
+-- produced a notification row, since every createNotification call site requires an active
+-- pipeline/task on a verified tenant. Active seats are deactivated, never deleted (Phase C).
+-- Called out for audit-data in the PR body rather than buried here.
 DROP INDEX "notifications_user_idx";--> statement-breakpoint
 CREATE INDEX "notifications_tenant_user_created_idx" ON "notifications" USING btree ("tenant_id","user_id","created_at" DESC NULLS LAST);--> statement-breakpoint
 CREATE INDEX "notifications_tenant_user_unread_idx" ON "notifications" USING btree ("tenant_id","user_id") WHERE "notifications"."read_at" is null;

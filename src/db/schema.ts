@@ -670,8 +670,10 @@ export const notifications = pgTable(
     // `notifications_user_idx` (user_id alone) is REMOVED: superseded by the composite above,
     // which leads with tenant_id — every read path filters tenant AND user, so a user-only index
     // was never the one the planner wanted. NOTE for review: it was also the users.id FK cover.
-    // Acceptable under the Phase C deactivation model (users are never hard-deleted, so no
-    // ON DELETE scan of this table can occur); see the PR body.
+    // Acceptable because users are hard-deleted only PRE-ACTIVATION (deprovisionAdmin dev/test
+    // cleanup; signup-sweep's abandoned never-verified signups) — neither path can have produced
+    // a notification row (every createNotification site requires an active pipeline/task on a
+    // verified tenant); active seats are deactivated, never deleted (Phase C). See the PR body.
     // FK-covering index (db-linter 0001): the tenant_id FK had no leading-column index.
     index("notifications_tenant_idx").on(t.tenantId),
     // C-36: the void/purge redaction looks up notifications by (tenant_id, lead_ref) (redact-lead-comms.ts).
