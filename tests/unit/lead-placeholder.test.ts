@@ -103,7 +103,8 @@ describe("C-41b: portal lead placeholder", () => {
 
   it("C-41b: leaves every detail-only section empty for the dialog to skeleton", () => {
     const d = portalLeadDetailFromRow(PORTAL_ROW);
-    expect(d.history).toEqual([]);
+    // C-12: `history` is retired — the status changes ride in `activity`, which the
+    // placeholder still leaves empty for the dialog to skeleton.
     expect(d.activity).toEqual([]);
     expect(d.notes).toBe("");
     expect(d.timeToSell).toBe("");

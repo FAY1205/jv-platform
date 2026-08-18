@@ -12,11 +12,14 @@ export interface AvatarInitialsProps {
   /** Display name when one exists; falls back to the email local-part (`users` has no name column). */
   name?: string | null;
   email: string;
-  size?: "sm" | "md";
+  size?: "xs" | "sm" | "md";
   className?: string;
 }
 
 const SIZES: Record<NonNullable<AvatarInitialsProps["size"]>, string> = {
+  // C-11: 20px, for identity inside a dense in-dialog list row (TasksPanel's meta row) —
+  // it must not change the row height, so it sits under the ~24px DueChip beside it.
+  xs: "h-5 w-5 text-step-0",
   sm: "h-7 w-7 text-step-1",
   md: "h-8 w-8 text-step-1",
 };

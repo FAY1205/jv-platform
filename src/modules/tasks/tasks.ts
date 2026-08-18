@@ -1,4 +1,5 @@
 import { and, asc, count, eq, inArray, isNotNull, isNull, ne, or, sql, type SQL } from "drizzle-orm";
+import { alias, type PgColumn } from "drizzle-orm/pg-core";
 import { LeadNotFoundError } from "@/modules/leads/errors";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import { getDb } from "@/db";
@@ -73,6 +74,20 @@ export class InvalidAssigneeError extends Error {
   }
 }
 
+/**
+ * C-11: a RESOLVED display identity for a task's assignee/author. `users` has no name
+ * column, so the email is the display identity (lib/identity, team roster). Never invented
+ * client-side; `null` means "unresolvable" — an unset assignee, or an id that does not
+ * resolve under the caller's own tenant + stream (see identityJoin below).
+ */
+export interface TaskIdentity {
+  email: string;
+  /** users.role — the word a tooltip shows; NOT rendered as a per-row badge. */
+  role: "admin" | "member" | "viewer" | "partner";
+  /** users.deactivated_at IS NOT NULL. Attribution persists for a closed seat. */
+  deactivated: boolean;
+}
+
 export interface LeadTaskView {
   id: string;
   title: string;
@@ -83,6 +98,10 @@ export interface LeadTaskView {
   doneAt: string | null;
   createdAt: string;
   updatedAt: string;
+  /** C-11: resolved `assignedToUserId`. Null when unset OR unresolvable. */
+  assignee: TaskIdentity | null;
+  /** C-11: resolved `authorUserId`. Null when unresolvable. */
+  author: TaskIdentity | null;
 }
 
 export interface MyTaskItem extends LeadTaskView {
@@ -135,17 +154,85 @@ const TASK_COLUMNS = {
   updatedAt: schema.leadTasks.updatedAt,
 } as const;
 
-function toView(r: {
-  id: string;
-  title: string;
-  dueOn: string | null;
-  assignedToUserId: string | null;
-  authorUserId: string;
-  authorRole: string;
-  doneAt: Date | null;
-  createdAt: Date;
-  updatedAt: Date;
-}): LeadTaskView {
+// ── C-11 identity resolution ─────────────────────────────────────────────────
+// Two aliases of `users` (a task's assignee and its author can be different rows, so one
+// join each) selected alongside TASK_COLUMNS. The emails these produce are ALREADY served
+// to these exact callers by the shared timeline read-model under the identical predicate
+// (modules/leads/timeline.ts), so surfacing them here adds no new PII exposure (SEC-05).
+const assigneeUser = alias(schema.users, "assignee_user");
+const authorUser = alias(schema.users, "author_user");
+
+const IDENTITY_COLUMNS = {
+  assigneeEmail: assigneeUser.email,
+  assigneeUserRole: assigneeUser.role,
+  assigneeDeactivatedAt: assigneeUser.deactivatedAt,
+  authorEmail: authorUser.email,
+  // NOT `authorRole` — that column is the task's binary PRN-13 STREAM enum. This is the
+  // author's TIER (users.role), a different axis entirely.
+  authorUserRole: authorUser.role,
+  authorDeactivatedAt: authorUser.deactivatedAt,
+} as const;
+
+interface TaskIdentityRow {
+  assigneeEmail: string | null;
+  assigneeUserRole: string | null;
+  assigneeDeactivatedAt: Date | null;
+  authorEmail: string | null;
+  authorUserRole: string | null;
+  authorDeactivatedAt: Date | null;
+}
+
+/** `schema.users` OR one of its aliases — drizzle bakes the table name into every column
+ *  type, so an alias is not assignable to `typeof schema.users`. Structural, so the two
+ *  helpers below serve the write path (the real table) and the read joins (the aliases). */
+interface UsersTableLike {
+  id: PgColumn;
+  role: PgColumn;
+  partnerId: PgColumn;
+  tenantId: PgColumn;
+}
+
+/**
+ * The user rows of the caller's OWN stream: an admin-stream caller sees admin-stream users
+ * (role <> 'partner'), a partner sees users of their own partner org. This is the same
+ * predicate resolveAssignee enforces on the WRITE path (TSK-03, audit F-2/F-4) — the
+ * partner arm checks role AND org because `users.partner_id` carries no role invariant.
+ */
+function sameStreamUsers(scope: ScopeContext, t: UsersTableLike) {
+  return !isPartnerStream(scope)
+    ? ne(t.role, "partner")
+    : and(eq(t.role, "partner"), eq(t.partnerId, requirePartner(scope)));
+}
+
+/**
+ * The ON clause for an identity join. Defence in depth, R-65's shape (timeline.ts:76-92)
+ * plus the stream arm: the join carries the caller's own tenant AND stream predicate, so a
+ * mis-set / cross-tenant / cross-stream id resolves to NULL — a partner row can never
+ * surface an admin's email and an admin row can never surface a partner's (PRN-13). An
+ * unresolvable identity degrades to "no identity", never to somebody else's.
+ */
+function identityJoin(t: UsersTableLike, scope: ScopeContext, idColumn: PgColumn) {
+  return and(eq(t.id, idColumn), tenantWhere(t, scope), sameStreamUsers(scope, t));
+}
+
+function toIdentity(email: string | null, role: string | null, deactivatedAt: Date | null): TaskIdentity | null {
+  if (!email || !role) return null;
+  return { email, role: role as TaskIdentity["role"], deactivated: deactivatedAt !== null };
+}
+
+function toView(
+  r: {
+    id: string;
+    title: string;
+    dueOn: string | null;
+    assignedToUserId: string | null;
+    authorUserId: string;
+    authorRole: string;
+    doneAt: Date | null;
+    createdAt: Date;
+    updatedAt: Date;
+  } & TaskIdentityRow,
+): LeadTaskView {
   return {
     id: r.id,
     title: r.title,
@@ -156,6 +243,8 @@ function toView(r: {
     doneAt: r.doneAt ? r.doneAt.toISOString() : null,
     createdAt: r.createdAt.toISOString(),
     updatedAt: r.updatedAt.toISOString(),
+    assignee: toIdentity(r.assigneeEmail, r.assigneeUserRole, r.assigneeDeactivatedAt),
+    author: toIdentity(r.authorEmail, r.authorUserRole, r.authorDeactivatedAt),
   };
 }
 
@@ -180,15 +269,11 @@ async function resolveLead(db: DB, scope: ScopeContext, leadRefId: string) {
  */
 async function resolveAssignee(db: DB, scope: ScopeContext, assignedToUserId?: string | null): Promise<string> {
   const target = assignedToUserId ?? scope.userId;
-  // The partner arm checks role AND org (audit-tenancy F-4): `users.partner_id` carries no
-  // role invariant — nothing stops an ADMIN row from holding one — so org membership alone
-  // would let an admin be assigned a partner task and cross the PRN-13 wall.
   // Phase C: the staff arm admits ANY admin-stream assignee (role <> 'partner'), so a
-  // member/viewer colleague is assignable exactly like an admin; the partner arm is unchanged.
-  const stream =
-    !isPartnerStream(scope)
-      ? ne(schema.users.role, "partner")
-      : and(eq(schema.users.role, "partner"), eq(schema.users.partnerId, requirePartner(scope)));
+  // member/viewer colleague is assignable exactly like an admin; the partner arm checks
+  // role AND org. C-11 reuses this same predicate READ-side (identityJoin), so the write
+  // path and identity resolution can never disagree about what "my own stream" means.
+  const stream = sameStreamUsers(scope, schema.users);
   const [user] = await db
     .select({ id: schema.users.id })
     .from(schema.users)
@@ -251,8 +336,12 @@ export async function listLeadTasks(scope: ScopeContext, leadRefId: string): Pro
   const db = getDb();
   const lead = await resolveLead(db, scope, leadRefId);
   const rows = await db
-    .select(TASK_COLUMNS)
+    .select({ ...TASK_COLUMNS, ...IDENTITY_COLUMNS })
     .from(schema.leadTasks)
+    // C-11: both joins are LEFT and both carry the caller's tenant + stream (identityJoin),
+    // so neither can drop a task row nor resolve to a foreign identity.
+    .leftJoin(assigneeUser, identityJoin(assigneeUser, scope, schema.leadTasks.assignedToUserId))
+    .leftJoin(authorUser, identityJoin(authorUser, scope, schema.leadTasks.authorUserId))
     .where(and(taskWhere(scope, db), eq(schema.leadTasks.leadId, lead.id)))
     .orderBy(...taskOrder());
   return rows.map(toView);
@@ -488,6 +577,7 @@ export async function listMyTasks(
     db
       .select({
         ...TASK_COLUMNS,
+        ...IDENTITY_COLUMNS,
         leadRefId: schema.leads.refId,
         // WP-UX-7: the lead's identity travels with the task (already-joined leads row).
         leadSellerFirst: schema.leads.sellerFirst,
@@ -497,6 +587,11 @@ export async function listMyTasks(
       })
       .from(schema.leadTasks)
       .innerJoin(schema.leads, eq(schema.leads.id, schema.leadTasks.leadId))
+      // C-11: the same two identity joins the per-lead panel uses, so MyTaskItem (which
+      // extends LeadTaskView) carries the identical resolved shape. LEFT + joined on a
+      // primary key, so they add no rows — `total`'s separate count stays exact.
+      .leftJoin(assigneeUser, identityJoin(assigneeUser, scope, schema.leadTasks.assignedToUserId))
+      .leftJoin(authorUser, identityJoin(authorUser, scope, schema.leadTasks.authorUserId))
       .where(where)
       .orderBy(...taskOrder())
       .limit(pageSize)

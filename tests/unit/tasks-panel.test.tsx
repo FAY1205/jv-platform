@@ -5,7 +5,7 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ToastProvider } from "@/components";
-import { TasksPanel, type LeadTask } from "@/components/TasksPanel";
+import { TasksPanel, taskIdentity, identityTooltip, type LeadTask } from "@/components/TasksPanel";
 
 vi.mock("@/lib/csrf-client", () => ({ csrfHeaders: () => ({ "x-csrf-token": "t" }) }));
 
@@ -24,8 +24,31 @@ beforeAll(() => {
   Element.prototype.scrollIntoView = vi.fn();
 });
 
-function wrap(ui: React.ReactNode) {
-  const qc = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+// C-11: the panel now reads ["me"] (the "You" rule + the work.write chrome gate). Seeding
+// the cache with `staleTime: Infinity` keeps /api/me off every test's fetch stub — the
+// lead-tasks query still fetches on mount (no cached data) and still refetches on the
+// invalidation each mutation's onSettled fires.
+const ME = {
+  email: "casey@meridian.test",
+  role: "admin" as const,
+  capabilities: ["leads.read", "leads.write", "work.write", "views.own"],
+  workspace: { name: "Meridian" },
+  isPlatformOwner: false,
+};
+/** A capability-trimmed staff seat: reads, but cannot author work (ADR-0049 lets a tenant
+ *  configure this for member/viewer — which is why the gate is the CAPABILITY, not a role). */
+const ME_READ_ONLY = { ...ME, role: "viewer" as const, capabilities: ["leads.read", "views.own"] };
+
+const MY_IDENTITY = { email: ME.email, role: "admin" as const, deactivated: false };
+const COLLEAGUE = { email: "dana@meridian.test", role: "member" as const, deactivated: false };
+
+/** Pass `me: null` to leave ["me"] unseeded (the still-loading case) — `undefined` would
+ *  just fall back to the default parameter. */
+function wrap(ui: React.ReactNode, me: unknown = ME) {
+  const qc = new QueryClient({
+    defaultOptions: { queries: { retry: false, staleTime: Infinity }, mutations: { retry: false } },
+  });
+  if (me !== null) qc.setQueryData(["me"], me);
   return render(
     <QueryClientProvider client={qc}>
       <ToastProvider>{ui}</ToastProvider>
@@ -43,6 +66,8 @@ const TASK: LeadTask = {
   doneAt: null,
   createdAt: "2026-08-10T00:00:00.000Z",
   updatedAt: "2026-08-10T00:00:00.000Z",
+  assignee: MY_IDENTITY,
+  author: MY_IDENTITY,
 };
 
 function jsonRes(body: unknown, ok = true) {
@@ -262,6 +287,158 @@ describe("TSK-01: add-task validation and submission", () => {
     // The inline form collapses back to the "Add a task" affordance after a successful add.
     await waitFor(() => expect(screen.getByRole("button", { name: /add a task/i })).toBeInTheDocument());
 
+    vi.unstubAllGlobals();
+  });
+});
+
+// ── C-11: assignee / author identity on the row ─────────────────────────────────
+describe("C-11: task identity — the pure rules", () => {
+  it("C-11/TSK-03: taskIdentity is the assignee, coalescing to the author when unassigned", () => {
+    expect(taskIdentity({ assignee: MY_IDENTITY, author: COLLEAGUE })).toEqual(MY_IDENTITY);
+    expect(taskIdentity({ assignee: null, author: COLLEAGUE })).toEqual(COLLEAGUE);
+    expect(taskIdentity({ assignee: null, author: null })).toBeNull();
+  });
+
+  it("C-11: the tooltip carries the email and the role word, and names a deactivated seat", () => {
+    expect(identityTooltip(COLLEAGUE, COLLEAGUE)).toBe("dana@meridian.test · Member");
+    expect(identityTooltip({ ...COLLEAGUE, deactivated: true }, null)).toBe("dana@meridian.test · Member · deactivated");
+  });
+
+  it("C-11: a differing author travels in the tooltip, never as a second identity", () => {
+    expect(identityTooltip(MY_IDENTITY, COLLEAGUE)).toBe("casey@meridian.test · Admin — Added by dana@meridian.test");
+    // Self-assigned (the v1 norm): the same identity is never repeated.
+    expect(identityTooltip(MY_IDENTITY, MY_IDENTITY)).toBe("casey@meridian.test · Admin");
+  });
+});
+
+describe("C-11: the identity cluster in the row", () => {
+  const renderTasks = (tasks: LeadTask[], me: unknown = ME) => {
+    vi.stubGlobal("fetch", vi.fn(() => jsonRes({ tasks })) as unknown as typeof fetch);
+    return wrap(<TasksPanel leadRef="LD-26-00001" today="2026-08-15" />, me);
+  };
+
+  it("C-11/TSK-03: a row shows the assignee identity, coalescing to the author when assignee is null", async () => {
+    renderTasks([
+      { ...TASK, id: "t-a", title: "Assigned task", assignee: COLLEAGUE, author: MY_IDENTITY },
+      { ...TASK, id: "t-b", title: "Unassigned task", assignee: null, author: COLLEAGUE },
+    ]);
+    await screen.findByText("Assigned task");
+    // Two rows, two identities — and the coalescing row shows the AUTHOR, not "You".
+    expect(screen.getAllByText(COLLEAGUE.email)).toHaveLength(2);
+    expect(screen.queryByText("You")).toBeNull();
+    vi.unstubAllGlobals();
+  });
+
+  it("C-11: the viewer's own identity renders as 'You' (email match against /api/me)", async () => {
+    renderTasks([TASK]);
+    await screen.findByText("Call seller");
+    expect(screen.getByText("You")).toBeInTheDocument();
+    // The raw email is not ALSO printed on the row — one identity, rendered once…
+    expect(screen.queryByText(ME.email)).toBeNull();
+    // …but the tooltip still carries the full value and the role word.
+    expect(screen.getByText("casey@meridian.test · Admin")).toBeInTheDocument();
+    vi.unstubAllGlobals();
+  });
+
+  it("C-11: while the me query is still loading the raw email renders — never a guessed 'You'", async () => {
+    // No seeded ["me"], and /api/me never resolves: the identity must still render.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string) =>
+        url === "/api/me"
+          ? new Promise(() => {})
+          : jsonRes({ tasks: [TASK, { ...TASK, id: "t-orphan", title: "Orphan row", assignee: null, author: null }] }),
+      ) as unknown as typeof fetch,
+    );
+    wrap(<TasksPanel leadRef="LD-26-00001" today="2026-08-15" />, null);
+    await screen.findByText("Call seller");
+    expect(screen.getByText(ME.email)).toBeInTheDocument();
+    expect(screen.queryByText("You")).toBeNull();
+    // And no Delete anywhere yet: canDo is false while ["me"] loads, and an AUTHORLESS row
+    // must not read as the viewer's own just because both emails are undefined.
+    expect(screen.queryByRole("button", { name: /^delete/i })).toBeNull();
+    vi.unstubAllGlobals();
+  });
+
+  it("C-11: a row with no resolvable assignee or author renders no identity cluster", async () => {
+    renderTasks([{ ...TASK, title: "Orphaned task", assignee: null, author: null }]);
+    await screen.findByText("Orphaned task");
+    expect(screen.queryByText("You")).toBeNull();
+    expect(screen.queryByText(ME.email)).toBeNull();
+    expect(screen.queryByText(COLLEAGUE.email)).toBeNull();
+    vi.unstubAllGlobals();
+  });
+
+  it("C-11: a deactivated identity still renders and the tooltip names the seat state", async () => {
+    const closedSeat = { ...COLLEAGUE, deactivated: true };
+    renderTasks([{ ...TASK, title: "Left-behind task", assignee: closedSeat, author: closedSeat }]);
+    await screen.findByText("Left-behind task");
+    expect(screen.getByText(closedSeat.email)).toBeInTheDocument();
+    expect(screen.getByText(`${closedSeat.email} · Member · deactivated`)).toBeInTheDocument();
+    vi.unstubAllGlobals();
+  });
+
+  it("C-11/PRN-14: identity is conveyed in TEXT beside the avatar; the initials circle is hidden from AT", async () => {
+    const { container } = renderTasks([{ ...TASK, assignee: COLLEAGUE, author: COLLEAGUE }]);
+    await screen.findByText("Call seller");
+    expect(container.querySelector('[aria-hidden="true"].rounded-full')).not.toBeNull();
+    // The circle is decorative; the email text beside it is what carries the identity.
+    expect(screen.getByText(COLLEAGUE.email)).toBeInTheDocument();
+    vi.unstubAllGlobals();
+  });
+});
+
+// ── C-11 / C-10: Delete visibility + the capability gate ────────────────────────
+describe("C-11/TSK-05: Delete visibility follows authorship; the capability gates the panel", () => {
+  const renderTasks = (tasks: LeadTask[], me: unknown = ME, props: Record<string, unknown> = {}) => {
+    vi.stubGlobal("fetch", vi.fn(() => jsonRes({ tasks })) as unknown as typeof fetch);
+    return wrap(<TasksPanel leadRef="LD-26-00001" today="2026-08-15" {...props} />, me);
+  };
+
+  it("C-11/TSK-05: Delete is hidden on rows the viewer did not author (the server 404s them anyway)", async () => {
+    renderTasks([
+      { ...TASK, id: "mine", title: "My task", assignee: MY_IDENTITY, author: MY_IDENTITY },
+      { ...TASK, id: "theirs", title: "Their task", assignee: COLLEAGUE, author: COLLEAGUE },
+    ]);
+    await screen.findByText("Their task");
+    expect(screen.getByRole("button", { name: /^delete "my task"$/i })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^delete "their task"$/i })).toBeNull();
+    // Authorship is a per-row fact — the checkbox on the colleague's row stays live
+    // (TSK-11: any member of the authoring stream may complete it).
+    expect(screen.getByRole("checkbox", { name: /mark "their task" done/i })).toBeEnabled();
+    vi.unstubAllGlobals();
+  });
+
+  it("C-11/TSK-05: a completed own task shows no Delete, but keeps its attribution", async () => {
+    renderTasks([{ ...TASK, title: "Done task", doneAt: "2026-08-14T00:00:00.000Z" }]);
+    await screen.findByText("Done task");
+    expect(screen.queryByRole("button", { name: /^delete/i })).toBeNull();
+    expect(screen.getByText("You")).toBeInTheDocument();
+    vi.unstubAllGlobals();
+  });
+
+  it("C-11/TSK-04: without work.write the checkbox and add-task trigger are disabled with a stated reason, and no Delete renders", async () => {
+    renderTasks([TASK], ME_READ_ONLY);
+    await screen.findByText("Call seller");
+    expect(screen.getByRole("checkbox", { name: /mark "call seller" done/i })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /add a task/i })).toBeDisabled();
+    expect(screen.queryByRole("button", { name: /^delete/i })).toBeNull();
+    // PRN-14 / disable-don't-hide: the reason is WORDS, not just a dimmed control.
+    expect(screen.getAllByText("Your role can't edit tasks.").length).toBeGreaterThan(0);
+    // Content is unaffected — reads gate on leads.read, and the identity still renders.
+    expect(screen.getByText("You")).toBeInTheDocument();
+    vi.unstubAllGlobals();
+  });
+
+  it("C-11/ADR-0047: the portal host's canWrite overrides the capability gate (a partner holds none)", async () => {
+    // capabilitiesOf() returns [] for the partner stream, so gating the portal panel on
+    // work.write would make a partner's own tasks read-only. The portal passes canWrite.
+    const partnerMe = { ...ME, role: "partner" as const, capabilities: [] as string[] };
+    renderTasks([TASK], partnerMe, { canWrite: true });
+    await screen.findByText("Call seller");
+    expect(screen.getByRole("checkbox", { name: /mark "call seller" done/i })).toBeEnabled();
+    expect(screen.getByRole("button", { name: /add a task/i })).toBeEnabled();
+    expect(screen.getByRole("button", { name: /^delete "call seller"$/i })).toBeInTheDocument();
     vi.unstubAllGlobals();
   });
 });

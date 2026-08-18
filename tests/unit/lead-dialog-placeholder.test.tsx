@@ -73,6 +73,10 @@ let releaseDetail: () => void = () => {};
 let detailGate = Promise.resolve();
 vi.mock("@/lib/api", () => ({
   apiGet: vi.fn(async (url: string) => {
+    // C-11: TasksPanel reads /api/me for the "You" rule + the work.write chrome gate.
+    if (url.includes("/api/me")) {
+      return { email: "admin@example.test", role: "admin", capabilities: ["leads.read", "leads.write", "work.write", "views.own"], workspace: { name: "W" }, isPlatformOwner: false };
+    }
     if (url.includes("/notes")) return { notes: [] };
     if (url.includes("/tasks")) return { tasks: [] };
     if (url.includes("/partners")) return { partners: [] };

@@ -17,9 +17,9 @@ import type { PortalLeadDetail } from "./portal-lead-dialog";
  * Reshape one portal list row into a partial `PortalLeadDetail`.
  *
  * Empty for everything a partner's list row cannot know: phone/email, reason for selling,
- * time to sell, source notes, status history, activity, and the listing check (which is an
- * asynchronous server-side lookup, not a lead column). The dialog skeletons those while
- * `isPlaceholderData` is true instead of drawing them as known-empty.
+ * time to sell, source notes, activity (which since C-12 carries the status changes too),
+ * and the listing check (an asynchronous server-side lookup, not a lead column). The dialog
+ * skeletons those while `isPlaceholderData` is true instead of drawing them as known-empty.
  */
 export function portalLeadDetailFromRow(row: PartnerLeadRow): PortalLeadDetail {
   return {
@@ -34,7 +34,6 @@ export function portalLeadDetailFromRow(row: PartnerLeadRow): PortalLeadDetail {
     notes: "",
     receivedAt: row.receivedAt,
     status: row.status,
-    history: [],
     activity: [],
     availableStatuses: [],
     listing: { status: "pending", link: null },

@@ -453,4 +453,107 @@ suite("WP-TSK-2: lead tasks module (TSK-01..07)", () => {
     const overlap = p1.items.filter((a) => p2.items.some((b) => b.id === a.id));
     expect(overlap).toHaveLength(0);
   });
+
+  // ── C-11: resolved assignee / author identity ─────────────────────────────
+  // The payload grew two RESOLVED identities. Both joins carry the caller's own tenant AND
+  // stream, so an id that does not belong to the caller's world resolves to NULL — never to
+  // somebody else's email. These legs prove the degradation, not just the happy path.
+
+  it("C-11/TSK-01: listLeadTasks resolves assignee and author to {email, role, deactivated}", async () => {
+    await addLeadTask(admin(), REF_X, { title: "C-11 identity task" });
+    const task = (await listLeadTasks(admin(), REF_X)).find((t) => t.title === "C-11 identity task");
+    expect(task?.assignee).toEqual({ email: "admin@tasks-api.test", role: "admin", deactivated: false });
+    // v1 self-assigns, so the author is the same person — the client coalesces to ONE row identity.
+    expect(task?.author).toEqual({ email: "admin@tasks-api.test", role: "admin", deactivated: false });
+    // The raw ids stay in the payload (My Tasks and the existing tests consume them).
+    expect(task?.assignedToUserId).toBe(id.adminUser);
+    expect(task?.authorUserId).toBe(id.adminUser);
+  });
+
+  it("C-11: a deactivated seat keeps its attribution, flagged rather than dropped", async () => {
+    const { id: taskId } = await addLeadTask(admin(), REF_X, { title: "C-11 deactivated-seat task", assignedToUserId: id.adminUser2 });
+    await db.update(schema.users).set({ deactivatedAt: new Date() }).where(eq(schema.users.id, id.adminUser2));
+    try {
+      const task = (await listLeadTasks(admin(), REF_X)).find((t) => t.id === taskId);
+      expect(task?.assignee).toEqual({ email: "admin2@tasks-api.test", role: "admin", deactivated: true });
+      // The author (still active) is unaffected — the two identities resolve independently.
+      expect(task?.author?.deactivated).toBe(false);
+    } finally {
+      await db.update(schema.users).set({ deactivatedAt: null }).where(eq(schema.users.id, id.adminUser2));
+    }
+  });
+
+  it("C-11/R-65: a mis-set author id resolves to a NULL identity, never another tenant's email", async () => {
+    const { id: taskId } = await addLeadTask(admin(), REF_X, { title: "C-11 cross-tenant id task" });
+    // Point both ids at a real user of ANOTHER tenant — the exact shape R-65 defends
+    // against on the timeline. The row must still be returned, with no identity at all.
+    await db
+      .update(schema.leadTasks)
+      .set({ authorUserId: id.adminUserB, assignedToUserId: id.adminUserB })
+      .where(eq(schema.leadTasks.id, taskId));
+
+    const task = (await listLeadTasks(admin(), REF_X)).find((t) => t.id === taskId);
+    expect(task).toBeDefined(); // the LEFT joins never drop the task row
+    expect(task?.author).toBeNull();
+    expect(task?.assignee).toBeNull();
+    // The foreign email exists — it simply cannot be reached through this payload.
+    const emails = (await listLeadTasks(admin(), REF_X)).flatMap((t) => [t.author?.email, t.assignee?.email]);
+    expect(emails).not.toContain("admin@tasks-api-b.test");
+  });
+
+  it("C-11/PRN-13: a partner-stream row never resolves an admin identity, and vice versa", async () => {
+    // A partner task whose ASSIGNEE has been mis-set to an ADMIN of the SAME tenant. The
+    // tenant predicate alone would happily resolve that email onto a partner's screen, so
+    // the identity join carries the caller's stream too.
+    const { id: partnerTaskId } = await addLeadTask(partnerX(), REF_X, { title: "C-11 PRN-13 partner task" });
+    await db.update(schema.leadTasks).set({ assignedToUserId: id.adminUser }).where(eq(schema.leadTasks.id, partnerTaskId));
+    const partnerRow = (await listLeadTasks(partnerX(), REF_X)).find((t) => t.id === partnerTaskId);
+    expect(partnerRow?.assignee).toBeNull();
+    expect(partnerRow?.author?.email).toBe("px@tasks-api.test"); // the own-org author still resolves
+
+    // Defence in depth on the AUTHOR axis: taskWhere's own `ownAuthors` gate already drops
+    // the whole row for a partner, so a cross-stream author never even reaches the join.
+    await db.update(schema.leadTasks).set({ authorUserId: id.adminUser }).where(eq(schema.leadTasks.id, partnerTaskId));
+    expect((await listLeadTasks(partnerX(), REF_X)).some((t) => t.id === partnerTaskId)).toBe(false);
+
+    // …and the mirror: an admin task mis-pointed at a PARTNER user stays visible (taskWhere's
+    // admin arm only pins author_role), so here the identity join is the whole defence.
+    const { id: adminTaskId } = await addLeadTask(admin(), REF_X, { title: "C-11 PRN-13 admin task" });
+    await db
+      .update(schema.leadTasks)
+      .set({ authorUserId: id.pxUser, assignedToUserId: id.pxUser })
+      .where(eq(schema.leadTasks.id, adminTaskId));
+    const adminRow = (await listLeadTasks(admin(), REF_X)).find((t) => t.id === adminTaskId);
+    expect(adminRow?.author).toBeNull();
+    expect(adminRow?.assignee).toBeNull();
+
+    // Nothing an admin can read carries a partner email, and nothing a partner reads
+    // carries an admin one — on the SAME lead, across both streams.
+    const adminEmails = (await listLeadTasks(admin(), REF_X)).flatMap((t) => [t.author?.email, t.assignee?.email]);
+    expect(adminEmails).not.toContain("px@tasks-api.test");
+    const partnerEmails = (await listLeadTasks(partnerX(), REF_X)).flatMap((t) => [t.author?.email, t.assignee?.email]);
+    expect(partnerEmails).not.toContain("admin@tasks-api.test");
+  });
+
+  it("C-11/PRN-13: a partner resolves their OWN org's colleague, never another org's user", async () => {
+    // pxUser2 shares PX's org, so an own-org assignee resolves normally…
+    const { id: taskId } = await addLeadTask(partnerX(), REF_X, { title: "C-11 own-org assignee", assignedToUserId: id.pxUser2 });
+    const task = (await listLeadTasks(partnerX(), REF_X)).find((t) => t.id === taskId);
+    expect(task?.assignee).toEqual({ email: "px2@tasks-api.test", role: "partner", deactivated: false });
+
+    // …while a user of ANOTHER partner org in the same tenant resolves to nothing (the
+    // write path refuses this outright — this proves the read path is defended too).
+    await db.update(schema.leadTasks).set({ assignedToUserId: id.pyUser }).where(eq(schema.leadTasks.id, taskId));
+    const crossOrg = (await listLeadTasks(partnerX(), REF_X)).find((t) => t.id === taskId);
+    expect(crossOrg?.assignee).toBeNull();
+    expect(crossOrg?.author?.email).toBe("px@tasks-api.test"); // the author still resolves
+  });
+
+  it("C-11: My Tasks carries the same resolved identities (one payload contract, two producers)", async () => {
+    const page = await listMyTasks(admin(), { status: "open", page: 1 }, new Date("2026-08-15T12:00:00Z"));
+    expect(page.items.length).toBeGreaterThan(0);
+    // Every row of My Tasks is the caller's own by construction, so the identity is theirs.
+    expect(page.items.every((t) => t.assignee === null || t.assignee.email === "admin@tasks-api.test")).toBe(true);
+    expect(page.items[0]).toHaveProperty("author");
+  });
 });

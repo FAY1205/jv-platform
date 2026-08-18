@@ -229,16 +229,29 @@ function PortalDevicesDemo() {
 // (checkbox, delete, add) still fire a real request; a failure just surfaces the panel's
 // own toast/error line, exactly like Portal devices' revoke button.
 const TASKS_DEMO_REF = "LD-26-00404";
+// C-11: the demo viewer, so the gallery shows the identity cluster resolving to "You" on
+// own rows and to a colleague's email on gt-3. Seeded into each demo's ["me"] cache below
+// (TasksPanel reads useCurrentUser for the "You" rule and the work.write chrome gate).
+const TASKS_DEMO_ME = {
+  email: "casey.morgan@meridian.example",
+  role: "admin" as const,
+  capabilities: ["leads.read", "leads.write", "work.write", "views.own"],
+  workspace: { name: "Meridian Property Group" },
+  isPlatformOwner: false,
+};
+const DEMO_SELF = { email: TASKS_DEMO_ME.email, role: "admin" as const, deactivated: false };
+const DEMO_COLLEAGUE = { email: "dana.reyes@meridian.example", role: "member" as const, deactivated: false };
 const TASKS_DEMO: LeadTask[] = [
-  { id: "gt-1", title: "Call seller to schedule walkthrough", dueOn: "2026-08-14", assignedToUserId: "u1", authorUserId: "u1", authorRole: "admin", doneAt: null, createdAt: "2026-08-10T00:00:00.000Z", updatedAt: "2026-08-10T00:00:00.000Z" },
-  { id: "gt-2", title: "Send comps + preliminary offer range", dueOn: "2026-08-15", assignedToUserId: "u1", authorUserId: "u1", authorRole: "admin", doneAt: null, createdAt: "2026-08-11T00:00:00.000Z", updatedAt: "2026-08-11T00:00:00.000Z" },
-  { id: "gt-3", title: "Quarterly nurture check-in", dueOn: "2026-08-20", assignedToUserId: "u1", authorUserId: "u1", authorRole: "admin", doneAt: null, createdAt: "2026-08-12T00:00:00.000Z", updatedAt: "2026-08-12T00:00:00.000Z" },
-  { id: "gt-4", title: "Initial contact — left voicemail", dueOn: null, assignedToUserId: "u1", authorUserId: "u1", authorRole: "admin", doneAt: "2026-08-12T16:00:00.000Z", createdAt: "2026-08-09T00:00:00.000Z", updatedAt: "2026-08-12T16:00:00.000Z" },
+  { id: "gt-1", title: "Call seller to schedule walkthrough", dueOn: "2026-08-14", assignedToUserId: "u1", authorUserId: "u1", authorRole: "admin", doneAt: null, createdAt: "2026-08-10T00:00:00.000Z", updatedAt: "2026-08-10T00:00:00.000Z", assignee: DEMO_SELF, author: DEMO_SELF },
+  { id: "gt-2", title: "Send comps + preliminary offer range", dueOn: "2026-08-15", assignedToUserId: "u1", authorUserId: "u1", authorRole: "admin", doneAt: null, createdAt: "2026-08-11T00:00:00.000Z", updatedAt: "2026-08-11T00:00:00.000Z", assignee: DEMO_SELF, author: DEMO_SELF },
+  { id: "gt-3", title: "Quarterly nurture check-in", dueOn: "2026-08-20", assignedToUserId: "u2", authorUserId: "u2", authorRole: "admin", doneAt: null, createdAt: "2026-08-12T00:00:00.000Z", updatedAt: "2026-08-12T00:00:00.000Z", assignee: DEMO_COLLEAGUE, author: DEMO_COLLEAGUE },
+  { id: "gt-4", title: "Initial contact — left voicemail", dueOn: null, assignedToUserId: "u1", authorUserId: "u1", authorRole: "admin", doneAt: "2026-08-12T16:00:00.000Z", createdAt: "2026-08-09T00:00:00.000Z", updatedAt: "2026-08-12T16:00:00.000Z", assignee: DEMO_SELF, author: DEMO_SELF },
 ];
 
 function TasksPanelDemo() {
   const [qc] = React.useState(() => {
     const client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } });
+    client.setQueryData(["me"], TASKS_DEMO_ME);
     client.setQueryData(["lead-tasks", TASKS_DEMO_REF], { tasks: TASKS_DEMO });
     return client;
   });
@@ -252,6 +265,7 @@ function TasksPanelDemo() {
 function TasksPanelEmptyDemo() {
   const [qc] = React.useState(() => {
     const client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } });
+    client.setQueryData(["me"], TASKS_DEMO_ME);
     client.setQueryData(["lead-tasks", "LD-26-DEMO-EMPTY"], { tasks: [] });
     return client;
   });
@@ -264,7 +278,8 @@ function TasksPanelEmptyDemo() {
 
 function TasksPanelErrorDemo() {
   const [qc] = React.useState(() => {
-    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } });
+    client.setQueryData(["me"], TASKS_DEMO_ME);
     // A fully offline, deterministic error: prefetch the SAME key with a queryFn that
     // rejects, so TasksPanel's own useQuery (same key) reads the already-errored cache
     // entry on mount instead of racing (or depending on) a real network failure.
