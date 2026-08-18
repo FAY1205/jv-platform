@@ -230,6 +230,77 @@ describe("SRCH-02: global search overlay", () => {
     await waitFor(() => expect(options()).toHaveLength(3));
   });
 
+  // ── UXF-2.2 (Scope-E audit §2.2): the capped preview is no longer a dead end ────────
+  // The heading prints the FULL total; when that exceeds the rows shown, the group closes
+  // with a row that hands the query off to the Leads list (which seeds its filter from ?q=).
+  describe("UXF-2.2: group overflow row", () => {
+    const capped = (): Payload => ({
+      leads: { total: 42, rows: [LEAD_MARCUS, LEAD_JANET] },
+      partners: { total: 1, rows: [PARTNER] },
+    });
+
+    it("UXF-2.2: a capped Leads group ends with a 'View all N in Leads' option", async () => {
+      payload = capped();
+      const { user, trigger } = setup();
+      await user.click(trigger);
+      await user.type(input(), "whitf");
+      // two leads + the overflow row + the partner
+      await waitFor(() => expect(options()).toHaveLength(4));
+      expect(options()[2]).toHaveTextContent("View all 42 in Leads");
+      // It is a real listbox OPTION, not a decorative footer.
+      expect(options()[2].getAttribute("role")).toBe("option");
+    });
+
+    it("UXF-2.2: the overflow row is arrow-reachable and ↵ opens /leads?q=<query> (SC 2.1.1)", async () => {
+      payload = capped();
+      const { user, trigger } = setup();
+      await user.click(trigger);
+      await user.type(input(), "whitf");
+      await waitFor(() => expect(options()).toHaveLength(4));
+
+      // Keyboard only: down past both lead rows lands on it — no pointer involved.
+      await user.keyboard("{ArrowDown}{ArrowDown}");
+      expect(selected()).toHaveTextContent("View all 42 in Leads");
+
+      await user.keyboard("{Enter}");
+      expect(push).toHaveBeenCalledWith("/leads?q=whitf");
+      await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    });
+
+    it("UXF-2.2: the Partners heading still sits above the FIRST partner row, past the overflow row", async () => {
+      payload = capped();
+      const { user, trigger } = setup();
+      await user.click(trigger);
+      await user.type(input(), "whitf");
+      await waitFor(() => expect(options()).toHaveLength(4));
+
+      const rows = [...screen.getByRole("listbox").children];
+      const headingIdx = rows.findIndex((el) => el.textContent?.startsWith("Partners"));
+      expect(headingIdx).toBeGreaterThan(-1);
+      // The next element is the partner row itself — the overflow row stayed with Leads.
+      expect(rows[headingIdx + 1]).toHaveTextContent("Cedar Ridge");
+      expect(rows[headingIdx - 1]).toHaveTextContent("View all 42 in Leads");
+    });
+
+    it("UXF-2.2: no overflow row when the preview already shows every match", async () => {
+      payload = full(); // total 2, two rows
+      const { user, trigger } = setup();
+      await user.click(trigger);
+      await user.type(input(), "whitf");
+      await waitFor(() => expect(options()).toHaveLength(3));
+      expect(screen.queryByText(/view all/i)).toBeNull();
+    });
+
+    it("UXF-2.2: a capped PARTNERS group gets no row — /partners has no query-seeded list", async () => {
+      payload = { leads: { total: 2, rows: [LEAD_MARCUS, LEAD_JANET] }, partners: { total: 9, rows: [PARTNER] } };
+      const { user, trigger } = setup();
+      await user.click(trigger);
+      await user.type(input(), "whitf");
+      await waitFor(() => expect(options()).toHaveLength(3));
+      expect(screen.queryByText(/view all/i)).toBeNull();
+    });
+  });
+
   it("SRCH-02: reopening starts from a clean query — the previous term isn't left behind", async () => {
     const { user, trigger } = setup();
     await user.click(trigger);

@@ -226,7 +226,13 @@ function DashboardBody() {
                       unmatched is bad; Partners stays neutral (a count, not a direction). */}
                   <HeroKpi label="Leads in" value={d!.stats.leadsIn.value} delta={d!.stats.leadsIn.delta} good="up" tip="All leads imported in this range, before MLS filtering." />
                   <HeroKpi label="Distributed" value={d!.stats.distributed.value} delta={d!.stats.distributed.delta} good="up" tone="brand" tip="Leads that went to a partner in this range." />
-                  <HeroKpi label="Unmatched" value={d!.stats.unmatched.value} delta={d!.stats.unmatched.delta} good="down" tone="warn" tip="Leads no partner covers yet — they're waiting for an assignment." />
+                  {/* UXF-1.1 (Scope-E audit §1.1): "New unmatched", not "Unmatched" — the
+                      attention pill above counts ALL-TIME unmatched leads, this tile counts
+                      the ones that arrived IN THIS RANGE, and two different numbers under
+                      one word read as a bug. Same destination as the pill, so the tile is a
+                      drill-down rather than a dead end. The number itself is untouched
+                      (PRN-15) — only the wording that scopes it. */}
+                  <HeroKpi label="New unmatched" value={d!.stats.unmatched.value} delta={d!.stats.unmatched.delta} good="down" tone="warn" href="/unmatched" tip="Leads no partner covers yet — they're waiting for an assignment. Counts only the ones that arrived in this range." />
                 </div>
                 {/* Partner-stat tier — same cell design as the KPIs, range-scoped rollups
                     across partners (PRN-15); no prior-window delta on these. */}

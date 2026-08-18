@@ -1,4 +1,6 @@
 import * as React from "react";
+import Link from "next/link";
+import { cn } from "@/lib/cn";
 import { Tooltip } from "./Tooltip";
 
 const label13 = "text-step-1"; // 13px chrome floor
@@ -51,6 +53,7 @@ export function HeroKpi({
   tone,
   tip,
   dense,
+  href,
 }: {
   label: string;
   value: number;
@@ -62,15 +65,43 @@ export function HeroKpi({
   /** WP-PW-2 final fix: px-3 instead of the default px-4 — keeps the portal's mobile
    *  KPI tiles pixel-exact to the pre-shared-component layout. */
   dense?: boolean;
+  /** UXF-1.1 (Scope-E audit §1.1): make the tile the drill-down to the list it counts.
+   *  Optional — a tile with no list to open stays a plain, non-focusable cell. */
+  href?: string;
 }) {
   const color = tone === "brand" ? "text-brand-ink" : tone === "warn" ? "text-warn" : "text-text";
-  return (
-    <div className={`bg-surface py-3 ${dense ? "px-3" : "px-4"}`}>
+  // A LINKED tile has exactly ONE focusable element: the link itself is the tooltip
+  // trigger. The unlinked tile keeps the dotted-underline HeaderTip. (A tabindex span
+  // nested inside an <a> is interactive-content-inside-a-link — invalid, and it gives
+  // the cell two tab stops for one target.)
+  const linked = href !== undefined;
+  const body = (
+    <>
       <div className={`font-display text-2xl font-semibold leading-none tabular-nums ${color}`}>{value.toLocaleString()}</div>
       <div className={`mt-1 font-medium uppercase tracking-[.05em] text-text-3 ${label13}`}>
-        {tip ? <HeaderTip label={label} tip={tip} /> : label}
+        {tip && !linked ? <HeaderTip label={label} tip={tip} /> : label}
       </div>
       {delta !== undefined && <div className="mt-0.5"><Delta delta={delta} good={good} /></div>}
-    </div>
+    </>
   );
+  const box = cn("bg-surface py-3", dense ? "px-3" : "px-4");
+
+  if (!linked) return <div className={box}>{body}</div>;
+
+  // DSN-03 states: default/hover/focus-visible/active. `ring-inset` because these tiles
+  // sit in an `overflow-hidden` gap-px grid, where an outset ring is clipped away.
+  const tile = (
+    <Link
+      href={href}
+      className={cn(
+        box,
+        "block w-full outline-none transition-colors",
+        "hover:bg-surface-2 active:bg-surface-2",
+        "focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-brand-ink",
+      )}
+    >
+      {body}
+    </Link>
+  );
+  return tip ? <Tooltip content={tip}>{tile}</Tooltip> : tile;
 }

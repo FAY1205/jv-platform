@@ -44,12 +44,24 @@ export const SEARCH_DEBOUNCE_MS = 400;
 
 type SearchItem =
   | { kind: "lead"; key: string; href: string; row: SearchLeadRow }
-  | { kind: "partner"; key: string; href: string; row: SearchPartnerRow };
+  | { kind: "partner"; key: string; href: string; row: SearchPartnerRow }
+  | { kind: "more"; key: string; href: string; label: string };
 
 /** `/leads?open=<ref>` is the house deep-link that opens the admin lead DIALOG
  *  (the same one the status notification and AI citations use). */
 function leadHref(refId: string): string {
   return `/leads?open=${encodeURIComponent(refId)}`;
+}
+
+/** UXF-2.2 (Scope-E audit §2.2): the overlay shows a capped preview but prints the FULL
+ *  group total — "Leads · 42" over five rows was a dead end, with no way to reach the
+ *  other 37. The Leads list seeds its filter from `?q=` (app/(admin)/leads/page.tsx), so
+ *  a search hands off intact.
+ *
+ *  Only the Leads group gets this row: /partners has no query-seeded list, and inventing
+ *  a destination would be worse than the honest omission. */
+function overflowHref(term: string): string {
+  return `/leads?q=${encodeURIComponent(term)}`;
 }
 
 /** Matched runs render as <mark> ELEMENTS around plain text children — the result text
@@ -183,11 +195,21 @@ export function GlobalSearchOverlay() {
 
   const items: SearchItem[] = React.useMemo(() => {
     if (!data) return [];
-    return [
-      ...data.leads.rows.map((row): SearchItem => ({ kind: "lead", key: `lead:${row.refId}`, href: leadHref(row.refId), row })),
-      ...data.partners.rows.map((row): SearchItem => ({ kind: "partner", key: `partner:${row.id}`, href: `/partners/${row.id}`, row })),
-    ];
+    const leads = data.leads.rows.map((row): SearchItem => ({ kind: "lead", key: `lead:${row.refId}`, href: leadHref(row.refId), row }));
+    // UXF-2.2: the "see the rest" row closes the Leads group — a real listbox option, so
+    // ↑↓ and ↵ reach it exactly like a result (SC 2.1.1), not a mouse-only afterthought.
+    const more: SearchItem[] =
+      data.leads.total > data.leads.rows.length
+        ? [{ kind: "more", key: "more:leads", href: overflowHref(data.q), label: `View all ${data.leads.total} in Leads` }]
+        : [];
+    const partners = data.partners.rows.map((row): SearchItem => ({ kind: "partner", key: `partner:${row.id}`, href: `/partners/${row.id}`, row }));
+    return [...leads, ...more, ...partners];
   }, [data]);
+
+  /** Where the Partners group starts. Derived from the list rather than from
+   *  `leads.rows.length`, because the optional overflow row now sits between the groups.
+   *  −1 (no partner rows) simply means the heading never renders. */
+  const partnersStart = items.findIndex((it) => it.kind === "partner");
 
   // Reset the cursor when the result set changes — adjusting state during render (the
   // React-recommended alternative to an effect; the `seeded` pattern used elsewhere).
@@ -280,7 +302,7 @@ export function GlobalSearchOverlay() {
               <React.Fragment key={item.key}>
                 {/* Group headings ride the same flat list, so one cursor walks both groups. */}
                 {i === 0 && item.kind === "lead" && <GroupHeading label="Leads" total={data.leads.total} />}
-                {i === data.leads.rows.length && <GroupHeading label="Partners" total={data.partners.total} />}
+                {i === partnersStart && <GroupHeading label="Partners" total={data.partners.total} />}
                 <li
                   id={optionId(i)}
                   role="option"
@@ -291,9 +313,16 @@ export function GlobalSearchOverlay() {
                   className={cn(
                     "flex cursor-pointer items-center gap-2.5 rounded-lg px-3 py-2 text-sm",
                     i === cursor ? "bg-brand-soft text-text" : "text-text hover:bg-surface-2",
+                    item.kind === "more" && "font-semibold text-brand-ink",
                   )}
                 >
-                  {item.kind === "lead" ? <LeadRow row={item.row} q={term} /> : <PartnerRow row={item.row} q={term} />}
+                  {item.kind === "lead" ? (
+                    <LeadRow row={item.row} q={term} />
+                  ) : item.kind === "partner" ? (
+                    <PartnerRow row={item.row} q={term} />
+                  ) : (
+                    <MoreRow label={item.label} />
+                  )}
                 </li>
               </React.Fragment>
             ))}
@@ -316,6 +345,19 @@ function GroupHeading({ label, total }: { label: string; total: number }) {
     <li role="presentation" className="px-3 pb-1 pt-2 text-step-0 font-semibold uppercase tracking-[.08em] text-text-3">
       {label} · <span className="num">{total}</span>
     </li>
+  );
+}
+
+/** UXF-2.2: the group's overflow row. Plain text plus the same → the attention pills use;
+ *  the arrow is decorative, the sentence already says where it goes. */
+function MoreRow({ label }: { label: string }) {
+  return (
+    <>
+      <span className="flex-1">{label}</span>
+      <span aria-hidden="true" className="shrink-0">
+        →
+      </span>
+    </>
   );
 }
 

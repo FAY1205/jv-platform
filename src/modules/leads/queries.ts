@@ -1,6 +1,7 @@
 import { and, asc, desc, eq, gte, ilike, inArray, isNull, lte, ne, or, sql, type SQL } from "drizzle-orm";
 import { getDb } from "@/db";
 import * as schema from "@/db/schema";
+import { matchMethodLabel } from "@/lib/match-method";
 import { tenantWhere, partnerOwnsLead, leadWhere, type ScopeContext } from "@/lib/scope";
 import { SEED_LEAD_STATUSES, currentStatus } from "@/modules/portal/statuses";
 import type { ScoreGroup, ScoreStatus, ScoreBreakdown } from "@/modules/pipeline/score";
@@ -588,7 +589,18 @@ export async function getAdminLeadDetail(scope: ScopeContext, refId: string): Pr
   if (lead.mlsStatus === "removed") {
     activity.push({ kind: "routed", at: routedAt, actor: null, label: lead.mlsReason ? `Removed from MLS · ${lead.mlsReason}` : "Removed from MLS" });
   } else if (origPartner) {
-    activity.push({ kind: "routed", at: routedAt, actor: null, label: `Routed to ${origPartner.name} via ${lead.matchMethod}` });
+    // UXF-4.2 (Scope-E audit §4.2): the raw db enum used to reach the screen here —
+    // "Routed to PX via state_fallback". It draws from the same label map as the
+    // dialog's ROUTED BY badge (lib/match-method) — no separate vocabulary — though the
+    // timeline entry omits the matched-on key the badge appends ("ZIP match · 90210").
+    // The label keeps its own case ("ZIP match", "State fallback"):
+    // lowercasing mid-sentence would have to special-case the ZIP acronym.
+    activity.push({
+      kind: "routed",
+      at: routedAt,
+      actor: null,
+      label: `Routed to ${origPartner.name} via ${matchMethodLabel(lead.matchMethod).label}`,
+    });
   } else {
     activity.push({ kind: "routed", at: routedAt, actor: null, label: "Unmatched — no coverage" });
   }

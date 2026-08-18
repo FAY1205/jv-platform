@@ -6,6 +6,7 @@ import { randomUUID } from "node:crypto";
 import * as schema from "@/db/schema";
 import { purgeAuditLog } from "../helpers/audit";
 import { releaseTenantLeads } from "../helpers/hold";
+import { matchMethodLabel } from "@/lib/match-method";
 import type { ScopeContext } from "@/lib/scope";
 import { getAdminLeadDetail } from "@/modules/leads/queries";
 import { TIMELINE_STREAM_LIMIT } from "@/modules/leads/timeline";
@@ -32,6 +33,7 @@ const REF_RR = "LD-26-30002";
 const REF_DEL = "LD-26-30003"; // recalled (soft-deleted) mid-suite
 const REF_HELD = "LD-26-30004"; // still inside the distribution-hold window
 const REF_CAP = "LD-26-30005"; // the stream-cap fixture
+const REF_SF = "LD-26-30006"; // routed by STATE FALLBACK (UXF-4.2 label fixture)
 const REF_B = "LD-26-30099"; // tenant B's lead
 
 suite("TSK-06: unified lead timeline", () => {
@@ -83,6 +85,12 @@ suite("TSK-06: unified lead timeline", () => {
         partnerId: px.id, matchMethod: "zip" as const, mlsStatus: "kept" as const, campaign: "Campaign A",
       })),
     );
+    // UXF-4.2: the one lead routed by the OTHER match method — its routed label is where a
+    // raw enum ("state_fallback") used to reach the screen.
+    await db.insert(schema.leads).values({
+      tenantId: t.id, refId: REF_SF, uploadId: up.id, dedupeKey: "tl|sf", rawJson: {},
+      partnerId: py.id, matchMethod: "state_fallback" as const, mlsStatus: "kept" as const, campaign: "Campaign A",
+    });
     await releaseTenantLeads(db, id.tenant);
     // …then a lead that is STILL HELD (fresh created_at, after the bulk release).
     await db.insert(schema.leads).values({
@@ -159,6 +167,32 @@ suite("TSK-06: unified lead timeline", () => {
 
     // PRN-13: not one byte of the partner stream reaches the admin timeline.
     expect(JSON.stringify(activity)).not.toContain("PARTNER-ONLY");
+  });
+
+  // UXF-4.2 (Scope-E audit §4.2): the routed entry is the one timeline label built from a
+  // db enum. It must speak the SAME vocabulary as the lead dialog's ROUTED BY badge —
+  // lib/match-method is the single display map for both — so no raw token ever surfaces.
+  it("UXF-4.2: timeline routed label is humanized — no raw enum", async () => {
+    const routedOf = async (ref: string) => {
+      const activity = (await getAdminLeadDetail(admin(), ref))!.activity;
+      const routed = activity.filter((a) => a.kind === "routed");
+      expect(routed).toHaveLength(1);
+      return routed[0].label;
+    };
+
+    // Both enum values, both partners — the label carries the partner NAME plus the badge's
+    // own wording, and never the underlying token.
+    expect(await routedOf(REF_MAIN)).toBe(`Routed to PX via ${matchMethodLabel("zip").label}`);
+    expect(await routedOf(REF_MAIN)).toBe("Routed to PX via ZIP match");
+    expect(await routedOf(REF_SF)).toBe(`Routed to Yankee Homes via ${matchMethodLabel("state_fallback").label}`);
+    expect(await routedOf(REF_SF)).toBe("Routed to Yankee Homes via State fallback");
+
+    // The regression guard proper: an enum token is snake_case, a sentence is not.
+    for (const ref of [REF_MAIN, REF_SF]) {
+      const label = await routedOf(ref);
+      expect(label).not.toContain("_");
+      expect(label).not.toContain("state_fallback");
+    }
   });
 
   it("TSK-06: partner timeline shows only own-org notes/tasks (PRN-13)", async () => {
