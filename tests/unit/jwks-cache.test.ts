@@ -1,4 +1,12 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+
+// jwks.ts reads env.SUPABASE_URL to build the well-known URL; CI's unit env doesn't set it, so
+// pin it here (this suite is about the cache mechanics, not env resolution).
+vi.mock("@/lib/env", () => ({
+  env: { SUPABASE_URL: "https://test.supabase.co", SUPABASE_ANON_KEY: "test-anon" },
+  isProduction: false,
+}));
+
 import { getCachedJwks, __resetJwksCache } from "@/lib/supabase/jwks";
 
 // WP-PERF-AUTH: the module-cached JWKS keeps getClaims network-free on the hot path. These pin
