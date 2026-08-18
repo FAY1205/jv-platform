@@ -17,6 +17,14 @@
   --border: #d3dcd9;
   --border-soft: #e4e9e7;
   --border-strong: #b8c4c0;
+  /* map (WP-UX-8 dark parity): the county map's OWN drawing tokens — a state-border line
+     plus the non-territory land fill + its 45° hatch stroke. Given their own theme pair so
+     none borrows a surface/border token (a surface can't carry a drawing-LINE role in both
+     themes — white engraving in light, invisible dark-on-dark in dark). The light values are
+     the exact values the map renders today → zero light-mode change by construction. */
+  --map-line: #ffffff;
+  --map-land: #dde5e2;
+  --map-land-line: #b8c4c0;
   /* text tiers — petrol ink (ink-3 is AA on surface + paper) */
   --text: #16242b;
   --text-2: #46565d;
@@ -78,8 +86,16 @@
     --surface-2: #1e2c33;
     --surface-3: #26363e;
     --border: #2a3a41;
-    --border-soft: #223038;
+    /* WP-UX-8: one step up (midpoint toward --border) so the portal card hairline lifts from
+       ~1.33:1 to ~1.44:1 vs bg while keeping the soft<border<strong tier gap. */
+    --border-soft: #263640;
     --border-strong: #3a4d55;
+    /* WP-UX-8 dark parity — inverts the engraving logic coherently: the state line sits a hair
+       BELOW the land (matching the county gaps that already show the dark page through), and the
+       non-territory land + hatch rise a step so the US silhouette survives on the dark map. */
+    --map-line: #0d1418;
+    --map-land: #2c3e47;
+    --map-land-line: #47606b;
     --text: #eaf0ee;
     --text-2: #a9b8bc;
     --text-3: #85969b;
@@ -119,8 +135,14 @@
   --surface-2: #1e2c33;
   --surface-3: #26363e;
   --border: #2a3a41;
-  --border-soft: #223038;
+  /* WP-UX-8: one step up (midpoint toward --border) so the portal card hairline lifts from
+     ~1.33:1 to ~1.44:1 vs bg while keeping the soft<border<strong tier gap. */
+  --border-soft: #263640;
   --border-strong: #3a4d55;
+  /* WP-UX-8 dark parity — see the media-query block above for the rationale. */
+  --map-line: #0d1418;
+  --map-land: #2c3e47;
+  --map-land-line: #47606b;
   --text: #eaf0ee;
   --text-2: #a9b8bc;
   --text-3: #85969b;

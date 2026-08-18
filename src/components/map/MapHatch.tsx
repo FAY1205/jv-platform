@@ -15,8 +15,8 @@ export function MapHatch({ id }: { id: string }) {
   return (
     <defs>
       <pattern id={id} width={6} height={6} patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
-        <rect width={6} height={6} fill="var(--surface-3)" />
-        <line x1={0} y1={0} x2={0} y2={6} stroke="var(--border-strong)" strokeWidth={1} />
+        <rect width={6} height={6} fill="var(--map-land)" />
+        <line x1={0} y1={0} x2={0} y2={6} stroke="var(--map-land-line)" strokeWidth={1} />
       </pattern>
     </defs>
   );

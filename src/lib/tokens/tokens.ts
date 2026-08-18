@@ -20,6 +20,12 @@ export interface ColorTokens {
   borderSoft: string;
   /** stronger hairline for table rules / dividers (Survey line-strong) */
   borderStrong: string;
+  /** map (WP-UX-8): the county map's own drawing tokens — a state-border line + the
+   *  non-territory land fill + its hatch stroke, given their own theme pair so none borrows
+   *  a surface/border token (a surface can't carry a drawing-line role in both themes). */
+  mapLine: string;
+  mapLand: string;
+  mapLandLine: string;
   text: string;
   text2: string;
   text3: string;
@@ -71,6 +77,10 @@ export const lightColors: ColorTokens = {
   border: "#D3DCD9",
   borderSoft: "#E4E9E7",
   borderStrong: "#B8C4C0",
+  // Map tokens: the exact values the map renders today in light → zero light-mode change.
+  mapLine: "#FFFFFF",
+  mapLand: "#DDE5E2",
+  mapLandLine: "#B8C4C0",
   text: "#16242B",
   text2: "#46565D",
   // ink-3: AA (≥4.5:1) on both surface (#fff) and paper.
@@ -106,8 +116,13 @@ export const darkColors: ColorTokens = {
   surface2: "#1E2C33",
   surface3: "#26363E",
   border: "#2A3A41",
-  borderSoft: "#223038",
+  // WP-UX-8: one step up (midpoint toward --border) to strengthen the portal card hairline.
+  borderSoft: "#263640",
   borderStrong: "#3A4D55",
+  // WP-UX-8 dark parity: line sits below the land; land + hatch rise a step (US silhouette survives).
+  mapLine: "#0D1418",
+  mapLand: "#2C3E47",
+  mapLandLine: "#47606B",
   text: "#EAF0EE",
   text2: "#A9B8BC",
   text3: "#85969B",
