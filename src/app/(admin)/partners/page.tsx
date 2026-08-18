@@ -687,10 +687,7 @@ function PartnersBody() {
               <>
                 <div className="flex flex-wrap items-center gap-3">
                   <PartnerTag name={house.name} color={house.color} refId={house.refId} />
-                  <span className="num text-xs text-text-3">
-                    {house.zipCount} ZIP{house.zipCount === 1 ? "" : "s"}
-                    {house.stateCount > 0 && ` · ${house.stateCount} state${house.stateCount === 1 ? "" : "s"}`}
-                  </span>
+                  <span className="num text-xs text-text-3">{coverageSummary(house.zipCount, house.stateCount)}</span>
                 </div>
                 <Button variant="secondary" size="sm" onClick={() => setEditingHouse(true)}>
                   Edit territory

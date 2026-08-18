@@ -590,9 +590,10 @@ export async function getAdminLeadDetail(scope: ScopeContext, refId: string): Pr
     activity.push({ kind: "routed", at: routedAt, actor: null, label: lead.mlsReason ? `Removed from MLS · ${lead.mlsReason}` : "Removed from MLS" });
   } else if (origPartner) {
     // UXF-4.2 (Scope-E audit §4.2): the raw db enum used to reach the screen here —
-    // "Routed to PX via state_fallback". It goes through the SAME display map as the
-    // dialog's ROUTED BY badge (lib/match-method), so one routing fact reads identically
-    // wherever it appears. The label keeps its own case ("ZIP match", "State fallback"):
+    // "Routed to PX via state_fallback". It draws from the same label map as the
+    // dialog's ROUTED BY badge (lib/match-method) — no separate vocabulary — though the
+    // timeline entry omits the matched-on key the badge appends ("ZIP match · 90210").
+    // The label keeps its own case ("ZIP match", "State fallback"):
     // lowercasing mid-sentence would have to special-case the ZIP acronym.
     activity.push({
       kind: "routed",
