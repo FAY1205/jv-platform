@@ -31,4 +31,15 @@ describe("WP-AI-2 formatAnswer", () => {
   it("returns [] for empty/whitespace", () => {
     expect(formatAnswer("   ")).toEqual([]);
   });
+  it("tokenizes `code`/paths into code spans, leaving their content literal", () => {
+    const b = formatAnswer("Uploads land in `run-exports/tenant/upload.xlsx` — check `Rules`.");
+    const spans = (b[0] as Extract<AnswerBlock, { type: "p" }>).spans;
+    const code = spans.filter((s) => s.kind === "code").map((s) => s.text);
+    expect(code).toEqual(["run-exports/tenant/upload.xlsx", "Rules"]);
+    // A ** inside backticks stays literal — code is matched before bold.
+    const c = formatAnswer("Run `a ** b` now.");
+    const cs = (c[0] as Extract<AnswerBlock, { type: "p" }>).spans;
+    expect(cs.find((s) => s.kind === "code")?.text).toBe("a ** b");
+    expect(cs.some((s) => s.kind === "bold")).toBe(false);
+  });
 });

@@ -9,16 +9,22 @@ export function SuggestionChips({ items, onSelect, disabled }: { items: string[]
       <div className="mb-1.5 text-step-0 font-semibold uppercase tracking-[.08em] text-text-3">
         Try asking
       </div>
-      <div role="group" aria-label="Suggested questions" className="flex flex-wrap gap-1.5">
+      {/* WP-AI-STYLE-PERSIST / redesign A5: full-width stacked ROWS, not a wrapping pill
+          cloud — clearer "things you can ask", ≥40px touch targets that don't ragged-wrap at
+          375px, and a leading arrow glyph so each reads as an action. */}
+      <div role="group" aria-label="Suggested questions" className="flex flex-col gap-1.5">
         {items.map((q) => (
           <button
             key={q}
             type="button"
             disabled={disabled}
             onClick={() => onSelect(q)}
-            className="rounded-full border border-border bg-surface px-3 py-1.5 text-step-1 text-text-2 shadow-xs transition-all duration-150 hover:-translate-y-px hover:border-brand-strong hover:bg-brand-soft hover:text-brand-ink hover:shadow-md focus-visible:border-brand-strong active:translate-y-0 active:shadow-sm disabled:pointer-events-none disabled:opacity-45"
+            className="flex w-full items-center gap-2 rounded-md border border-border-soft bg-surface px-3 py-2 text-left text-step-1 text-text-2 shadow-xs outline-none transition-colors hover:border-brand-line hover:bg-brand-soft hover:text-brand-ink focus-visible:border-brand-line focus-visible:ring-1 focus-visible:ring-brand-ink active:scale-[.99] disabled:pointer-events-none disabled:opacity-45"
           >
-            {q}
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className="shrink-0 text-brand-ink">
+              <path d="M9 6l6 6-6 6" />
+            </svg>
+            <span className="min-w-0">{q}</span>
           </button>
         ))}
       </div>

@@ -62,7 +62,7 @@ export function AssistantMessage({ id, text, sources, showThumbs = true, onFeedb
   );
 
   return (
-    <div className="max-w-[94%] self-start rounded-[15px] rounded-tl-[5px] border border-border-soft bg-surface p-2.5 px-3 text-step-2 leading-relaxed shadow-xs">
+    <div className="max-w-[94%] self-start rounded-md rounded-tl-xs border border-border-soft bg-surface p-2.5 px-3 text-step-2 leading-relaxed shadow-xs">
       {body}
       {(chips.length > 0 || link || showThumbs) && (
         <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
