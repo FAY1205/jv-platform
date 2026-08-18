@@ -17,7 +17,7 @@ import type { SavedViewFilters } from "@/modules/saved-views/schema";
 import { US_STATES } from "@/lib/us-states";
 import { googleSearchUrl } from "@/lib/search-links";
 import { setPreferences, usePreferences, type LeadsViewPref } from "@/lib/preferences";
-import { useTags, useLeadTagMutations } from "@/lib/tags-client";
+import { useTags, useLeadTagMutations, atTagLimit } from "@/lib/tags-client";
 
 const LeadDialog = dynamic(() => import("./lead-dialog").then((m) => m.LeadDialog), { ssr: false });
 // KAN-01: the board is a second view of the SAME page — code-split like the dialog so
@@ -80,20 +80,29 @@ const LEADS_COLUMNS: readonly ColumnDef[] = [
   { id: "status", label: "Status", pinned: true },
 ];
 
-export function LeadsView({ initialQ, initialOpenRef = null, initialHot = false }: { initialQ: string; initialOpenRef?: string | null; initialHot?: boolean }) {
+interface LeadsViewProps {
+  initialQ: string;
+  initialOpenRef?: string | null;
+  initialHot?: boolean;
+  /** UXF-11.1: tag ids from `?tags=`, already parsed + bounded by the SHARED parser the two
+   *  leads endpoints use. Deep-links into a tag-filtered list (Settings → Tags usage counts). */
+  initialTags?: readonly string[];
+}
+
+export function LeadsView({ initialQ, initialOpenRef = null, initialHot = false, initialTags = [] }: LeadsViewProps) {
   return (
     <AppShell>
-      <LeadsBody initialQ={initialQ} initialOpenRef={initialOpenRef} initialHot={initialHot} />
+      <LeadsBody initialQ={initialQ} initialOpenRef={initialOpenRef} initialHot={initialHot} initialTags={initialTags} />
     </AppShell>
   );
 }
 
 // Rendered inside AppShell's PageHeaderProvider so usePageHeader resolves — the "Leads"
 // title lives in the topbar (WP-E shell pattern), so no in-body <h1>.
-function LeadsBody({ initialQ, initialOpenRef = null, initialHot = false }: { initialQ: string; initialOpenRef?: string | null; initialHot?: boolean }) {
+function LeadsBody({ initialQ, initialOpenRef = null, initialHot = false, initialTags = [] }: LeadsViewProps) {
   usePageHeader({ title: "Leads" });
 
-  const [filters, setFilters] = React.useState<Filters>({ ...EMPTY, q: initialQ, hot: initialHot });
+  const [filters, setFilters] = React.useState<Filters>({ ...EMPTY, q: initialQ, hot: initialHot, tags: [...initialTags] });
   const [sort, setSort] = React.useState<LeadSortField>("received");
   const [dir, setDir] = React.useState<"asc" | "desc">("desc");
   const [page, setPage] = React.useState(1);
@@ -173,7 +182,9 @@ function LeadsBody({ initialQ, initialOpenRef = null, initialHot = false }: { in
         />
       </div>
 
-      <LeadsFilterBar seedQ={initialQ} seedHot={initialHot} view={view} applied={applied} onChange={setFilters} />
+      {/* seedTags is passed as a CSV string, not an array: the bar is React.memo'd, and a
+          fresh array literal per render would defeat that on every unrelated re-render. */}
+      <LeadsFilterBar seedQ={initialQ} seedHot={initialHot} seedTags={initialTags.join(",")} view={view} applied={applied} onChange={setFilters} />
 
       {view === "board" ? (
         // WP-UX-3 (audit 2.3): the board carries the WHOLE committed filter set — one filter
@@ -212,7 +223,7 @@ function LeadsBody({ initialQ, initialOpenRef = null, initialHot = false }: { in
 }
 
 // ── Filter bar (isolated; owns raw text + debounce, lifts committed filters) ──
-const LeadsFilterBar = React.memo(function LeadsFilterBar({ seedQ, seedHot = false, view = "list", applied = null, onChange }: { seedQ: string; seedHot?: boolean; view?: LeadsViewPref; applied?: AppliedView | null; onChange: (f: Filters) => void }) {
+const LeadsFilterBar = React.memo(function LeadsFilterBar({ seedQ, seedHot = false, seedTags = "", view = "list", applied = null, onChange }: { seedQ: string; seedHot?: boolean; seedTags?: string; view?: LeadsViewPref; applied?: AppliedView | null; onChange: (f: Filters) => void }) {
   // WP-UX-3 (audit 2.3): the board now honours the WHOLE filter set, so every control
   // stays visible in both modes. The one exception: the status pills are list-only —
   // the board's columns already express status, and two answers to "which statuses am
@@ -227,7 +238,9 @@ const LeadsFilterBar = React.memo(function LeadsFilterBar({ seedQ, seedHot = fal
   const [statuses, setStatuses] = React.useState<string[]>([...DEFAULT_STATUS_FILTERS]);
   const [hot, setHot] = React.useState(seedHot);
   // TAG-03: selected tag ids (any-of). Carried in BOTH modes — the board honours them too.
-  const [tagIds, setTagIds] = React.useState<string[]>([]);
+  // UXF-11.1: seeded from `?tags=` on first mount (the Settings → Tags usage-count deep
+  // link). A seed only — user edits and saved views take over from here, exactly like ?q=.
+  const [tagIds, setTagIds] = React.useState<string[]>(() => (seedTags ? seedTags.split(",") : []));
   const [range, setRange] = React.useState<{ from: string | null; to: string | null }>({ from: null, to: null });
 
   // Committed (debounced) search text, held as state so "Clear all" can reset it
@@ -433,7 +446,11 @@ function LeadsTable({
   const sortDir = (f: LeadSortField) => (sort === f ? dir : null);
   // The SAME cache entry the filter bar reads (TAGS_KEY) — one roster fetch for the page,
   // handed to every row's picker.
-  const allTags = useTags().data?.tags ?? [];
+  const tagsQ = useTags();
+  const allTags = tagsQ.data?.tags ?? [];
+  // TAG-08: one predicate for every row's picker, derived from the roster payload's own
+  // `total`/`limit` — the cap is never duplicated client-side.
+  const tagsAtLimit = atTagLimit(tagsQ.data);
   const { attach, detach, createAndAttach, busy } = useLeadTagMutations();
 
   // User-hidden columns (a UI preference — §6.17). `shown` gates the pinned columns too so a
@@ -535,6 +552,7 @@ function LeadsTable({
                         hot={l.mlsStatus === "kept" && l.scoreGroup === "hot"}
                         hotScore={l.scoreTotal}
                         options={allTags}
+                        atLimit={tagsAtLimit}
                         busy={busy}
                         onAttach={(tagId) => attach.mutate({ refId: l.refId, tagId })}
                         onDetach={(tagId) => detach.mutate({ refId: l.refId, tagId })}

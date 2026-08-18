@@ -38,10 +38,14 @@ const TAGS = [
   { id: "t2", name: "Follow-up", color: "blue", leadCount: 0 },
 ];
 
+/** TAG-09: the roster payload is bounded — `total` and `limit` ride on every response. */
+const TAG_LIMIT = 100;
+const roster = (tags = TAGS, total = tags.length, limit = TAG_LIMIT) => ({ tags, total, limit });
+
 beforeEach(() => {
   apiGet.mockReset();
   apiMutate.mockReset();
-  apiGet.mockResolvedValue({ tags: TAGS });
+  apiGet.mockResolvedValue(roster());
   apiMutate.mockResolvedValue({ code: "ok" });
 });
 
@@ -164,5 +168,67 @@ describe("TAG-06: Settings → Tags manager", () => {
     await user.click(within(picker).getByRole("button", { name: "rose" }));
     await user.click(screen.getByRole("button", { name: /add tag/i }));
     await waitFor(() => expect(apiMutate).toHaveBeenCalledWith("/api/tags", "POST", { name: "Vacant", color: "rose" }));
+  });
+});
+
+describe("UXF-11.1: the usage count is a way INTO the leads it counts", () => {
+  it("UXF-11.1: a non-zero count links to the leads list pre-filtered to that tag", async () => {
+    wrap();
+    const link = await screen.findByRole("link", { name: /view 14 leads tagged probate/i });
+    // `?tags=` is a csv of tag IDS — the shape the filter bar and both leads endpoints share.
+    expect(link).toHaveAttribute("href", "/leads?tags=t1");
+    expect(link).toHaveTextContent("14");
+    // Standard link treatment, including a visible keyboard focus ring.
+    expect(link.className).toContain("focus-visible:ring-1");
+    expect(link.className).toContain("hover:underline");
+  });
+
+  it("UXF-11.1: a zero count is NOT a link — there is nothing to go and look at", async () => {
+    wrap();
+    await screen.findByRole("button", { name: "Rename Follow-up" });
+    expect(screen.queryByRole("link", { name: /tagged follow-up/i })).toBeNull();
+    // Exactly one usage link on the page: Probate's.
+    expect(screen.getAllByRole("link", { name: /tagged/i })).toHaveLength(1);
+  });
+});
+
+describe("TAG-08/TAG-09: the tag cap on the Settings manager", () => {
+  it("TAG-08: under the cap the header shows the roster size against the limit", async () => {
+    wrap();
+    expect(await screen.findByText("All tags · 2 of 100")).toBeInTheDocument();
+    // …and creating is untouched.
+    expect(screen.getByRole("textbox", { name: /new tag name/i })).toBeEnabled();
+  });
+
+  it("TAG-08: at the cap the create form is disabled with the helper text", async () => {
+    const user = userEvent.setup();
+    apiGet.mockResolvedValue(roster(TAGS, TAG_LIMIT));
+    wrap();
+
+    // Wait for the roster: `atTagLimit` is false while loading BY DESIGN (never lock a create
+    // affordance on data you don't have), so the cap UI only exists after the query resolves.
+    const help = await screen.findByText(/reached its limit of 100 tags/i);
+
+    const name = screen.getByRole("textbox", { name: /new tag name/i });
+    expect(name).toBeDisabled();
+    expect(screen.getByRole("button", { name: /add tag/i })).toBeDisabled();
+    // The whole colour group goes inert too — not a half-live form.
+    const swatches = within(screen.getByRole("group", { name: /new tag colour/i })).getAllByRole("button");
+    for (const s of swatches) expect(s).toBeDisabled();
+
+    // The reason is TIED to the input (not a sighted-only explanation).
+    expect(name).toHaveAttribute("aria-describedby", help.id);
+    expect(help).toHaveTextContent(/delete a tag below to create a new one/i);
+
+    // Nothing can be sent from an inert form.
+    await user.click(screen.getByRole("button", { name: /add tag/i }));
+    expect(apiMutate).not.toHaveBeenCalled();
+  });
+
+  it("TAG-09: a legacy overflow is STATED, not silently clamped", async () => {
+    apiGet.mockResolvedValue(roster(TAGS, 103));
+    wrap();
+    expect(await screen.findByText("All tags · 103 of 100")).toBeInTheDocument();
+    expect(screen.getByText(/showing 2 of 103 — the workspace is over the tag limit/i)).toBeInTheDocument();
   });
 });

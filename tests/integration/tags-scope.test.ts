@@ -130,12 +130,18 @@ suite("TAG-02: tag isolation + the RLS backstop", () => {
     expect(aRows.map((r) => r.tagId)).toEqual([id.tagA]);
 
     // TAG-06: the manager's counts are per tenant — B's attachment must not inflate A's.
-    const aTags = await listTags(adminA());
+    const a = await listTags(adminA());
+    const aTags = a.rows;
     expect(aTags).toHaveLength(1);
     expect(aTags[0]).toMatchObject({ name: "A-Probate", leadCount: 1 });
-    const bTags = await listTags(adminB());
+    const b = await listTags(adminB());
+    const bTags = b.rows;
     expect(bTags).toHaveLength(1);
     expect(bTags[0]).toMatchObject({ name: "B-Probate", leadCount: 1 });
+    // TAG-09/SCP-01: `total` is the TENANT's count, not the table's — B's tag must not be
+    // counted into A's window total (the leg a single-tenant clamp test cannot reach).
+    expect(a.total).toBe(1);
+    expect(b.total).toBe(1);
   });
 
   // ── the isolation legs a randomUUID probe cannot reach (audit-tenancy F-3) ─────────
@@ -148,9 +154,9 @@ suite("TAG-02: tag isolation + the RLS backstop", () => {
     // creating, and every tenant would silently share one namespace.
     const made = await createTag(adminA(), { name: "B-Probate", color: "gold" });
     expect(made.id).toBeTruthy();
-    expect((await listTags(adminA())).map((t) => t.name).sort()).toEqual(["A-Probate", "B-Probate"]);
+    expect((await listTags(adminA())).rows.map((t) => t.name).sort()).toEqual(["A-Probate", "B-Probate"]);
     // …and B still has exactly its own one row (the create landed in A, not B).
-    expect(await listTags(adminB())).toHaveLength(1);
+    expect((await listTags(adminB())).rows).toHaveLength(1);
     await deleteTag(adminA(), made.id); // restore the single-tag baseline for later legs
   });
 
@@ -219,10 +225,10 @@ suite("TAG-02: tag isolation + the RLS backstop", () => {
     });
     try {
       // Invisible to the tag's OWN tenant (the join's tenant predicate rejects it)…
-      expect((await listTags(adminA())).find((t) => t.id === orphanTag.id)?.leadCount).toBe(0);
+      expect((await listTags(adminA())).rows.find((t) => t.id === orphanTag.id)?.leadCount).toBe(0);
       // …and to the tenant it falsely claims (which cannot see the tag at all).
-      expect((await listTags(adminB())).map((t) => t.id)).toEqual([id.tagB]);
-      expect((await listTags(adminB())).find((t) => t.id === id.tagB)?.leadCount).toBe(1); // unchanged
+      expect((await listTags(adminB())).rows.map((t) => t.id)).toEqual([id.tagB]);
+      expect((await listTags(adminB())).rows.find((t) => t.id === id.tagB)?.leadCount).toBe(1); // unchanged
     } finally {
       await db.delete(schema.leadTags).where(eq(schema.leadTags.tagId, orphanTag.id));
       await db.delete(schema.tags).where(and(tagWhere(adminA()), eq(schema.tags.id, orphanTag.id)));

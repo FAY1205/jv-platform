@@ -1,4 +1,5 @@
 import { LeadsView } from "./leads-view";
+import { tagsParam } from "@/modules/tags/schema";
 
 // Server shell: reads ?q= (the topbar search handoff) and hands it to the client
 // view as a prop. Deliberately NOT a useSearchParams()+Suspense client page —
@@ -9,17 +10,27 @@ export const dynamic = "force-dynamic";
 export default async function LeadsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ q?: string | string[]; open?: string | string[]; hot?: string | string[] }>;
+  searchParams: Promise<{
+    q?: string | string[];
+    open?: string | string[];
+    hot?: string | string[];
+    tags?: string | string[];
+  }>;
 }) {
-  const { q, open, hot } = await searchParams;
+  const { q, open, hot, tags } = await searchParams;
   // ?open=<ref> deep-links a single lead straight into the dialog (P-1: the
   // status-change notification and AI citations land here, not the retired page).
   // ?hot=1 opens the list pre-filtered to hot leads (the hot-lead alert deep link).
+  // UXF-11.1: ?tags=<csv of tag ids> opens the list pre-filtered to those tags (Settings →
+  // Tags usage counts link here). Parsed by the SAME `tagsParam()` the two leads endpoints
+  // embed, so the page and the API can never disagree about what `?tags=` means — and a
+  // crafted URL degrades to "no tag filter" rather than erroring (TAG-03).
   return (
     <LeadsView
       initialQ={typeof q === "string" ? q : ""}
       initialOpenRef={typeof open === "string" ? open : null}
       initialHot={hot === "1" || hot === "true"}
+      initialTags={tagsParam().parse(tags)}
     />
   );
 }

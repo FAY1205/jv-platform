@@ -10,7 +10,7 @@ import {
   DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel,
   LeadTags, type LeadTagView,
 } from "@/components";
-import { useTags, useLeadTagMutations } from "@/lib/tags-client";
+import { useTags, useLeadTagMutations, atTagLimit } from "@/lib/tags-client";
 
 /** TAG-04: a card shows at most two chips; the rest collapse into "+n" (a card is 15rem
  *  wide — an unbounded chip row would push the partner + age lines off it). */
@@ -108,6 +108,8 @@ type CardPointerDown = (e: React.PointerEvent, refId: string, from: string, sell
  */
 interface TagContext {
   options: { id: string; name: string; color: string }[];
+  /** TAG-08: the tenant is at its tag cap (derived once, for every card's picker). */
+  atLimit: boolean;
   busy: boolean;
   onAttach: (refId: string, tagId: string) => void;
   onDetach: (refId: string, tagId: string) => void;
@@ -282,7 +284,9 @@ export function LeadsBoard({
 
   // TAG-04: one roster fetch + one mutation set for the whole board. `mutate` is
   // identity-stable (unlike the mutation object), so these callbacks are too.
-  const tagRoster = useTags().data?.tags;
+  const tagsQ = useTags();
+  const tagRoster = tagsQ.data?.tags;
+  const tagsAtLimit = atTagLimit(tagsQ.data);
   const { attach, detach, createAndAttach, busy: tagBusy } = useLeadTagMutations();
   const attachTag = attach.mutate;
   const detachTag = detach.mutate;
@@ -290,12 +294,13 @@ export function LeadsBoard({
   const tagCtx = React.useMemo<TagContext>(
     () => ({
       options: tagRoster ?? [],
+      atLimit: tagsAtLimit,
       busy: tagBusy,
       onAttach: (refId, tagId) => attachTag({ refId, tagId }),
       onDetach: (refId, tagId) => detachTag({ refId, tagId }),
       onCreate: (refId, name) => createTag({ refId, name }),
     }),
-    [tagRoster, tagBusy, attachTag, detachTag, createTag],
+    [tagRoster, tagsAtLimit, tagBusy, attachTag, detachTag, createTag],
   );
 
   const columnsByStatus = React.useMemo(() => {
@@ -594,6 +599,7 @@ const BoardCardView = React.memo(function BoardCardView({
           hotScore={card.scoreTotal}
           max={CARD_TAG_CAP}
           options={tagCtx.options}
+          atLimit={tagCtx.atLimit}
           busy={tagCtx.busy}
           onAttach={(tagId) => tagCtx.onAttach(card.refId, tagId)}
           onDetach={(tagId) => tagCtx.onDetach(card.refId, tagId)}

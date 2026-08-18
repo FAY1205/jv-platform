@@ -1,12 +1,13 @@
 "use client";
 
 import * as React from "react";
+import Link from "next/link";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiMutate } from "@/lib/api";
 import { TAG_PALETTE } from "@/lib/tokens/tokens";
 import { tagDotClass } from "@/lib/tag-chip";
 import { cn } from "@/lib/cn";
-import { useTags, TAGS_KEY, type TagRow } from "@/lib/tags-client";
+import { useTags, TAGS_KEY, atTagLimit, type TagRow } from "@/lib/tags-client";
 import {
   Button, Card, CardBody, CardHeader, CardTitle, Dialog, EmptyState, IconButton, Input,
   QueryErrorState, Skeleton, Table, TBody, Td, Th, THead, Tr, TagChip, useToast,
@@ -23,11 +24,19 @@ import { SettingsSection } from "../settings-section";
 // §6.17: every row is server data read from the query cache — nothing is copied into
 // component state except the row currently being EDITED (a draft, which is UI state).
 
+/** Ties the at-cap explanation to the name input (aria-describedby). */
+const TAG_LIMIT_HELP_ID = "tag-limit-help";
+
 export default function TagsSettingsPage() {
   const qc = useQueryClient();
   const { toast } = useToast();
   const tagsQ = useTags();
   const tags = tagsQ.data?.tags ?? [];
+  // TAG-08/TAG-09: the cap and the tenant's true count both come from the roster payload —
+  // this page never hardcodes the number it prints.
+  const atLimit = atTagLimit(tagsQ.data);
+  // A legacy/raced overflow (total > what the LIMIT returned) is stated rather than hidden.
+  const clamped = tagsQ.data ? tagsQ.data.total > tags.length : false;
 
   /** The row whose name is being edited, plus its draft text. null = nothing in edit mode. */
   const [editing, setEditing] = React.useState<{ id: string; name: string } | null>(null);
@@ -81,6 +90,9 @@ export default function TagsSettingsPage() {
   });
 
   const busy = create.isPending || update.isPending || remove.isPending;
+  /** TAG-08: at the cap the whole create form goes inert. `busy` already disabled every
+   *  control here, so this reuses the existing disabled states — no new component state. */
+  const createDisabled = busy || atLimit;
 
   const commitRename = () => {
     if (!editing) return;
@@ -111,6 +123,8 @@ export default function TagsSettingsPage() {
               <Input
                 value={newName}
                 maxLength={40}
+                disabled={createDisabled}
+                aria-describedby={atLimit ? TAG_LIMIT_HELP_ID : undefined}
                 onChange={(e) => setNewName(e.target.value)}
                 placeholder="e.g. Probate"
                 aria-label="New tag name"
@@ -123,7 +137,7 @@ export default function TagsSettingsPage() {
               <button
                 type="button"
                 aria-pressed={newColor === null}
-                disabled={busy}
+                disabled={createDisabled}
                 onClick={() => setNewColor(null)}
                 className={cn(
                   "rounded-md border px-2 py-0.5 text-step-0 font-semibold outline-none transition-colors",
@@ -139,7 +153,7 @@ export default function TagsSettingsPage() {
                   type="button"
                   aria-label={c}
                   aria-pressed={newColor === c}
-                  disabled={busy}
+                  disabled={createDisabled}
                   onClick={() => setNewColor(c)}
                   className={cn(
                     "h-5 w-5 rounded-sm outline-none transition-transform",
@@ -151,17 +165,34 @@ export default function TagsSettingsPage() {
                 />
               ))}
             </div>
-            <Button type="submit" disabled={!newName.trim() || busy} loading={create.isPending}>
+            <Button type="submit" disabled={!newName.trim() || createDisabled} loading={create.isPending}>
               Add tag
             </Button>
+            {/* TAG-08: the reason the form is inert, stated where the form is — and tied to
+                the name input by aria-describedby so it is not a sighted-only explanation. */}
+            {atLimit && (
+              <p id={TAG_LIMIT_HELP_ID} className="w-full text-step-0 text-text-3">
+                This workspace has reached its limit of {tagsQ.data?.limit} tags. Delete a tag below to create a
+                new one.
+              </p>
+            )}
           </form>
         </CardBody>
       </Card>
 
       <Card>
         <CardHeader>
-          <CardTitle>All tags</CardTitle>
+          {/* TAG-09: the roster's size against the cap, so an operator can see how much room
+              is left without counting rows. Plain "All tags" until the query resolves. */}
+          <CardTitle>{tagsQ.data ? `All tags · ${tagsQ.data.total} of ${tagsQ.data.limit}` : "All tags"}</CardTitle>
         </CardHeader>
+        {clamped && (
+          <CardBody>
+            <p className="text-step-0 text-text-3">
+              Showing {tags.length} of {tagsQ.data?.total} — the workspace is over the tag limit.
+            </p>
+          </CardBody>
+        )}
         {tagsQ.error ? (
           <CardBody>
             <QueryErrorState title="Couldn't load tags" error={tagsQ.error} onRetry={() => tagsQ.refetch()} />
@@ -240,7 +271,22 @@ export default function TagsSettingsPage() {
                     </div>
                   </Td>
                   <Td align="right">
-                    <span className="num text-xs tabular-nums text-text-3">{t.leadCount}</span>
+                    {/* UXF-11.1: the count was inert text — the obvious next question ("which
+                        leads?") had no answer here. It is now the leads list pre-filtered to
+                        this tag: `?tags=` is a csv of tag IDS, the same shape the filter bar
+                        and both leads endpoints already agree on (modules/tags/schema.ts).
+                        Zero is NOT a link — there is nothing to go and look at. */}
+                    {t.leadCount > 0 ? (
+                      <Link
+                        href={`/leads?tags=${t.id}`}
+                        aria-label={`View ${t.leadCount} ${t.leadCount === 1 ? "lead" : "leads"} tagged ${t.name}`}
+                        className="num rounded text-xs tabular-nums text-text-2 underline-offset-2 outline-none transition-colors hover:text-brand-ink hover:underline focus-visible:ring-1 focus-visible:ring-brand-ink"
+                      >
+                        {t.leadCount}
+                      </Link>
+                    ) : (
+                      <span className="num text-xs tabular-nums text-text-3">{t.leadCount}</span>
+                    )}
                   </Td>
                   <Td align="right">
                     <IconButton

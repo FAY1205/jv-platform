@@ -6,8 +6,9 @@ import * as schema from "@/db/schema";
 import type { ScopeContext } from "@/lib/scope";
 import {
   listTags, createTag, updateTag, deleteTag, attachTag, detachTag, listLeadTags,
-  DuplicateTagNameError, TagNotFoundError, LeadNotFoundError,
+  DuplicateTagNameError, TagNotFoundError, LeadNotFoundError, TagLimitError,
 } from "@/modules/tags/tags";
+import { TAG_LIMIT } from "@/modules/tags/schema";
 import { TAG_PALETTE } from "@/lib/tokens/tokens";
 import { purgeAuditLog } from "../helpers/audit";
 
@@ -69,6 +70,29 @@ suite("WP-TAG-1: tag commands", () => {
     await purgeAuditLog(db, eq(schema.auditLog.tenantId, scope.tenantId));
   });
 
+  /** TAG-09: `listTags` returns the BOUNDED roster `{ rows, total }`. Most cases below care
+   *  only about the rows, so unwrap them here rather than at every call site. */
+  const rowsOf = async (s: ScopeContext = scope) => (await listTags(s)).rows;
+
+  /**
+   * Seed n tags in ONE insert — deliberately bypassing `createTag` so the cap and the
+   * read-side clamp can be exercised independently of each other. One statement, because
+   * every round trip to the remote pooler is ~a third of a second and these cases seed 100+.
+   */
+  const seedTags = async (n: number, prefix = "seed") => {
+    await db.insert(schema.tags).values(
+      Array.from({ length: n }, (_, i) => ({
+        tenantId: scope.tenantId,
+        name: `${prefix}-${String(i).padStart(4, "0")}`,
+        color: TAG_PALETTE[i % TAG_PALETTE.length],
+      })),
+    );
+  };
+
+  /** The pooler round trip dominates these: seeding 100+ rows, then a create-per-transaction.
+   *  Well inside the suite's real behaviour, well outside the 30s default. */
+  const SLOW = 60_000;
+
   const auditFor = (action: string) =>
     db
       .select({ after: schema.auditLog.after, before: schema.auditLog.before, entityType: schema.auditLog.entityType })
@@ -79,7 +103,7 @@ suite("WP-TAG-1: tag commands", () => {
     const tag = await createTag(scope, { name: "Probate", color: "teal" });
     expect(tag.color).toBe("teal");
 
-    const rows = await listTags(scope);
+    const rows = await rowsOf();
     expect(rows).toEqual([{ id: tag.id, name: "Probate", color: "teal", leadCount: 0 }]);
 
     const entries = await auditFor("tag.created");
@@ -99,12 +123,12 @@ suite("WP-TAG-1: tag commands", () => {
     await createTag(scope, { name: "Probate" });
     await expect(createTag(scope, { name: "probate" })).rejects.toBeInstanceOf(DuplicateTagNameError);
     await expect(createTag(scope, { name: "PROBATE" })).rejects.toBeInstanceOf(DuplicateTagNameError);
-    expect(await listTags(scope)).toHaveLength(1);
+    expect(await rowsOf()).toHaveLength(1);
 
     // …and a RENAME onto an existing name is refused by the same index, not silently applied.
     const other = await createTag(scope, { name: "Follow-up" });
     await expect(updateTag(scope, other.id, { name: "PROBATE" })).rejects.toBeInstanceOf(DuplicateTagNameError);
-    expect((await listTags(scope)).find((t) => t.id === other.id)?.name).toBe("Follow-up");
+    expect((await rowsOf()).find((t) => t.id === other.id)?.name).toBe("Follow-up");
   });
 
   it("TAG-03: attach is IDEMPOTENT — a repeat writes no row and no audit entry", async () => {
@@ -132,11 +156,11 @@ suite("WP-TAG-1: tag commands", () => {
     await attachTag(scope, REF, tag.id);
     await attachTag(scope, REF2, tag.id);
     await attachTag(scope, REF, keep.id);
-    expect((await listTags(scope)).find((t) => t.id === tag.id)?.leadCount).toBe(2);
+    expect((await rowsOf()).find((t) => t.id === tag.id)?.leadCount).toBe(2);
 
     await deleteTag(scope, tag.id);
 
-    expect((await listTags(scope)).map((t) => t.id)).toEqual([keep.id]);
+    expect((await rowsOf()).map((t) => t.id)).toEqual([keep.id]);
     // Both attachments went with it; the untouched tag's attachment survived.
     expect(await listLeadTags(scope, REF)).toEqual([{ id: keep.id, name: "Follow-up", color: expect.any(String) }]);
     expect(await listLeadTags(scope, REF2)).toEqual([]);
@@ -164,7 +188,7 @@ suite("WP-TAG-1: tag commands", () => {
     const a = await createTag(scope, { name: "Alpha", color: "teal" });
     const b = await createTag(scope, { name: "Beta", color: "blue" });
     await updateTag(scope, b.id, { color: "teal" });
-    const rows = await listTags(scope);
+    const rows = await rowsOf();
     expect(rows.find((t) => t.id === a.id)?.color).toBe("teal");
     expect(rows.find((t) => t.id === b.id)).toMatchObject({ name: "Beta", color: "teal" });
   });
@@ -180,15 +204,86 @@ suite("WP-TAG-1: tag commands", () => {
   it("TAG-06: a RECALLED lead's attachment drops out of the usage count", async () => {
     const tag = await createTag(scope, { name: "Probate" });
     await attachTag(scope, REF, tag.id);
-    expect((await listTags(scope))[0].leadCount).toBe(1);
+    expect((await rowsOf())[0].leadCount).toBe(1);
     await db.update(schema.leads).set({ deletedAt: new Date() }).where(eq(schema.leads.refId, REF));
     try {
       // The count an operator sees (and the delete confirmation quotes) matches the leads
       // they can actually reach.
-      expect((await listTags(scope))[0].leadCount).toBe(0);
+      expect((await rowsOf())[0].leadCount).toBe(0);
     } finally {
       await db.update(schema.leads).set({ deletedAt: null }).where(eq(schema.leads.refId, REF));
     }
+  });
+
+  // ── C-24: the cap (TAG-08) and the bounded roster contract (TAG-09) ──────────────────
+  it("TAG-08: the (limit)th create succeeds and the (limit+1)th throws TagLimitError", async () => {
+    await seedTags(TAG_LIMIT - 1);
+    // The last free slot is a normal create…
+    const last = await createTag(scope, { name: "the-last-one" });
+    expect(last.id).toEqual(expect.any(String));
+    // …and the next one is refused.
+    await expect(createTag(scope, { name: "one-too-many" })).rejects.toBeInstanceOf(TagLimitError);
+
+    const all = await db.select({ id: schema.tags.id }).from(schema.tags).where(eq(schema.tags.tenantId, scope.tenantId));
+    expect(all).toHaveLength(TAG_LIMIT);
+    // The rejected create rolled back entirely — no row AND no audit entry for it.
+    const created = await auditFor("tag.created");
+    expect(created).toHaveLength(1);
+    expect(created[0].after).toMatchObject({ name: "the-last-one" });
+  }, SLOW);
+
+  it("TAG-08: two concurrent creates at limit−1 admit exactly one (the advisory lock)", async () => {
+    await seedTags(TAG_LIMIT - 1);
+    // Deterministic ONLY because createTag takes a per-tenant advisory lock as its first
+    // statement: under plain READ COMMITTED both would read limit−1 and both would land.
+    const results = await Promise.allSettled([
+      createTag(scope, { name: "race-a" }),
+      createTag(scope, { name: "race-b" }),
+    ]);
+    // Surface the reasons in the failure message — a lost race here is otherwise opaque.
+    const outcomes = results.map((r) => (r.status === "rejected" ? `rejected: ${String(r.reason)}` : "fulfilled"));
+    expect(results.filter((r) => r.status === "fulfilled"), outcomes.join(" | ")).toHaveLength(1);
+    const rejected = results.filter((r) => r.status === "rejected");
+    expect(rejected).toHaveLength(1);
+    expect((rejected[0] as PromiseRejectedResult).reason).toBeInstanceOf(TagLimitError);
+
+    const all = await db.select({ id: schema.tags.id }).from(schema.tags).where(eq(schema.tags.tenantId, scope.tenantId));
+    expect(all).toHaveLength(TAG_LIMIT);
+  }, SLOW);
+
+  it("TAG-09: listTags clamps a legacy overflow to TAG_LIMIT and reports the true total", async () => {
+    // Simulates pre-cap data (or a bypassed write path): the READ is bounded regardless.
+    await seedTags(TAG_LIMIT + 5);
+    const { rows, total } = await listTags(scope);
+    expect(rows).toHaveLength(TAG_LIMIT);
+    expect(total).toBe(TAG_LIMIT + 5);
+  }, SLOW);
+
+  it("TAG-09: roster order is lower(name) asc — alphabetical is CASE-insensitive", async () => {
+    await db.insert(schema.tags).values(
+      ["zulu", "Alpha", "bravo", "ALPHA2"].map((name) => ({ tenantId: scope.tenantId, name, color: "teal" })),
+    );
+    expect((await rowsOf()).map((t) => t.name)).toEqual(["Alpha", "ALPHA2", "bravo", "zulu"]);
+  });
+
+  it("TAG-09: the clamp keeps the alphabetical HEAD — which rows survive is deterministic", async () => {
+    await seedTags(TAG_LIMIT + 5, "ov");
+    const expected = Array.from({ length: TAG_LIMIT + 5 }, (_, i) => `ov-${String(i).padStart(4, "0")}`)
+      // Plain lexicographic: the names are fixed-width lowercase ASCII, so every collation
+      // agrees with this — no locale surprises between Node and Postgres.
+      .sort()
+      .slice(0, TAG_LIMIT);
+    expect((await rowsOf()).map((t) => t.name)).toEqual(expected);
+  }, SLOW);
+
+  it("TAG-09: total rides on the normal (under-cap) payload too — the field is unconditional", async () => {
+    for (const name of ["one", "two", "three"]) await createTag(scope, { name });
+    const { rows, total } = await listTags(scope);
+    expect(rows).toHaveLength(3);
+    expect(total).toBe(3);
+    // …and an empty roster reports zero rather than undefined (no window row to read).
+    await db.delete(schema.tags).where(eq(schema.tags.tenantId, scope.tenantId));
+    expect(await listTags(scope)).toEqual({ rows: [], total: 0 });
   });
 
   it("TAG-07: attach/detach write NO timeline entry — audit_log only (recorded decision)", async () => {

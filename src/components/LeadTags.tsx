@@ -39,6 +39,8 @@ export interface LeadTagsProps {
   onAttach?: (tagId: string) => void;
   onDetach?: (tagId: string) => void;
   onCreate?: (name: string) => void;
+  /** TAG-08: the tenant is at its tag cap — the picker swaps create-inline for a hint. */
+  atLimit?: boolean;
   /** A mutation is in flight: ✕ buttons and the ＋ trigger disable, nothing moves. */
   busy?: boolean;
   /** WP-UX-3 (audit 1.6/2.4): render the ＋ trigger only on row/card hover or keyboard
@@ -60,6 +62,7 @@ export function LeadTags({
   onAttach,
   onDetach,
   onCreate,
+  atLimit = false,
   busy = false,
   quietAdd = false,
   className,
@@ -100,6 +103,7 @@ export function LeadTags({
             selectedIds={tags.map((t) => t.id)}
             onSelect={onAttach}
             onCreate={onCreate}
+            atLimit={atLimit}
             busy={busy}
           />
         </span>
