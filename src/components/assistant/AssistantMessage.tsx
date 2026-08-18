@@ -5,6 +5,7 @@ import Link from "next/link";
 import { isInternalPath } from "@/modules/ai/internal-path";
 import { AnswerBody } from "./AnswerBody";
 import { AssistantIconButton } from "./AssistantIconButton";
+import { MiniOrb } from "./MiniOrb";
 
 export interface AssistantSource { label: string; path?: string }
 export interface AssistantMessageProps {
@@ -19,7 +20,24 @@ export interface AssistantMessageProps {
   /** Seed the initial thumb selection (uncontrolled). Used by the /gallery showcase to
    *  render the confirmed "rated" state statically; unset in the live widget. */
   defaultRating?: "up" | "down";
+  /** First message of a consecutive assistant run → show the MiniOrb + "Assistant" marker
+   *  above the answer (redesign: flat annotations, a quiet brand marker per turn, not a box
+   *  per message). Defaults to true so single/standalone renders (the gallery) still mark. */
+  firstOfRun?: boolean;
 }
+
+/** The quiet brand signature above the first answer in a run — an 18px MiniOrb + label. */
+export function AssistantMarker() {
+  return (
+    <div className="flex items-center gap-2">
+      <MiniOrb size={18} />
+      <span className="text-step-0 font-semibold uppercase tracking-[.08em] text-text-3">Assistant</span>
+    </div>
+  );
+}
+
+/** The body indent that aligns an answer's text under the marker's label (past the orb). */
+const ANSWER_INDENT = "pl-[26px]";
 
 /** A never-empty reply: if the model returned only chips/links (or nothing yet), fall
  *  back to a sentence so the bubble is never blank (WP-AI-STYLE). */
@@ -38,7 +56,7 @@ function ThumbIcon({ down }: { down?: boolean }) {
   );
 }
 
-export function AssistantMessage({ id, text, sources, showThumbs = true, onFeedback, pending = false, defaultRating }: AssistantMessageProps) {
+export function AssistantMessage({ id, text, sources, showThumbs = true, onFeedback, pending = false, defaultRating, firstOfRun = true }: AssistantMessageProps) {
   const [rated, setRated] = React.useState<"up" | "down" | null>(defaultRating ?? null);
 
   // Dedupe source labels; the deep link is the first source with an internal path (PRN-10).
@@ -62,7 +80,11 @@ export function AssistantMessage({ id, text, sources, showThumbs = true, onFeedb
   );
 
   return (
-    <div className="max-w-[94%] self-start rounded-md rounded-tl-xs border border-border-soft bg-surface p-2.5 px-3 text-step-2 leading-relaxed shadow-xs">
+    // Flat annotation on the panel background (no box) — the marker gives each turn a quiet
+    // brand signature, and long persisted answers read as a column of text, not stacked cards.
+    <div className="flex flex-col gap-1.5 self-stretch">
+      {firstOfRun && <AssistantMarker />}
+      <div className={`${ANSWER_INDENT} text-step-2 leading-relaxed text-text`}>
       {body}
       {(chips.length > 0 || link || showThumbs) && (
         <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
@@ -90,6 +112,7 @@ export function AssistantMessage({ id, text, sources, showThumbs = true, onFeedb
         </div>
       )}
       {rated && <div role="status" className="mt-1.5 text-step-0 text-success">Thanks — feedback recorded.</div>}
+      </div>
     </div>
   );
 }
