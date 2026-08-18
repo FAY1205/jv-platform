@@ -16,8 +16,8 @@ import { requireCapabilityResponse } from "@/lib/authz";
 export async function GET() {
   try {
     const scope = await getServerScope();
-    const adminOnly = requireCapabilityResponse(scope, "leads.read");
-    if (adminOnly) return adminOnly;
+    const gate = requireCapabilityResponse(scope, "leads.read");
+    if (gate) return gate;
     const tos = await requireTosResponse(getDb(), scope); // F-04/LGL-01: self-serve admins must have accepted the current ToS
     if (tos) return tos;
     return jsonOk({ tags: await listTags(scope) });
@@ -35,8 +35,8 @@ export async function POST(request: Request) {
   if (!parsed.success) return jsonError("invalid_input", "A tag name (1–40 characters) is required.", 400);
   try {
     const scope = await getServerScope();
-    const adminOnly = requireCapabilityResponse(scope, "rules.manage");
-    if (adminOnly) return adminOnly;
+    const gate = requireCapabilityResponse(scope, "rules.manage");
+    if (gate) return gate;
     const tos = await requireTosResponse(getDb(), scope);
     if (tos) return tos;
     // tenant_id comes from the scope, never the body; an omitted color resolves to the next

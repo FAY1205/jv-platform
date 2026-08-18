@@ -29,8 +29,8 @@ export async function POST(request: Request, { params }: { params: Promise<{ ref
 
   try {
     const scope = await getServerScope();
-    const adminOnly = requireCapabilityResponse(scope, "leads.write");
-    if (adminOnly) return adminOnly;
+    const gate = requireCapabilityResponse(scope, "leads.write");
+    if (gate) return gate;
     const result = await updateLeadStatus(scope, ref, parsed.data.status);
     return jsonOk({ refId: result.refId, status: result.status });
   } catch (e) {

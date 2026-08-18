@@ -9,8 +9,8 @@ import { requireCapabilityResponse } from "@/lib/authz";
 export async function GET() {
   try {
     const scope = await getServerScope();
-    const adminOnly = requireCapabilityResponse(scope, "leads.read");
-    if (adminOnly) return adminOnly;
+    const gate = requireCapabilityResponse(scope, "leads.read");
+    if (gate) return gate;
     const sources = await listLeadSources(scope);
     return jsonOk({ sources });
   } catch (e) {

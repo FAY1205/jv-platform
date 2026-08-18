@@ -26,8 +26,8 @@ export async function POST(request: Request, { params }: { params: Promise<{ ref
   }
   try {
     const scope = await getServerScope();
-    const adminOnly = requireCapabilityResponse(scope, "leads.write");
-    if (adminOnly) return adminOnly;
+    const gate = requireCapabilityResponse(scope, "leads.write");
+    if (gate) return gate;
     const { ref } = await params;
     if (!RefSchema.safeParse(ref).success) return jsonError("invalid_ref", "Invalid lead reference.", 400);
     const parsed = BodySchema.safeParse(await request.json().catch(() => null));

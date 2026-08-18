@@ -31,7 +31,10 @@ import { GET as coverageGet } from "@/app/api/coverage/route";
 import { GET as tagsGet, POST as tagsPost } from "@/app/api/tags/route";
 import { PATCH as tagPatch, DELETE as tagDelete } from "@/app/api/tags/[id]/route";
 import { GET as savedViewsGet, POST as savedViewsPost } from "@/app/api/saved-views/route";
-import { PATCH as leadPatch } from "@/app/api/leads/[ref]/route";
+import { GET as leadGet, PATCH as leadPatch } from "@/app/api/leads/[ref]/route";
+import { GET as leadTagsGet } from "@/app/api/leads/[ref]/tags/route";
+import { GET as backfillGet, POST as backfillPost } from "@/app/api/leads/unmatched/backfill/route";
+import { PATCH as savedViewPatch, DELETE as savedViewDelete } from "@/app/api/saved-views/[id]/route";
 import { POST as statusPost } from "@/app/api/leads/[ref]/status/route";
 import { POST as assignPost } from "@/app/api/leads/[ref]/assign/route";
 import { POST as assignBulkPost } from "@/app/api/leads/assign-bulk/route";
@@ -83,6 +86,13 @@ suite("AUTHZ-09: cluster-A route capability matrix", () => {
     ["coverage", () => coverageGet()],
     ["tags roster", () => tagsGet()],
     ["saved views", () => savedViewsGet()],
+    ["backfill preview", () => backfillGet()],
+  ];
+
+  // Reads that 404 on the unseeded REF — the assertion is "gate passed" (not 403).
+  const REF_READS: [string, () => Promise<Response>][] = [
+    ["lead detail", () => leadGet(new Request(`http://localhost:3000/api/leads/${REF}`), routeParams({ ref: REF }))],
+    ["lead tags", () => leadTagsGet(new Request(`http://localhost:3000/api/leads/${REF}/tags`), routeParams({ ref: REF }))],
   ];
 
   const LEAD_WRITES: [string, () => Promise<Response>][] = [
@@ -92,6 +102,7 @@ suite("AUTHZ-09: cluster-A route capability matrix", () => {
     ["assign-bulk POST", () => assignBulkPost(jsonRequest("POST", "/api/leads/assign-bulk", { refIds: [REF], partnerId: randomUUID() }))],
     ["lead tag POST", () => leadTagPost(jsonRequest("POST", `/api/leads/${REF}/tags`, { tagId: randomUUID() }), routeParams({ ref: REF }))],
     ["lead tag DELETE", () => leadTagDelete(jsonRequest("DELETE", `/api/leads/${REF}/tags/${randomUUID()}`), routeParams({ ref: REF, tagId: randomUUID() }))],
+    ["backfill apply", () => backfillPost(jsonRequest("POST", "/api/leads/unmatched/backfill", {}))],
   ];
 
   const RULES_WRITES: [string, () => Promise<Response>][] = [
@@ -105,6 +116,10 @@ suite("AUTHZ-09: cluster-A route capability matrix", () => {
     for (const [name, call] of READS) {
       const res = await call();
       expect(res.status, `viewer read: ${name}`).toBe(200);
+    }
+    for (const [name, call] of REF_READS) {
+      const res = await call();
+      expect(res.status, `viewer ref-read gate: ${name}`).not.toBe(403);
     }
   });
 
@@ -129,10 +144,15 @@ suite("AUTHZ-09: cluster-A route capability matrix", () => {
     }
   });
 
-  it("AUTHZ-09: viewer may create a saved view (views.own is personal chrome, deliberately)", async () => {
+  it("AUTHZ-09: viewer may create/rename/delete their own saved views (views.own is personal chrome, deliberately)", async () => {
     setRouteScope(staff("viewer"));
     const res = await savedViewsPost(jsonRequest("POST", "/api/saved-views", { name: "mine", filters: {} }));
     expect(res.status).not.toBe(403);
+    const id = randomUUID();
+    const patch = await savedViewPatch(jsonRequest("PATCH", `/api/saved-views/${id}`, { name: "renamed" }), routeParams({ id }));
+    expect(patch.status, "viewer saved-view rename gate").not.toBe(403);
+    const del = await savedViewDelete(jsonRequest("DELETE", `/api/saved-views/${id}`), routeParams({ id }));
+    expect(del.status, "viewer saved-view delete gate").not.toBe(403);
   });
 
   it("AUTHZ-09: admin passes everything (byte-identical to pre-migration)", async () => {

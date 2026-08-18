@@ -31,8 +31,8 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   if (!parsed.success) return jsonError("invalid_input", "Nothing to change.", 400);
   try {
     const scope = await getServerScope();
-    const adminOnly = requireCapabilityResponse(scope, "rules.manage");
-    if (adminOnly) return adminOnly;
+    const gate = requireCapabilityResponse(scope, "rules.manage");
+    if (gate) return gate;
     const tos = await requireTosResponse(getDb(), scope);
     if (tos) return tos;
     await updateTag(scope, id, parsed.data, newTraceId());
@@ -53,8 +53,8 @@ export async function DELETE(request: Request, { params }: { params: Promise<{ i
   if (!z.string().uuid().safeParse(id).success) return jsonError("invalid_id", "Invalid tag id.", 400);
   try {
     const scope = await getServerScope();
-    const adminOnly = requireCapabilityResponse(scope, "rules.manage");
-    if (adminOnly) return adminOnly;
+    const gate = requireCapabilityResponse(scope, "rules.manage");
+    if (gate) return gate;
     const tos = await requireTosResponse(getDb(), scope);
     if (tos) return tos;
     await deleteTag(scope, id, newTraceId());

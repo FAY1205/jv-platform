@@ -19,8 +19,8 @@ export async function GET(_req: Request, { params }: { params: Promise<{ ref: st
   if (!RefSchema.safeParse(ref).success) return jsonError("invalid_ref", "Invalid lead reference.", 400);
   try {
     const scope = await getServerScope();
-    const adminOnly = requireCapabilityResponse(scope, "leads.read");
-    if (adminOnly) return adminOnly;
+    const gate = requireCapabilityResponse(scope, "leads.read");
+    if (gate) return gate;
     const tos = await requireTosResponse(getDb(), scope);
     if (tos) return tos;
     return jsonOk({ tags: await listLeadTags(scope, ref) });
@@ -42,8 +42,8 @@ export async function POST(request: Request, { params }: { params: Promise<{ ref
   if (!parsed.success) return jsonError("invalid_input", "A tag id is required.", 400);
   try {
     const scope = await getServerScope();
-    const adminOnly = requireCapabilityResponse(scope, "leads.write");
-    if (adminOnly) return adminOnly;
+    const gate = requireCapabilityResponse(scope, "leads.write");
+    if (gate) return gate;
     const tos = await requireTosResponse(getDb(), scope);
     if (tos) return tos;
     // Both references are re-resolved under the tenant predicate inside attachTag — the body

@@ -8,8 +8,8 @@ import { requireCapabilityResponse } from "@/lib/authz";
 export async function GET() {
   try {
     const scope = await getServerScope();
-    const adminOnly = requireCapabilityResponse(scope, "leads.read");
-    if (adminOnly) return adminOnly;
+    const gate = requireCapabilityResponse(scope, "leads.read");
+    if (gate) return gate;
     return jsonOk({ count: await leadsCount(scope) });
   } catch (e) {
     return authErrorResponse(e) ?? jsonError("leads_count_failed", "Failed to count leads", 500);

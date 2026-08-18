@@ -18,8 +18,8 @@ const RefSchema = z.string().regex(/^LD-\d{2}-\d{5,}$/);
 export async function GET(_request: Request, { params }: { params: Promise<{ ref: string }> }) {
   try {
     const scope = await getServerScope();
-    const adminOnly = requireCapabilityResponse(scope, "leads.read");
-    if (adminOnly) return adminOnly;
+    const gate = requireCapabilityResponse(scope, "leads.read");
+    if (gate) return gate;
     const { ref } = await params;
     if (!RefSchema.safeParse(ref).success) return jsonError("invalid_ref", "Invalid lead reference.", 400);
     const detail = await getAdminLeadDetail(scope, ref);
@@ -42,8 +42,8 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ re
   }
   try {
     const scope = await getServerScope();
-    const adminOnly = requireCapabilityResponse(scope, "leads.write");
-    if (adminOnly) return adminOnly;
+    const gate = requireCapabilityResponse(scope, "leads.write");
+    if (gate) return gate;
     const { ref } = await params;
     if (!RefSchema.safeParse(ref).success) return jsonError("invalid_ref", "Invalid lead reference.", 400);
     const parsed = EditLeadSchema.safeParse(await request.json().catch(() => null));

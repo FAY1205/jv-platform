@@ -20,8 +20,8 @@ export async function DELETE(request: Request, { params }: { params: Promise<{ r
   if (!z.string().uuid().safeParse(tagId).success) return jsonError("invalid_id", "Invalid tag id.", 400);
   try {
     const scope = await getServerScope();
-    const adminOnly = requireCapabilityResponse(scope, "leads.write");
-    if (adminOnly) return adminOnly;
+    const gate = requireCapabilityResponse(scope, "leads.write");
+    if (gate) return gate;
     const tos = await requireTosResponse(getDb(), scope);
     if (tos) return tos;
     return jsonOk(await detachTag(scope, ref, tagId, newTraceId()));

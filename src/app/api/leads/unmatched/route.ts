@@ -10,8 +10,8 @@ import { requireCapabilityResponse } from "@/lib/authz";
 export async function GET() {
   try {
     const scope = await getServerScope();
-    const adminOnly = requireCapabilityResponse(scope, "leads.read");
-    if (adminOnly) return adminOnly;
+    const gate = requireCapabilityResponse(scope, "leads.read");
+    if (gate) return gate;
     return jsonOk(await unmatchedStateStats(scope));
   } catch (e) {
     return authErrorResponse(e) ?? jsonError("unmatched_stats_failed", e instanceof Error ? e.message : "Failed to load unmatched stats", 500);

@@ -14,8 +14,8 @@ import { requireCapabilityResponse } from "@/lib/authz";
 export async function GET(request: Request) {
   try {
     const scope = await getServerScope();
-    const adminOnly = requireCapabilityResponse(scope, "leads.read");
-    if (adminOnly) return adminOnly;
+    const gate = requireCapabilityResponse(scope, "leads.read");
+    if (gate) return gate;
     const params = Object.fromEntries(new URL(request.url).searchParams);
     const query = BoardQuerySchema.parse(params);
     return jsonOk(await listLeadsBoard(scope, query));
