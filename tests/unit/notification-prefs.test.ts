@@ -58,6 +58,47 @@ describe("notification prefs", () => {
     });
   });
 
+  it("NTF-08: partner assigned_lead is its own event — in-app on, email off by default", () => {
+    // WP-NF1 D4: the admin re-route notification used to ride `new_leads`, so the Settings row
+    // a partner admin toggled ("New leads distributed to you") governed two different things
+    // and the email checkbox on it was a lie for one of them. Its own entry, defaulting to
+    // today's exact behavior: shown in the bell, never emailed.
+    expect(resolvePref(DEFAULT_NOTIFICATION_PREFS, "partner", "assigned_lead")).toEqual({ email: false, inApp: true });
+    // The settings UI renders straight off the catalog, so presence here IS the UI wiring.
+    expect(NOTIFICATION_EVENTS.map((e) => `${e.role}.${e.key}`)).toContain("partner.assigned_lead");
+    expect(NOTIFICATION_EVENTS.find((e) => e.role === "partner" && e.key === "assigned_lead")?.label).toBe(
+      "A lead is assigned to you",
+    );
+  });
+
+  it("NTF-08: a stored value that predates assigned_lead still resolves it (forward-compatible)", () => {
+    // Every tenant that has ever saved prefs has a row without this key.
+    const merged = mergeNotificationPrefs({ partner: { new_leads: { email: false, inApp: false } } });
+    expect(resolvePref(merged, "partner", "assigned_lead")).toEqual({ email: false, inApp: true });
+    // …and a partial value keeps the untouched channel at its default.
+    expect(resolvePref(mergeNotificationPrefs({ partner: { assigned_lead: { email: true } } }), "partner", "assigned_lead")).toEqual({
+      email: true,
+      inApp: true,
+    });
+    expect(NotificationPrefsSchema.safeParse({ partner: { assigned_lead: { email: true, inApp: false } } }).success).toBe(true);
+    expect(NotificationPrefsSchema.safeParse({ partner: { assigned_lead: { inApp: "yes" } } }).success).toBe(false);
+  });
+
+  it("NTF-05: the no-prefs fallback is symmetric — every run-digest event defaults BOTH channels on", () => {
+    // WP-NF1 D8: enqueueRunDigests used to hardcode email=true / inApp=false when a caller
+    // omitted prefs; it now resolves both against these defaults. This pins what that fallback
+    // means for the events that path serves — email behavior identical, in-app no longer
+    // silently off. (The DB-level proof is in tests/integration/outbox.test.ts.)
+    for (const [role, ev] of [
+      ["partner", "new_leads"],
+      ["partner", "hot_leads"],
+      ["admin", "run_summary"],
+      ["admin", "hot_leads"],
+    ] as const) {
+      expect(resolvePref(DEFAULT_NOTIFICATION_PREFS, role, ev)).toEqual({ email: true, inApp: true });
+    }
+  });
+
   it("SCR-12: hot-lead alerts default fully on (email + in-app) for both roles", () => {
     expect(resolvePref(DEFAULT_NOTIFICATION_PREFS, "admin", "hot_leads")).toEqual({ email: true, inApp: true });
     expect(resolvePref(DEFAULT_NOTIFICATION_PREFS, "partner", "hot_leads")).toEqual({ email: true, inApp: true });

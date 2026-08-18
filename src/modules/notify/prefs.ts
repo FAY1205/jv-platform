@@ -34,6 +34,7 @@ export const NOTIFICATION_EVENTS = [
   { role: "admin", key: "task_due", label: "A task is due or overdue" },
   { role: "partner", key: "hot_leads", label: "A hot lead is routed to you" },
   { role: "partner", key: "new_leads", label: "New leads distributed to you" },
+  { role: "partner", key: "assigned_lead", label: "A lead is assigned to you" },
   { role: "partner", key: "task_due", label: "A task is due or overdue" },
 ] as const;
 
@@ -41,7 +42,7 @@ export type NotifEvent = (typeof NOTIFICATION_EVENTS)[number]["key"];
 
 export interface NotificationPrefs {
   admin: { run_summary: NotifChannel; hot_leads: NotifChannel; status_change: NotifChannel; task_due: NotifChannel };
-  partner: { hot_leads: NotifChannel; new_leads: NotifChannel; task_due: NotifChannel };
+  partner: { hot_leads: NotifChannel; new_leads: NotifChannel; assigned_lead: NotifChannel; task_due: NotifChannel };
 }
 
 // SET-03: "Digests on; alerts off" — digests email on; the status-change alert email
@@ -59,6 +60,11 @@ export const DEFAULT_NOTIFICATION_PREFS: NotificationPrefs = {
   partner: {
     hot_leads: { email: true, inApp: true },
     new_leads: { email: true, inApp: true },
+    // NTF-08 (WP-NF1 D4): a single admin re-route is a low-volume, per-USER signal, so it
+    // shows in the bell but does NOT email by default — which is exactly what this path did
+    // before it had its own entry (it rode `new_leads`'s in-app channel and never emailed).
+    // The default is deliberately unchanged behavior; whether to email is an owner decision.
+    assigned_lead: { email: false, inApp: true },
     task_due: { email: true, inApp: true },
   },
 };
@@ -69,7 +75,9 @@ export const NotificationPrefsSchema = z
     admin: z
       .object({ run_summary: ChannelSchema, hot_leads: ChannelSchema, status_change: ChannelSchema, task_due: ChannelSchema })
       .partial(),
-    partner: z.object({ hot_leads: ChannelSchema, new_leads: ChannelSchema, task_due: ChannelSchema }).partial(),
+    partner: z
+      .object({ hot_leads: ChannelSchema, new_leads: ChannelSchema, assigned_lead: ChannelSchema, task_due: ChannelSchema })
+      .partial(),
   })
   .partial();
 export type NotificationPrefsInput = z.infer<typeof NotificationPrefsSchema>;
@@ -99,6 +107,7 @@ export function mergeNotificationPrefs(stored: NotificationPrefsInput | null | u
     partner: {
       hot_leads: ch(d.partner.hot_leads, s.partner?.hot_leads),
       new_leads: ch(d.partner.new_leads, s.partner?.new_leads),
+      assigned_lead: ch(d.partner.assigned_lead, s.partner?.assigned_lead),
       task_due: ch(d.partner.task_due, s.partner?.task_due),
     },
   };

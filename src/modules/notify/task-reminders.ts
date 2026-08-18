@@ -84,6 +84,24 @@ export async function remindDueTasks(db: DB, opts: RemindDueTasksOptions): Promi
   // per remaining tenant, not just nothing per task. The in-loop break below still bounds one tenant
   // whose own sweep runs long. The remainder is picked up next tick.
   if (opts.deadlineMs !== undefined && clockMs() >= opts.deadlineMs) return { reminded: 0, retired: 0 };
+
+  // Prefs are per tenant (NTF-05) — one load for the whole sweep. userId is unused by the
+  // settings read; releaseDueImports builds the same system scope.
+  const systemScope: ScopeContext = { tenantId: opts.tenantId, role: "admin", userId: opts.tenantId };
+  const prefs = await loadNotificationPrefs(db, systemScope);
+
+  // NTF-09 (WP-NF1 D5): a fully-muted tenant costs ONE prefs read per tick, not a due select
+  // plus two visibility queries per task. Since a muted task is no longer consumed (see the
+  // per-task skip below), the candidate set no longer drains itself, so without this early-out
+  // a tenant that switched task_due off entirely would be re-probed at full cost forever.
+  // Both STREAMS must be off: the admin bucket serves admin/member/viewer (streamPrefRole).
+  const adminCh = resolvePref(prefs, "admin", "task_due");
+  const partnerCh = resolvePref(prefs, "partner", "task_due");
+  const muted = !adminCh.inApp && !adminCh.email && !partnerCh.inApp && !partnerCh.email;
+  // Orphan retirement (C-14) also pauses while muted — deliberate: the retirement heads-up
+  // exists to get an undeliverable nudge re-assigned, and there is no nudge to deliver.
+  if (muted) return { reminded: 0, retired: 0 };
+
   const due = await db
     .select({
       id: schema.leadTasks.id,
@@ -124,11 +142,6 @@ export async function remindDueTasks(db: DB, opts: RemindDueTasksOptions): Promi
     .limit(opts.limit ?? 200);
   if (due.length === 0) return { reminded: 0, retired: 0 };
 
-  // Prefs are per tenant (NTF-05) — one load for the whole sweep. userId is unused by the
-  // settings read; releaseDueImports builds the same system scope.
-  const systemScope: ScopeContext = { tenantId: opts.tenantId, role: "admin", userId: opts.tenantId };
-  const prefs = await loadNotificationPrefs(db, systemScope);
-
   const candidateIds = [
     ...new Set(due.flatMap((t) => [t.assignedToUserId, t.authorUserId]).filter((v): v is string => v !== null)),
   ];
@@ -165,6 +178,17 @@ export async function remindDueTasks(db: DB, opts: RemindDueTasksOptions): Promi
         continue;
       }
       const channel = resolvePref(prefs, streamPrefRole(recipient.role), "task_due");
+      // NTF-09 (WP-NF1 D5) — owner-directed 2026-08-19, INVERTING the earlier pr-reviewer F-2
+      // decision recorded here ("consume it anyway; the nudge decision was made and spent").
+      // With every channel off there is no nudge to spend: burning the one-shot means that a
+      // tenant who turns task_due back on the next day never hears about the tasks that came
+      // due while it was off — silently, and unrecoverably, since reminded_at is terminal.
+      // So: SKIP WITHOUT CLAIMING. No reminded_at stamp, no reminder_attempts increment (this
+      // is not an orphan — the recipient resolved fine, so retiring it would mis-fire the
+      // admin heads-up), not counted as reminded. The task stays eligible and the one-shot
+      // fires on the first tick after a channel is switched back on. The tenant-level early-out
+      // above keeps the fully-muted case from paying for that eligibility every tick.
+      if (!channel.inApp && !channel.email) continue;
 
       const nudged = await db.transaction(async (tx) => {
         // The SAME per-tenant lock key voidUpload / persistRun / releaseDueImports take, so a

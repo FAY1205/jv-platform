@@ -32,10 +32,11 @@ export async function POST(request: Request) {
     // Best-effort in-app notification: one per-lead link for a single assign, one
     // summary for a batch (never one bell entry per lead; ADR-0020 / ADR-0014).
     try {
+      // audit-tenancy (WP-NF1): the server-validated id from the command, never the body.
       if (result.assigned.length === 1) {
-        await notifyLeadAssigned(getDb(), scope, { leadRef: result.assigned[0], partnerId: parsed.data.partnerId });
+        await notifyLeadAssigned(getDb(), scope, { leadRef: result.assigned[0], partnerId: result.assignedPartnerId });
       } else if (result.assigned.length > 1) {
-        await notifyLeadsBulkAssigned(getDb(), scope, { partnerId: parsed.data.partnerId, count: result.assigned.length });
+        await notifyLeadsBulkAssigned(getDb(), scope, { partnerId: result.assignedPartnerId, count: result.assigned.length });
       }
     } catch (e) {
       logError("bulk_assign_notify_failed", { message: e instanceof Error ? e.message : String(e) });

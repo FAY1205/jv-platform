@@ -552,21 +552,107 @@ suite("TSK-08: sweep mechanics — limit, atomicity, silent consume", () => {
     expect((await db.select().from(schema.leadTasks).where(eq(schema.leadTasks.id, taskId)))[0].remindedAt).not.toBeNull();
   });
 
-  it("TSK-08: both channels off still stamps reminded_at exactly once", async () => {
-    await saveNotificationPrefs(db, { tenantId: id.tenant, role: "admin", userId: id.admin }, {
-      admin: { task_due: { email: false, inApp: false } },
-    });
+  it("NTF-09: both channels off does NOT burn the one-shot — the task stays eligible", async () => {
+    // ⚠️ This case DELIBERATELY INVERTS the decision it used to pin ("both channels off still
+    // stamps reminded_at exactly once", the pr-reviewer F-2 consume-without-notify call).
+    // Owner-directed 2026-08-19 (WP-NF1 D5, NTF-09). The old contract meant a tenant who
+    // switched task_due off — even briefly, even by accident — permanently lost every nudge
+    // that came due meanwhile: reminded_at is terminal, so re-enabling the channel could never
+    // recover them, and nobody was ever told. Spending a one-shot on a delivery that provably
+    // reaches no one is not a decision "made and spent"; it is a decision discarded.
+    //
+    // New contract: no channel ⇒ SKIP WITHOUT CLAIMING. No reminded_at, no attempt increment
+    // (this is not an orphan — the recipient resolved fine — so the C-14 retirement heads-up
+    // must not fire), not counted. The cost of staying eligible is bounded by the tenant-level
+    // early-out, proven below.
+    const scope: ScopeContext = { tenantId: id.tenant, role: "admin", userId: id.admin };
+    await saveNotificationPrefs(db, scope, { admin: { task_due: { email: false, inApp: false } } });
     const taskId = await addTask("Silent");
     const emailsBefore = (await emails()).length;
     const notifsBefore = (await db.select().from(schema.notifications).where(eq(schema.notifications.tenantId, id.tenant))).length;
 
-    // Consumed, deliberately: the nudge decision was made and spent, so the task cannot
-    // accumulate in the overdue set forever waiting for a channel that is switched off.
-    expect((await sweep()).reminded).toBe(1);
-    expect((await db.select().from(schema.leadTasks).where(eq(schema.leadTasks.id, taskId)))[0].remindedAt).not.toBeNull();
+    expect((await sweep()).reminded).toBe(0);
+    const row = (await db.select().from(schema.leadTasks).where(eq(schema.leadTasks.id, taskId)))[0];
+    expect(row.remindedAt).toBeNull(); // NOT consumed
+    expect(row.reminderAttempts).toBe(0); // NOT an orphan — the attempt counter is untouched
     expect(await emails()).toHaveLength(emailsBefore);
     expect(await db.select().from(schema.notifications).where(eq(schema.notifications.tenantId, id.tenant))).toHaveLength(notifsBefore);
+    // Muted stays muted, however many ticks pass — and still never claims.
     expect((await sweep()).reminded).toBe(0);
+    expect((await db.select().from(schema.leadTasks).where(eq(schema.leadTasks.id, taskId)))[0].remindedAt).toBeNull();
+  });
+
+  it("NTF-09: re-enabling the channel later DELIVERS the nudge that was never spent", async () => {
+    // The whole point of not burning it. The "Silent" task above is still eligible.
+    const scope: ScopeContext = { tenantId: id.tenant, role: "admin", userId: id.admin };
+    const taskId = (await tasksNamed("Silent"))[0].id;
+    expect((await db.select().from(schema.leadTasks).where(eq(schema.leadTasks.id, taskId)))[0].remindedAt).toBeNull();
+
+    await saveNotificationPrefs(db, scope, { admin: { task_due: { email: false, inApp: true } } });
+    expect((await sweep()).reminded).toBe(1);
+    expect((await db.select().from(schema.leadTasks).where(eq(schema.leadTasks.id, taskId)))[0].remindedAt).not.toBeNull();
+    const notifs = await db.select().from(schema.notifications).where(eq(schema.notifications.tenantId, id.tenant));
+    expect(notifs.filter((n) => n.title === "Task due: Silent")).toHaveLength(1);
+    // …and still exactly once, ever: the one-shot guarantee survives the deferral.
+    expect((await sweep()).reminded).toBe(0);
+    expect(
+      (await db.select().from(schema.notifications).where(eq(schema.notifications.tenantId, id.tenant))).filter(
+        (n) => n.title === "Task due: Silent",
+      ),
+    ).toHaveLength(1);
+  });
+
+  it("NTF-09: a fully-muted tenant early-outs BEFORE the due select (one prefs read, no scan)", async () => {
+    // Because a muted task is no longer consumed, the candidate set never drains itself — so
+    // without this early-out a muted tenant would pay a due select plus two visibility queries
+    // per task, every tick, forever. Proven by observation: with both streams off the sweep
+    // reports nothing AND leaves every candidate untouched, including one it would otherwise
+    // have to resolve a recipient for.
+    const scope: ScopeContext = { tenantId: id.tenant, role: "admin", userId: id.admin };
+    const taskId = await addTask("Muted tenant");
+    await saveNotificationPrefs(db, scope, {
+      admin: { task_due: { email: false, inApp: false } },
+      partner: { task_due: { email: false, inApp: false } },
+    });
+    expect(await sweep()).toEqual({ reminded: 0, retired: 0 });
+    const row = (await db.select().from(schema.leadTasks).where(eq(schema.leadTasks.id, taskId)))[0];
+    expect(row.remindedAt).toBeNull();
+    expect(row.reminderAttempts).toBe(0);
+
+    // One stream back on is NOT muted — the sweep runs again and delivers.
+    await saveNotificationPrefs(db, scope, {
+      admin: { task_due: { email: false, inApp: true } },
+      partner: { task_due: { email: false, inApp: false } },
+    });
+    expect((await sweep()).reminded).toBe(1);
+    expect((await db.select().from(schema.leadTasks).where(eq(schema.leadTasks.id, taskId)))[0].remindedAt).not.toBeNull();
+  });
+
+  it("NTF-06: a DEACTIVATED seat receives nothing — the task is treated as undeliverable, not delivered", async () => {
+    // The staff twin of PTL-01 revocation (audit-tenancy F-7): a seat that is refused a session
+    // must not be handed a nudge either. The sweep's candidate lookup already filtered
+    // deactivated rows; WP-NF1 D2 brings the outbox's partner lookups into line, and this pins
+    // the reminder half so the two can't drift apart again.
+    const gone = randomUUID();
+    await db.insert(schema.users).values({
+      id: gone, tenantId: id.tenant, email: "gone@tr-mech.test", role: "admin",
+      deactivatedAt: new Date("2026-07-01T00:00:00.000Z"),
+    });
+    const [task] = await db
+      .insert(schema.leadTasks)
+      .values({ tenantId: id.tenant, leadId: id.lead, title: "Deactivated recipient", authorRole: "admin", authorUserId: gone, assignedToUserId: gone, dueOn: YESTERDAY })
+      .returning({ id: schema.leadTasks.id });
+
+    const notifsBefore = (await db.select().from(schema.notifications).where(eq(schema.notifications.tenantId, id.tenant))).length;
+    const emailsBefore = (await emails()).length;
+    expect((await sweep()).reminded).toBe(0);
+
+    const row = (await db.select().from(schema.leadTasks).where(eq(schema.leadTasks.id, task.id)))[0];
+    expect(row.remindedAt).toBeNull(); // nothing delivered ⇒ nothing consumed
+    expect(row.reminderAttempts).toBe(1); // an ORPHAN (no eligible recipient), unlike the muted case
+    expect(await db.select().from(schema.notifications).where(eq(schema.notifications.tenantId, id.tenant))).toHaveLength(notifsBefore);
+    expect((await emails()).some((e) => e.toAddress === "gone@tr-mech.test")).toBe(false);
+    expect(await emails()).toHaveLength(emailsBefore);
   });
 });
 

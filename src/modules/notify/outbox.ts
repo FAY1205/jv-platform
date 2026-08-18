@@ -11,7 +11,7 @@ import { resolveEmailTransport } from "./transport";
 import { renderEmailDocument, escapeHtml, EMAIL_COLORS, EMAIL_FONTS } from "./email-template";
 import { buildPartnerDigest, buildAdminRunSummary, buildPartnerHotAlert, buildAdminHotAlert, type PartnerDigestLead, type HotAlertLead } from "./digests";
 import { createNotification } from "./notifications";
-import { resolvePref, loadNotificationPrefs, type NotificationPrefs, type NotifEvent } from "./prefs";
+import { resolvePref, loadNotificationPrefs, DEFAULT_NOTIFICATION_PREFS, type NotificationPrefs, type NotifEvent } from "./prefs";
 import type { RunSummary } from "../analytics/run-summary";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -25,12 +25,28 @@ type DB = PostgresJsDatabase<typeof schema>;
 
 export const MAX_OUTBOX_ATTEMPTS = 5;
 const BASE_BACKOFF_MS = 60_000; // 1 minute
-const MAX_BACKOFF_MS = 6 * 60 * 60_000; // 6 hours
+const MAX_BACKOFF_MS = 6 * 60 * 60_000; // 6 hours (jitter can stretch to MAX * (1 + BACKOFF_JITTER) = 7.5h)
 
 /** Exponential backoff for retry number `attempts` (1-based), capped. Pure. */
 export function backoffMs(attempts: number): number {
   const n = Math.max(1, attempts);
   return Math.min(BASE_BACKOFF_MS * 2 ** (n - 1), MAX_BACKOFF_MS);
+}
+
+/** ±25% of the backoff, as a fraction of the base delay. */
+export const BACKOFF_JITTER = 0.25;
+
+/**
+ * WP-NF1 D7: spread retries so a provider outage doesn't produce a synchronized thundering
+ * herd — every row that failed in the same tick would otherwise come due in the same
+ * millisecond, forever. `backoffMs` itself stays PURE (and independently pinned); the
+ * randomness is INJECTED here so drainOutbox can be made deterministic in tests.
+ * Band: [0.75·base, 1.25·base] for `random()` in [0,1). Pure given `random`.
+ */
+export function jitteredBackoffMs(attempts: number, random: () => number): number {
+  const base = backoffMs(attempts);
+  const factor = 1 - BACKOFF_JITTER + random() * 2 * BACKOFF_JITTER;
+  return Math.round(base * factor);
 }
 
 const errMessage = (e: unknown): string => (e instanceof Error ? e.message : String(e));
@@ -81,6 +97,66 @@ export function rowToEmailMessage(row: {
   };
 }
 
+/** One notifiable partner seat. `email` is the SEAT's address (users.email) — distinct from the
+ *  org-level `partners.email` the digests/alerts are sent to, which stays unchanged (NTF-07). */
+export interface PartnerSeat {
+  id: string;
+  email: string;
+  partnerId: string;
+}
+
+/**
+ * NTF-06/NTF-07 (WP-NF1 D2/D3): every ACTIVE PARTNER seat of the given partner orgs, in a
+ * deterministic order (created_at asc, id asc — stable across ticks and across replicas).
+ *
+ * Two predicates that both lookups used to be missing:
+ *  - `deactivated_at IS NULL` (NTF-06 / audit-tenancy F-7): a deactivated seat is refused a
+ *    session, so it must be refused a notification too — notifyStatusChange and the reminder
+ *    sweep already filter, these paths did not.
+ *  - `role = 'partner'` (SCP-01 / C-15, ADR-0046): `users.partner_id` carries no role invariant
+ *    on its own, so an admin-stream row with a stray partner_id must not be counted into a
+ *    partner org's seat set. (The 0054 SCP-08 CHECK now makes that shape impossible at write
+ *    time; the pin stays as defense-in-depth, exactly as noteWhere/taskWhere keep theirs.)
+ *
+ * PRN-08: tenant-scoped through the shared builder. PRN-13: the org wall is the partner_id
+ * predicate — a seat is only ever returned for its OWN org.
+ */
+export async function activePartnerSeats(
+  db: DB,
+  scope: ScopeContext,
+  partnerIds: string[],
+): Promise<PartnerSeat[]> {
+  if (partnerIds.length === 0) return [];
+  const rows = await db
+    .select({ id: schema.users.id, email: schema.users.email, partnerId: schema.users.partnerId })
+    .from(schema.users)
+    .where(
+      and(
+        tenantWhere(schema.users, scope),
+        inArray(schema.users.partnerId, partnerIds),
+        eq(schema.users.role, "partner"),
+        isNull(schema.users.deactivatedAt),
+      ),
+    )
+    .orderBy(asc(schema.users.createdAt), asc(schema.users.id));
+  return rows.flatMap((r) => (r.partnerId ? [{ id: r.id, email: r.email, partnerId: r.partnerId }] : []));
+}
+
+/** The same seats, grouped by partner id (fan-out targets per org). Order preserved. */
+export async function activePartnerSeatsByPartner(
+  db: DB,
+  scope: ScopeContext,
+  partnerIds: string[],
+): Promise<Map<string, PartnerSeat[]>> {
+  const byPartner = new Map<string, PartnerSeat[]>();
+  for (const seat of await activePartnerSeats(db, scope, partnerIds)) {
+    const list = byPartner.get(seat.partnerId);
+    if (list) list.push(seat);
+    else byPartner.set(seat.partnerId, [seat]);
+  }
+  return byPartner;
+}
+
 export interface EnqueueRunDigestsInput {
   uploadRef: string;
   /** Required for the admin run-summary (audience "admin"/"all"); unused for "partner". */
@@ -91,7 +167,8 @@ export interface EnqueueRunDigestsInput {
   adminEmails?: string[];
   /** The acting admin's user id — target for their in-app run notification (NTF-04). */
   adminUserId?: string;
-  /** When provided, gates email vs in-app per role/event (NTF-05); absent = email all (028a). */
+  /** Gates email vs in-app per role/event (NTF-05). Absent = the shared DEFAULT_NOTIFICATION_PREFS
+   *  for BOTH channels (WP-NF1 D8) — the old asymmetric "email all, in-app never" fallback is gone. */
   prefs?: NotificationPrefs;
   /** Which recipients to notify: "all" (default), "admin" only (at import), "partner" only (at release). */
   audience?: "all" | "admin" | "partner";
@@ -110,10 +187,14 @@ export async function enqueueRunDigests(
   input: EnqueueRunDigestsInput,
 ): Promise<number> {
   const audience = input.audience ?? "all";
-  const emailOn = (role: "admin" | "partner", ev: NotifEvent) =>
-    !input.prefs || resolvePref(input.prefs, role, ev).email;
-  const inAppOn = (role: "admin" | "partner", ev: NotifEvent) =>
-    !!input.prefs && resolvePref(input.prefs, role, ev).inApp;
+  // WP-NF1 D8: SYMMETRIC no-prefs fallback. Both channels resolve against the shared defaults
+  // instead of hardcoding email=true / inApp=false. Email behavior is unchanged (every event this
+  // path serves defaults email-on, which is what the old `!input.prefs ||` meant); the in-app
+  // channel is no longer hard-false when a caller omits prefs. Belt-and-braces: every live call
+  // site (enqueueRunDigests from run-upload / releaseDueImports) passes prefs today.
+  const prefs = input.prefs ?? DEFAULT_NOTIFICATION_PREFS;
+  const emailOn = (role: "admin" | "partner", ev: NotifEvent) => resolvePref(prefs, role, ev).email;
+  const inAppOn = (role: "admin" | "partner", ev: NotifEvent) => resolvePref(prefs, role, ev).inApp;
 
   let enqueued = 0;
 
@@ -163,16 +244,12 @@ export async function enqueueRunDigests(
         byPartner.set(r.partnerId, g);
       }
 
-      // Map partner → user id for in-app notifications (a partner may not have onboarded).
+      // NTF-07 (D3): partner → EVERY active seat for in-app notifications (a partner may have
+      // no onboarded seat at all, or several). This used to be a partner → ONE user map built by
+      // last-write-wins, so a multi-seat org silently notified whichever row the planner returned
+      // last. The email side stays ORG-level (partners.email) — unchanged surface.
       const partnerIds = [...byPartner.keys()];
-      const userByPartner = new Map<string, string>();
-      if (input.prefs && partnerIds.length > 0) {
-        const userRows = await db
-          .select({ id: schema.users.id, partnerId: schema.users.partnerId })
-          .from(schema.users)
-          .where(and(tenantWhere(schema.users, scope), inArray(schema.users.partnerId, partnerIds)));
-        for (const u of userRows) if (u.partnerId) userByPartner.set(u.partnerId, u.id);
-      }
+      const seatsByPartner = await activePartnerSeatsByPartner(db, scope, partnerIds);
 
       for (const g of byPartner.values()) {
         if (g.leads.length === 0) continue;
@@ -198,17 +275,19 @@ export async function enqueueRunDigests(
           });
           enqueued++;
         }
-        // NTF-04: in-app notification for onboarded partners, when the in-app channel is on.
-        const uid = userByPartner.get(g.partnerId);
-        if (uid && inAppOn("partner", "new_leads")) {
-          await createNotification(db, {
-            tenantId: scope.tenantId,
-            userId: uid,
-            type: "new_leads",
-            title: c.subject,
-            body: `${g.leads.length} new lead${g.leads.length === 1 ? "" : "s"} from ${input.uploadRef}.`,
-            deepLink: "/portal/leads",
-          });
+        // NTF-04/NTF-07: in-app notification for EVERY active seat of an onboarded partner,
+        // when the in-app channel is on.
+        if (inAppOn("partner", "new_leads")) {
+          for (const seat of seatsByPartner.get(g.partnerId) ?? []) {
+            await createNotification(db, {
+              tenantId: scope.tenantId,
+              userId: seat.id,
+              type: "new_leads",
+              title: c.subject,
+              body: `${g.leads.length} new lead${g.leads.length === 1 ? "" : "s"} from ${input.uploadRef}.`,
+              deepLink: "/portal/leads",
+            });
+          }
         }
       }
 
@@ -229,16 +308,17 @@ export async function enqueueRunDigests(
           await enqueueEmail(db, { tenantId: scope.tenantId, to: g.email, subject: c.subject, body: c.body, html: c.html, kind: "hot_leads", meta: { uploadRef: input.uploadRef, partnerRef: g.ref } });
           enqueued++;
         }
-        const uid = userByPartner.get(partnerId);
-        if (uid && inAppOn("partner", "hot_leads")) {
-          await createNotification(db, {
-            tenantId: scope.tenantId,
-            userId: uid,
-            type: "hot_leads",
-            title: `${g.leads.length} hot lead${g.leads.length === 1 ? "" : "s"} in your territory`,
-            body: "High-priority leads routed to you — call them first.",
-            deepLink: "/portal/leads",
-          });
+        if (inAppOn("partner", "hot_leads")) {
+          for (const seat of seatsByPartner.get(partnerId) ?? []) {
+            await createNotification(db, {
+              tenantId: scope.tenantId,
+              userId: seat.id,
+              type: "hot_leads",
+              title: `${g.leads.length} hot lead${g.leads.length === 1 ? "" : "s"} in your territory`,
+              body: "High-priority leads routed to you — call them first.",
+              deepLink: "/portal/leads",
+            });
+          }
         }
       }
     }
@@ -389,39 +469,78 @@ export async function notifyStatusChange(
   }
 }
 
+/** The assignment notification's email body, in the notifyStatusChange shape (SEC-05: the lead
+ *  REF only — never seller PII). Pure. */
+function assignedEmailHtml(title: string, sentence: string): string {
+  return renderEmailDocument({
+    title,
+    preheader: title,
+    heading: title,
+    contentHtml:
+      `<p style="font-family:${EMAIL_FONTS.body};color:${EMAIL_COLORS.text2};font-size:15px">` +
+      `${escapeHtml(sentence)}</p>`,
+  });
+}
+
 /**
- * F-40 / NTF-04 / ADR-0020: tell a partner they've just been given a lead by an admin
- * (manual assign of an unmatched lead, or an edit re-route). In-app for the partner's
- * user, gated on their `new_leads` in-app channel (same signal as distribution).
- * Best-effort — call sites swallow errors. Skipped when the partner has no onboarded
- * user. `scope` is the acting admin's; prefs are per-tenant so this resolves correctly.
+ * F-40 / NTF-04 / NTF-07 / NTF-08 / ADR-0020: tell a partner they've just been given a lead by an
+ * admin (manual assign of an unmatched lead, or an edit re-route). Fans out to EVERY active seat
+ * of the receiving org (D3) — a two-person partner org used to notify whichever row the planner
+ * happened to return first.
+ *
+ * NTF-08 (D4): gated on `partner.assigned_lead`, its OWN preference entry, not on `new_leads`
+ * (distribution). Both channels are honored so the Settings toggle is truthful; `assigned_lead`
+ * defaults `{ inApp: true, email: false }`, so out of the box this behaves exactly as before.
+ *
+ * Best-effort — call sites swallow errors. Skipped when the partner has no onboarded, active
+ * seat. `scope` is the acting admin's; prefs are per-tenant so this resolves correctly.
  */
 export async function notifyLeadAssigned(
   db: DB,
   scope: ScopeContext,
   input: { leadRef: string; partnerId: string },
 ): Promise<void> {
-  if (!resolvePref(await loadNotificationPrefs(db, scope), "partner", "new_leads").inApp) return;
-  const [user] = await db
-    .select({ id: schema.users.id })
-    .from(schema.users)
-    .where(and(tenantWhere(schema.users, scope), eq(schema.users.partnerId, input.partnerId)));
-  if (!user) return;
-  await createNotification(db, {
-    tenantId: scope.tenantId,
-    userId: user.id,
-    type: "assigned_lead",
-    title: `Lead ${input.leadRef} was assigned to you`,
-    body: "An admin routed this lead to you.",
-    deepLink: `/portal/leads/${input.leadRef}`,
-    leadRef: input.leadRef, // C-13: correlate for void/purge redaction
-  });
+  const ch = resolvePref(await loadNotificationPrefs(db, scope), "partner", "assigned_lead");
+  if (!ch.inApp && !ch.email) return;
+  const seats = await activePartnerSeats(db, scope, [input.partnerId]);
+  if (seats.length === 0) return;
+
+  const title = `Lead ${input.leadRef} was assigned to you`;
+  const sentence = "An admin routed this lead to you.";
+  for (const seat of seats) {
+    if (ch.inApp) {
+      await createNotification(db, {
+        tenantId: scope.tenantId,
+        userId: seat.id,
+        type: "assigned_lead",
+        title,
+        body: sentence,
+        // Encoded for defense-in-depth (the notifyStatusChange convention) even though a
+        // leadRef is format-constrained.
+        deepLink: `/portal/leads/${encodeURIComponent(input.leadRef)}`,
+        leadRef: input.leadRef, // C-13: correlate for void/purge redaction
+      });
+    }
+    // A per-USER notification emails the SEAT (users.email), not the org address — the
+    // org-level partners.email surface belongs to the digests/alerts and is untouched.
+    if (ch.email) {
+      await enqueueEmail(db, {
+        tenantId: scope.tenantId,
+        to: seat.email,
+        subject: title,
+        body: `${sentence} Lead ${input.leadRef}.`,
+        html: assignedEmailHtml(title, `${sentence} Lead ${input.leadRef}.`),
+        kind: "assigned_lead",
+        meta: { leadRef: input.leadRef },
+      });
+    }
+  }
 }
 
 /**
- * S6 bulk assign: ONE summary notification for a batch, not one per lead — a
- * 40-lead backfill must not flood the partner's bell. Same channel gate and
- * best-effort contract as notifyLeadAssigned.
+ * S6 bulk assign: ONE summary notification per SEAT for a batch, not one per lead — a
+ * 40-lead backfill must not flood the partner's bell. Same channel gate (NTF-08), same
+ * all-active-seats fan-out (NTF-07) and best-effort contract as notifyLeadAssigned.
  */
 export async function notifyLeadsBulkAssigned(
   db: DB,
@@ -430,20 +549,37 @@ export async function notifyLeadsBulkAssigned(
 ): Promise<void> {
   if (input.count === 0) return;
   if (input.count === 1) return; // single assign keeps the per-lead deep link path
-  if (!resolvePref(await loadNotificationPrefs(db, scope), "partner", "new_leads").inApp) return;
-  const [user] = await db
-    .select({ id: schema.users.id })
-    .from(schema.users)
-    .where(and(tenantWhere(schema.users, scope), eq(schema.users.partnerId, input.partnerId)));
-  if (!user) return;
-  await createNotification(db, {
-    tenantId: scope.tenantId,
-    userId: user.id,
-    type: "assigned_lead",
-    title: `${input.count} leads were assigned to you`,
-    body: "An admin routed these leads to you.",
-    deepLink: "/portal/leads",
-  });
+  const ch = resolvePref(await loadNotificationPrefs(db, scope), "partner", "assigned_lead");
+  if (!ch.inApp && !ch.email) return;
+  const seats = await activePartnerSeats(db, scope, [input.partnerId]);
+  if (seats.length === 0) return;
+
+  const title = `${input.count} leads were assigned to you`;
+  const sentence = "An admin routed these leads to you.";
+  for (const seat of seats) {
+    if (ch.inApp) {
+      await createNotification(db, {
+        tenantId: scope.tenantId,
+        userId: seat.id,
+        type: "assigned_lead",
+        title,
+        body: sentence,
+        deepLink: "/portal/leads",
+      });
+    }
+    // Aggregate over many leads → no meta.leadRef (nothing single to correlate for C-13),
+    // matching the in-app row above, which likewise carries no leadRef.
+    if (ch.email) {
+      await enqueueEmail(db, {
+        tenantId: scope.tenantId,
+        to: seat.email,
+        subject: title,
+        body: sentence,
+        html: assignedEmailHtml(title, sentence),
+        kind: "assigned_lead",
+      });
+    }
+  }
 }
 
 export interface DrainResult {
@@ -459,10 +595,19 @@ export interface DrainResult {
  */
 export async function drainOutbox(
   db: DB,
-  opts: { tenantId: string; transport?: EmailTransport; now?: Date; limit?: number },
+  opts: {
+    tenantId: string;
+    transport?: EmailTransport;
+    now?: Date;
+    limit?: number;
+    /** WP-NF1 D7: injected [0,1) source for retry jitter. Default Math.random; tests pass a
+     *  deterministic stub so the scheduled instant is assertable. */
+    random?: () => number;
+  },
 ): Promise<DrainResult> {
   const transport = opts.transport ?? resolveOutboxTransport();
   const now = opts.now ?? new Date();
+  const random = opts.random ?? Math.random;
   // PRN-08 (F-33): a drain is always tenant-scoped — never fan out across tenants.
   const due = and(
     eq(schema.emailOutbox.status, "pending"),
@@ -493,7 +638,7 @@ export async function drainOutbox(
       } else {
         await db
           .update(schema.emailOutbox)
-          .set({ attempts, lastError: message, nextAttemptAt: new Date(now.getTime() + backoffMs(attempts)) })
+          .set({ attempts, lastError: message, nextAttemptAt: new Date(now.getTime() + jitteredBackoffMs(attempts, random)) })
           .where(eq(schema.emailOutbox.id, row.id));
         result.retried++;
       }
