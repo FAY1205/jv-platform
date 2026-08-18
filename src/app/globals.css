@@ -337,11 +337,13 @@ h4 {
 
 /* Assistant launcher: a slow ambient pulse (halo grows/shrinks). The global
    reduced-motion rule below collapses this to a static shadow. */
+/* AI redesign: slower, calmer breathe (6s) with a smaller halo delta — the launcher is
+   permanently on screen, so it shouldn't pulse hard enough to compete with page content. */
 @keyframes assistant-breathe {
   0%, 100% { box-shadow: var(--sh-amb), 0 4px 18px var(--halo); }
-  50%      { box-shadow: var(--sh-amb), 0 6px 32px var(--halo); }
+  50%      { box-shadow: var(--sh-amb), 0 5px 26px var(--halo); }
 }
-.assistant-breathe { animation: assistant-breathe 4.5s ease-in-out infinite; }
+.assistant-breathe { animation: assistant-breathe 6s ease-in-out infinite; }
 
 /* CSS mini-orb (WP-AI-2): a filled brand disc for small header slots where the WebGL
    ring vanishes. Token-driven base + fixed white sheen + a slow rotating glint. */
