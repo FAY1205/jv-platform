@@ -94,6 +94,27 @@ suite("WS-8c: activity filtering (ACT-01/04)", () => {
     expect(res.items.map((i) => i.action).sort()).toEqual(["partner.created", "partner.deactivated"].sort());
   });
 
+  it("ACT-01: a literal % (and _) in the search query matches literally, never as a wildcard", async () => {
+    // Seeded inside the test (and removed after) so the sibling assertions' row counts stay
+    // untouched. Non-vacuous by construction (TST-11): the % query must find EXACTLY the
+    // seeded row — pre-fix it matched every row in the tenant.
+    const [r] = await db
+      .insert(schema.auditLog)
+      .values({ tenantId: id.tenant, actorUserId: id.u1, action: "promo.50%off", entityType: "x", entityRef: "PROMO", traceId: randomUUID() })
+      .returning({ id: schema.auditLog.id });
+    try {
+      const percent = await listAdminActivity(scope, q({ q: "%" }));
+      expect(percent.total).toBe(1);
+      expect(percent.items.map((i) => i.action)).toEqual(["promo.50%off"]);
+      // `_` was a single-character wildcard pre-fix (matched every row); literally it hits
+      // only the one seeded action that truly contains an underscore.
+      const underscore = await listAdminActivity(scope, q({ q: "_" }));
+      expect(underscore.items.map((i) => i.action)).toEqual(["mls_pattern.updated"]);
+    } finally {
+      await purgeAuditLog(db, inArray(schema.auditLog.id, [r.id]));
+    }
+  });
+
   it("ACT-01: pageSize + total drive pagination", async () => {
     const res = await listAdminActivity(scope, q({ pageSize: "10" }));
     expect(res.total).toBe(6);
