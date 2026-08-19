@@ -163,4 +163,21 @@ describe("proxy: getUser() failure handling (ADR-0032 — keep benign session-en
     expect(res.status).toBe(307);
     expect(res.headers.get("location")).toContain("/portal/login");
   });
+
+  // N3A/C-55: /signup's Terms consent link used to point at /tos — a PROTECTED page — so a
+  // prospect reading the terms before creating an account was bounced to /login. The public
+  // /terms page fixes that dead end, and it is public by ABSENCE from the allowlist above.
+  // These two tests are the guard: a future "tighten the proxy" sweep that adds /terms to
+  // PROTECTED_PAGE_PREFIXES re-breaks signup, and this fails.
+  it("N3A-02/C-55: /terms is reachable signed-out (public legal page, not in the protected allowlist)", async () => {
+    const res = await proxy(req("/terms"));
+    expect(res.status).not.toBe(307);
+    expect(res.headers.get("location")).toBeNull(); // rendered, not redirected to a login page
+  });
+
+  it("N3A-02/C-55: the in-app /tos ACCEPTANCE gate stays protected (only /terms was opened up)", async () => {
+    const res = await proxy(req("/tos"));
+    expect(res.status).toBe(307);
+    expect(res.headers.get("location")).toContain("/login");
+  });
 });

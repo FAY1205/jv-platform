@@ -137,8 +137,10 @@ export function PortalDashboard() {
         ) : (
           <>
             <p className="font-display text-2xl font-semibold leading-tight tracking-tight text-balance text-text">
+              {/* C-51: `as="span"` — this placeholder sits inside a <p>, and a <div> in
+                  phrasing content is relocated by the parser (hydration mismatch). */}
               {!s ? (
-                <Skeleton className="h-8 w-3/4" />
+                <Skeleton as="span" className="h-8 w-3/4" />
               ) : s.leads === 0 ? (
                 "No leads in your territory yet."
               ) : (
@@ -195,8 +197,9 @@ export function PortalDashboard() {
                   owner call: never bottom-anchored against a taller map column). */}
               <span className={`font-semibold uppercase tracking-[.08em] text-text-3 ${label13}`}>{RANGE_LABELS[range]}</span>
               <h2 className="mt-2 font-display text-step-7 font-semibold leading-[1.12] tracking-tight text-balance text-text">
+                {/* C-51: `as="span"` — same phrasing-content rule as the mobile <p> above. */}
                 {!s ? (
-                  <Skeleton className="h-8 w-3/4" />
+                  <Skeleton as="span" className="h-8 w-3/4" />
                 ) : s.leads === 0 ? (
                   "No leads in your territory yet."
                 ) : (

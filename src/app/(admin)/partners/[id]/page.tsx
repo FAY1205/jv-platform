@@ -28,6 +28,7 @@ import {
 import type { CoverageMapResponse } from "@/modules/coverage/map";
 import { formatContactTime, AVG_CONTACT_DEFINITION, type RangeKey } from "@/modules/analytics/ranges";
 import { matchMethodLabel } from "@/lib/match-method";
+import { coverageSummary } from "@/lib/coverage-summary";
 
 // Partner territory = the real coverage map with THIS partner highlighted (other partners
 // dimmed, true gaps hatched) — same pattern as the WS-3 matchcard. Static (no zoom/pan);
@@ -175,7 +176,12 @@ export default function PartnerDetailPage() {
                 {partner.email ? <span>{partner.email}</span> : <span className="text-text-3">No email</span>}
                 {partner.phone && <span className="num">{partner.phone}</span>}
                 {partner.dealTerms && <span className="text-text-3">· {partner.dealTerms}</span>}
-                <span className="text-text-3">· {partner.stateCount} state{partner.stateCount === 1 ? "" : "s"} · {partner.zipCount} ZIP{partner.zipCount === 1 ? "" : "s"}</span>
+                {/* C-49 / UXF-10.2: both segments used to print unconditionally, so a
+                    state-only partner read "· 2 states · 0 ZIPs" — a zero that scans as a
+                    defect rather than as the ABSENCE of ZIP coverage. coverageSummary()
+                    omits the empty kind (and gives an em dash when there is no coverage at
+                    all), matching the Partners roster. */}
+                <span className="text-text-3">· {coverageSummary(partner.zipCount, partner.stateCount)}</span>
               </div>
             </div>
             <div className="flex items-center gap-3">
