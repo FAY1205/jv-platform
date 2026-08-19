@@ -1,4 +1,4 @@
-import { and, eq, inArray, isNull, or, sql, type SQL } from "drizzle-orm";
+import { and, eq, inArray, isNull, ne, or, sql, type SQL } from "drizzle-orm";
 import type { PgColumn } from "drizzle-orm/pg-core";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import * as schema from "@/db/schema";
@@ -53,6 +53,59 @@ export function requirePartner(scope: ScopeContext): string {
     throw new Error("Partner scope is missing partnerId — refusing to build an unscoped query.");
   }
   return scope.partnerId as string;
+}
+
+/**
+ * The shape a stream-membership predicate needs: `users` ITSELF or one of its aliases.
+ * Drizzle bakes the table name into every column type, so an alias is not assignable to
+ * `typeof schema.users` — structural, so the write path (the real table) and the C-11
+ * identity joins (two aliases) compose the SAME builder rather than a private copy.
+ */
+export interface StreamUsersTable {
+  role: PgColumn;
+  partnerId: PgColumn;
+}
+
+/**
+ * C-47 — THE "which users belong to this stream/org" predicate. ONE definition; four call
+ * sites compose it (`noteWhere`/`taskWhere`'s `ownAuthors`, `statusAuthorOrg`, and the tasks
+ * module's assignee resolution + identity joins), so a stream-tier change lands once instead
+ * of four times (audit-tenancy F-1 on C-11; the ENGINEERING_STANDARDS §2 house rule).
+ *
+ * Staff arm `role <> 'partner'` (never `= 'admin'`): every admin-STREAM tier — admin, member,
+ * viewer — is one stream (PRN-13 stays binary), so a widened enum can't silently split it.
+ * Partner arm checks role AND org because `users.partner_id` carries NO role invariant
+ * (SCP-01 / C-15, ADR-0046): an admin row with a stray partner_id must never count into a
+ * partner org's member set.
+ *
+ * RLS parity, precisely (audit-tenancy F-2): migrations 0044 / 0054 carry the twin of this
+ * predicate on the AUTHOR/READ axis — `lead_tasks_scope` / `lead_notes_scope` USING pin
+ * `author_user_id in (select id from users where tenant_id = … and partner_id = … and role =
+ * 'partner')`. Keep THOSE halves in lockstep. The ASSIGNEE arm is deliberately NOT twinned:
+ * `lead_tasks_scope`'s WITH CHECK admits any in-tenant `assigned_to_user_id`, while
+ * `resolveAssignee` additionally requires the caller's own stream AND an active seat. The app
+ * is STRICTER than the database — the safe direction, since the builders are the primary
+ * boundary and RLS is the backstop (ENGINEERING_STANDARDS §2). Tightening the WITH CHECK to
+ * match is a logged WP candidate, not a correctness gap here.
+ *
+ * NOT keyed on a ScopeContext: `statusAuthorOrg` needs the OTHER stream's arm for a partner
+ * caller (a partner's status timeline admits staff authors too), so the stream is a parameter.
+ * `sameStreamUsersWhere` is the caller's-own-arm wrapper every other site wants.
+ */
+export function streamUsersWhere(t: StreamUsersTable, stream: "admin" | "partner", partnerId?: string): SQL {
+  if (stream === "admin") return ne(t.role, "partner");
+  if (!partnerId) {
+    throw new Error("streamUsersWhere: the partner arm needs a partnerId — refusing to build an unscoped query.");
+  }
+  return and(eq(t.role, "partner"), eq(t.partnerId, partnerId))!;
+}
+
+/** The user rows of the CALLER'S OWN stream: staff see staff, a partner sees their own org.
+ *  Pair it with `tenantWhere(t, scope)` — this builder decides the stream, never the tenant. */
+export function sameStreamUsersWhere(scope: ScopeContext, t: StreamUsersTable): SQL {
+  return isPartnerStream(scope)
+    ? streamUsersWhere(t, "partner", requirePartner(scope))
+    : streamUsersWhere(t, "admin");
 }
 
 /** Tenant-only scope for any table with a tenantId column. */
@@ -128,14 +181,14 @@ export function noteWhere(scope: ScopeContext, db: DB, now?: Date): SQL {
   // A note belongs to the partner org that wrote it (PRN-08/PRN-13): lead ownership MOVES
   // on re-route (partnerOwnsLead), so "notes on leads I own" alone would hand the previous
   // partner's notes to the new one. Restrict to notes authored by the reading partner's own org.
-  // SCP-01 (C-15, ADR-0046): pin role='partner'. users.partner_id carries no role invariant, so
-  // an admin row with a stray partner_id must not be counted into this org's authored set — the
-  // RLS counterpart (0044) carries the same predicate. (ownStatusAuthorScope keeps role='admin'
-  // OR partner_id=me deliberately: admin status changes stay visible to the current owner.)
+  // C-47: the ONE stream-membership builder above (SCP-01 / C-15, ADR-0046 — role AND org,
+  // because users.partner_id carries no role invariant). The RLS counterpart (0044) carries
+  // the same predicate. (statusAuthorOrg deliberately unions the STAFF arm on top: admin
+  // status changes stay visible to the current owner — one field, not two streams.)
   const ownAuthors = db
     .select({ id: users.id })
     .from(users)
-    .where(and(eq(users.tenantId, scope.tenantId), eq(users.partnerId, me), eq(users.role, "partner")));
+    .where(and(eq(users.tenantId, scope.tenantId), streamUsersWhere(users, "partner", me)));
   return and(
     base,
     eq(leadNotes.authorRole, "partner"),
@@ -174,14 +227,14 @@ export function taskWhere(scope: ScopeContext, db: DB, now?: Date): SQL {
     // C-8 / WP-TSK-2a: still-HELD leads drop out too (distribution hold), so the guard is
     // self-sufficient and app + RLS (0047) carry the hold in lockstep.
     .where(and(eq(leads.tenantId, scope.tenantId), partnerOwnsLead(me), isNull(leads.deletedAt), releasedLeads(now)));
-  // SCP-01 (C-15, ADR-0046): pin role='partner'. users.partner_id carries no role invariant, so
-  // an admin row with a stray partner_id must not be counted into this org's authored set — the
-  // RLS counterpart (0044) carries the same predicate. (ownStatusAuthorScope keeps role='admin'
-  // OR partner_id=me deliberately: admin status changes stay visible to the current owner.)
+  // C-47: the ONE stream-membership builder above (SCP-01 / C-15, ADR-0046 — role AND org,
+  // because users.partner_id carries no role invariant). The RLS counterpart (0044) carries
+  // the same predicate; the tasks module's assignee + identity paths compose the same builder
+  // through `sameStreamUsersWhere`, so read visibility and write validation cannot disagree.
   const ownAuthors = db
     .select({ id: users.id })
     .from(users)
-    .where(and(eq(users.tenantId, scope.tenantId), eq(users.partnerId, me), eq(users.role, "partner")));
+    .where(and(eq(users.tenantId, scope.tenantId), streamUsersWhere(users, "partner", me)));
   return and(
     base,
     eq(leadTasks.authorRole, "partner"),
@@ -233,9 +286,18 @@ export function ownStatusAuthorScope(scope: ScopeContext): SQL | undefined {
  * schema PR). ONE definition (audit-tenancy F-3 / R-24): the raw analytics SQL in
  * modules/analytics/partner-performance.ts composes this same fragment, so the portal timeline
  * and the portal's own KPI numbers can never disagree about whose touch counts (PRN-15).
+ *
+ * C-47: the two arms are now the shared `streamUsersWhere` builder — this is the ONE site that
+ * unions BOTH streams, which is exactly why the builder takes the stream as a parameter rather
+ * than reading it off the scope. SQL-equivalent to the previous `role <> 'partner' or
+ * partner_id = $p`: the partner arm's added `role = 'partner'` conjunct can only matter for a
+ * row the staff arm already admits. It stays a raw `sql` fragment so it keeps composing into
+ * the analytics template and the portal's correlated latest-status subquery (drizzle
+ * predicates interpolate into sql`` unchanged).
  */
 export function statusAuthorOrg(scope: ScopeContext, partnerId: string): SQL {
-  return sql`(select id from users where ${tenantWhere(schema.users, scope)} and (role <> 'partner' or partner_id = ${partnerId}))`;
+  const anyStaffOrOwnOrg = or(streamUsersWhere(users, "admin"), streamUsersWhere(users, "partner", partnerId))!;
+  return sql`(select id from users where ${tenantWhere(schema.users, scope)} and ${anyStaffOrOwnOrg})`;
 }
 
 /**

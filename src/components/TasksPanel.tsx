@@ -13,6 +13,7 @@ import { DueChip } from "./DueChip";
 import { Checkbox } from "./Checkbox";
 import { Input } from "./Input";
 import { DatePicker } from "./DatePicker";
+import { Select, type SelectOption } from "./Select";
 import { Button } from "./Button";
 import { Skeleton } from "./Skeleton";
 import { EmptyState } from "./EmptyState";
@@ -28,11 +29,10 @@ import { useToast } from "./Toast";
 // stream (PRN-13/ADR-0044) — this component only renders what the server hands back, it
 // never invents an assignee name or any other field the payload doesn't carry.
 //
-// Assignee PICKER: intentionally NOT built here (TSK-03 progressive disclosure — v1
-// silently self-assigns). Title/due EDITING is deferred too (WP candidate, noted in the
-// WP-TSK-4 summary) — v1 supports add / complete / reopen / delete only. C-11 added the
-// resolved assignee/author IDENTITY to the payload, so the row can now attribute work —
-// still without inventing anything: an unresolvable identity renders nothing at all.
+// WP-N1: the panel now carries the full work layer — add / EDIT (TSK-12) / complete /
+// reopen / delete, each with an assignee picker (TSK-13, C-46) over the caller's own-stream
+// active roster. It still invents nothing: the roster, the identities, and the stream wall
+// all come from the server, and an unresolvable identity renders nothing at all.
 
 /** C-11: mirrors `TaskIdentity` in modules/tasks/tasks.ts (the leads-view re-declare
  *  convention this file already follows for LeadTask). */
@@ -40,6 +40,22 @@ export interface TaskIdentity {
   email: string;
   role: "admin" | "member" | "viewer" | "partner";
   deactivated: boolean;
+}
+
+/** TSK-13: mirrors `TaskAssignee` in modules/tasks/tasks.ts — one assignable seat. */
+export interface TaskAssignee {
+  id: string;
+  email: string;
+  role: TaskIdentity["role"];
+}
+
+/** TSK-12: the PATCH body. `undefined` (an ABSENT key) leaves a field alone; an explicit
+ *  `null` clears it — mirrors EditTaskSchema, so `buildTaskPatch` never materialises a key
+ *  it doesn't mean (a present `dueOn: undefined` would read as "clear" to a lax parser). */
+export interface TaskPatch {
+  title?: string;
+  dueOn?: string | null;
+  assignedToUserId?: string | null;
 }
 
 export interface LeadTask {
@@ -107,6 +123,93 @@ export function identityTooltip(identity: TaskIdentity, author: TaskIdentity | n
 
 /** PRN-14: the read-only reason is WORDS, never a dimmed control alone. */
 const READ_ONLY_REASON = "Your role can't edit tasks.";
+
+/**
+ * TSK-13: the "assign to me" sentinel. NOT a user id — the client never learns its own id
+ * (["me"] carries an email, not an id), and it doesn't need to: omitting the field on create
+ * and sending an explicit `null` on edit both resolve to the caller server-side (TSK-03's
+ * default-to-creator rule). A non-empty string because Radix Select rejects `""` as a value.
+ */
+export const ASSIGN_TO_ME = "__me__";
+
+/**
+ * TSK-13 / PRN-14: the picker's options — "Me" first, then the caller's own-stream ACTIVE
+ * colleagues by email local-part. Identity is TEXT, and it must be UNAMBIGUOUS: when two
+ * seats share a local part ("dana@x.test" / "dana@y.test") both fall back to the full
+ * address rather than offering the user two identical-looking rows. The caller's own seat is
+ * folded into "Me" instead of appearing twice — while ["me"] is still loading its email is
+ * unknown, so it renders as an ordinary row rather than a guess (the panel's C-11 rule).
+ *
+ * `current` (design F-5): the row being EDITED may be assigned to somebody the roster does
+ * not contain — a seat deactivated since the assignment, or any assignee at all when the
+ * roster read failed. Without an option carrying that value the Select renders BLANK, which
+ * states "unassigned" about a task that is assigned: a control misreporting state, not merely
+ * an empty one (PRN-14). The row's OWN resolved identity (C-11 already ships the email) fills
+ * the gap, flagged when the seat is closed. Nothing about the patch changes — an untouched
+ * value is still an unchanged value, so the field is simply not sent.
+ *
+ * Pure, so every rule above is testable without a DOM.
+ */
+export function assigneeOptions(
+  roster: readonly TaskAssignee[],
+  myEmail: string | undefined,
+  current?: { value: string; identity: TaskIdentity | null },
+): SelectOption[] {
+  const others = roster.filter((u) => u.email !== myEmail);
+  const localPartCounts = new Map<string, number>();
+  for (const u of others) {
+    const local = u.email.split("@")[0];
+    localPartCounts.set(local, (localPartCounts.get(local) ?? 0) + 1);
+  }
+  const options: SelectOption[] = [
+    { value: ASSIGN_TO_ME, label: "Me" },
+    ...others.map((u) => {
+      const local = u.email.split("@")[0];
+      return { value: u.id, label: (localPartCounts.get(local) ?? 0) > 1 ? u.email : local };
+    }),
+  ];
+  if (current && current.value !== ASSIGN_TO_ME && current.identity && !options.some((o) => o.value === current.value)) {
+    const local = current.identity.email.split("@")[0];
+    // Second position: it is the SELECTED value, so it belongs beside "Me", not buried.
+    options.splice(1, 0, {
+      value: current.value,
+      label: current.identity.deactivated ? `${local} · deactivated` : local,
+    });
+  }
+  return options;
+}
+
+/**
+ * TSK-12: which picker value a row STARTS on. The sentinel unless the task is currently
+ * assigned to a resolvable COLLEAGUE — a self-assigned row (the v1 norm) starts on "Me", so
+ * leaving the field alone sends nothing at all.
+ */
+export function initialAssigneeValue(task: Pick<LeadTask, "assignedToUserId" | "assignee">, myEmail: string | undefined): string {
+  if (!task.assignedToUserId || !task.assignee) return ASSIGN_TO_ME;
+  return task.assignee.email === myEmail ? ASSIGN_TO_ME : task.assignedToUserId;
+}
+
+/**
+ * TSK-12: the minimal PATCH — ONLY the fields that actually changed. Absent key = "leave
+ * alone", explicit `null` = "clear" (EditTaskSchema's semantics); the sentinel becomes an
+ * explicit `null`, which the server resolves back to the caller (TSK-03). An unchanged form
+ * yields `{}`, which is what disables Save — the server would 400 on it ("Nothing to change").
+ * Pure, so the undefined-vs-null contract is pinned without a DOM.
+ */
+export function buildTaskPatch(
+  task: Pick<LeadTask, "title" | "dueOn">,
+  next: { title: string; dueOn: string | null; assignee: string },
+  initialAssignee: string,
+): TaskPatch {
+  const patch: TaskPatch = {};
+  const title = next.title.trim();
+  if (title !== task.title) patch.title = title;
+  if (next.dueOn !== task.dueOn) patch.dueOn = next.dueOn;
+  if (next.assignee !== initialAssignee) {
+    patch.assignedToUserId = next.assignee === ASSIGN_TO_ME ? null : next.assignee;
+  }
+  return patch;
+}
 
 export function TasksPanel({ leadRef, today, onTaskChanged, canWrite: canWriteProp }: TasksPanelProps) {
   const qc = useQueryClient();
@@ -198,6 +301,57 @@ export function TasksPanel({ leadRef, today, onTaskChanged, canWrite: canWritePr
   });
   const [confirmDeleteId, setConfirmDeleteId] = React.useState<string | null>(null);
 
+  // TSK-12: inline title/due/assignee edit. ONE row at a time — the form replaces that row.
+  const [editingId, setEditingId] = React.useState<string | null>(null);
+  // pr F-5 / house rule: focus returns to the row's own Edit trigger on cancel AND success.
+  // The trigger unmounts while the form is open, so the refs are keyed by task id and the
+  // focus call is queued for the next paint (the AddTaskForm pattern, one per row).
+  const editTriggerRefs = React.useRef(new Map<string, HTMLButtonElement | null>());
+  const returnFocusToEditTrigger = (id: string) => {
+    requestAnimationFrame(() => editTriggerRefs.current.get(id)?.focus());
+  };
+  const closeEditor = (id: string) => {
+    setEditingId(null);
+    returnFocusToEditTrigger(id);
+  };
+
+  // TSK-12: optimistic edit, rolled back + toasted on failure — the toggle mutation's shape.
+  // The ASSIGNEE is deliberately NOT patched optimistically: the client holds an id, not the
+  // resolved {email, role} identity the row renders, and this panel never invents identity
+  // (C-11). The refetch in onSettled supplies it.
+  const edit = useMutation({
+    mutationFn: (v: { id: string; patch: TaskPatch }) => apiMutate(`/api/tasks/${v.id}`, "PATCH", v.patch),
+    onMutate: async (v: { id: string; patch: TaskPatch }) => {
+      await qc.cancelQueries({ queryKey: key });
+      const prev = qc.getQueryData<{ tasks: LeadTask[] }>(key);
+      qc.setQueryData<{ tasks: LeadTask[] }>(key, (old) =>
+        old
+          ? {
+              tasks: old.tasks.map((x) =>
+                x.id === v.id
+                  ? {
+                      ...x,
+                      title: v.patch.title ?? x.title,
+                      dueOn: v.patch.dueOn !== undefined ? v.patch.dueOn : x.dueOn,
+                    }
+                  : x,
+              ),
+            }
+          : old,
+      );
+      return { prev };
+    },
+    onSuccess: (_data, v) => closeEditor(v.id),
+    onError: (err, _v, ctx) => {
+      // 409 task_closed (a colleague completed the row mid-edit) and 400 invalid_assignee
+      // (a stale roster) both land here: the optimistic row reverts and the server's own
+      // message explains it. The form stays open so the edit can be fixed, not retyped.
+      if (ctx?.prev) qc.setQueryData(key, ctx.prev);
+      toast.toast(err instanceof Error ? err.message : "Could not update the task.", "danger");
+    },
+    onSettled: () => settle(),
+  });
+
   const [adding, setAdding] = React.useState(false);
   // pr F-5: focus returns to the "+ Add a task" trigger on cancel AND after a successful
   // add, since the form that had focus just unmounted. The trigger only re-enters the DOM
@@ -241,6 +395,21 @@ export function TasksPanel({ leadRef, today, onTaskChanged, canWrite: canWritePr
             // ["me"] is loading BOTH sides are undefined, and a bare `===` would read an
             // authorless row as the viewer's own and reveal a guaranteed-404 Delete.
             const ownOpenTask = !t.doneAt && myEmail !== undefined && t.author?.email === myEmail;
+            // TSK-12: the form REPLACES its row while open — one editor at a time, and the
+            // title lives in the Input rather than being printed twice.
+            if (editingId === t.id) {
+              return (
+                <li key={t.id} className="border-t border-border-soft py-2.5 first:border-t-0">
+                  <EditTaskForm
+                    task={t}
+                    myEmail={myEmail}
+                    pending={edit.isPending}
+                    onCancel={() => closeEditor(t.id)}
+                    onSave={(patch) => edit.mutate({ id: t.id, patch })}
+                  />
+                </li>
+              );
+            }
             return (
               <li key={t.id} className="flex items-start gap-2 border-t border-border-soft first:border-t-0">
                 {/* Design F-2 (WP-N floor): a 44x44 hit area around the 16px visual box —
@@ -273,6 +442,29 @@ export function TasksPanel({ leadRef, today, onTaskChanged, canWrite: canWritePr
                   <div className={cn("text-sm font-medium text-text", t.doneAt && "text-text-3 line-through")}>{t.title}</div>
                   <div className="mt-1 flex flex-wrap items-center gap-2">
                     <DueChip dueOn={t.dueOn} doneAt={t.doneAt} today={todayStr} />
+                    {/* TSK-12: edit is STREAM-scoped, not author-only (editLeadTask's
+                        contract) — so unlike Delete it shows on a colleague's row too. It is
+                        hidden on COMPLETED rows: TSK-04 permanence means the server would
+                        409, so there is nothing to disable-with-a-reason here.
+                        On a CAPABILITY miss Edit HIDES rather than aria-disabling like the
+                        checkbox and Add trigger (§6 disable-don't-hide): those two are one
+                        control each, so one tooltip states the reason once — Edit is PER ROW,
+                        so disabling it would repeat the same tooltip down the whole list. The
+                        panel already says it once on the controls that stay. */}
+                    {!t.doneAt && canWrite && confirmDeleteId !== t.id && (
+                      <button
+                        ref={(el) => {
+                          editTriggerRefs.current.set(t.id, el);
+                        }}
+                        type="button"
+                        onClick={() => setEditingId(t.id)}
+                        disabled={isToggling || isDeleting || edit.isPending}
+                        aria-label={`Edit "${t.title}"`}
+                        className="rounded text-xs font-semibold text-text-3 underline-offset-2 outline-none transition-[color,transform] hover:text-brand-ink hover:underline focus-visible:ring-1 focus-visible:ring-brand-ink active:scale-[.97] disabled:pointer-events-none disabled:opacity-50"
+                      >
+                        Edit
+                      </button>
+                    )}
                     {ownOpenTask &&
                       canWrite &&
                       (confirmDeleteId === t.id ? (
@@ -389,10 +581,178 @@ function MaybeTooltip({ content, children }: { content: string | null; children:
   return content ? <Tooltip content={content}>{children}</Tooltip> : children;
 }
 
+/**
+ * TSK-13 (C-46): the assignee picker. The roster is SERVER-decided — GET /api/tasks/assignees
+ * returns the caller's own-stream ACTIVE seats and nothing else (PRN-13), so this component
+ * cannot widen or narrow the stream wall by getting its filtering wrong. Mounted only inside
+ * an open form, so a panel that is merely being read never fetches it (TanStack defaults do
+ * the rest of the caching — one roster per lead dialog).
+ *
+ * DSN-03 (design F-1): loading and FAILURE are different states and must not render alike —
+ * `hint` is the neutral "still working" line, `error` is the Select's danger treatment plus
+ * aria-invalid. A 500 on this roster used to be indistinguishable from a slow one.
+ *
+ * MEMOIZED (FEP-04, "keystrokes must not re-render"): the form re-renders on every character
+ * typed into the title, and this subtree is the heaviest thing in it (a Radix Select plus a
+ * query subscription). Its props are all stable — a value, a state setter, a boolean, and a
+ * memoized `current` — so memo eliminates every keystroke-driven re-render of the dropdown.
+ */
+const AssigneeSelect = React.memo(function AssigneeSelect({
+  value,
+  onValueChange,
+  disabled,
+  current,
+}: {
+  value: string;
+  onValueChange: (v: string) => void;
+  disabled?: boolean;
+  /** design F-5: the edited row's own assignment, so a roster gap never renders blank. */
+  current?: { value: string; identity: TaskIdentity | null };
+}) {
+  const me = useCurrentUser();
+  const q = useQuery({
+    queryKey: ["task-assignees"],
+    queryFn: () => apiGet<{ assignees: TaskAssignee[] }>("/api/tasks/assignees"),
+  });
+  const options = React.useMemo(
+    () => assigneeOptions(q.data?.assignees ?? [], me.data?.email, current),
+    [q.data?.assignees, me.data?.email, current],
+  );
+  return (
+    <Select
+      label="Assignee"
+      value={value}
+      onValueChange={onValueChange}
+      options={options}
+      disabled={disabled || q.isPending}
+      // PRN-14: both states say so in WORDS; only the failure carries the danger treatment.
+      error={q.isError ? "Couldn't load your team — leave this on Me, or try again." : undefined}
+      hint={q.isPending ? "Loading your team…" : undefined}
+    />
+  );
+});
+
+/** The due-date field the two forms share: the picker plus an explicit Clear, so clearing a
+ *  date (an explicit `null` on PATCH) is a visible affordance rather than the calendar's
+ *  click-the-selected-day-again gesture. Memoized for the same reason as AssigneeSelect —
+ *  a Radix Popover + calendar has no business re-rendering on every title keystroke. */
+const DueDateField = React.memo(function DueDateField({
+  value,
+  onChange,
+  disabled,
+  label,
+}: {
+  value: string | null;
+  onChange: (v: string | null) => void;
+  disabled?: boolean;
+  label: string;
+}) {
+  return (
+    <div className="flex items-end gap-2">
+      <div className="min-w-0 flex-1">
+        <DatePicker label={label} value={value} onChange={onChange} disabled={disabled} />
+      </div>
+      {value !== null && (
+        <Button type="button" variant="ghost" size="sm" onClick={() => onChange(null)} disabled={disabled} aria-label="Clear due date">
+          Clear
+        </Button>
+      )}
+    </div>
+  );
+});
+
+/**
+ * TSK-12: the inline edit form — the AddTaskForm shape, pre-filled from the row. It sends
+ * ONLY changed fields (buildTaskPatch), so a title-only edit can never wipe a due date.
+ * Local state seeded ONCE from the task: this is form input, not a copy of server state
+ * (§6.17) — the row's server data still lives in the query cache and the form unmounts on
+ * success. `key={task.id}` at the call site is implicit: one editor at a time, per row.
+ *
+ * DELIBERATELY NOT NotesPanel's inline-edit pattern (design F-6). A note is ONE free-text
+ * body, so it edits as a single textarea that saves on blur — no explicit commit, because
+ * there is nothing to commit atomically. A task is a RECORD of three fields whose changes
+ * must travel as one patch (title + due date + assignee, `undefined` vs `null` semantics per
+ * field), and two of them are pickers with no meaningful blur moment. Save-on-blur would
+ * either fire three PATCHes or fire one at an arbitrary moment; an explicit Save/Cancel is
+ * the honest control for a multi-field record. The divergence is the shape of the data, not
+ * two authors disagreeing — the AddTaskForm in this same file is the pattern it matches.
+ */
+function EditTaskForm({
+  task,
+  myEmail,
+  pending,
+  onCancel,
+  onSave,
+}: {
+  task: LeadTask;
+  myEmail: string | undefined;
+  pending: boolean;
+  onCancel: () => void;
+  onSave: (patch: TaskPatch) => void;
+}) {
+  const initialAssignee = React.useMemo(() => initialAssigneeValue(task, myEmail), [task, myEmail]);
+  const [title, setTitle] = React.useState(task.title);
+  const [dueOn, setDueOn] = React.useState<string | null>(task.dueOn);
+  const [assignee, setAssignee] = React.useState(initialAssignee);
+
+  const trimmed = title.trim();
+  const titleError = trimmed.length > TASK_TITLE_MAX ? `Keep the title under ${TASK_TITLE_MAX} characters.` : null;
+  const patch = buildTaskPatch(task, { title, dueOn, assignee }, initialAssignee);
+  // Save stays inert until something actually changed — an empty patch is exactly what the
+  // server refuses ("Nothing to change"), so the button says so instead of round-tripping it.
+  const unchanged = Object.keys(patch).length === 0;
+  const canSave = trimmed.length > 0 && !titleError && !unchanged;
+  // design F-2: a disabled Save with no explanation is a dead end — the user can see the
+  // form is valid and cannot tell why the button won't take. Say it, but ONLY in the
+  // valid-but-unchanged state: while the title is empty or too long the Input's own error
+  // already carries the reason, and two messages would compete.
+  const noChangesHint = unchanged && trimmed.length > 0 && !titleError;
+
+  // design F-5: the row's own assignment travels into the picker so a roster gap (a seat
+  // deactivated since assignment, or a failed roster read) renders truthfully instead of
+  // blank. Memoized because AssigneeSelect is memoized — a fresh object every keystroke
+  // would defeat it.
+  const currentAssignee = React.useMemo(
+    () => ({ value: initialAssignee, identity: task.assignee }),
+    [initialAssignee, task.assignee],
+  );
+
+  return (
+    <form
+      className="flex flex-col gap-2.5 rounded-lg border border-border-strong bg-surface p-3"
+      onSubmit={(e) => {
+        e.preventDefault();
+        if (canSave) onSave(patch);
+      }}
+    >
+      <Input
+        autoFocus
+        label="Task title"
+        value={title}
+        onChange={(e) => setTitle(e.target.value)}
+        error={titleError ?? undefined}
+        disabled={pending}
+      />
+      <DueDateField label="Due date (optional)" value={dueOn} onChange={setDueOn} disabled={pending} />
+      <AssigneeSelect value={assignee} onValueChange={setAssignee} disabled={pending} current={currentAssignee} />
+      <div className="flex items-center justify-end gap-2 pt-1">
+        {noChangesHint && <span className="mr-auto text-xs text-text-3">No changes to save.</span>}
+        <Button type="button" variant="ghost" size="sm" onClick={onCancel} disabled={pending}>
+          Cancel
+        </Button>
+        <Button type="submit" variant="primary" size="sm" loading={pending} disabled={!canSave}>
+          Save task
+        </Button>
+      </div>
+    </form>
+  );
+}
+
 function AddTaskForm({ leadRef, onCancel, onAdded }: { leadRef: string; onCancel: () => void; onAdded: () => void }) {
   const toast = useToast();
   const [title, setTitle] = React.useState("");
   const [dueOn, setDueOn] = React.useState<string | null>(null);
+  const [assignee, setAssignee] = React.useState(ASSIGN_TO_ME);
   const trimmed = title.trim();
   // TSK-01: 1..200 chars, trimmed — mirrors CreateTaskSchema so the client never
   // submits something the server will 400 on.
@@ -400,7 +760,14 @@ function AddTaskForm({ leadRef, onCancel, onAdded }: { leadRef: string; onCancel
   const canSave = trimmed.length > 0 && !titleError;
 
   const add = useMutation({
-    mutationFn: () => apiMutate<{ id: string }>(`/api/leads/${leadRef}/tasks`, "POST", { title: trimmed, dueOn }),
+    // TSK-03: "Me" OMITS the field entirely rather than sending an id the client would have
+    // to invent — the server defaults an absent assignee to the creator.
+    mutationFn: () =>
+      apiMutate<{ id: string }>(`/api/leads/${leadRef}/tasks`, "POST", {
+        title: trimmed,
+        dueOn,
+        ...(assignee === ASSIGN_TO_ME ? {} : { assignedToUserId: assignee }),
+      }),
     onSuccess: onAdded,
     onError: (err) => toast.toast(err instanceof Error ? err.message : "Could not add the task.", "danger"),
   });
@@ -422,7 +789,8 @@ function AddTaskForm({ leadRef, onCancel, onAdded }: { leadRef: string; onCancel
         error={titleError ?? undefined}
         disabled={add.isPending}
       />
-      <DatePicker label="Due date (optional)" value={dueOn} onChange={setDueOn} disabled={add.isPending} />
+      <DueDateField label="Due date (optional)" value={dueOn} onChange={setDueOn} disabled={add.isPending} />
+      <AssigneeSelect value={assignee} onValueChange={setAssignee} disabled={add.isPending} />
       <div className="flex items-center justify-end gap-2 pt-1">
         <Button type="button" variant="ghost" size="sm" onClick={onCancel} disabled={add.isPending}>
           Cancel

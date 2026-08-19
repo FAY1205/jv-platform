@@ -5,7 +5,17 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ToastProvider } from "@/components";
-import { TasksPanel, taskIdentity, identityTooltip, type LeadTask } from "@/components/TasksPanel";
+import {
+  TasksPanel,
+  taskIdentity,
+  identityTooltip,
+  assigneeOptions,
+  initialAssigneeValue,
+  buildTaskPatch,
+  ASSIGN_TO_ME,
+  type LeadTask,
+  type TaskAssignee,
+} from "@/components/TasksPanel";
 
 vi.mock("@/lib/csrf-client", () => ({ csrfHeaders: () => ({ "x-csrf-token": "t" }) }));
 
@@ -523,6 +533,386 @@ describe("C-11/DSN-03: the read-only reason is keyboard-reachable (a11y F-1/F-2)
     expect(checkbox).not.toHaveAttribute("aria-disabled");
     expect(checkbox).not.toHaveAttribute("aria-describedby");
     expect(screen.getByRole("button", { name: /add a task/i })).not.toHaveAttribute("aria-disabled");
+
+    vi.unstubAllGlobals();
+  });
+});
+
+// ── TSK-13 (C-46) / TSK-12: the pure picker + patch rules ───────────────────────
+// The undefined-vs-null contract and the "Me" sentinel are the two places an edit UI can
+// silently destroy data (a title-only edit wiping a due date, an unchanged form clearing an
+// assignee). Both are pure functions, so they are pinned without a DOM.
+
+const ROSTER: TaskAssignee[] = [
+  { id: "u-casey", email: "casey@meridian.test", role: "admin" },
+  { id: "u-dana", email: "dana@meridian.test", role: "member" },
+];
+
+describe("TSK-13: the assignee picker's option rules", () => {
+  it("TSK-13: 'Me' comes first and the caller's own seat is never listed twice", () => {
+    expect(assigneeOptions(ROSTER, ME.email)).toEqual([
+      { value: ASSIGN_TO_ME, label: "Me" },
+      { value: "u-dana", label: "dana" },
+    ]);
+  });
+
+  it("TSK-13: while ['me'] is loading the caller's seat renders as an ordinary row, never a guessed 'Me'", () => {
+    expect(assigneeOptions(ROSTER, undefined)).toEqual([
+      { value: ASSIGN_TO_ME, label: "Me" },
+      { value: "u-casey", label: "casey" },
+      { value: "u-dana", label: "dana" },
+    ]);
+  });
+
+  it("TSK-13/PRN-14: a shared local part falls back to the full address — identity is never ambiguous", () => {
+    const clashing: TaskAssignee[] = [
+      { id: "u-1", email: "dana@meridian.test", role: "member" },
+      { id: "u-2", email: "dana@partner.test", role: "member" },
+      { id: "u-3", email: "sam@meridian.test", role: "viewer" },
+    ];
+    expect(assigneeOptions(clashing, ME.email)).toEqual([
+      { value: ASSIGN_TO_ME, label: "Me" },
+      { value: "u-1", label: "dana@meridian.test" },
+      { value: "u-2", label: "dana@partner.test" },
+      { value: "u-3", label: "sam" },
+    ]);
+  });
+
+  it("TSK-13: an empty roster still offers 'Me' (the picker never renders an empty dropdown)", () => {
+    expect(assigneeOptions([], ME.email)).toEqual([{ value: ASSIGN_TO_ME, label: "Me" }]);
+  });
+
+  it("TSK-13/PRN-14 (design F-5): an assignee missing from the roster gets an option from the row's own identity", () => {
+    // A seat deactivated since the assignment: the roster (active-only) no longer carries it,
+    // so without this the Select would render BLANK on a task that IS assigned.
+    const closedSeat = { ...COLLEAGUE, deactivated: true };
+    expect(assigneeOptions(ROSTER, ME.email, { value: "u-gone", identity: closedSeat })).toEqual([
+      { value: ASSIGN_TO_ME, label: "Me" },
+      { value: "u-gone", label: "dana · deactivated" },
+      { value: "u-dana", label: "dana" },
+    ]);
+    // An ACTIVE assignee the roster simply didn't return (a failed read) is labeled plainly.
+    expect(assigneeOptions([], ME.email, { value: "u-dana", identity: COLLEAGUE })).toEqual([
+      { value: ASSIGN_TO_ME, label: "Me" },
+      { value: "u-dana", label: "dana" },
+    ]);
+  });
+
+  it("TSK-13 (design F-5): the fallback never duplicates a roster row, and never fires for 'Me'", () => {
+    // Already in the roster → no second entry.
+    expect(assigneeOptions(ROSTER, ME.email, { value: "u-dana", identity: COLLEAGUE })).toEqual([
+      { value: ASSIGN_TO_ME, label: "Me" },
+      { value: "u-dana", label: "dana" },
+    ]);
+    // Self-assigned rows resolve to the sentinel, which always has an option.
+    expect(assigneeOptions(ROSTER, ME.email, { value: ASSIGN_TO_ME, identity: MY_IDENTITY })).toEqual([
+      { value: ASSIGN_TO_ME, label: "Me" },
+      { value: "u-dana", label: "dana" },
+    ]);
+    // No resolvable identity → nothing truthful to render, so no invented option.
+    expect(assigneeOptions([], ME.email, { value: "u-ghost", identity: null })).toEqual([
+      { value: ASSIGN_TO_ME, label: "Me" },
+    ]);
+  });
+
+  it("TSK-12/TSK-03: a self-assigned row starts on 'Me'; a colleague's row starts on their id", () => {
+    expect(initialAssigneeValue({ assignedToUserId: "u1", assignee: MY_IDENTITY }, ME.email)).toBe(ASSIGN_TO_ME);
+    expect(initialAssigneeValue({ assignedToUserId: "u2", assignee: COLLEAGUE }, ME.email)).toBe("u2");
+    // Unassigned / unresolvable: "Me" — the server's own default-to-creator rule.
+    expect(initialAssigneeValue({ assignedToUserId: null, assignee: null }, ME.email)).toBe(ASSIGN_TO_ME);
+    expect(initialAssigneeValue({ assignedToUserId: "u3", assignee: null }, ME.email)).toBe(ASSIGN_TO_ME);
+  });
+});
+
+describe("TSK-12: buildTaskPatch sends only changed fields", () => {
+  const base = { title: "Call seller", dueOn: "2026-08-14" as string | null };
+
+  it("TSK-12: an untouched form produces an EMPTY patch (the server's 'Nothing to change')", () => {
+    expect(buildTaskPatch(base, { title: "Call seller", dueOn: "2026-08-14", assignee: ASSIGN_TO_ME }, ASSIGN_TO_ME)).toEqual({});
+  });
+
+  it("TSK-12: a title-only edit carries NO dueOn key at all — absent, not undefined", () => {
+    const patch = buildTaskPatch(base, { title: "Call seller back", dueOn: "2026-08-14", assignee: ASSIGN_TO_ME }, ASSIGN_TO_ME);
+    expect(patch).toEqual({ title: "Call seller back" });
+    // The distinction that matters: a materialised `dueOn: undefined` key would read as
+    // "clear" to a lax parser and wipe the date on a rename.
+    expect(Object.keys(patch)).toEqual(["title"]);
+    expect("dueOn" in patch).toBe(false);
+    expect("assignedToUserId" in patch).toBe(false);
+  });
+
+  it("TSK-12: clearing the due date sends an explicit null", () => {
+    expect(buildTaskPatch(base, { title: "Call seller", dueOn: null, assignee: ASSIGN_TO_ME }, ASSIGN_TO_ME)).toEqual({ dueOn: null });
+  });
+
+  it("TSK-12/TSK-03: reassigning to a colleague sends their id; back to 'Me' sends null", () => {
+    expect(buildTaskPatch(base, { title: base.title, dueOn: base.dueOn, assignee: "u-dana" }, ASSIGN_TO_ME)).toEqual({
+      assignedToUserId: "u-dana",
+    });
+    // Starting on a colleague and choosing "Me" reassigns to the caller — the server resolves
+    // an explicit null back to the actor (TSK-03), so the client needs no id of its own.
+    expect(buildTaskPatch(base, { title: base.title, dueOn: base.dueOn, assignee: ASSIGN_TO_ME }, "u-dana")).toEqual({
+      assignedToUserId: null,
+    });
+  });
+
+  it("TSK-12: the title is trimmed before comparison — whitespace alone is not a change", () => {
+    expect(buildTaskPatch(base, { title: "  Call seller  ", dueOn: base.dueOn, assignee: ASSIGN_TO_ME }, ASSIGN_TO_ME)).toEqual({});
+  });
+});
+
+// ── TSK-12: the inline edit form in the DOM ─────────────────────────────────────
+describe("TSK-12: inline task edit", () => {
+  /** GET lead tasks + GET the assignee roster + a PATCH handler the test supplies. */
+  function stubFetch(tasks: LeadTask[], onPatch: (url: string, body: unknown) => unknown) {
+    const spy = vi.fn((url: string, opts?: RequestInit) => {
+      const method = opts?.method ?? "GET";
+      if (method === "GET") return jsonRes(url === "/api/tasks/assignees" ? { assignees: ROSTER } : { tasks });
+      if (method === "PATCH") return onPatch(url, JSON.parse((opts?.body as string) ?? "null"));
+      throw new Error(`unexpected ${method} ${url}`);
+    });
+    vi.stubGlobal("fetch", spy as unknown as typeof fetch);
+    return spy;
+  }
+  const patchBody = (spy: ReturnType<typeof stubFetch>) => {
+    const call = spy.mock.calls.find(([, o]) => (o as RequestInit | undefined)?.method === "PATCH");
+    return JSON.parse((call?.[1] as RequestInit).body as string) as unknown;
+  };
+
+  it("TSK-12: the edit form pre-fills from the row and PATCHes only the changed field", async () => {
+    const user = userEvent.setup();
+    const spy = stubFetch([TASK], () => jsonRes({ code: "ok", message: "Task updated." }));
+    wrap(<TasksPanel leadRef="LD-26-00001" today="2026-08-15" />);
+    await screen.findByText("Call seller");
+
+    await user.click(screen.getByRole("button", { name: /^edit "call seller"$/i }));
+    // Pre-filled: the title is the row's, and the due date reads back as the row's date.
+    const titleInput = screen.getByLabelText(/task title/i);
+    expect(titleInput).toHaveValue("Call seller");
+    expect(screen.getByLabelText("Due date (optional)")).toHaveTextContent(/aug 14, 2026/i);
+    // TSK-13: the picker defaults to "Me" — the row is self-assigned.
+    expect(screen.getByLabelText(/assignee/i)).toHaveTextContent("Me");
+    // Nothing changed yet, so Save is inert — and design F-2: it SAYS why, rather than
+    // leaving the user staring at a dead button on a form that looks perfectly valid.
+    expect(screen.getByRole("button", { name: /^save task$/i })).toBeDisabled();
+    expect(screen.getByText("No changes to save.")).toBeInTheDocument();
+
+    await user.clear(titleInput);
+    await user.type(titleInput, "Call seller back");
+    // …and the hint clears the moment there IS something to save.
+    expect(screen.queryByText("No changes to save.")).toBeNull();
+    await user.click(screen.getByRole("button", { name: /^save task$/i }));
+
+    await waitFor(() => expect(spy).toHaveBeenCalledWith("/api/tasks/t1", expect.objectContaining({ method: "PATCH" })));
+    expect(patchBody(spy)).toEqual({ title: "Call seller back" });
+
+    vi.unstubAllGlobals();
+  });
+
+  it("TSK-12: Clear on the due date sends an explicit null (and nothing else)", async () => {
+    const user = userEvent.setup();
+    const spy = stubFetch([TASK], () => jsonRes({ code: "ok", message: "Task updated." }));
+    wrap(<TasksPanel leadRef="LD-26-00001" today="2026-08-15" />);
+    await screen.findByText("Call seller");
+
+    await user.click(screen.getByRole("button", { name: /^edit "call seller"$/i }));
+    await user.click(screen.getByRole("button", { name: /clear due date/i }));
+    await user.click(screen.getByRole("button", { name: /^save task$/i }));
+
+    await waitFor(() => expect(spy).toHaveBeenCalledWith("/api/tasks/t1", expect.objectContaining({ method: "PATCH" })));
+    expect(patchBody(spy)).toEqual({ dueOn: null });
+
+    vi.unstubAllGlobals();
+  });
+
+  it("TSK-12: focus returns to the row's Edit trigger on cancel AND on success", async () => {
+    const user = userEvent.setup();
+    stubFetch([TASK], () => jsonRes({ code: "ok", message: "Task updated." }));
+    wrap(<TasksPanel leadRef="LD-26-00001" today="2026-08-15" />);
+    await screen.findByText("Call seller");
+
+    const trigger = () => screen.getByRole("button", { name: /^edit "call seller"$/i });
+
+    // Cancel: the form unmounts, so focus must land back on the control that opened it.
+    await user.click(trigger());
+    await user.click(screen.getByRole("button", { name: /^cancel$/i }));
+    await waitFor(() => expect(trigger()).toHaveFocus());
+
+    // Success: same rule — the form goes away, focus comes home.
+    await user.click(trigger());
+    await user.type(screen.getByLabelText(/task title/i), " now");
+    await user.click(screen.getByRole("button", { name: /^save task$/i }));
+    await waitFor(() => expect(trigger()).toHaveFocus());
+
+    vi.unstubAllGlobals();
+  });
+
+  it("TSK-12: a 409 task_closed rolls the row back and toasts (raced completion)", async () => {
+    const user = userEvent.setup();
+    stubFetch([TASK], () =>
+      jsonRes({ code: "task_closed", message: "Task t1 is completed; reopen it before editing or deleting." }, false),
+    );
+    wrap(<TasksPanel leadRef="LD-26-00001" today="2026-08-15" />);
+    await screen.findByText("Call seller");
+
+    await user.click(screen.getByRole("button", { name: /^edit "call seller"$/i }));
+    await user.type(screen.getByLabelText(/task title/i), " urgently");
+    await user.click(screen.getByRole("button", { name: /^save task$/i }));
+
+    const toastStack = screen.getByTestId("toast-stack");
+    expect(await within(toastStack).findByText(/reopen it before editing/i)).toBeInTheDocument();
+    // Rolled back: the optimistic title never sticks.
+    await waitFor(() => expect(screen.queryByText("Call seller urgently")).toBeNull());
+    // The form stays open so the edit can be fixed rather than retyped.
+    expect(screen.getByLabelText(/task title/i)).toBeInTheDocument();
+
+    vi.unstubAllGlobals();
+  });
+
+  it("TSK-12: a 400 invalid_assignee rolls back and toasts (stale roster)", async () => {
+    const user = userEvent.setup();
+    stubFetch([TASK], () =>
+      jsonRes({ code: "invalid_assignee", message: "The assignee must be a member of your own team." }, false),
+    );
+    wrap(<TasksPanel leadRef="LD-26-00001" today="2026-08-15" />);
+    await screen.findByText("Call seller");
+
+    await user.click(screen.getByRole("button", { name: /^edit "call seller"$/i }));
+    await user.type(screen.getByLabelText(/task title/i), "!");
+    await user.click(screen.getByRole("button", { name: /^save task$/i }));
+
+    const toastStack = screen.getByTestId("toast-stack");
+    expect(await within(toastStack).findByText(/member of your own team/i)).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByLabelText(/task title/i)).toHaveValue("Call seller!"));
+
+    vi.unstubAllGlobals();
+  });
+
+  it("TSK-13/PRN-14 (design F-5): an off-roster assignee renders truthfully, never as a blank picker", async () => {
+    const user = userEvent.setup();
+    // Assigned to a seat that has since been deactivated: C-11 still resolves its identity on
+    // the row, but the ACTIVE-only roster no longer carries it.
+    const closedSeat = { ...COLLEAGUE, deactivated: true };
+    stubFetch([{ ...TASK, assignedToUserId: "u-gone", assignee: closedSeat }], () => jsonRes({}));
+    wrap(<TasksPanel leadRef="LD-26-00001" today="2026-08-15" />);
+    await screen.findByText("Call seller");
+
+    await user.click(screen.getByRole("button", { name: /^edit "call seller"$/i }));
+    // The control states who holds the task — and that the seat is closed — instead of
+    // reading as "unassigned" on a task that is assigned.
+    await waitFor(() => expect(screen.getByLabelText(/assignee/i)).toHaveTextContent("dana · deactivated"));
+    // Nothing was touched, so there is still nothing to save (the fallback is display-only).
+    expect(screen.getByRole("button", { name: /^save task$/i })).toBeDisabled();
+    expect(screen.getByText("No changes to save.")).toBeInTheDocument();
+
+    vi.unstubAllGlobals();
+  });
+
+  it("TSK-04: Edit is hidden on completed rows (a closed task is a permanent timeline fact)", async () => {
+    stubFetch([{ ...TASK, doneAt: "2026-08-14T00:00:00.000Z" }], () => jsonRes({}));
+    wrap(<TasksPanel leadRef="LD-26-00001" today="2026-08-15" />);
+    await screen.findByText("Call seller");
+    expect(screen.queryByRole("button", { name: /^edit "call seller"$/i })).toBeNull();
+    vi.unstubAllGlobals();
+  });
+
+  it("TSK-12: Edit shows on a COLLEAGUE's open row — editing is stream-scoped, unlike Delete", async () => {
+    stubFetch([{ ...TASK, title: "Their task", assignee: COLLEAGUE, author: COLLEAGUE }], () => jsonRes({}));
+    wrap(<TasksPanel leadRef="LD-26-00001" today="2026-08-15" />);
+    await screen.findByText("Their task");
+    expect(screen.getByRole("button", { name: /^edit "their task"$/i })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^delete "their task"$/i })).toBeNull();
+    vi.unstubAllGlobals();
+  });
+
+  it("TSK-12/C-11: a read-only tier gets no Edit affordance at all", async () => {
+    vi.stubGlobal("fetch", vi.fn(() => jsonRes({ tasks: [TASK] })) as unknown as typeof fetch);
+    wrap(<TasksPanel leadRef="LD-26-00001" today="2026-08-15" />, ME_READ_ONLY);
+    await screen.findByText("Call seller");
+    expect(screen.queryByRole("button", { name: /^edit/i })).toBeNull();
+    vi.unstubAllGlobals();
+  });
+});
+
+// ── TSK-13: the picker in the add form ─────────────────────────────────────────
+describe("TSK-13: the assignee picker in the add form", () => {
+  it("TSK-13/TSK-03: the picker defaults to 'Me' and the POST OMITS assignedToUserId", async () => {
+    const user = userEvent.setup();
+    const spy = vi.fn((url: string, opts?: RequestInit) => {
+      const method = opts?.method ?? "GET";
+      if (method === "GET") return jsonRes(url === "/api/tasks/assignees" ? { assignees: ROSTER } : { tasks: [] });
+      if (method === "POST") return jsonRes({ id: "new-task" });
+      throw new Error(`unexpected ${method} ${url}`);
+    });
+    vi.stubGlobal("fetch", spy as unknown as typeof fetch);
+
+    wrap(<TasksPanel leadRef="LD-26-00001" today="2026-08-15" />);
+    await screen.findByText(/no tasks yet/i);
+    await user.click(screen.getByRole("button", { name: /add a task/i }));
+
+    // The roster is a SERVER read — the panel never derives the stream itself (PRN-13).
+    await waitFor(() => expect(spy).toHaveBeenCalledWith("/api/tasks/assignees"));
+    expect(screen.getByLabelText(/assignee/i)).toHaveTextContent("Me");
+
+    await user.type(screen.getByLabelText(/task title/i), "Follow up");
+    await user.click(screen.getByRole("button", { name: /^add task$/i }));
+
+    await waitFor(() =>
+      expect(spy).toHaveBeenCalledWith("/api/leads/LD-26-00001/tasks", expect.objectContaining({ method: "POST" })),
+    );
+    const call = spy.mock.calls.find(([, o]) => (o as RequestInit | undefined)?.method === "POST");
+    const body = JSON.parse((call?.[1] as RequestInit).body as string) as Record<string, unknown>;
+    // TSK-03: absent, not null and not a client-invented id — the server defaults to the creator.
+    expect(body).toEqual({ title: "Follow up", dueOn: null });
+    expect("assignedToUserId" in body).toBe(false);
+
+    vi.unstubAllGlobals();
+  });
+
+  it("TSK-13/DSN-03 (design F-1): a FAILED roster read is an error state, not a loading one", async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string) =>
+        url === "/api/tasks/assignees"
+          ? jsonRes({ code: "assignees_failed", message: "Could not load your team." }, false)
+          : jsonRes({ tasks: [] }),
+      ) as unknown as typeof fetch,
+    );
+
+    wrap(<TasksPanel leadRef="LD-26-00001" today="2026-08-15" />);
+    await screen.findByText(/no tasks yet/i);
+    await user.click(screen.getByRole("button", { name: /add a task/i }));
+
+    // PRN-14: an explanation, not just an empty dropdown…
+    expect(await screen.findByText(/couldn't load your team/i)).toBeInTheDocument();
+    const picker = screen.getByLabelText(/assignee/i);
+    expect(picker).toHaveTextContent("Me");
+    // …and a 500 must NOT render like a slow response: the control is marked invalid, and
+    // the loading line is gone.
+    await waitFor(() => expect(picker).toHaveAttribute("aria-invalid", "true"));
+    expect(screen.queryByText(/loading your team/i)).toBeNull();
+    // The form still works — the assignee simply stays the creator.
+    expect(screen.getByRole("button", { name: /^add task$/i })).toBeInTheDocument();
+
+    vi.unstubAllGlobals();
+  });
+
+  it("TSK-13/DSN-03 (design F-1): a PENDING roster is a neutral hint with no invalid marking", async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string) => (url === "/api/tasks/assignees" ? new Promise(() => {}) : jsonRes({ tasks: [] }))) as unknown as typeof fetch,
+    );
+
+    wrap(<TasksPanel leadRef="LD-26-00001" today="2026-08-15" />);
+    await screen.findByText(/no tasks yet/i);
+    await user.click(screen.getByRole("button", { name: /add a task/i }));
+
+    expect(await screen.findByText(/loading your team/i)).toBeInTheDocument();
+    const picker = screen.getByLabelText(/assignee/i);
+    expect(picker).not.toHaveAttribute("aria-invalid");
+    expect(picker).toBeDisabled();
 
     vi.unstubAllGlobals();
   });
