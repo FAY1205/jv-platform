@@ -130,12 +130,15 @@ export function PortalLeadDialog({ refId, onClose }: { refId: string; onClose: (
 
           {/* Details */}
           <div className="grid grid-cols-2 gap-x-5 gap-y-4">
-            <Field label="Reason for selling">{partial ? <Skeleton className="h-4 w-28" /> : data.reasonForSelling || "—"}</Field>
-            <Field label="Time to sell">{partial ? <Skeleton className="h-4 w-28" /> : data.timeToSell || "—"}</Field>
+            {/* C-51 sweep: `Field` renders its children inside a <span>, so these
+                placeholders must be spans too (a <div> in phrasing content is invalid
+                and hydration-mismatches). */}
+            <Field label="Reason for selling">{partial ? <Skeleton as="span" className="h-4 w-28" /> : data.reasonForSelling || "—"}</Field>
+            <Field label="Time to sell">{partial ? <Skeleton as="span" className="h-4 w-28" /> : data.timeToSell || "—"}</Field>
             <Field label="Received">{fmtDateTime(data.receivedAt)}</Field>
             <Field label="Listing check">
               {/* Not a lead column — a server-side lookup, so it can only come from the detail. */}
-              {partial ? <Skeleton className="h-4 w-24" /> : <ListingBadge status={data.listing.status} link={data.listing.link} />}
+              {partial ? <Skeleton as="span" className="h-4 w-24" /> : <ListingBadge status={data.listing.status} link={data.listing.link} />}
             </Field>
           </div>
 
