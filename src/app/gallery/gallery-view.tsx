@@ -711,9 +711,18 @@ function Gallery() {
             </Card>
             <Card>
               <CardBody className="flex flex-col gap-3">
+                {/* Default: `as="div"` — block-level placeholders standing in for a label,
+                    a headline number and a panel. */}
                 <Skeleton className="h-3 w-2/5" />
                 <Skeleton className="h-8 w-1/4" />
                 <Skeleton className="h-24 w-full" />
+                {/* C-51: `as="span"` is the PHRASING-CONTENT variant (renders inline-block).
+                    Use it whenever the placeholder sits inside a <p>, <h1>-<h6>, <span>,
+                    <label>, <a> or <button>: a <div> is invalid there, so the parser
+                    relocates it and React reports a hydration mismatch. */}
+                <p className="text-sm text-text-2">
+                  Loading <Skeleton as="span" className="h-3 w-16 align-middle" /> leads in your territory.
+                </p>
               </CardBody>
             </Card>
             {/* Compact variant — fills an embedded panel (e.g. a map that failed to load). */}

@@ -30,13 +30,22 @@ export default function TermsPage() {
     <main className="flex min-h-full flex-1 items-center justify-center p-6">
       <Card className="w-full max-w-2xl">
         <CardBody>
-          <h1 className="font-display text-xl font-semibold tracking-tight text-text">{TOS_TITLE}</h1>
-          {/* The effective version — the same string recorded per user+version in
-              tos_acceptances, so a reader can tell WHICH revision this is. */}
-          <p className="mt-1 text-step-1 text-text-3">
-            Version <span className="num">{CURRENT_TOS_VERSION}</span>
-          </p>
-          <p className="mt-5 text-sm leading-relaxed text-text-2">{TOS_SUMMARY}</p>
+          {/* F-1: the identity block every other public auth-card page carries (login,
+              signup, forgot, reset) — a signed-out visitor arriving from an email or a
+              search result needs to know WHOSE terms these are. TOS_TITLE stays the single
+              <h1> (it is this page's actual subject), so APP_NAME is a <span>, exactly as
+              forgot/reset render it. N3C-07 (C-63) will replace this hand-rolled block on
+              all five pages with a shared AuthCardHeader primitive. */}
+          <div className="mb-6 flex flex-col gap-1">
+            <span className="font-display text-lg font-semibold text-text">{APP_NAME}</span>
+            <h1 className="font-display text-xl font-semibold tracking-tight text-text">{TOS_TITLE}</h1>
+            {/* The effective version — the same string recorded per user+version in
+                tos_acceptances, so a reader can tell WHICH revision this is. */}
+            <span className="text-step-1 text-text-3">
+              Version <span className="num">{CURRENT_TOS_VERSION}</span>
+            </span>
+          </div>
+          <p className="text-sm leading-relaxed text-text-2">{TOS_SUMMARY}</p>
         </CardBody>
       </Card>
     </main>
