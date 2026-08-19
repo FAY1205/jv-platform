@@ -225,3 +225,22 @@ describe("TSK-07: lead deep link matches the house ?open=<ref> convention", () =
     vi.unstubAllGlobals();
   });
 });
+
+// ── truncated identity keeps its full value (C-66) ──────────────────────────────
+describe("N3C-12/C-66: the truncated seller · city line carries a title", () => {
+  it("N3C-12/C-66: the full 'seller · city, ST' survives truncation as a tooltip", async () => {
+    vi.stubGlobal("fetch", vi.fn(() => jsonRes(page([OVERDUE]))) as unknown as typeof fetch);
+    wrap(<MyTasksList leadHrefBase="/leads?open=" today={TODAY} />);
+    const line = await screen.findByTitle("Marcus Whitfield · Phoenix, AZ");
+    expect(line.className).toContain("truncate");
+    vi.unstubAllGlobals();
+  });
+
+  it("N3C-12/C-66: a task with no city/state gets the seller alone, no dangling separator", async () => {
+    const noWhere = task({ id: "t9", leadCity: null, leadState: null, leadSeller: "Dana Fields" });
+    vi.stubGlobal("fetch", vi.fn(() => jsonRes(page([noWhere]))) as unknown as typeof fetch);
+    wrap(<MyTasksList leadHrefBase="/leads?open=" today={TODAY} />);
+    expect(await screen.findByTitle("Dana Fields")).toBeInTheDocument();
+    vi.unstubAllGlobals();
+  });
+});

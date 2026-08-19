@@ -4,8 +4,7 @@ import * as React from "react";
 import { Suspense } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Card, CardBody, Input, Button, Checkbox, Spinner } from "@/components";
-import { APP_NAME } from "@/lib/app";
+import { Card, CardBody, Input, Button, Checkbox, Spinner, AuthCardHeader } from "@/components";
 import { safeNextPath } from "@/lib/safe-next";
 
 // PTL-01 + AUT-10: partner sign-in. On load we silently try the trusted-device
@@ -107,10 +106,7 @@ function PortalLoginForm() {
     <main className="flex min-h-full flex-1 items-center justify-center p-6">
       <Card className="w-full max-w-sm">
         <CardBody>
-          <div className="mb-6 flex flex-col gap-1">
-            <h1 className="font-display text-lg font-semibold text-text">{APP_NAME}</h1>
-            <span className="text-sm text-text-3">Partner portal sign-in</span>
-          </div>
+          <AuthCardHeader title="Partner portal sign-in" />
 
           {checking ? (
             <p className="flex items-center gap-2 py-4 text-sm text-text-3" aria-live="polite">

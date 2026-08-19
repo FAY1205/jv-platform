@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, expect, it, vi, beforeEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ToastProvider } from "@/components";
@@ -89,5 +89,31 @@ describe("WP-AI-2 AiSettings", () => {
     } finally {
       vi.unstubAllGlobals();
     }
+  });
+});
+
+// C-61 (deep-UX audit 2026-08-19): the enable Switch auto-saves, and an auto-save that says
+// nothing on success leaves the admin unsure anything was written — the identical Switch on
+// the Data page already confirmed. Errors always toasted; only success was silent.
+describe("C-61: AI enable toggle reports Saved.", () => {
+  beforeEach(() => { apiGet.mockReset(); apiMutate.mockReset(); });
+
+  it("C-61: a successful toggle raises the same toast(\"Saved.\") the Data page uses", async () => {
+    apiGet.mockResolvedValue({ settings: { enabled: false }, credential: { configured: false, provider: null, model: null, encryptionAvailable: true } });
+    apiMutate.mockResolvedValue({ settings: { enabled: true } });
+    wrap(<AiSettings />);
+    await userEvent.click(await screen.findByRole("switch"));
+    // Scoped to the visible stack — the sr-only live region double-matches otherwise.
+    expect(await within(screen.getByTestId("toast-stack")).findByText("Saved.")).toBeTruthy();
+  });
+
+  it("C-61: a failed toggle still surfaces the server's reason, not a success", async () => {
+    apiGet.mockResolvedValue({ settings: { enabled: false }, credential: { configured: false, provider: null, model: null, encryptionAvailable: true } });
+    apiMutate.mockRejectedValue(new Error("Could not save AI settings."));
+    wrap(<AiSettings />);
+    await userEvent.click(await screen.findByRole("switch"));
+    const stack = screen.getByTestId("toast-stack");
+    expect(await within(stack).findByText("Could not save AI settings.")).toBeTruthy();
+    expect(within(stack).queryByText("Saved.")).toBeNull();
   });
 });

@@ -8,6 +8,8 @@ export { Badge, type BadgeProps, type BadgeVariant } from "./Badge";
 export { RoleBadge, type RoleBadgeProps, type BadgeRole } from "./RoleBadge";
 export { AvatarInitials, type AvatarInitialsProps } from "./AvatarInitials";
 export { Card, CardHeader, CardTitle, CardBody } from "./Card";
+export { AuthCardHeader } from "./AuthCardHeader";
+export { SignOutLink } from "./SignOutLink";
 export { Stat, type StatProps } from "./Stat";
 export { PartnerTag, type PartnerTagProps } from "./PartnerTag";
 export { Input, type InputProps } from "./Input";

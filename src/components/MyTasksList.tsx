@@ -290,7 +290,9 @@ function TaskRow({
           <Link href={`${leadHrefBase}${encodeURIComponent(task.leadRefId)}`} className="num inline-block py-1 -my-1 font-semibold text-brand-ink hover:underline">
             {task.leadRefId}
           </Link>
-          <span className="min-w-0 truncate text-text-2">
+          {/* C-66 (N3C-12): the span truncates, so the full seller · city, ST survives as a
+              tooltip — the same `clampTitle` contract the Table's clamped cells carry. */}
+          <span className="min-w-0 truncate text-text-2" title={`${task.leadSeller}${where ? ` · ${where}` : ""}`}>
             {task.leadSeller}
             {where && <span className="text-text-3"> · {where}</span>}
           </span>
