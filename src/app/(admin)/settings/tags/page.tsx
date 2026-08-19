@@ -250,7 +250,11 @@ export default function TagsSettingsPage() {
                   <Td>
                     {/* Recolor: the fixed palette as swatches. Each carries its palette key as
                         the accessible name, so the choice is never color-only (PRN-14). */}
-                    <div className="flex items-center gap-1.5" role="group" aria-label={`Color for ${t.name}`}>
+                    {/* C-52: gap-1.5 → gap-2 so each swatch's invisible 24px hit area
+                        (`before:-inset-1`, 4px per side) exactly MEETS its neighbor's instead
+                        of overlapping it — 4+4 = the 8px gap. The 2px of extra breathing room
+                        is the whole visual delta, and this is a settings table. */}
+                    <div className="flex items-center gap-2" role="group" aria-label={`Color for ${t.name}`}>
                       {TAG_PALETTE.map((c) => (
                         <button
                           key={c}
@@ -261,6 +265,8 @@ export default function TagsSettingsPage() {
                           onClick={() => t.color !== c && update.mutate({ id: t.id, color: c })}
                           className={cn(
                             "h-4 w-4 rounded-sm outline-none transition-transform",
+                            // C-52 (WCAG 2.5.8): 16px swatch, 24px reach, zero layout shift.
+                            "relative before:absolute before:-inset-1 before:content-['']",
                             tagDotClass(c),
                             "hover:scale-110 focus-visible:ring-1 focus-visible:ring-brand-ink active:scale-95",
                             "disabled:cursor-not-allowed disabled:opacity-50",

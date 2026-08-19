@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import { cn } from "@/lib/cn";
+import { ScrollHintFade, useScrollHint } from "./ScrollHint";
 
 /** Table — scroll container + table element with sticky-capable headers (DSN-07).
  *  The scroll container is keyboard-focusable (D2, SC 2.1.1): a wide table's
@@ -27,22 +28,9 @@ export function Table({
    *  width wider than their narrowest host. */
   scrollHint?: boolean;
 }) {
-  const scrollerRef = React.useRef<HTMLDivElement>(null);
-  const [moreRight, setMoreRight] = React.useState(false);
-  React.useEffect(() => {
-    if (!scrollHint) return;
-    const el = scrollerRef.current;
-    if (!el) return;
-    const check = () => setMoreRight(el.scrollLeft + el.clientWidth < el.scrollWidth - 8);
-    check();
-    el.addEventListener("scroll", check, { passive: true });
-    const ro = new ResizeObserver(check);
-    ro.observe(el);
-    return () => {
-      el.removeEventListener("scroll", check);
-      ro.disconnect();
-    };
-  }, [scrollHint]);
+  // C-53: the fade recipe + the scroll-position rule now live in ScrollHint, shared with the
+  // portal's mobile chip strip — one implementation, not two that can drift.
+  const { ref: scrollerRef, moreRight } = useScrollHint(scrollHint);
 
   const scroller = (
     <div
@@ -67,13 +55,7 @@ export function Table({
   return (
     <div className="relative">
       {scroller}
-      {moreRight && (
-        <div
-          aria-hidden="true"
-          data-testid="table-more-right"
-          className="pointer-events-none absolute inset-y-0 right-0 w-10 bg-gradient-to-l from-surface to-transparent"
-        />
-      )}
+      {moreRight && <ScrollHintFade />}
     </div>
   );
 }

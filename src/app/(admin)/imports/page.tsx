@@ -6,7 +6,7 @@ import { useQuery } from "@tanstack/react-query";
 import { apiGet } from "@/lib/api";
 import type { RunListPage } from "@/modules/run/queries";
 import {
-  Card, Table, THead, TBody, Th, Tr, Td, Badge, EmptyState, QueryErrorState, Skeleton, AppShell,
+  Card, Table, THead, TBody, Th, Tr, Td, Badge, EmptyState, ClearFiltersButton, QueryErrorState, Skeleton, AppShell,
   DateRangePicker, type DateRangeValue, Pagination, DEFAULT_PAGE_SIZE, usePageHeader,
 } from "@/components";
 import { fmtDate } from "@/lib/dates";
@@ -87,10 +87,16 @@ function ImportsBody() {
             <EmptyState
               title={hasFilter ? "No imports in this range" : "No imports yet"}
               description={hasFilter ? "Try widening the processed-date range." : "Process a weekly file to see it here."}
+              // C-54: a filtered-to-zero list must offer the way out. The only filter here is
+              // the processed-date range, so clearing it IS clearing the filters.
+              action={hasFilter ? <ClearFiltersButton onClick={() => setRange({ from: null, to: null })} /> : undefined}
             />
           </div>
         ) : (
-          <Table>
+          // C-53: five columns — Import + Rows + Status + Processed take content width, so
+          // FILE gets whatever is left and starves to "w…" on a narrow card. 560px is the
+          // dashboard's own floor and roughly the four fit columns plus a readable filename.
+          <Table className="min-w-[560px]" ariaLabel="Imports" scrollHint>
             {/* WP-UX-1: FILE is the one flexible column (ellipsizing, full name on hover);
                 id/rows/status/date take content width — no more stranded midsection band. */}
             <THead>

@@ -8,6 +8,15 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 // the desktop's debounced search + status filter travel with it (same params), and the
 // card leads with the SELLER (info design: the person a partner is about to call).
 
+// C-53: the chip strip now watches its own width for the scroll-hint fade. jsdom ships no
+// ResizeObserver — the same stub 18 other component suites already carry for Radix.
+class ResizeObserverStub {
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+}
+(globalThis as unknown as { ResizeObserver: unknown }).ResizeObserver = ResizeObserverStub;
+
 const calls: string[] = [];
 vi.mock("@/lib/api", () => ({
   apiGet: vi.fn(async (url: string) => {
