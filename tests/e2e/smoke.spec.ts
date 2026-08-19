@@ -4,10 +4,14 @@ import { test, expect } from "@playwright/test";
 // (Postgres migrated). No Supabase Auth needed, so these are stable regardless of the
 // TST-07 auth-infra gate.
 
-// WP-001: the home page renders and identifies the product.
+// WP-001: the home page renders and identifies the product. Since N3C-07/C-63
+// (PR #142) the auth-card <h1> is the screen's PURPOSE ("Sign in") and the product
+// name is the AuthCardHeader's eyebrow line — so the identity assertion targets
+// visible text, not a heading role, and the purpose heading is pinned alongside it.
 test("home page renders the product name", async ({ page }) => {
   await page.goto("/");
-  await expect(page.getByRole("heading", { name: /TerritoryDesk/i })).toBeVisible();
+  await expect(page.getByText(/TerritoryDesk/i)).toBeVisible();
+  await expect(page.getByRole("heading", { name: /sign.in/i })).toBeVisible();
 });
 
 // F-07: the liveness heartbeat answers without auth or DB.
