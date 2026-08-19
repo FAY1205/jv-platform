@@ -39,8 +39,8 @@ anchored REF_SHAPED to the three real ref shapes + legacy JV-, tenant-pinned the
 un-vacuumed the isolation sweeps) · PR **#134** (WP-N1: TSK-12 inline edit UI with focus-return rule,
 TSK-13/C-46 assignee picker + `/api/tasks/assignees` + deactivated-assignee refusal, C-44 fail-closed
 `canDo`, C-47 `streamUsersWhere` promoted into scope.ts — SQL-equivalent, scope suites green unmodified,
-house rule in ENGINEERING_STANDARDS §2). PR **#132** (WP-NF1 D1 bell-read index, migration 0055) is
-**built + reviewed + CI-green and PARKED UNMERGED — Tier A, owner greenlight required** (see Slice 8).
+house rule in ENGINEERING_STANDARDS §2). PR **#132** (WP-NF1 D1 bell-read index, migration 0055) was
+**greenlit, MERGED and prod-verified 2026-08-19** (pg_indexes + ledger 56/56 — see Slice 8).
 Method: Fable due-diligence → WP specs → 3 parallel Opus worktree agents → pr-reviewer on all four PRs +
 audit-tenancy ×3 + audit-design-system ×2, every finding applied or refuted with code evidence → targeted
 integration suites green (72/72 NF1 set; C-47 equivalence oracles unmodified) → CI green → Tier B merged.
