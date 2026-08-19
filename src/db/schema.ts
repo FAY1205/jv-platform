@@ -755,12 +755,14 @@ export const notificationPrefOverrides = pgTable(
     tenantId: uuid("tenant_id")
       .notNull()
       .references(() => tenants.id),
-    // ON DELETE CASCADE on the SUBJECT legs (not on tenant_id, which follows the house
-    // no-action pattern): an overlay row is a pure child of its subject with no independent
-    // meaning and no audit value — unlike `notifications`, which is a RECORD of something
-    // that happened and therefore outlives nothing. When a seat or a partner row is hard
-    // deleted (pre-activation deprovisioning, the signup sweep, test teardown), its
-    // preferences and its unsubscribe token should go with it rather than pin the parent.
+    // ON DELETE CASCADE on the SUBJECT legs only (tenant_id keeps the house no-action
+    // pattern) — ADR-0052. An overlay row is a pure child of its subject: current preference,
+    // no history value, no reader once the subject is gone — unlike `notifications`, which is a
+    // RECORD of something that happened. The USER leg fires for the real pre-activation hard
+    // deletes (deprovisionAdmin, the signup sweep) and test teardown; the PARTNER leg is
+    // FORWARD-LOOKING — partners are soft-deleted today (deleted_at, DM-09) and no application
+    // path hard-deletes one, so it is declared now only so a future purge cannot be blocked by
+    // a preference row.
     userId: uuid("user_id").references(() => users.id, { onDelete: "cascade" }),
     partnerId: uuid("partner_id").references(() => partners.id, { onDelete: "cascade" }),
     value: jsonb("value").notNull().default({}),

@@ -17,7 +17,12 @@ export const NOTIFICATION_PREFS_KEY = "notification_prefs";
 export type NotifRole = "admin" | "partner";
 
 /** Phase C: preference buckets are per-STREAM, not per-tier — every admin-stream role
- *  (admin/member/viewer) reads the "admin" bucket; only partners read "partner". */
+ *  (admin/member/viewer) reads the "admin" bucket; only partners read "partner".
+ *
+ *  Takes a bare role STRING, for the call sites that hold a `users` ROW and no scope (the
+ *  task-reminder sweep resolves its recipient from the database, not from a session). A caller
+ *  that already has a ScopeContext should use `streamOf(scope)` in lib/scope — the same
+ *  decision, made from the app-wide definition of the PRN-13 stream, so the two can't drift. */
 export function streamPrefRole(role: string): NotifRole {
   return role === "partner" ? "partner" : "admin";
 }

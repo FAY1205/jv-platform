@@ -9,8 +9,9 @@ import { enqueueEmail } from "./outbox";
 import { createNotification } from "./notifications";
 import { buildTaskDueReminder } from "./digests";
 import { loadNotificationPrefs, resolvePref, streamPrefRole } from "./prefs";
-import { loadOverridesFor, resolveEffectiveChannel } from "./pref-overrides";
-import { subjectUnsubscribeLinks } from "./unsubscribe";
+import { ensureSubjectToken, loadOverridesFor, loadTokensFor, resolveEffectiveChannel } from "./pref-overrides";
+import { buildUnsubscribeLinks } from "./unsubscribe";
+import type { UnsubscribeLinks } from "./email-template";
 import { env } from "@/lib/env";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -163,6 +164,11 @@ export async function remindDueTasks(db: DB, opts: RemindDueTasksOptions): Promi
   // NTF-10: ONE overlay load for the whole sweep's candidate set — the per-task gate below then
   // resolves in memory, so a 200-task tick still costs a single overrides read.
   const overrides = await loadOverridesFor(db, opts.tenantId, candidateIds);
+  // NTF-14 (audit-data): and ONE token load, for the same reason. Without it every emailed task
+  // called ensureSubjectToken inside its transaction — a SELECT per task to fetch one of a
+  // handful of distinct tokens. A candidate with no row yet is absent here and falls back to the
+  // minting path below, so a first-ever reminder still gets its links.
+  const tokens = await loadTokensFor(db, opts.tenantId, candidateIds);
 
   let reminded = 0;
   let retired = 0;
@@ -201,6 +207,23 @@ export async function remindDueTasks(db: DB, opts: RemindDueTasksOptions): Promi
       // fires on the first tick after a channel is switched back on. The tenant-level early-out
       // above keeps the fully-muted case from paying for that eligibility every tick.
       if (!channel.inApp && !channel.email) continue;
+
+      // NTF-14: resolve the recipient's unsubscribe links BEFORE opening the claim transaction.
+      // Minting is a WRITE, and doing it inside the transaction put it under the per-tenant
+      // advisory lock — serializing every other tenant operation behind a round trip that has
+      // nothing to do with claiming this task, and (measured) pushing a 4-task sweep past the
+      // 30s test timeout on a slow pooler. Laziness is preserved exactly: nothing is minted
+      // unless this recipient is actually about to be emailed. The per-tick `tokens` map is
+      // updated so a second task for the same seat costs nothing at all.
+      let unsubscribe: UnsubscribeLinks | undefined;
+      if (channel.email) {
+        let token = tokens.get(recipient.id);
+        if (!token) {
+          token = (await ensureSubjectToken(db, opts.tenantId, { userId: recipient.id })).token;
+          tokens.set(recipient.id, token);
+        }
+        unsubscribe = buildUnsubscribeLinks({ baseUrl: env.APP_URL, token, role: recipientRole, event: "task_due" });
+      }
 
       const nudged = await db.transaction(async (tx) => {
         // The SAME per-tenant lock key voidUpload / persistRun / releaseDueImports take, so a
@@ -289,7 +312,7 @@ export async function remindDueTasks(db: DB, opts: RemindDueTasksOptions): Promi
             // back) with the claim — a nudge and its unsubscribe capability appear together.
             // Base is env.APP_URL, not `appBaseUrl`: a capability link must resolve to the
             // canonical origin regardless of what a caller passed for deep links.
-            unsubscribe: await subjectUnsubscribeLinks(tx, opts.tenantId, { userId: recipient.id }, { baseUrl: env.APP_URL, role: recipientRole, event: "task_due" }),
+            unsubscribe, // resolved above, outside the lock
           });
           await enqueueEmail(tx, {
             tenantId: opts.tenantId,

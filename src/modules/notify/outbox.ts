@@ -549,7 +549,11 @@ export async function notifyStatusChange(
     // go to the ADMIN TIER only — member/viewer seats do lead work, not pipeline operations.
     // Deliberate, not pending; flagged as an owner-adjustable default.
     // Phase C (audit-tenancy F-7): deactivated seats receive nothing.
-    .where(and(tenantWhere(schema.users, scope), eq(schema.users.role, "admin"), isNull(schema.users.deactivatedAt)));
+    .where(and(tenantWhere(schema.users, scope), eq(schema.users.role, "admin"), isNull(schema.users.deactivatedAt)))
+    // The shared-mailbox dedupe below keeps the FIRST seat's copy, so "first" has to be a fact,
+    // not whatever the planner happened to return. Same deterministic ordering activePartnerSeats
+    // uses — stable across ticks and across replicas.
+    .orderBy(asc(schema.users.createdAt), asc(schema.users.id));
   if (admins.length === 0) return;
 
   const overrides = await loadOverridesFor(db, scope.tenantId, admins.map((a) => a.id));

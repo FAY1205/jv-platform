@@ -14,6 +14,7 @@ import {
   parseOverrideValue,
   resolveEffectiveChannel,
   resolveOrgEmail,
+  TOKEN_ID_BYTES,
   type PrefOverrideValue,
 } from "@/modules/notify/pref-overrides";
 import {
@@ -212,8 +213,36 @@ describe("WP-NF2 NTF-13: token verification wiring (AUT-05/AUT-09)", () => {
     expect(submitted.length).toBe(against.length); // the whole point of the dummy
   });
 
+  it("NTF-13: the token ID half is >= 24 chars, so the log scrubber's token rule catches it", () => {
+    // src/lib/scrub.ts redacts /[A-Za-z0-9_-]{24,}/ as a generic high-entropy token. 18 bytes
+    // of base64url is exactly 24 characters, so the id half is covered even where a call site
+    // forgets to keep it out of a log line. 16 bytes (22 chars) was NOT.
+    const idLen = Buffer.from(new Uint8Array(TOKEN_ID_BYTES)).toString("base64url").length;
+    expect(idLen).toBeGreaterThanOrEqual(24);
+  });
+
   it("NTF-13: the dummy is the same length a real 32-byte base64url secret encodes to", () => {
     expect(DUMMY_SECRET).toHaveLength(Buffer.from(new Uint8Array(32)).toString("base64url").length);
+  });
+
+  it("NTF-13: an unparseable stored value is left ALONE, not overwritten", async () => {
+    // A row whose `value` this module cannot interpret: the honest response is to write
+    // nothing. Overwriting it would let one footer click silently discard preferences the
+    // subject really set (and which a later schema version may well be able to read).
+    let updated = false;
+    const corruptDb = {
+      select: () => ({
+        from: () => ({
+          where: async () => [{ id: "r1", tenantId: "t1", tokenSecret: "s".repeat(43), value: { events: { bogus: 1 } } }],
+        }),
+      }),
+      update: () => {
+        updated = true;
+        return { set: () => ({ where: async () => undefined }) };
+      },
+    } as unknown as PostgresJsDatabase<typeof schema>;
+    await applyUnsubscribe(corruptDb, { token: `abc.${"s".repeat(43)}`, event: "all" });
+    expect(updated).toBe(false);
   });
 
   it("NTF-13: a malformed token (no separator) never reaches a lookup and never throws", async () => {

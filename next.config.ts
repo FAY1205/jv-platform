@@ -12,6 +12,19 @@ const nextConfig: NextConfig = {
         source: "/:path*",
         headers: securityHeaders({ supabaseUrl: process.env.NEXT_PUBLIC_SUPABASE_URL }),
       },
+      // WP-NF2 / NTF-13: the unsubscribe URL carries a capability token in its query string, so
+      // this ONE path tightens the site-wide Referrer-Policy to no-referrer. The site-wide value
+      // (strict-origin-when-cross-origin, set above) already withholds the query string from
+      // cross-origin referrers; no-referrer additionally withholds it from same-origin requests
+      // the page makes, so the token never reaches a log or an analytics hit anywhere.
+      //
+      // Listed AFTER the catch-all deliberately: both rules match /unsubscribe, so the response
+      // carries two Referrer-Policy values, and the Referrer Policy spec resolves a list by
+      // taking the LAST valid token — which is this one.
+      {
+        source: "/unsubscribe",
+        headers: [{ key: "Referrer-Policy", value: "no-referrer" }],
+      },
     ];
   },
   async redirects() {

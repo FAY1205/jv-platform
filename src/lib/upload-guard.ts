@@ -47,7 +47,12 @@ export function parseContentLength(header: string | null): number | null {
 
 /** F-86: true when a KNOWN Content-Length exceeds the body ceiling — reject early
  *  (413) before parsing. A null (unknown) length is not treated as over-limit; the
- *  MAX_UPLOAD_ROWS cap stays the backstop once the body is parsed. */
-export function exceedsBodyLimit(contentLength: number | null): boolean {
-  return contentLength !== null && contentLength > MAX_UPLOAD_BODY_BYTES;
+ *  MAX_UPLOAD_ROWS cap stays the backstop once the body is parsed.
+ *
+ *  `limit` defaults to the upload ceiling. It is a parameter so a route whose body is a
+ *  handful of bytes (WP-NF2: /api/unsubscribe carries one token) can apply a ceiling
+ *  proportionate to ITS payload instead of inheriting a 10 MB allowance it has no use for —
+ *  one definition of "is this over the limit", several limits. */
+export function exceedsBodyLimit(contentLength: number | null, limit: number = MAX_UPLOAD_BODY_BYTES): boolean {
+  return contentLength !== null && contentLength > limit;
 }

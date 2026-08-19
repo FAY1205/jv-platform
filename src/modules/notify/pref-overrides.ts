@@ -184,6 +184,36 @@ export async function loadOverridesFor(
   return out;
 }
 
+/** A subject's already-minted token, as `"{token_id}.{token_secret}"`. */
+export type SubjectToken = string;
+
+/**
+ * Batch-load the EXISTING unsubscribe tokens for a set of user subjects, keyed by user id.
+ *
+ * The companion to `loadOverridesFor`, and the reason the reminder sweep is not N+1: without
+ * it, every task in a tick called `ensureSubjectToken`, which is a SELECT (plus, once per
+ * subject ever, an INSERT). A 200-task tick paid 200 round trips to fetch at most a handful of
+ * distinct tokens. Subjects with no row yet are simply absent — the caller falls back to
+ * `ensureSubjectToken` for those, so first-ever sends still mint correctly.
+ *
+ * PRN-08: tenant-pinned through the shared builder.
+ */
+export async function loadTokensFor(
+  db: DB,
+  tenantId: string,
+  userIds: readonly string[],
+): Promise<Map<string, SubjectToken>> {
+  const ids = [...new Set(userIds)];
+  const out = new Map<string, SubjectToken>();
+  if (ids.length === 0) return out;
+  const rows = await db
+    .select({ userId: overrides.userId, tokenId: overrides.tokenId, tokenSecret: overrides.tokenSecret })
+    .from(overrides)
+    .where(and(tenantIdWhere(overrides, tenantId), inArray(overrides.userId, ids)));
+  for (const row of rows) if (row.userId) out.set(row.userId, `${row.tokenId}.${row.tokenSecret}`);
+  return out;
+}
+
 /** The PARTNER-ORG twin of `loadOverridesFor`, keyed by partner id — one query for a whole
  *  run's org-addressed digests rather than one per partner. PRN-08: tenant-pinned. */
 export async function loadPartnerOverridesFor(
@@ -230,12 +260,48 @@ function subjectWhere(tenantId: string, subject: OverrideSubject) {
     : and(tenantIdWhere(overrides, tenantId), eq(overrides.partnerId, subject.partnerId), isNull(overrides.userId));
 }
 
-/** Random base64url of `bytes` entropy. 16B for the public id, 32B for the secret half. */
+/**
+ * PRN-08 / TST-01c: prove the subject actually belongs to `tenantId` before anything mints a
+ * capability for it.
+ *
+ * This matters more here than at a normal read. `ensureSubjectToken` is the ONE statement in
+ * the module that CREATES an unsubscribe capability, and its insert would otherwise take the
+ * caller's `tenantId` and the caller's subject id on trust — a mismatched pair would mint a
+ * live token whose row claims tenant A while pointing at tenant B's seat. There is no RLS
+ * backstop to catch it either: the table is deny-by-default and every writer is the service
+ * role (ADR-0013 — the app layer IS the boundary here). One indexed read, tenant-pinned
+ * through the shared builder, is the whole cost.
+ *
+ * Throws rather than returning a verdict: a caller that has reached this line with a foreign
+ * subject has a bug, and the emit sites are all best-effort (they log ids and move on), so a
+ * throw degrades one notification rather than silently issuing a cross-tenant capability.
+ */
+async function assertSubjectInTenant(db: DB, tenantId: string, subject: OverrideSubject): Promise<void> {
+  if ("userId" in subject) {
+    const [row] = await db
+      .select({ id: schema.users.id })
+      .from(schema.users)
+      .where(and(tenantIdWhere(schema.users, tenantId), eq(schema.users.id, subject.userId)));
+    if (!row) throw new Error("ensureSubjectToken: refusing to mint a token for a user outside this tenant.");
+    return;
+  }
+  const [row] = await db
+    .select({ id: schema.partners.id })
+    .from(schema.partners)
+    .where(and(tenantIdWhere(schema.partners, tenantId), eq(schema.partners.id, subject.partnerId)));
+  if (!row) throw new Error("ensureSubjectToken: refusing to mint a token for a partner outside this tenant.");
+}
+
+/** Random base64url of `bytes` entropy. 18B for the public id, 32B for the secret half. */
 function randomToken(bytes: number): string {
   return randomBytes(bytes).toString("base64url");
 }
 
-export const TOKEN_ID_BYTES = 16;
+/** 18 bytes, not 16, so the base64url id half is 24 characters — the threshold at which the
+ *  observability scrubber's generic ≥24-char high-entropy token rule recognises it. The id is
+ *  the half most likely to reach a log line (it is the DB lookup key), so it is worth the two
+ *  extra bytes to have the scrubber catch it even where a call site forgets. */
+export const TOKEN_ID_BYTES = 18;
 export const TOKEN_SECRET_BYTES = 32;
 
 /**
@@ -256,6 +322,7 @@ export async function ensureSubjectToken(
   subject: OverrideSubject,
 ): Promise<{ token: string }> {
   const where = subjectWhere(tenantId, subject);
+  await assertSubjectInTenant(db, tenantId, subject);
   const [existing] = await db
     .select({ tokenId: overrides.tokenId, tokenSecret: overrides.tokenSecret })
     .from(overrides)
@@ -307,11 +374,18 @@ export async function saveSubjectOverride(
   subject: OverrideSubject,
   value: PrefOverrideValue,
 ): Promise<PrefOverrideValue> {
-  await ensureSubjectToken(db, tenantId, subject);
-  await db
-    .update(overrides)
-    .set({ value, updatedAt: sql`now()` })
-    .where(subjectWhere(tenantId, subject));
+  // ONE transaction: the get-or-create and the value write are a single logical save. Split
+  // across two autocommits, a failure between them leaves a row that exists with an empty
+  // value — i.e. a save the user was told nothing about, silently discarded, while the token
+  // it minted persists. Both statements are already single-row and indexed, so the transaction
+  // costs a round trip and buys atomicity.
+  await db.transaction(async (tx) => {
+    await ensureSubjectToken(tx, tenantId, subject);
+    await tx
+      .update(overrides)
+      .set({ value, updatedAt: sql`now()` })
+      .where(subjectWhere(tenantId, subject));
+  });
   return value;
 }
 

@@ -12,6 +12,7 @@ import {
   TOKEN_SECRET_BYTES,
   type OverrideSubject,
   type PrefOverrideValue,
+  type SubjectToken,
 } from "./pref-overrides";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -26,8 +27,15 @@ import {
 // endpoint's response must be IDENTICAL for a valid token, an invalid one, a malformed one,
 // and one whose subject no longer exists. A caller that could distinguish them would have an
 // oracle for "is this address on the platform" — from an unauthenticated endpoint whose whole
-// input is a string harvested out of an email. So the timing is levelled too: when no row
-// matches we still run one equal-length comparison against a constant dummy before returning.
+// input is a string harvested out of an email.
+//
+// Precisely what is levelled, and by whom: the SECRET COMPARISON below is constant-time and
+// length-uniform (no row ⇒ compare against an equal-length constant, so the compare itself does
+// the same work either way). That is a comparison, not a response — the DB work around it still
+// differs between "no row", "row but nothing to write" and "row plus an update". WHOLE-RESPONSE
+// timing is floored by `withUniformTiming` at the route. What remains after both is decided by
+// the caller's OWN input shape (a body that is not a {token, event} pair is rejected as
+// malformed before any of this runs), which reveals nothing about any subject.
 //
 // The capability is deliberately narrow — it can only REDUCE email. It never touches in-app
 // (§10.7), never reveals or changes an address, and never grants a session.
@@ -63,15 +71,21 @@ export function buildUnsubscribeLinks(input: {
   };
 }
 
-/** Mint-or-reuse the subject's token and build its footer links — the one line every retrofit
- *  emit site calls before enqueueing. */
+/**
+ * Mint-or-reuse the subject's token and build its footer links — the one line every retrofit
+ * emit site calls before enqueueing.
+ *
+ * `opts.token` lets a batched caller supply a token it already fetched (see `loadTokensFor`),
+ * which is what keeps a fan-out from becoming N+1: the DB round trip happens only for a subject
+ * that has never been emailed and therefore has no row yet.
+ */
 export async function subjectUnsubscribeLinks(
   db: DB,
   tenantId: string,
   subject: OverrideSubject,
-  opts: { baseUrl: string; role: NotifRole; event: NotifEvent },
+  opts: { baseUrl: string; role: NotifRole; event: NotifEvent; token?: SubjectToken },
 ): Promise<UnsubscribeLinks> {
-  const { token } = await ensureSubjectToken(db, tenantId, subject);
+  const token = opts.token ?? (await ensureSubjectToken(db, tenantId, subject)).token;
   return buildUnsubscribeLinks({ baseUrl: opts.baseUrl, token, role: opts.role, event: opts.event });
 }
 
@@ -133,7 +147,13 @@ export async function applyUnsubscribe(db: DB, input: UnsubscribeRequest): Promi
   const secretOk = timingSafeEqualStr(secret, row?.tokenSecret ?? DUMMY_SECRET);
   if (!secretOk || !row) return;
 
-  const value = parseOverrideValue(row.value) ?? {};
+  // An UNPARSEABLE stored value exits here, writing nothing. `parseOverrideValue` returns null
+  // only for a value this module cannot interpret, and the honest response to "I don't
+  // understand what is stored" is to leave it alone: treating it as `{}` would let a click on a
+  // footer link silently REPLACE preferences the subject actually set (and which a future
+  // schema version may well be able to read). Same silent-success exit as an unknown event key.
+  const value = parseOverrideValue(row.value);
+  if (value === null) return;
   const next = applyUnsubscribeToValue(value, input.event);
   if (next === null || next === value) return; // unknown key, or already applied
 
