@@ -29,6 +29,7 @@ import {
   type SortDir,
   Tabs,
   Modal,
+  AuthCardHeader,
   Dialog,
   Tooltip,
   Select,
@@ -59,6 +60,7 @@ import {
   EmptyState,
   ClearFiltersButton,
   ScrollHintFade,
+  SignOutLink,
   useScrollHint,
   QueryErrorState,
   Skeleton,
@@ -325,11 +327,12 @@ function Gallery() {
   const [modalOpen, setModalOpen] = React.useState(false);
   const [addrSort, setAddrSort] = React.useState<SortDir>(null);
   // C-53: the standalone ScrollHint demo (the chip-strip shape it was extracted for).
-  const { ref: chipScrollerRef, moreRight: moreChipsRight } = useScrollHint();
+  const { ref: chipScrollerRef, more: moreChipsRight } = useScrollHint();
   // WS-1 primitive demo state.
   const [dialogOpen, setDialogOpen] = React.useState(false);
   // FRM-02a discard-guard demo.
   const [dirtyDialogOpen, setDirtyDialogOpen] = React.useState(false);
+  const [tallDialogOpen, setTallDialogOpen] = React.useState(false);
   const [dirtyDemoText, setDirtyDemoText] = React.useState("");
   const [selectVal, setSelectVal] = React.useState("new");
   const [checkA, setCheckA] = React.useState(true);
@@ -838,6 +841,71 @@ function Gallery() {
           </div>
         </Section>
 
+        <Section title="AuthCardHeader (C-63) — the one identity block on every auth card">
+          <p className="mb-3 text-step-1 text-text-3">
+            Login, signup, forgot, reset, verify, the public <code className="num">/terms</code> page and both ToS
+            gates render this and nothing else for their heading. The <code className="num">&lt;h1&gt;</code> is the
+            SCREEN&apos;S PURPOSE — the brand is context, not the task — and the product name is a muted eyebrow
+            sibling read from <code className="num">lib/app</code> (PRN-12: never a literal). Before this the two
+            login screens made the brand the <code className="num">h1</code> and the other four pages had no{" "}
+            <code className="num">h1</code> at all. <code className="num">children</code> carries an optional
+            supplementary line (the terms page&apos;s version stamp).
+          </p>
+          <div className="grid gap-3.5 md:grid-cols-2">
+            <Card>
+              <CardBody>
+                <AuthCardHeader title="Admin portal sign-in" />
+                <p className="text-step-1 text-text-3">Default — purpose + brand eyebrow.</p>
+              </CardBody>
+            </Card>
+            <Card>
+              <CardBody>
+                <AuthCardHeader title="Terms of Service &amp; Privacy Policy">
+                  <span className="text-step-1 text-text-3">
+                    Version <span className="num">2026-01-01</span>
+                  </span>
+                </AuthCardHeader>
+                <p className="text-step-1 text-text-3">With a supplementary line.</p>
+              </CardBody>
+            </Card>
+          </div>
+        </Section>
+
+        <Section title="SignOutLink (Q9) — the quiet way off a card with no app chrome">
+          <p className="mb-3 text-step-1 text-text-3">
+            Sits under the two ToS gates, which otherwise hide the whole app behind an accept button with no exit.
+            Wraps <code className="num">useSignOut</code>, so the AUT-14 server revoke and the query-cache clear are
+            the same ones the account menus use — <code className="num">redirectTo</code> is the caller&apos;s own login
+            screen (<code className="num">/login</code> for admin, <code className="num">/portal/login</code> for the
+            portal). DSN-03: default / hover / focus-visible / active / disabled-while-pending
+            (&ldquo;Signing out…&rdquo;), on a <code className="num">min-h-11</code> target even though it reads as a
+            text link.
+          </p>
+          <Card>
+            <CardHeader><CardTitle>Live component, stubbed effect</CardTitle></CardHeader>
+            <CardBody className="flex flex-col gap-2">
+              {/* Gallery precedent (the Deactivate menu item above only toasts): the CHROME is
+                  the real component so its states can be inspected, while the destructive
+                  effect is stubbed. A capture-phase handler swallows the click before it
+                  reaches the button — without it, browsing the gallery would sign you out. */}
+              <div
+                className="w-fit"
+                onClickCapture={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  toast("Sign-out is stubbed in the gallery.", "success");
+                }}
+              >
+                <SignOutLink redirectTo="/login" />
+              </div>
+              <span className="text-step-1 text-text-3">
+                Hover, tab to it, and hold the click to see all four resting states. Clicking does NOT sign you out
+                here — on the real gates it does.
+              </span>
+            </CardBody>
+          </Card>
+        </Section>
+
         <Section title="Query error state — one failed-fetch surface (UXQ-01a)">
           <p className="mb-3 text-step-1 text-text-3">
             The single error state for a failed async data fetch: the server message, a mono{" "}
@@ -993,6 +1061,7 @@ function Gallery() {
                 </DropdownMenu>
                 <Button variant="secondary" size="sm" onClick={() => setDialogOpen(true)}>Open Dialog</Button>
                 <Button variant="secondary" size="sm" onClick={() => setDirtyDialogOpen(true)}>Open dirty-guard Dialog</Button>
+                <Button variant="secondary" size="sm" onClick={() => setTallDialogOpen(true)}>Open tall Dialog (C-65)</Button>
                 <RowOpenButton onClick={() => setDialogOpen(true)}>LD-26-00404</RowOpenButton>
               </CardBody>
             </Card>
@@ -1310,6 +1379,25 @@ function Gallery() {
           placeholder="Type here, then press Esc"
           hint="With text present, Esc/backdrop/✕ asks before discarding (FRM-02a)."
         />
+      </Dialog>
+
+      {/* C-65 (N3C-11): the title bar and the footer sit OUTSIDE the scrolling region, so a
+          tall dialog can never scroll away its own identity or its primary action. Scroll the
+          body: a bottom edge-fade (the shared ScrollHint recipe, vertical axis) shows while
+          content is still cut off below and disappears at the end. */}
+      <Dialog
+        open={tallDialogOpen}
+        onClose={() => setTallDialogOpen(false)}
+        title="Lead LD-26-00404 — pinned title + scroll cue"
+        footer={<Button variant="primary" onClick={() => setTallDialogOpen(false)}>Done</Button>}
+      >
+        <div className="flex flex-col gap-3">
+          {Array.from({ length: 20 }).map((_, i) => (
+            <p key={i} className="text-sm text-text-2">
+              Row {i + 1} — the header above and the footer below stay put while this text scrolls.
+            </p>
+          ))}
+        </div>
       </Dialog>
 
       <Modal

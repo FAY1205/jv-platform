@@ -43,7 +43,7 @@ export function LeadsMobile({ onOpen, enabled = true }: { onOpen: (refId: string
   const toggleStatus = (s: string) => setStatuses((prev) => (prev.includes(s) ? prev.filter((x) => x !== s) : [...prev, s]));
 
   // C-53: the status chip strip is a horizontal scroller like a wide table — same affordance.
-  const { ref: chipScrollerRef, moreRight: moreChipsRight } = useScrollHint();
+  const { ref: chipScrollerRef, more: moreChipsRight } = useScrollHint();
 
   // The canonical params: page 1 with no search and no status filter is BYTE-IDENTICAL to
   // what the desktop table and the dashboard preview ask for, so the three share one entry.

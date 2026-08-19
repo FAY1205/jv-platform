@@ -97,7 +97,32 @@ function ActivityBody() {
 
       <Card>
         {isPending ? (
-          <div className="flex flex-col gap-3 p-5">{Array.from({ length: 6 }).map((_, i) => <Skeleton key={i} className="h-9 w-full" />)}</div>
+          // C-66 (N3C-12): the loading state mirrors the real 5-column table instead of six
+          // full-width bars — the columns don't jump into existence when the data lands, and
+          // the reader can see WHAT is arriving. Headers are the real ones (no skeleton on a
+          // label we already know); only the cells are pending.
+          <Table ariaLabel="Activity (loading)">
+            <THead>
+              <Tr>
+                <Th>When</Th>
+                <Th>Who</Th>
+                <Th>Action</Th>
+                <Th>Item</Th>
+                <Th>Type</Th>
+              </Tr>
+            </THead>
+            <TBody aria-hidden="true">
+              {Array.from({ length: 6 }).map((_, r) => (
+                <Tr key={r}>
+                  <Td><Skeleton className="h-4 w-28" /></Td>
+                  <Td><Skeleton className="h-4 w-40" /></Td>
+                  <Td><Skeleton className="h-4 w-36" /></Td>
+                  <Td><Skeleton className="h-4 w-32" /></Td>
+                  <Td><Skeleton className="h-4 w-16" /></Td>
+                </Tr>
+              ))}
+            </TBody>
+          </Table>
         ) : error ? (
           <div className="p-6"><QueryErrorState title="Couldn't load activity" error={error} onRetry={() => refetch()} /></div>
         ) : rows.length === 0 ? (

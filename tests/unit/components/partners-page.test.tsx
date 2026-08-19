@@ -58,6 +58,8 @@ beforeEach(() => {
       return {
         partners: [
           partner(),
+          // C-61: a partner with no email address on file — the roster's empty-value sentinel.
+          partner({ id: "p2", refId: "PR-002", name: "Quiet Holdings", email: null, stateCount: 1 }),
           partner({ id: "house", refId: "HOUSE", name: "My Territory", isHouse: true, zipCount: 0, stateCount: 3 }),
         ],
       };
@@ -109,6 +111,13 @@ describe("UXF-10.1/10.2: partners roster identity + coverage cells", () => {
     // House territory tile above the table (same formatter, F-1 review fix).
     expect(screen.getByText("3 states")).toBeInTheDocument();
     expect(screen.queryByText(/0 ZIPs/)).not.toBeInTheDocument();
+  });
+
+  it("C-61: a partner with no email shows the sentence-case sentinel, matching the detail page", async () => {
+    renderPage();
+    await screen.findByRole("link", { name: /quiet holdings/i });
+    expect(screen.getByText("No email")).toBeInTheDocument();
+    expect(screen.queryByText("no email")).not.toBeInTheDocument();
   });
 });
 

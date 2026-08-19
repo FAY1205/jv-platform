@@ -47,7 +47,12 @@ export default function WorkspaceSettingsPage() {
   const dirty = data ? trimmed !== data.workspace.name && trimmed.length > 0 : false;
 
   return (
-    <SettingsSection title="General" description="Your workspace name and branding.">
+    // C-61: every other settings page titles its section with the SAME word the left-nav
+    // uses (Profile / Notifications / Security / Appearance / Tags / Data & Export /
+    // Billing / AI assistant / Team). This one alone said "General" under a nav item
+    // labelled "Workspace", so a click and its destination disagreed. The nav label is the
+    // one users navigate by, so the page title moves to match it.
+    <SettingsSection title="Workspace" description="Your workspace name and branding.">
       <Card>
         <CardBody>
           {error ? (

@@ -182,11 +182,27 @@ export default function UploadPage() {
                     )}
                   </div>
                 )}
+                {/* C-67: the recovery the admin needs is the template, and it used to live
+                    only in the page header — "above" pointed at a link they had to hunt for
+                    while the error card held their attention. It is in the card now, next to
+                    the other way out, and the sentence points at THIS button. */}
                 <p className="max-w-[52ch] text-sm text-text-2">
-                  Use <span className="font-medium">Download template</span> above to check the expected columns. If the format has
+                  Download the template below to check the expected columns. If the format has
                   genuinely changed, contact your administrator to update it.
                 </p>
-                <Button variant="primary" onClick={reset}>Choose another file</Button>
+                <div className="flex flex-wrap items-center justify-center gap-4">
+                  <Button variant="primary" onClick={reset}>Choose another file</Button>
+                  {/* Same link affordance as the page header (an <a download>, not a Button —
+                      Button renders a <button> and a download is a navigation), sized to the
+                      44px hit floor since it now sits beside a real button. */}
+                  <a
+                    href={TEMPLATE_HREF}
+                    download
+                    className="inline-flex min-h-11 items-center rounded px-1 text-sm font-semibold text-brand-ink outline-none transition-colors hover:underline focus-visible:ring-1 focus-visible:ring-brand-ink active:text-brand-strong"
+                  >
+                    ↓ Download template
+                  </a>
+                </div>
               </div>
             ) : (phase === "idle" || phase === "error") ? (
               <button
@@ -198,7 +214,9 @@ export default function UploadPage() {
                 className={`flex w-full flex-col items-center gap-2 rounded-lg border-2 border-dashed px-6 py-12 text-center transition-colors ${drag ? "border-brand bg-brand-soft" : "border-border hover:border-brand-line hover:bg-surface-2"}`}
               >
                 <span className="grid h-11 w-11 place-items-center rounded-full bg-surface-3 text-lg text-text-2">↑</span>
-                <span className="text-sm font-semibold text-text">Drop a weekly .xlsx here</span>
+                {/* C-67 (N3C-13): the dropzone said ".xlsx" while `accept` has taken .csv
+                    since Lead Source 1 — the copy now matches what the picker allows. */}
+                <span className="text-sm font-semibold text-text">Drop a weekly .xlsx or .csv here</span>
                 <span className="text-xs text-text-3">or click to browse</span>
                 {err && <span className="mt-2 text-xs text-danger">{err}</span>}
               </button>

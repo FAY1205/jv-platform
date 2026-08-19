@@ -232,14 +232,18 @@ function DashboardBody() {
                       one word read as a bug. Same destination as the pill, so the tile is a
                       drill-down rather than a dead end. The number itself is untouched
                       (PRN-15) — only the wording that scopes it. */}
-                  <HeroKpi label="New unmatched" value={d!.stats.unmatched.value} delta={d!.stats.unmatched.delta} good="down" tone="warn" href="/unmatched" tip="Leads no partner covers yet — they're waiting for an assignment. Counts only the ones that arrived in this range." />
+                  {/* N3C-09 (C-48 §1.2): three tiles in a 2-column grid left a phantom
+                      empty cell on phones (the grid's own bg-border showed through as a
+                      dead panel). The odd tile spans the row instead. */}
+                  <HeroKpi className="max-sm:col-span-2" label="New unmatched" value={d!.stats.unmatched.value} delta={d!.stats.unmatched.delta} good="down" tone="warn" href="/unmatched" tip="Leads no partner covers yet — they're waiting for an assignment. Counts only the ones that arrived in this range." />
                 </div>
                 {/* Partner-stat tier — same cell design as the KPIs, range-scoped rollups
                     across partners (PRN-15); no prior-window delta on these. */}
                 <div className="mt-3 grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-border bg-border sm:grid-cols-3">
                   <HeroKpi label={d!.stats.partners.value === 1 ? "Partner" : "Partners"} value={d!.stats.partners.value} delta={d!.stats.partners.delta} tip="Partners that received at least one lead in this range." />
                   <HeroKpi label="Contacted" value={d!.stats.contacted.value} delta={d!.stats.contacted.delta} good="up" tip="Leads partners acted on for the first time in this range — a status change or a note." />
-                  <HeroKpi label="Closed" value={d!.stats.closed.value} delta={d!.stats.closed.delta} good="up" tip="Leads marked Closed in this range." />
+                  {/* Same 3-in-2 fix as the KPI row above. */}
+                  <HeroKpi className="max-sm:col-span-2" label="Closed" value={d!.stats.closed.value} delta={d!.stats.closed.delta} good="up" tip="Leads marked Closed in this range." />
                 </div>
               </div>
             </div>

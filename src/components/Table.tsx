@@ -30,7 +30,7 @@ export function Table({
 }) {
   // C-53: the fade recipe + the scroll-position rule now live in ScrollHint, shared with the
   // portal's mobile chip strip — one implementation, not two that can drift.
-  const { ref: scrollerRef, moreRight } = useScrollHint(scrollHint);
+  const { ref: scrollerRef, more: moreRight } = useScrollHint(scrollHint);
 
   const scroller = (
     <div
@@ -107,13 +107,19 @@ export function Th({ sortable, sortDir = null, onSort, align = "left", fit, clas
       {...rest}
     >
       {sortable ? (
+        // C-68 (N3C-14): the ACTIVE sort column reads at full text ink; inactive headers stay
+        // muted. Before this every sortable header looked identical and only the tiny ↑/↓/↕
+        // glyph — three similar marks at 13px — said which column the table was ordered by.
+        // The glyph still carries the direction (never colour alone, PRN-14) and `aria-sort`
+        // on the <th> is unchanged, so the AT answer was already right; this fixes the
+        // sighted one.
         <button
           type="button"
           onClick={onSort}
-          className="inline-flex items-center gap-1 uppercase tracking-wider text-inherit"
+          className={cn("inline-flex items-center gap-1 uppercase tracking-wider", sortDir !== null ? "text-text" : "text-inherit")}
         >
           {children}
-          <span aria-hidden="true" className="text-text-3">
+          <span aria-hidden="true" className={sortDir !== null ? "text-text" : "text-text-3"}>
             {sortDir === "asc" ? "↑" : sortDir === "desc" ? "↓" : "↕"}
           </span>
         </button>

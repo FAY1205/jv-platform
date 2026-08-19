@@ -2,8 +2,7 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { Card, CardBody, Input, Button } from "@/components";
-import { APP_NAME } from "@/lib/app";
+import { Card, CardBody, Input, Button, AuthCardHeader } from "@/components";
 
 // AUT-05/06: request a reset link. The response is uniform — the page shows the same
 // confirmation whether or not an account exists.
@@ -40,10 +39,7 @@ export default function ForgotPasswordPage() {
     <main className="flex min-h-full flex-1 items-center justify-center p-6">
       <Card className="w-full max-w-sm">
         <CardBody>
-          <div className="mb-6 flex flex-col gap-1">
-            <span className="font-display text-lg font-semibold text-text">{APP_NAME}</span>
-            <span className="text-sm text-text-3">Reset your password</span>
-          </div>
+          <AuthCardHeader title="Reset your password" />
           {sent ? (
             <div className="flex flex-col gap-4">
               <p className="text-sm text-text-2">

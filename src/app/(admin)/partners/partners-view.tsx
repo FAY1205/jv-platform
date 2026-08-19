@@ -818,7 +818,9 @@ function PartnersBody({ initialEditId = null }: PartnersViewProps) {
                       </Link>
                     </Td>
                     <Td clamp clampTitle={p.email ?? undefined}>
-                      <div className="truncate text-sm text-text-2">{p.email ?? <span className="text-text-3">no email</span>}</div>
+                      <div className="truncate text-sm text-text-2">{/* C-61: sentence case, matching the partner DETAIL page's "No email" and every
+                          other empty-value sentinel in the app ("Not provided", "No notes yet."). */}
+                      {p.email ?? <span className="text-text-3">No email</span>}</div>
                       {p.phone && <div className="num text-xs text-text-3">{p.phone}</div>}
                     </Td>
                     <Td fit>
