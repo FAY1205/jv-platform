@@ -54,6 +54,12 @@ Scope of the adoption, deliberately narrow:
 - **MATCHING semantics do not change.** Search stays **exact substring** (`ILIKE`, escaped,
   bound). No `similarity()` threshold in a `WHERE`, no `%` operator, no typo tolerance.
 
+**Known limit, accepted:** `SEARCH_MIN_CHARS` is 2, which sits *below* trigram granularity —
+pg_trgm indexes on 3-character grams, so a 2-character query cannot use these indexes and
+seq-scans (EXPLAIN-verified). That is deliberate: the product wants `wh` to answer, and at
+~300 leads per tenant a scan is instant. It is on the N12 ~80k list to either raise the floor
+to 3 or give short queries a separate prefix-index path.
+
 ## Explicit non-goal: fuzzy matching
 
 Trigram indexes make fuzzy matching roughly a one-line change (`where name % $1` or

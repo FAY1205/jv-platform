@@ -37,6 +37,10 @@ CREATE EXTENSION IF NOT EXISTS pg_trgm;--> statement-breakpoint
 -- identifier columns — a trigram index on a 5-char ZIP is mostly overhead, and at current
 -- scale the planner's seq scan is fine. Revisit at the N12 ~80k-leads/tenant trigger, where
 -- the identifier columns want their own (btree/prefix) treatment rather than trigrams.
+-- IF NOT EXISTS on the index adds is a deliberate divergence from 0051/0052/0055's bare
+-- CREATE INDEX: those are drizzle-GENERATED, this migration is hand-authored and pairs with a
+-- CREATE EXTENSION that is itself idempotent, so the whole file re-runs clean against a
+-- database where an operator placed the indexes by hand (0036's precedent).
 CREATE INDEX IF NOT EXISTS "leads_seller_first_trgm_idx" ON "leads" USING gin ("seller_first" gin_trgm_ops);--> statement-breakpoint
 CREATE INDEX IF NOT EXISTS "leads_seller_last_trgm_idx" ON "leads" USING gin ("seller_last" gin_trgm_ops);--> statement-breakpoint
 CREATE INDEX IF NOT EXISTS "leads_address_trgm_idx" ON "leads" USING gin ("address" gin_trgm_ops);--> statement-breakpoint

@@ -98,7 +98,10 @@ suite("WP-KAN-1: leads board endpoint (KAN-02/03/08/09)", () => {
     );
     // A HOT lead owned by the second partner — KAN-09 hot + partner filters.
     await db.insert(schema.leads).values(
-      lead("LD-26-80902", { sellerFirst: "Alma", sellerLast: "Reyes", city: "Gilbert", state: "AZ", partnerId: pA2.id, matchMethod: "state_fallback", scoreGroup: "hot", scoreTotal: 41, scoreStatus: "complete", createdAt: ago(70 * MIN) }),
+      // WP-N4 fixtures ride along on this EXISTING row (no new row, so every count and page
+      // assertion in this suite is untouched): a ZIP, a literal-`%` address and a phone, so
+      // the shared search builder's NEW query shapes have a tenant-A row to find.
+      lead("LD-26-80902", { sellerFirst: "Alma", sellerLast: "Reyes", address: "100% Ranch Rd", city: "Gilbert", state: "AZ", zip: "80999", phoneNorm: "6025550148", partnerId: pA2.id, matchMethod: "state_fallback", scoreGroup: "hot", scoreTotal: 41, scoreStatus: "complete", createdAt: ago(70 * MIN) }),
     );
     // KAN-08 exclusions: removed-from-MLS and recalled (soft-deleted) never appear.
     await db.insert(schema.leads).values(lead("LD-26-80903", { mlsStatus: "removed", mlsReason: "listed", sellerFirst: "Rem", sellerLast: "Oved", createdAt: ago(60 * MIN) }));
@@ -143,6 +146,11 @@ suite("WP-KAN-1: leads board endpoint (KAN-02/03/08/09)", () => {
     await db.insert(schema.leads).values({
       tenantId: tB.id, refId: "LD-26-80999", uploadId: upB.id, dedupeKey: randomUUID(), rawJson: {},
       mlsStatus: "kept", matchMethod: "none", sellerFirst: "Foreign", sellerLast: "Lead", city: "Boston", state: "MA",
+      // WP-N4: B's row is deliberately made to MATCH each new query shape — a literal `%` in
+      // the address and A's phone digits — so the cross-tenant probe below is a real leak
+      // test rather than a query that finds nothing in either tenant. ("80999" is already in
+      // its ref id, and is tenant A's LD-26-80902 ZIP.)
+      address: "100% Foreign Way", phoneNorm: "6025550148",
     });
     await updateLeadStatus({ tenantId: tB.id, role: "admin", userId: bAdmin }, "LD-26-80999", "Appointment");
 
@@ -272,6 +280,24 @@ suite("WP-KAN-1: leads board endpoint (KAN-02/03/08/09)", () => {
       .returning({ id: schema.partners.id });
     const empty = await board({ partnerId: emptyPartner.id });
     expect(empty.columns).toEqual(foreign.columns);
+  });
+
+  it("SRCH-06/07/TST-01: the board's NEW query shapes never surface another tenant's card", async () => {
+    // The board composes the same modules/search/match builder as the list, so multi-term,
+    // literal-`%` and phone-digit queries are new query SHAPES on this scoped path. Each one
+    // is a leak probe: tenant B's LD-26-80999 matches all three (ref id / `%` address / the
+    // same phone digits), and tenant A's LD-26-80902 was given a matching ZIP, `%` address
+    // and phone so the query is provably non-empty for its OWNER first (TST-11) — otherwise
+    // "found nothing" would pass for the wrong reason.
+    for (const q of ["80999", "%", "6025550148"]) {
+      const mine = await board({ q });
+      const cards = mine.columns.flatMap((c) => c.cards.map((x) => x.refId));
+      expect(cards).toContain("LD-26-80902");
+      expect(cards).not.toContain("LD-26-80999");
+      // The per-column TOTALS are filtered inside the CTE too, so a leak would show up as an
+      // inflated count even while the card slices looked clean.
+      expect(mine.columns.reduce((n, c) => n + c.total, 0)).toBe(1);
+    }
   });
 
   it("TST-01: the reverse probe — tenant B's board holds only B's own lead", async () => {

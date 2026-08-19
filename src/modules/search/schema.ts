@@ -7,7 +7,13 @@ import { z } from "zod";
 // ─────────────────────────────────────────────────────────────────────────────
 
 /** Below this, the endpoint short-circuits to an empty result (SRCH-01): a 1-char
- *  query would scan the whole tenant for nothing useful. */
+ *  query would scan the whole tenant for nothing useful.
+ *
+ *  ⚠️ 2 sits BELOW trigram granularity: pg_trgm indexes on 3-character grams, so a 2-char
+ *  query cannot use the GIN indexes migration 0056 ships and falls back to a sequential
+ *  scan (EXPLAIN-verified). Deliberate and fine at current scale (~300 leads/tenant) — the
+ *  product wants "wh" to answer. Revisit at the N12 ~80k trigger: either raise this floor
+ *  to 3 or give short queries a prefix-index path (ADR-0051). */
 export const SEARCH_MIN_CHARS = 2;
 /** Rows returned per group. No pagination in v1 — the overlay is a jump-to, not a list. */
 export const SEARCH_GROUP_LIMIT = 10;
