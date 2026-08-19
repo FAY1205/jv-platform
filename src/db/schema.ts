@@ -657,7 +657,23 @@ export const notifications = pgTable(
     createdAt: createdAt(),
   },
   (t) => [
-    index("notifications_user_idx").on(t.userId),
+    // WP-NF1 D1: the bell's two reads, both of which are (tenant_id, user_id)-scoped through
+    // ownerWhere — never user_id alone. listNotifications sorts created_at desc limit 30, so
+    // the sort column joins the index and the read becomes a bounded backwards scan instead of
+    // a scan-then-sort of everything the user has ever been sent.
+    index("notifications_tenant_user_created_idx").on(t.tenantId, t.userId, t.createdAt.desc()),
+    // unreadCount() counts only unread rows, which are the small minority in a healthy account —
+    // a PARTIAL index keeps it proportional to the badge, not to the archive.
+    index("notifications_tenant_user_unread_idx")
+      .on(t.tenantId, t.userId)
+      .where(sql`${t.readAt} is null`),
+    // `notifications_user_idx` (user_id alone) is REMOVED: superseded by the composite above,
+    // which leads with tenant_id — every read path filters tenant AND user, so a user-only index
+    // was never the one the planner wanted. NOTE for review: it was also the users.id FK cover.
+    // Acceptable because users are hard-deleted only PRE-ACTIVATION (deprovisionAdmin dev/test
+    // cleanup; signup-sweep's abandoned never-verified signups) — neither path can have produced
+    // a notification row (every createNotification site requires an active pipeline/task on a
+    // verified tenant); active seats are deactivated, never deleted (Phase C). See the PR body.
     // FK-covering index (db-linter 0001): the tenant_id FK had no leading-column index.
     index("notifications_tenant_idx").on(t.tenantId),
     // C-36: the void/purge redaction looks up notifications by (tenant_id, lead_ref) (redact-lead-comms.ts).
