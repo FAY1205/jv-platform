@@ -1,10 +1,16 @@
-import { and, asc, desc, isNull, ne, sql, type SQL } from "drizzle-orm";
+import { and, asc, desc, isNull, ne, sql } from "drizzle-orm";
 import { getDb } from "@/db";
 import * as schema from "@/db/schema";
 import { leadWhere, tenantWhere, type ScopeContext } from "@/lib/scope";
 import { statusExpr } from "@/modules/leads/queries";
 import { SEARCH_GROUP_LIMIT, isSearchable, type SearchResults } from "./schema";
-import { leadIdentifierMatch, leadSearchMatch, partnerSearchMatch } from "./match";
+import {
+  leadIdentifierMatch,
+  leadRankExpr,
+  leadSearchMatch,
+  partnerRankExpr,
+  partnerSearchMatch,
+} from "./match";
 import { can } from "@/lib/authz";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -57,33 +63,6 @@ function empty(q: string): SearchResults {
 }
 
 /**
- * SRCH-08 — the leads relevance score, computed server-side in SQL (PRN-15) so the overlay
- * only ever renders the order it was given.
- *
- * Two tiers, deliberately separated by a constant larger than any similarity can reach:
- *  • +2 when the row matched an IDENTIFIER (ref id / ZIP / phone digits) — typing an
- *    identifier means "take me to THAT lead", so it outranks every text hit outright;
- *  • + the best trigram `word_similarity` of the query against the seller's full name, the
- *    address and the city — so "cactus wren" puts the Cactus Wren address above a lead that
- *    merely shares a word.
- * `word_similarity(query, target)` scores the query's trigrams against the closest run of
- * words in the target (not the whole string), which is what a substring search wants; it is
- * case-insensitive, so it agrees with the ILIKE matching. `coalesce` because every one of
- * these columns is nullable and NULL would poison the greatest().
- *
- * The query text is a BOUND parameter here, exactly as in the match predicate — it is not
- * escaped, because this is a function argument, not a LIKE pattern.
- */
-function leadRankExpr(q: string, identifierMatch: SQL | undefined): SQL<number> {
-  const identifierBonus = identifierMatch ? sql`(case when ${identifierMatch} then 2 else 0 end)` : sql`0`;
-  return sql<number>`${identifierBonus}::real + greatest(
-    word_similarity(${q}::text, coalesce(${schema.leads.sellerFirst}, '') || ' ' || coalesce(${schema.leads.sellerLast}, '')),
-    word_similarity(${q}::text, coalesce(${schema.leads.address}, '')),
-    word_similarity(${q}::text, coalesce(${schema.leads.city}, ''))
-  )`;
-}
-
-/**
  * SRCH-01/06/07/08 — one page of matches per group for `q`.
  *
  * Leads: seller first/last, address, city, ZIP and ref id by case-insensitive substring,
@@ -112,9 +91,12 @@ export async function globalSearch(scope: ScopeContext, q: string): Promise<Sear
   // builder backs the admin leads list and the portal list — one definition of what `q` means.
   const leadMatch = leadSearchMatch(q);
   const partnerMatch = partnerSearchMatch(q);
-  // Unreachable today — isSearchable already rejected everything that tokenizes to nothing —
-  // but explicit, because the failure mode is silent: an undefined conjunct would drop OUT of
-  // the `and()` below and return every row the scope allows instead of matching none.
+  // FAIL CLOSED (ADR-0013 defence in depth). Unreachable today — isSearchable has already
+  // rejected everything that tokenizes to nothing, and tests/unit pins that implication as an
+  // invariant — but the failure mode if it ever stopped holding is SILENT and maximal: an
+  // undefined conjunct drops straight OUT of drizzle's `and()`, leaving a where-clause of
+  // scope alone, i.e. every row the caller can see returned as "matches". A one-line guard
+  // is cheaper than relying on two functions in a different module agreeing forever.
   if (!leadMatch || !partnerMatch) return empty(q);
 
   // leadWhere (PRN-08) + the recall guard. No mls_status predicate — removed leads
@@ -147,9 +129,13 @@ export async function globalSearch(scope: ScopeContext, q: string): Promise<Sear
       })
       .from(schema.leads)
       .where(leadsWhere)
-      // SRCH-08: relevance first, recency as the tie-break. `rank` is an ORDER-BY-only
-      // expression — it is never selected into the payload the overlay renders.
-      .orderBy(desc(leadRank), desc(schema.leads.createdAt))
+      // SRCH-08: relevance first, recency next, then ref id as the DETERMINISTIC final leg.
+      // createdAt is a transaction timestamp, so every lead from one upload shares it to the
+      // microsecond — without a unique final column the order of a same-upload tie is
+      // whatever the plan happens to emit, and the capped LIMIT 10 could drop a different
+      // row between two identical requests. `rank` is ORDER-BY-only — it is never selected
+      // into the payload the overlay renders.
+      .orderBy(desc(leadRank), desc(schema.leads.createdAt), asc(schema.leads.refId))
       .limit(SEARCH_GROUP_LIMIT),
     db.select({ n: sql<number>`count(*)::int` }).from(schema.leads).where(leadsWhere),
     db
@@ -162,8 +148,10 @@ export async function globalSearch(scope: ScopeContext, q: string): Promise<Sear
       })
       .from(schema.partners)
       .where(partnersWhere)
-      // SRCH-08: closest name first, then the stable alphabetical order the group had before.
-      .orderBy(desc(sql`word_similarity(${q}::text, ${schema.partners.name})`), asc(schema.partners.name))
+      // SRCH-08: closest name first, then the stable alphabetical order the group had before,
+      // then ref id — two partners CAN share a name (nothing enforces uniqueness), so name
+      // alone is not a deterministic final leg.
+      .orderBy(desc(partnerRankExpr(q)), asc(schema.partners.name), asc(schema.partners.refId))
       .limit(SEARCH_GROUP_LIMIT),
     db.select({ n: sql<number>`count(*)::int` }).from(schema.partners).where(partnersWhere),
   ]);

@@ -45,6 +45,13 @@ const REF_RANK_ID = "LD-26-70020"; // zip 86001 (an IDENTIFIER hit) · OLDER
 const REF_RANK_TEXT = "LD-26-70021"; // "86001 Old Mill Rd" (a TEXT hit on the same query) · NEWER
 const REF_SIM_HIGH = "LD-26-70022"; // city "Cottonwood" — word_similarity 1.0 · OLDER
 const REF_SIM_LOW = "LD-26-70023"; // "Cottonwoodland Estates" — word_similarity ~0.91 · NEWER
+// The ASYMMETRY pair (pr-reviewer F-1). word_similarity(a,b) scores a's trigrams against the
+// closest word-extent of b, so it is NOT commutative — but the two pairs above happen to rank
+// the same under swapped arguments, which means they cannot catch an argument-order swap.
+// These two can: for q="park lane", query-first gives LONG 1.0 > SHORT 0.5, while column-first
+// gives SHORT 1.0 > LONG 0.67 — the order genuinely INVERTS.
+const REF_ASYM_LONG = "LD-26-70024"; // address "Park Lane Blvd" — ranks FIRST only if correct · OLDER
+const REF_ASYM_SHORT = "LD-26-70025"; // city "Park" + address "Lane St" — ranks first if swapped · NEWER
 const REF_B_LEAK = "LD-26-80001"; // Tenant B's Whitfield — the cross-tenant probe
 
 const ids: Record<string, string> = {};
@@ -174,6 +181,19 @@ async function seed(db: PostgresJsDatabase<typeof schema>) {
       address: "51 Cottonwoodland Estates Blvd", city: "Winslow", state: "AZ",
       createdAt: new Date(Date.now() - 6_000), // NEWER
     }),
+    // The word_similarity ARGUMENT-ORDER pair. Both rows match q="park lane" (every term
+    // must hit some column), neither hits an identifier, and the newer row is the one that
+    // only wins under a SWAP — so the assertion fails on a swap AND on ranking being dropped.
+    lead(tA.id, upA.id, {
+      refId: REF_ASYM_LONG, sellerFirst: "Nora", sellerLast: "Sundell",
+      address: "Park Lane Blvd", city: "Tempe", state: "AZ",
+      createdAt: new Date(Date.now() - 220_000), // OLDER
+    }),
+    lead(tA.id, upA.id, {
+      refId: REF_ASYM_SHORT, sellerFirst: "Ivo", sellerLast: "Trent",
+      address: "Lane St", city: "Park", state: "AZ",
+      createdAt: new Date(Date.now() - 7_000), // NEWER
+    }),
     // 11 matches for the per-group cap (SRCH-01: limit 10, true total reported).
     ...Array.from({ length: 11 }, (_, i) =>
       lead(tA.id, upA.id, {
@@ -245,10 +265,20 @@ suite("SRCH: globalSearch (SRCH-01)", () => {
   it("SRCH-01: a formatted phone query finds the lead through phone_norm", async () => {
     const byFormatted = await globalSearch(scopeA(), "(602) 555-0148");
     expect(refs(byFormatted)).toEqual([REF_MARCUS]);
+    // Tenant B's lead carries the SAME digits (audit-tenancy F-3): assert its absence
+    // EXPLICITLY, so the leak check survives any future loosening of the exact-array
+    // assertion above rather than depending on it.
+    expect(refs(byFormatted)).not.toContain(REF_B_LEAK);
+
+    // …and the mirror: B's own admin reaches B's row on those digits, and never A's.
+    const fromB = await globalSearch(scopeB(), "(602) 555-0148");
+    expect(refs(fromB)).toEqual([REF_B_LEAK]);
+    expect(refs(fromB)).not.toContain(REF_MARCUS);
 
     // A partial, differently-formatted fragment reaches the same lead.
     const byFragment = await globalSearch(scopeA(), "602-555");
     expect(refs(byFragment)).toContain(REF_MARCUS);
+    expect(refs(byFragment)).not.toContain(REF_B_LEAK);
 
     // Below the digit floor, digits are NOT matched against phone numbers — "602" would
     // otherwise sweep in every phone containing that run.
@@ -427,6 +457,18 @@ suite("SRCH: globalSearch (SRCH-01)", () => {
     const res = await globalSearch(scopeA(), "cottonwood");
     // REF_SIM_LOW is the NEWER row; only similarity can put the exact-word city above it.
     expect(refs(res)).toEqual([REF_SIM_HIGH, REF_SIM_LOW]);
+  });
+
+  it("SRCH-08: word_similarity takes the QUERY first and the COLUMN second (argument order)", async () => {
+    // word_similarity(a,b) scores a's trigrams against the closest word-extent of b, so the
+    // two arguments are not interchangeable. Correct (query, column): the address that
+    // CONTAINS the whole query scores 1.0 and the row that merely holds the two words in
+    // separate short fields scores 0.5. Swapped, those become 0.67 and 1.0 — an inversion.
+    // REF_ASYM_SHORT is also the NEWER row, so this assertion additionally fails if the rank
+    // leg were dropped and the order fell back to pure recency.
+    const res = await globalSearch(scopeA(), "park lane");
+    expect(refs(res)).toEqual([REF_ASYM_LONG, REF_ASYM_SHORT]);
+    expect(res.leads.total).toBe(2);
   });
 
   it("SRCH-08: equal relevance falls back to createdAt desc, and the total stays exact", async () => {

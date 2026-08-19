@@ -3,9 +3,12 @@ import { PgDialect } from "drizzle-orm/pg-core";
 import type { SQL } from "drizzle-orm";
 import {
   leadIdentifierMatch,
+  leadRankExpr,
   leadSearchMatch,
+  partnerRankExpr,
   partnerSearchMatch,
 } from "@/modules/search/match";
+import { SEARCH_MIN_CHARS, isSearchable, tokenize } from "@/modules/search/schema";
 
 // SRCH-06/07 — the shared search-match builder, inspected as SQL. These are the
 // structural guarantees the three surfaces (Ctrl-K, admin leads list, portal list) all
@@ -128,6 +131,87 @@ describe("SRCH-08: the identifier rank input", () => {
     const { sql } = render(leadIdentifierMatch("whitfield"));
     expect(sql).not.toContain("phone_norm");
     expect(sql).toContain('"ref_id"');
+  });
+});
+
+describe("SRCH-08: word_similarity argument order is pinned structurally", () => {
+  // pr-reviewer F-1: the INTEGRATION ordering fixtures can only catch a swap when the two
+  // arguments disagree, and most realistic pairs rank identically either way. This asserts
+  // the rendered SQL directly, so an accidental swap fails here whatever the data looks like.
+  //
+  // word_similarity(a, b) scores a's trigram set against the closest continuous extent of
+  // WORDS in b. The QUERY must be `a` and the COLUMN `b` — "find the query inside this
+  // field". Swapped, it asks "find this whole field inside the query".
+  const rendered = () => render(leadRankExpr("park lane", leadIdentifierMatch("park lane"))).sql;
+
+  it("SRCH-08: every leads word_similarity call takes the bound query FIRST, the column SECOND", () => {
+    const sql = rendered();
+    const calls = sql.match(/word_similarity\([^)]*/g) ?? [];
+    expect(calls).toHaveLength(3); // seller name, address, city
+
+    for (const call of calls) {
+      // First argument: the bound `$n::text` parameter — never a column reference.
+      expect(call).toMatch(/^word_similarity\(\$\d+::text,/);
+      expect(call).not.toMatch(/^word_similarity\(\s*coalesce/);
+      expect(call).not.toMatch(/^word_similarity\("leads"/);
+    }
+    // Second argument: the columns, in the documented order.
+    expect(sql).toMatch(/word_similarity\(\$\d+::text, coalesce\("leads"\."seller_first"/);
+    expect(sql).toMatch(/word_similarity\(\$\d+::text, coalesce\("leads"\."address"/);
+    expect(sql).toMatch(/word_similarity\(\$\d+::text, coalesce\("leads"\."city"/);
+  });
+
+  it("SRCH-08: the partners rank takes the bound query FIRST, partners.name SECOND", () => {
+    const { sql, params } = render(partnerRankExpr("cedar ridge"));
+    expect(sql).toMatch(/^word_similarity\(\$\d+::text, "partners"\."name"\)$/);
+    expect(sql).not.toMatch(/word_similarity\("partners"/);
+    expect(params).toEqual(["cedar ridge"]);
+  });
+
+  it("SRCH-08: the identifier tier is +2 — strictly above any similarity, which caps at 1.0", () => {
+    const sql = rendered();
+    expect(sql).toContain("then 2 else 0");
+    // The bonus is added to the similarity, not multiplied or compared.
+    expect(sql).toMatch(/end\)::real \+ greatest\(/);
+  });
+
+  it("SRCH-08: the rank binds the query as a parameter — the text never reaches the SQL string", () => {
+    const { sql, params } = render(leadRankExpr("Whitfield", leadIdentifierMatch("Whitfield")));
+    expect(sql).not.toContain("Whitfield");
+    expect(params).toContain("Whitfield"); // the word_similarity argument, unescaped by design
+    expect(params).toContain("%Whitfield%"); // the identifier ILIKE patterns, escaped
+  });
+});
+
+describe("SRCH-06: isSearchable ⇒ tokenize is non-empty (the guard's invariant)", () => {
+  // audit-tenancy F-1: globalSearch fails closed if a builder ever returns undefined, but
+  // that guard should never fire — this pins the coupling it backstops. If a future change
+  // to either function breaks the implication, this fails LOUDLY here instead of silently
+  // leaning on the runtime guard.
+  it("SRCH-06: any query isSearchable accepts produces at least one term", () => {
+    const queries = [
+      "wh", "  wh  ", "whitf", "john phoenix", "602-555", "(602) 555-0148",
+      "%", "%%", "%_", "__", "\\\\", "a\\", "0%", "t_5", "...", "!!", "--",
+      "​​", "ø ø", "  a  b  ", "x".repeat(120), "a b c d e f g h i j",
+    ];
+    for (const q of queries) {
+      if (isSearchable(q)) {
+        expect(tokenize(q).length, `tokenize(${JSON.stringify(q)}) must be non-empty`).toBeGreaterThan(0);
+        expect(leadSearchMatch(q)).toBeDefined();
+        expect(partnerSearchMatch(q)).toBeDefined();
+      }
+    }
+  });
+
+  it("SRCH-06: and the contrapositive — an empty tokenization is never searchable", () => {
+    for (const q of ["", " ", "\t", "\n", "   ", "  "]) {
+      expect(tokenize(q)).toEqual([]);
+      expect(isSearchable(q)).toBe(false);
+    }
+    // The floor itself: exactly SEARCH_MIN_CHARS of real text is searchable and tokenizes.
+    const atFloor = "a".repeat(SEARCH_MIN_CHARS);
+    expect(isSearchable(atFloor)).toBe(true);
+    expect(tokenize(atFloor)).toEqual([atFloor]);
   });
 });
 

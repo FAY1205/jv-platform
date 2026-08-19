@@ -1,4 +1,4 @@
-import { and, ilike, or, type SQL } from "drizzle-orm";
+import { and, ilike, or, sql, type SQL } from "drizzle-orm";
 import * as schema from "@/db/schema";
 import { containsPattern, searchPhoneDigits, tokenize } from "./schema";
 
@@ -123,4 +123,52 @@ export function leadIdentifierMatch(q: string): SQL | undefined {
     }),
     ...(digits ? [ilike(schema.leads.phoneNorm, containsPattern(digits))] : []),
   );
+}
+
+// ─── SRCH-08 ranking ─────────────────────────────────────────────────────────
+// The rank builders live HERE, beside the match builders, rather than in ./queries:
+// they are pure SQL construction with no DB handle, so keeping them in the module that
+// does not import `@/db` is what lets the unit suite render and assert their SHAPE.
+//
+// ⚠️ ARGUMENT ORDER IS LOAD-BEARING. `word_similarity(a, b)` is ASYMMETRIC: it scores a's
+// trigram set against the closest continuous extent of WORDS in b. The QUERY must be the
+// first argument and the COLUMN the second — "find the query inside this field". Swapped,
+// it asks "find this whole field inside the query", which scores a short exact field far
+// too low and a long field that happens to contain the query far too high. The swap is
+// invisible on many fixtures (both orders agree whenever one string is a clean word-extent
+// of the other), so it is pinned STRUCTURALLY in tests/unit/search-match.test.ts as well as
+// behaviourally by an asymmetric integration fixture.
+
+/** The searched text columns, in the order the rank's greatest() considers them. */
+function leadSimilarity(q: string): SQL<number> {
+  return sql<number>`greatest(
+    word_similarity(${q}::text, coalesce(${schema.leads.sellerFirst}, '') || ' ' || coalesce(${schema.leads.sellerLast}, '')),
+    word_similarity(${q}::text, coalesce(${schema.leads.address}, '')),
+    word_similarity(${q}::text, coalesce(${schema.leads.city}, ''))
+  )`;
+}
+
+/**
+ * SRCH-08 — the leads relevance score, computed server-side in SQL (PRN-15) so the overlay
+ * only ever renders the order it was given.
+ *
+ * Two tiers, deliberately separated by a constant larger than any similarity can reach:
+ *  • +2 when the row matched an IDENTIFIER (ref id / ZIP / phone digits) — typing an
+ *    identifier means "take me to THAT lead", so it outranks every text hit outright;
+ *  • + the best trigram `word_similarity` of the query against the seller's full name, the
+ *    address and the city — so "cactus wren" puts the Cactus Wren address above a lead that
+ *    merely shares a word.
+ * `coalesce` because every one of these columns is nullable and NULL would poison greatest().
+ *
+ * The query text is a BOUND parameter, exactly as in the match predicate — it is not escaped,
+ * because this is a function argument, not a LIKE pattern.
+ */
+export function leadRankExpr(q: string, identifierMatch: SQL | undefined): SQL<number> {
+  const identifierBonus = identifierMatch ? sql`(case when ${identifierMatch} then 2 else 0 end)` : sql`0`;
+  return sql<number>`${identifierBonus}::real + ${leadSimilarity(q)}`;
+}
+
+/** SRCH-08 — partners rank on name similarity alone (then name asc, at the call site). */
+export function partnerRankExpr(q: string): SQL<number> {
+  return sql<number>`word_similarity(${q}::text, ${schema.partners.name})`;
 }
