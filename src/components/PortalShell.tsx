@@ -157,7 +157,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
         {/* Mobile top bar (< md) — UNCHANGED from the shipped shell */}
         <header className="md:hidden sticky top-0 z-20 mx-auto flex w-full max-w-[520px] items-center gap-2 border-b border-border-soft bg-bg/80 px-4 py-2 backdrop-blur-md">
           <Link href="/portal/dashboard" className="flex items-center gap-2">{brand}</Link>
-          <div className="ml-auto flex items-center gap-1"><NotificationBell /><ThemeToggle /></div>
+          <div className="ml-auto flex items-center gap-1"><NotificationBell viewAllHref="/portal/notifications" /><ThemeToggle /></div>
         </header>
 
         {/* Desktop top bar (≥ md) — collapse toggle + page title + tools (admin recipe) */}
@@ -170,7 +170,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
             <NavIcon name="menu" className="h-[18px] w-[18px]" />
           </IconButton>
           {title && <h1 className="truncate font-display text-lg font-semibold tracking-tight text-text">{title}</h1>}
-          <div className="ml-auto flex items-center gap-1.5"><NotificationBell /><ThemeToggle /></div>
+          <div className="ml-auto flex items-center gap-1.5"><NotificationBell viewAllHref="/portal/notifications" /><ThemeToggle /></div>
         </header>
 
         {/* Page content — renders ONCE. < md: the shipped centered 520px column; ≥ md: the

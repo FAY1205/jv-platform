@@ -70,12 +70,12 @@ suite("WP-029: notification center + prefs (NTF-04/05)", () => {
       prefs: DEFAULT_NOTIFICATION_PREFS,
     });
 
-    const partnerNotifs = await listNotifications(partnerScope);
+    const partnerNotifs = (await listNotifications(partnerScope)).notifications;
     expect(partnerNotifs).toHaveLength(1);
     expect(partnerNotifs[0].type).toBe("new_leads");
     expect(partnerNotifs[0].deepLink).toBe("/portal/leads");
 
-    const adminNotifs = await listNotifications(adminScope);
+    const adminNotifs = (await listNotifications(adminScope)).notifications;
     expect(adminNotifs.some((n) => n.type === "run_summary" && n.deepLink === "/imports/IM-26-020")).toBe(true);
     // scoping: the partner never sees the admin's run_summary.
     expect(partnerNotifs.some((n) => n.type === "run_summary")).toBe(false);
@@ -96,13 +96,13 @@ suite("WP-029: notification center + prefs (NTF-04/05)", () => {
       adminUserId: adminScope.userId,
       prefs,
     });
-    expect(await listNotifications(partnerScope)).toHaveLength(0);
+    expect((await listNotifications(partnerScope)).notifications).toHaveLength(0);
   });
 
   it("NTF-02/04: a partner status change notifies the admin in-app", async () => {
     await db.delete(schema.notifications).where(eq(schema.notifications.tenantId, adminScope.tenantId));
     await notifyStatusChange(db, partnerScope, { leadRef: "LD-26-00001", status: "Contacted" });
-    const adminNotifs = await listNotifications(adminScope);
+    const adminNotifs = (await listNotifications(adminScope)).notifications;
     const hit = adminNotifs.find((n) => n.type === "status_change" && n.title.includes("Contacted"));
     expect(hit).toBeTruthy();
     // P-1: the deep link must open the capable leads dialog, never the retired
@@ -116,13 +116,13 @@ suite("WP-029: notification center + prefs (NTF-04/05)", () => {
     // an empty dialog in admin). Redaction now leaves the row fully inert.
     await db.delete(schema.notifications).where(eq(schema.notifications.tenantId, adminScope.tenantId));
     await notifyStatusChange(db, partnerScope, { leadRef: "LD-26-00002", status: "Contacted" });
-    const before = await listNotifications(adminScope);
+    const before = (await listNotifications(adminScope)).notifications;
     expect(before[0].deepLink).toBe("/leads?open=LD-26-00002"); // the link exists to begin with
 
     const res = await redactLeadCommunications(db, adminScope.tenantId, ["LD-26-00002"]);
     expect(res.notificationsRedacted).toBe(1);
 
-    const after = await listNotifications(adminScope);
+    const after = (await listNotifications(adminScope)).notifications;
     expect(after[0].title).toBe(REDACTED_NOTIFICATION_TITLE);
     expect(after[0].body).toBeNull();
     expect(after[0].deepLink).toBeNull();

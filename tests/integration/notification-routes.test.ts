@@ -5,7 +5,7 @@ import { getDb } from "@/db";
 import * as schema from "@/db/schema";
 import type { ScopeContext } from "@/lib/scope";
 import type * as ScopeContextModule from "@/lib/scope-context";
-import { jsonRequest, routeParams, scopeContextMock, setRouteScope } from "./_route-harness";
+import { APP_ORIGIN, jsonRequest, routeParams, scopeContextMock, setRouteScope } from "./_route-harness";
 
 // WP-NF1 (NTF-04): the three notification-centre endpoints, driven as real handlers. The bell
 // is the one surface where a scope slip is invisible to the victim — you cannot tell you are
@@ -27,7 +27,12 @@ const SLUG_B = "test-notif-routes-b";
 interface FeedBody {
   notifications: { id: string; title: string; readAt: string | null; deepLink: string | null }[];
   unread: number;
+  /** FEP-03 (WP-NF2 PR C): additive — null on a page that was not full. */
+  nextCursor: string | null;
 }
+
+/** The BARE feed request (no query) — the exact call the bell makes. */
+const feedRequest = (query = "") => new Request(`${APP_ORIGIN}/api/notifications${query}`);
 
 suite("NTF-04: notification routes (list · mark read · mark all read)", () => {
   let db: ReturnType<typeof getDb>;
@@ -48,7 +53,7 @@ suite("NTF-04: notification routes (list · mark read · mark all read)", () => 
   const otherTenantScope = (): ScopeContext => ({ tenantId: id.tenantB, role: "admin", userId: id.stranger });
 
   const feed = async (): Promise<FeedBody> => {
-    const res = await getNotifications();
+    const res = await getNotifications(feedRequest());
     expect(res.status).toBe(200);
     return (await res.json()) as FeedBody;
   };
@@ -116,7 +121,7 @@ suite("NTF-04: notification routes (list · mark read · mark all read)", () => 
 
   it("NTF-04: GET without a session is 401, not an empty feed", async () => {
     setRouteScope(null);
-    const res = await getNotifications();
+    const res = await getNotifications(feedRequest());
     expect(res.status).toBe(401);
   });
 

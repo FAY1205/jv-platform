@@ -1,8 +1,9 @@
-import { and, desc, eq, isNull, sql } from "drizzle-orm";
+import { and, desc, eq, isNull, sql, type SQL } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import { getDb } from "@/db";
 import * as schema from "@/db/schema";
 import { ownerWhere, type ScopeContext } from "@/lib/scope";
+import { encodeNotificationCursor, type NotificationCursor } from "./feed-cursor";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // In-app notification center (NTF-04). Notifications are per USER (a partner's
@@ -55,14 +56,82 @@ function mine(scope: ScopeContext) {
   return ownerWhere(schema.notifications, schema.notifications.userId, scope);
 }
 
-export async function listNotifications(scope: ScopeContext, limit = 30): Promise<NotificationRow[]> {
+/** FEP-03: the default page the bell (and the first page of /notifications) asks for. */
+export const FEED_PAGE_SIZE = 30;
+/** FEP-03: the hard server-side ceiling. A page this size still renders unvirtualized
+ *  (FRONTEND_STANDARDS' ~200-row threshold), which is why the page needs no windowing. */
+export const FEED_PAGE_MAX = 50;
+
+export interface NotificationFeedPage {
+  notifications: NotificationRow[];
+  /** FEP-03: the token for the NEXT page, or `null` when this page was not full — i.e.
+   *  the caller has reached the end of their feed. */
+  nextCursor: string | null;
+}
+
+export interface ListNotificationsOptions {
+  limit?: number;
+  /** A DECODED cursor (the route owns the opaque→struct step so a malformed token is a
+   *  400 at the boundary, never a silent "start over" here). */
+  cursor?: NotificationCursor | null;
+}
+
+/**
+ * FEP-03 keyset predicate: everything strictly older than the cursor row in the
+ * `(created_at DESC, id DESC)` order.
+ *
+ * A ROW-VALUE comparison, not the hand-expanded `created_at < x OR (created_at = x AND
+ * id < y)` — one test the planner can push into the `(tenant_id, user_id, created_at DESC)`
+ * index rather than two it has to OR together. The cursor's timestamp is compared at the
+ * precision Postgres actually stores (see feed-cursor.ts), so a fan-out's tie group is
+ * walked, never skipped.
+ */
+function afterCursor(cursor: NotificationCursor): SQL {
+  return sql`(${schema.notifications.createdAt}, ${schema.notifications.id}) < (${cursor.createdAt}::timestamptz, ${cursor.id}::uuid)`;
+}
+
+/**
+ * The caller's own feed, newest first, one keyset page at a time (FEP-03 / NTF-12).
+ *
+ * The bare call — no cursor, no limit — is byte-for-byte the pre-NF2 read plus the `id`
+ * tie-break leg in the ORDER BY, so the bell's contract is unchanged and only gains the
+ * additive `nextCursor`.
+ */
+export async function listNotifications(
+  scope: ScopeContext,
+  opts: ListNotificationsOptions = {},
+): Promise<NotificationFeedPage> {
+  // Clamped here as well as Zod-bounded at the route: this module is called directly by
+  // server code too, and an unbounded limit is a whole-archive scan. The finite check is not
+  // decoration — `Math.min/max` propagate NaN rather than clamping it, so a non-finite limit
+  // from a future server-side caller would reach `.limit(NaN)` and fail at the driver instead
+  // of quietly falling back to the default.
+  const requested = opts.limit ?? FEED_PAGE_SIZE;
+  const limit = Number.isFinite(requested)
+    ? Math.min(Math.max(1, Math.trunc(requested)), FEED_PAGE_MAX)
+    : FEED_PAGE_SIZE;
+  const cursor = opts.cursor ?? null;
   const rows = await getDb()
-    .select()
+    .select({
+      id: schema.notifications.id,
+      type: schema.notifications.type,
+      title: schema.notifications.title,
+      body: schema.notifications.body,
+      deepLink: schema.notifications.deepLink,
+      readAt: schema.notifications.readAt,
+      createdAt: schema.notifications.createdAt,
+      // The MICROSECOND-precision instant, for the cursor only. postgres-js hands back a JS
+      // Date for timestamptz, which has already truncated to milliseconds — round-tripping
+      // that into the keyset predicate loses a whole tie group (feed-cursor.ts).
+      cursorAt: sql<string>`to_char(${schema.notifications.createdAt} at time zone 'utc', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')`,
+    })
     .from(schema.notifications)
-    .where(mine(scope))
-    .orderBy(desc(schema.notifications.createdAt))
+    // PRN-08: `mine` is the ownerWhere pin; the cursor only ever NARROWS it.
+    .where(cursor ? and(mine(scope), afterCursor(cursor)) : mine(scope))
+    .orderBy(desc(schema.notifications.createdAt), desc(schema.notifications.id))
     .limit(limit);
-  return rows.map((n) => ({
+
+  const notifications: NotificationRow[] = rows.map((n) => ({
     id: n.id,
     type: n.type,
     title: n.title,
@@ -71,6 +140,12 @@ export async function listNotifications(scope: ScopeContext, limit = 30): Promis
     readAt: n.readAt ? n.readAt.toISOString() : null,
     createdAt: n.createdAt.toISOString(),
   }));
+  const last = rows[rows.length - 1];
+  return {
+    notifications,
+    nextCursor:
+      rows.length === limit && last ? encodeNotificationCursor({ createdAt: last.cursorAt, id: last.id }) : null,
+  };
 }
 
 export async function unreadCount(scope: ScopeContext): Promise<number> {

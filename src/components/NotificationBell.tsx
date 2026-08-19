@@ -16,45 +16,29 @@ import {
 import { QueryErrorState } from "./QueryErrorState";
 import { IconButton } from "./IconButton";
 import { Skeleton } from "./Skeleton";
-import { NotificationTypeIcon } from "./NotificationTypeIcon";
+import { NotificationRowContent, type NotificationRowItem } from "./NotificationRowContent";
 import { groupByDay } from "@/lib/notification-groups";
+import { NOTIFICATIONS_FEED_KEY, NOTIFICATIONS_PAGE_KEY } from "@/lib/notification-keys";
 
 // NTF-04: in-app notification center on the DropdownMenu primitive (WS-7f). Grouped by
 // day, mark-all-read + per-item read, deep links; an honest error state (F-21), an
 // aria-live unread announcement (F-7), and visibility-aware polling (F-87 — pauses on a
 // hidden tab, refetches on focus). Server data via TanStack Query only.
+//
+// WP-NF2 (NTF-12): the dropdown is the SUMMARY surface — 30 newest rows, no paging. The
+// `viewAllHref` footer hands off to the full /notifications page, which pages the same
+// endpoint. The row anatomy is shared with that page via NotificationRowContent.
 
-interface Notification {
-  id: string;
-  type: string;
-  title: string;
-  body: string | null;
-  deepLink: string | null;
-  readAt: string | null;
-  createdAt: string;
-}
+type Notification = NotificationRowItem;
 
 interface Feed {
   notifications: Notification[];
   unread: number;
+  /** FEP-03, additive: the bell never pages, so it simply ignores this. */
+  nextCursor?: string | null;
 }
 
-const FEED_KEY = ["notifications"] as const;
-
-function timeAgo(iso: string): string {
-  const s = Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 1000));
-  if (s < 60) return "just now";
-  if (s < 3600) return `${Math.floor(s / 60)}m ago`;
-  if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
-  return `${Math.floor(s / 86400)}d ago`;
-}
-
-/** The full local-time reading of a timestamp, for the <time> element's tooltip: "2h ago" is
- *  friendly but lossy, and "was that 2pm or 2am?" is a real question when a nudge matters. */
-function absoluteTime(iso: string): string {
-  const d = new Date(iso);
-  return Number.isNaN(d.getTime()) ? iso : d.toLocaleString();
-}
+const FEED_KEY = NOTIFICATIONS_FEED_KEY;
 
 /** POST a read-marking endpoint; a non-2xx THROWS so the optimistic update rolls back
  *  (a bare `fetch` resolves on 500 and would leave the row falsely marked read). */
@@ -67,8 +51,23 @@ async function postRead(path: string): Promise<void> {
   if (!res.ok) throw new Error("Could not mark the notification read.");
 }
 
-export function NotificationBell() {
+export interface NotificationBellProps {
+  /** NTF-12: when set, a persistent "View all notifications" footer row links here —
+   *  `/notifications` from AppShell, `/portal/notifications` from PortalShell. Omitted, the
+   *  dropdown is exactly the pre-NF2 panel. */
+  viewAllHref?: string;
+}
+
+export function NotificationBell({ viewAllHref }: NotificationBellProps = {}) {
   const qc = useQueryClient();
+  // NTF-12: both notification caches, so the bell badge and an open /notifications page in the
+  // same tab settle on the same server truth. Named explicitly rather than leaning on the
+  // prefix match (see notification-keys.ts).
+  const invalidateFeeds = () =>
+    Promise.all([
+      qc.invalidateQueries({ queryKey: NOTIFICATIONS_FEED_KEY }),
+      qc.invalidateQueries({ queryKey: NOTIFICATIONS_PAGE_KEY }),
+    ]);
 
   const { data, isPending, error, refetch } = useQuery({
     queryKey: FEED_KEY,
@@ -105,7 +104,7 @@ export function NotificationBell() {
     onError: (_err, _id, ctx) => {
       if (ctx?.prev) qc.setQueryData(FEED_KEY, ctx.prev);
     },
-    onSettled: () => qc.invalidateQueries({ queryKey: FEED_KEY }),
+    onSettled: invalidateFeeds,
   });
   const markAll = useMutation({
     mutationFn: () => postRead(`/api/notifications/read-all`),
@@ -121,33 +120,12 @@ export function NotificationBell() {
     onError: (_err, _vars, ctx) => {
       if (ctx?.prev) qc.setQueryData(FEED_KEY, ctx.prev);
     },
-    onSettled: () => qc.invalidateQueries({ queryKey: FEED_KEY }),
+    onSettled: invalidateFeeds,
   });
 
   const groups = groupByDay(notifications, new Date());
 
-  const row = (n: Notification) => (
-    <div className="flex items-start gap-2.5">
-      <NotificationTypeIcon type={n.type} className="mt-0.5" />
-      <div className="min-w-0 flex-1">
-        <p className="text-sm font-medium text-text">
-          {!n.readAt && <span className="sr-only">Unread: </span>}
-          {n.title}
-        </p>
-        {n.body && <p className="text-step-1 text-text-3">{n.body}</p>}
-        {/* The relative string is the readable one, but it's lossy and it silently goes stale
-            in a long-lived tab — <time dateTime> keeps the machine-readable instant on the
-            element and the full local time in the tooltip. */}
-        <p className="num mt-0.5 text-step-1 text-text-3">
-          <time dateTime={n.createdAt} title={absoluteTime(n.createdAt)}>
-            {timeAgo(n.createdAt)}
-          </time>
-        </p>
-      </div>
-      {/* Unread = a dot SHAPE on the right (never tint alone) — PRN-14. */}
-      {!n.readAt && <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-brand" aria-hidden="true" />}
-    </div>
-  );
+  const row = (n: Notification) => <NotificationRowContent notification={n} />;
 
   return (
     <>
@@ -240,6 +218,17 @@ export function NotificationBell() {
               ))
             )}
           </div>
+          {/* NTF-12: the handoff to the full page. OUTSIDE the scrolling list and rendered in
+              EVERY state — loading, error, empty, full — because "where do I see the rest?"
+              is exactly the question an empty or failed panel raises, and a footer that comes
+              and goes with the data is a footer nobody learns to look for. */}
+          {viewAllHref && (
+            <div className="border-t border-border-soft p-1">
+              <DropdownMenuItem asChild className="justify-center px-3 py-2 text-sm font-medium text-brand-ink">
+                <Link href={viewAllHref}>View all notifications</Link>
+              </DropdownMenuItem>
+            </div>
+          )}
         </DropdownMenuContent>
       </DropdownMenu>
     </>
