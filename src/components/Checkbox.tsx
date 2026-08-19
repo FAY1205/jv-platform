@@ -33,6 +33,14 @@ export interface CheckboxProps {
   "aria-describedby"?: string;
 }
 
+/** C-52 hit-area expansion: -6px from the box's PADDING box (what absolute insets resolve
+ *  against), less the 1px border = 5px of invisible reach per side, so the 16px box hit-tests
+ *  at 26px — above the WCAG 2.5.8 (AA) 24px minimum, measured in the browser. Deliberately not
+ *  larger: 5px stays inside the 8px `gap-2` a labelled checkbox uses and inside the row gaps of
+ *  the stacked checkbox lists in settings, so two boxes never steal each other's clicks.
+ *  Exported so a test can assert the contract without re-spelling the classes. */
+export const CHECKBOX_HIT_AREA = "relative before:absolute before:-inset-1.5 before:content-['']";
+
 export function Checkbox({
   checked,
   onCheckedChange,
@@ -62,6 +70,12 @@ export function Checkbox({
       aria-describedby={ariaDescribedBy}
       className={cn(
         "grid h-4 w-4 place-items-center rounded border outline-none transition-colors",
+        // C-52 (WCAG 2.5.8): the visual box stays 16px — desktop tables are dense — while an
+        // INVISIBLE, centered 26px hit area rides on a pseudo-element. Layout-neutral by
+        // construction (absolute, out of flow): no neighbor moves, and at the two sites that
+        // already wrap this in a 44px <label> (TasksPanel, MyTasksList) it is simply inert
+        // hit area inside a larger one — no double-padding, no shift.
+        CHECKBOX_HIT_AREA,
         "focus-visible:ring-1 focus-visible:ring-brand-ink",
         "data-[state=checked]:border-brand data-[state=checked]:bg-brand data-[state=checked]:hover:bg-brand-strong",
         "data-[state=unchecked]:border-border data-[state=unchecked]:bg-surface data-[state=unchecked]:hover:border-text-3",

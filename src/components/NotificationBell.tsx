@@ -180,7 +180,15 @@ export function NotificationBell() {
           <div className="flex items-center justify-between border-b border-border-soft px-3 py-2">
             <span className="text-sm font-semibold text-text">Notifications</span>
             {unread > 0 && (
-              <button type="button" onClick={() => markAll.mutate()} className="text-xs text-brand-ink hover:underline">
+              // C-52 (WCAG 2.5.8): a 16px-tall text link → 28px of invisible reach via a
+              // pseudo-element. The panel header's px-3/py-2 padding absorbs it and the only
+              // neighbor is the non-interactive "Notifications" label, so nothing shifts and
+              // no adjacent target loses clicks.
+              <button
+                type="button"
+                onClick={() => markAll.mutate()}
+                className="relative rounded text-xs text-brand-ink outline-none before:absolute before:-inset-1.5 before:content-[''] hover:underline focus-visible:ring-1 focus-visible:ring-brand-ink"
+              >
                 Mark all read
               </button>
             )}

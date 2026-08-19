@@ -4,7 +4,7 @@ import * as React from "react";
 import { fmtDate } from "@/lib/dates";
 import { useDebouncedValue } from "@/lib/use-debounced-value";
 import { usePortalLeads } from "@/lib/portal-leads-client";
-import { Button, EmptyState, FilterPill, Input, QueryErrorState, Skeleton, HotLeadMark } from "@/components";
+import { Button, EmptyState, FilterPill, Input, QueryErrorState, ScrollHintFade, Skeleton, useScrollHint, HotLeadMark } from "@/components";
 import { statusPillClass } from "@/lib/status-pill";
 import { PORTAL_STATUS_FILTERS, PORTAL_LEADS_DEFAULT_PAGE_SIZE, portalLeadsParams } from "@/modules/portal/leads-contract";
 
@@ -42,6 +42,9 @@ export function LeadsMobile({ onOpen, enabled = true }: { onOpen: (refId: string
 
   const toggleStatus = (s: string) => setStatuses((prev) => (prev.includes(s) ? prev.filter((x) => x !== s) : [...prev, s]));
 
+  // C-53: the status chip strip is a horizontal scroller like a wide table — same affordance.
+  const { ref: chipScrollerRef, moreRight: moreChipsRight } = useScrollHint();
+
   // The canonical params: page 1 with no search and no status filter is BYTE-IDENTICAL to
   // what the desktop table and the dashboard preview ask for, so the three share one entry.
   const { data, isPending, error, refetch } = usePortalLeads(portalLeadsParams({ page, statuses, q: qCommitted }), { enabled });
@@ -76,15 +79,23 @@ export function LeadsMobile({ onOpen, enabled = true }: { onOpen: (refId: string
           aria-label="Search your leads"
         />
       </div>
-      <div className="-mx-4 mb-4 flex gap-1.5 overflow-x-auto px-4 pb-1">
-        <FilterPill active={statuses.length === 0} onClick={() => setStatuses([])} className="shrink-0">
-          All
-        </FilterPill>
-        {PORTAL_STATUS_FILTERS.map((s) => (
-          <FilterPill key={s} active={statuses.includes(s)} onClick={() => toggleStatus(s)} className="shrink-0">
-            {s}
+      {/* C-53: the chip strip scrolls past the viewport edge with no resting scrollbar on a
+          phone, so the statuses beyond "Contacted" simply looked absent. Same fade the wide
+          tables use (ScrollHint) — the negative margin moves to the WRAPPER so the fade lands
+          on the true bleed edge, and `from-bg` because this strip sits on the page background,
+          not inside a Card. */}
+      <div className="relative -mx-4 mb-4">
+        <div ref={chipScrollerRef} className="flex gap-1.5 overflow-x-auto px-4 pb-1">
+          <FilterPill active={statuses.length === 0} onClick={() => setStatuses([])} className="shrink-0">
+            All
           </FilterPill>
-        ))}
+          {PORTAL_STATUS_FILTERS.map((s) => (
+            <FilterPill key={s} active={statuses.includes(s)} onClick={() => toggleStatus(s)} className="shrink-0">
+              {s}
+            </FilterPill>
+          ))}
+        </div>
+        {moreChipsRight && <ScrollHintFade from="bg" />}
       </div>
 
       {error ? (

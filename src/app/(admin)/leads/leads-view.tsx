@@ -8,7 +8,7 @@ import { apiGet } from "@/lib/api";
 import { fmtDate } from "@/lib/dates";
 import { LEAD_STATUS_FILTERS, DEFAULT_STATUS_FILTERS, isDefaultStatuses, type LeadSortField } from "@/modules/leads/schema";
 import {
-  AppShell, Card, Table, THead, TBody, Th, Tr, Td, PartnerTag, EmptyState, QueryErrorState, Skeleton,
+  AppShell, Card, Table, THead, TBody, Th, Tr, Td, PartnerTag, EmptyState, ClearFiltersButton, QueryErrorState, Skeleton,
   Input, Combobox, DateRangePicker, Pagination, RowOpenButton, StatusSelect, SegmentedControl,
   DEFAULT_PAGE_SIZE, usePageHeader, FilterPill, Tooltip, HotLeadIcon, StatusFilterMenu,
   LeadTags, TagChip, TagPicker, SavedViewsMenu, ColumnsMenu, type ColumnDef, type LeadTagView,
@@ -163,6 +163,12 @@ function LeadsBody({ initialQ, initialOpenRef = null, initialHot = false, initia
     setApplied((prev) => ({ n: (prev?.n ?? 0) + 1, filters: f }));
   }, []);
 
+  // C-54: the filtered-to-zero table's way out. It is NOT a second reset — it pushes EMPTY
+  // down the SV-04 apply channel, the same one-way path "Clear all" and a saved view use, so
+  // the bar's own `clearAll` and this button write byte-identical state. The current view
+  // mode is preserved: clearing filters is not a request to change List/Board.
+  const clearFilters = React.useCallback(() => applyView({ ...EMPTY, viewMode: view }), [applyView, view]);
+
   return (
     <>
       <div className="mb-3 flex items-center justify-between gap-3">
@@ -216,6 +222,7 @@ function LeadsBody({ initialQ, initialOpenRef = null, initialHot = false, initia
           onOpen={setOpenRef}
           onPageChange={setPage}
           onPageSizeChange={(n) => { setPageSize(n); setPage(1); }}
+          onClearFilters={clearFilters}
         />
       )}
 
@@ -256,19 +263,25 @@ const LeadsFilterBar = React.memo(function LeadsFilterBar({ seedQ, seedHot = fal
   const [seeded, setSeeded] = React.useState(seedQ);
   if (seedQ !== seeded) { setSeeded(seedQ); setQInput(seedQ); setQCommitted(seedQ.trim()); }
 
-  // SV-04: applying a saved view REPLACES every control here — including the ones board mode
-  // hides, so switching back to the list shows the view, not a leftover. Keyed on the NONCE
-  // (the `seeded` idiom above), so re-applying the same view still resets an edited bar; the
+  // The ONE place that writes every control here from a Filters set. Applying a saved view,
+  // "Clear all", and C-54's empty-state Clear filters (which rides the apply channel with
+  // EMPTY) are the same operation with different inputs — so they cannot drift apart. The
   // committed text is set alongside the input so the trailing debounce can't re-commit the
-  // pre-apply search. The commit effect below then lifts the whole set upward in one pass.
-  const [appliedNonce, setAppliedNonce] = React.useState(applied?.n ?? 0);
-  if (applied && applied.n !== appliedNonce) {
-    setAppliedNonce(applied.n);
-    const f = applied.filters;
+  // pre-apply search; the commit effect below lifts the whole set upward in one pass.
+  const seedFrom = (f: Filters) => {
     setQInput(f.q); setQCommitted(f.q);
     setState(f.state); setPartnerId(f.partnerId); setSource(f.source);
     setStatuses([...f.statuses]); setHot(f.hot); setTagIds([...f.tags]);
     setRange({ from: f.dateFrom || null, to: f.dateTo || null });
+  };
+
+  // SV-04: applying a saved view REPLACES every control here — including the ones board mode
+  // hides, so switching back to the list shows the view, not a leftover. Keyed on the NONCE
+  // (the `seeded` idiom above), so re-applying the same view still resets an edited bar.
+  const [appliedNonce, setAppliedNonce] = React.useState(applied?.n ?? 0);
+  if (applied && applied.n !== appliedNonce) {
+    setAppliedNonce(applied.n);
+    seedFrom(applied.filters);
   }
 
   const roster = useQuery({ queryKey: ["partners"], queryFn: () => apiGet<{ partners: Partner[] }>("/api/admin/partners") });
@@ -286,11 +299,7 @@ const LeadsFilterBar = React.memo(function LeadsFilterBar({ seedQ, seedHot = fal
   const knownTagIds = new Set(allTags.map((t) => t.id));
   const missingTagIds = tagsQ.isSuccess ? tagIds.filter((id) => !knownTagIds.has(id)) : [];
 
-  const clearAll = () => {
-    setQInput(""); setQCommitted("");
-    setState("");
-    setPartnerId(""); setSource(""); setStatuses([...DEFAULT_STATUS_FILTERS]); setHot(false); setTagIds([]); setRange({ from: null, to: null });
-  };
+  const clearAll = () => seedFrom(EMPTY);
 
   // Commit filters upward whenever a committed value changes. On "Clear all" the committed
   // text is reset in the same batch, so this fires once with the default (not empty) set.
@@ -419,10 +428,12 @@ const LeadsFilterBar = React.memo(function LeadsFilterBar({ seedQ, seedHot = fal
 
 // ── Table (consumes only committed state → no keystroke reconciliation) ──
 function LeadsTable({
-  filterKey, filters, sort, dir, page, pageSize, onSort, onOpen, onPageChange, onPageSizeChange,
+  filterKey, filters, sort, dir, page, pageSize, onSort, onOpen, onPageChange, onPageSizeChange, onClearFilters,
 }: {
   filterKey: string; filters: Filters; sort: LeadSortField; dir: "asc" | "desc"; page: number; pageSize: number;
   onSort: (f: LeadSortField) => void; onOpen: (ref: string) => void; onPageChange: (p: number) => void; onPageSizeChange: (n: number) => void;
+  /** C-54: resets the filter bar through the page's single apply channel. */
+  onClearFilters: () => void;
 }) {
   const leadsQ = useQuery({
     queryKey: ["leads", filterKey, page, pageSize],
@@ -487,9 +498,21 @@ function LeadsTable({
         ) : leadsQ.error ? (
           <div className="p-6"><QueryErrorState title="Couldn't load leads" error={leadsQ.error} onRetry={() => leadsQ.refetch()} /></div>
         ) : data!.leads.length === 0 ? (
-          <div className="p-6"><EmptyState title="No leads found" description={hasFilters ? "Try widening the filters." : "Process a weekly file to see leads here."} /></div>
+          <div className="p-6">
+            <EmptyState
+              title="No leads found"
+              description={hasFilters ? "Try widening the filters." : "Process a weekly file to see leads here."}
+              // C-54: filtered to nothing is a dead end without this — the filters that emptied
+              // the table can be spread across the bar, the chips and a saved view.
+              action={hasFilters ? <ClearFiltersButton onClick={onClearFilters} /> : undefined}
+            />
+          </div>
         ) : (
-          <Table>
+          // C-53: up to eight columns. `min-w-[760px]` is the point below which the percentage
+          // columns (Seller 16% / Property 32% / Partner 14% / Tags 16%) stop being readable
+          // and Status — the row's workflow control — starts falling off; the fade makes that
+          // clipping visible instead of leaving the table looking amputated.
+          <Table className="min-w-[760px]" ariaLabel="Leads" scrollHint>
             {/* WP-UX-1 width budget (audit T1): IDs/dates/status take content width
                 (`fit`), Seller/Property/Partner absorb the leftover and ellipsize
                 (`clamp`) — a date never wraps to two lines, a name never wraps while

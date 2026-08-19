@@ -532,6 +532,15 @@ function Gallery() {
                 Carries <code className="num">aria-pressed</code> itself; active = brand fill, idle = bordered surface,
                 press scale + disabled per DSN-03; focus ring from the global outline.
               </p>
+              <p className="text-step-1 text-text-3">
+                <strong className="font-semibold text-text-2">Hit target (C-52, WCAG 2.5.8):</strong> the chip draws 22px
+                tall but reaches 28px — an invisible <code className="num">::before</code> adds 3px above and below, so
+                nothing in the row moves. Vertical only, and exactly half the 6px chip gap: these strips wrap, and a
+                taller hit area would steal taps from the line above. Same recipe on Checkbox (16→26px), the Dialog ✕
+                (18→30px, 46px on coarse pointers), the tag colour swatches (16→24px) and the bell&apos;s Mark all read.
+                All measured in the browser — absolute insets resolve against the PADDING box, so a bordered control
+                reaches one pixel less per side than the utility reads.
+              </p>
             </CardBody>
           </Card>
         </Section>

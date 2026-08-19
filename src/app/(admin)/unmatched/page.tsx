@@ -8,7 +8,7 @@ import { fmtDateTime } from "@/lib/dates";
 import { useDebouncedValue } from "@/lib/use-debounced-value";
 import { csrfHeaders } from "@/lib/csrf-client";
 import {
-  AppShell, Card, Badge, Button, Checkbox, Dialog, Select, Input, EmptyState, QueryErrorState, Skeleton,
+  AppShell, Card, Badge, Button, Checkbox, Dialog, Select, Input, EmptyState, ClearFiltersButton, QueryErrorState, Skeleton,
   useToast, Table, THead, TBody, Th, Tr, Td, Pagination, PartnerTag,
   RowOpenButton, DEFAULT_PAGE_SIZE, usePageHeader, Tooltip,
 } from "@/components";
@@ -422,9 +422,20 @@ function UnmatchedBody() {
               ) : listQ.error ? (
                 <div className="p-6"><QueryErrorState title="Couldn't load the list" error={listQ.error} onRetry={() => listQ.refetch()} /></div>
               ) : listQ.data!.leads.length === 0 ? (
-                <div className="p-6"><EmptyState title="No leads found" description="Try widening the state filter or clearing the search." /></div>
+                <div className="p-6">
+                  <EmptyState
+                    title="No leads found"
+                    description="Try widening the state filter or clearing the search."
+                    // C-54: `hasFilters` is the page's existing derivation (state chip OR the
+                    // committed search); the action clears BOTH, which is the whole filter set.
+                    action={hasFilters ? <ClearFiltersButton onClick={() => { setStateFilter(""); setQInput(""); }} /> : undefined}
+                  />
+                </div>
               ) : (
-                <Table>
+                // C-53: seven columns, and Waiting + Assign — the two the page exists for —
+                // are the ones that fall off a narrow card today. 640px keeps the decision
+                // columns on screen and makes the clipping honest with the edge fade.
+                <Table className="min-w-[640px]" ariaLabel="Unmatched leads" scrollHint>
                   <THead>
                     <Tr>
                       <Th><Checkbox checked={allPageSelected} onCheckedChange={togglePage} ariaLabel="Select all leads on this page" /></Th>

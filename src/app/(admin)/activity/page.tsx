@@ -5,7 +5,7 @@ import { useQuery } from "@tanstack/react-query";
 import { apiGet } from "@/lib/api";
 import { fmtDateTime } from "@/lib/dates";
 import { useDebouncedValue } from "@/lib/use-debounced-value";
-import { AppShell, Card, Table, THead, TBody, Th, Tr, Td, Badge, Input, Select, DateRangePicker, Pagination, EmptyState, QueryErrorState, Skeleton, usePageHeader } from "@/components";
+import { AppShell, Card, Table, THead, TBody, Th, Tr, Td, Badge, Input, Select, DateRangePicker, Pagination, EmptyState, ClearFiltersButton, QueryErrorState, Skeleton, usePageHeader } from "@/components";
 import type { DateRangeValue } from "@/components/DateRangePicker";
 import { activityActionLabel, activityEntityLabel } from "@/modules/activity/labels";
 
@@ -106,11 +106,9 @@ function ActivityBody() {
               <EmptyState
                 title="Nothing matches these filters"
                 description="No activity in the selected category, actor, or date range."
-                action={
-                  <button type="button" onClick={clearFilters} className="rounded-md border border-border bg-surface px-3 py-1.5 text-sm font-semibold text-text-2 transition-colors hover:border-brand-line hover:text-text">
-                    Clear filters
-                  </button>
-                }
+                // C-54: this button was the pattern; it is now the shared primitive, used
+                // identically by Leads, Unmatched and Imports.
+                action={<ClearFiltersButton onClick={clearFilters} />}
               />
             ) : (
               <EmptyState

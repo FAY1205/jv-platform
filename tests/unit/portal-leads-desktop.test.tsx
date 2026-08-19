@@ -9,6 +9,16 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 // `useIsDesktop` is mocked true so the page gate mounts LeadsDesktop (not the mobile card
 // list) — proves the wiring in page.tsx, not just the child component in isolation.
 
+// C-53: the mobile view's chip strip watches its own width for the scroll-hint fade, and the
+// C-41a cases here render that view. jsdom ships no ResizeObserver — the same stub the other
+// component suites carry.
+class ResizeObserverStub {
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+}
+(globalThis as unknown as { ResizeObserver: unknown }).ResizeObserver = ResizeObserverStub;
+
 const LEADS_PAGE = {
   leads: [
     { refId: "JV-2001", sellerFirst: "Ana", sellerLast: "Ruiz", address: "12 Elm St", city: "Austin", state: "TX", zip: "78701", receivedAt: "2026-07-10T00:00:00.000Z", status: "New" },

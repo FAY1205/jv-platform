@@ -85,7 +85,16 @@ export function Dialog({ open, onClose, title, children, footer, ariaLabel, size
                 <RadixDialog.Title className="font-display text-base font-semibold text-text">{title}</RadixDialog.Title>
                 <RadixDialog.Close
                   aria-label="Close"
-                  className="ml-auto rounded text-text-3 outline-none transition-colors hover:text-text focus-visible:ring-1 focus-visible:ring-brand-ink"
+                  // C-52 (WCAG 2.5.8): the ✕ glyph stays 18px and `ml-auto` keeps owning the
+                  // alignment — the reach is an invisible pseudo-element, so nothing in the
+                  // title row moves. 18 + 2×6 = 30px, and 18 + 2×14 = 46px on coarse pointers
+                  // (the header's own px-5/py-4 padding absorbs the reach; the only neighbor is
+                  // the non-interactive title). A `-m-2 p-2` box would have fought `ml-auto`
+                  // for the margin, which is why this one is a pseudo-element too.
+                  className={cn(
+                    "relative ml-auto rounded text-text-3 outline-none transition-colors hover:text-text focus-visible:ring-1 focus-visible:ring-brand-ink",
+                    "before:absolute before:-inset-1.5 before:content-[''] pointer-coarse:before:-inset-3.5",
+                  )}
                 >
                   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
                     <path d="M18 6 6 18M6 6l12 12" />
