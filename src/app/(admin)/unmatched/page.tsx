@@ -374,7 +374,7 @@ function UnmatchedBody() {
             <div className="mb-3 flex flex-col gap-2.5">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div className="w-full max-w-[300px]">
-                  <Input value={qInput} onChange={(e) => setQInput(e.target.value)} placeholder="Search seller, address, ZIP, lead ID…" aria-label="Search unmatched leads" />
+                  <Input value={qInput} onChange={(e) => setQInput(e.target.value)} placeholder="Search seller, address, ZIP, phone, lead ID…" aria-label="Search unmatched leads" />
                 </div>
                 {/* Suppressed at zero and on error (D2): the EmptyState announces those settles —
                     stale `data` can coexist with `error` on a failed background refetch. */}

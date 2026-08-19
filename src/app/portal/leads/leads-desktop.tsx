@@ -75,7 +75,7 @@ export function LeadsDesktop({ onOpen }: { onOpen: (refId: string) => void }) {
           <Input
             value={qInput}
             onChange={(e) => setQInput(e.target.value)}
-            placeholder="Search seller, address, ZIP, lead ID…"
+            placeholder="Search seller, address, ZIP, phone, lead ID…"
             aria-label="Search your leads"
           />
         </div>
