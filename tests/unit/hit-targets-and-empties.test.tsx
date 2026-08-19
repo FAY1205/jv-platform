@@ -15,7 +15,9 @@ import { ScrollHintFade } from "@/components/ScrollHint";
 // geometry rests on: the expansion rides on an ABSOLUTE pseudo-element (layout-neutral by
 // construction, which is the property that makes it safe inside the two 44px <label> wrappers),
 // and it never adds padding/margin that would move a neighbor. The pixel result is verified in
-// the browser and noted in the gallery + PR.
+// the browser (elementFromPoint probes) and written down in the gallery's FilterPill section and
+// the PR. The C-54 SITE wiring lives in leads-clear-filters.test.tsx; this file covers the
+// primitives.
 
 const HIT_AREA_RE = /before:absolute/;
 /** Any utility that would consume LAYOUT space and shift neighbours. */

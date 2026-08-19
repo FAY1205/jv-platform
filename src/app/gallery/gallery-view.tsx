@@ -57,6 +57,9 @@ import {
   ToastProvider,
   useToast,
   EmptyState,
+  ClearFiltersButton,
+  ScrollHintFade,
+  useScrollHint,
   QueryErrorState,
   Skeleton,
   ListingBadge,
@@ -321,6 +324,8 @@ function Gallery() {
   const [tab, setTab] = React.useState("zip");
   const [modalOpen, setModalOpen] = React.useState(false);
   const [addrSort, setAddrSort] = React.useState<SortDir>(null);
+  // C-53: the standalone ScrollHint demo (the chip-strip shape it was extracted for).
+  const { ref: chipScrollerRef, moreRight: moreChipsRight } = useScrollHint();
   // WS-1 primitive demo state.
   const [dialogOpen, setDialogOpen] = React.useState(false);
   // FRM-02a discard-guard demo.
@@ -739,6 +744,96 @@ function Gallery() {
               <div className="h-40">
                 <EmptyState compact title="Territory map unavailable." />
               </div>
+            </Card>
+            {/* C-54: the FILTERED-to-zero empty. Distinct from "nothing here yet" — the list is
+                empty because of a choice the user made, so the empty state carries the way out. */}
+            <Card>
+              <EmptyState
+                title="No leads found"
+                description="Try widening the filters."
+                action={<ClearFiltersButton onClick={() => toast("Filters cleared")} />}
+              />
+            </Card>
+          </div>
+          <p className="mt-3 text-step-1 text-text-3">
+            <strong className="font-semibold text-text-2">ClearFiltersButton (C-54)</strong> — promoted at its 4th
+            duplication (Activity, Leads, Unmatched, Imports; FRONTEND_STANDARDS §2). It belongs in the{" "}
+            <code className="num">action</code> slot and only when filters are actually active: on a genuinely empty
+            list there is nothing to clear, and a button that does nothing is worse than no button. DSN-03 states below;
+            no <code className="num">loading</code> — clearing filters is synchronous local state (the FilterPill
+            precedent for an n/a state).
+          </p>
+          <div className="mt-3 flex flex-wrap items-center gap-3">
+            <ClearFiltersButton onClick={() => toast("Filters cleared")} />
+            <ClearFiltersButton disabled onClick={() => toast("never fires")} />
+            <ClearFiltersButton onClick={() => toast("Search cleared")}>Clear search</ClearFiltersButton>
+            <span className="text-step-1 text-text-3">default · disabled · custom label</span>
+          </div>
+        </Section>
+
+        <Section title="ScrollHint (C-53) — the right-edge fade on a horizontal scroller">
+          <p className="mb-3 text-step-1 text-text-3">
+            A phone has no resting scrollbar, so a clipped table or chip strip reads as amputated rather than
+            scrollable. <code className="num">useScrollHint()</code> tracks whether content is still cut off to the
+            right and <code className="num">ScrollHintFade</code> draws the fade; <code className="num">Table</code>{" "}
+            wires both behind its <code className="num">scrollHint</code> prop. The fade is{" "}
+            <code className="num">pointer-events-none</code> and <code className="num">aria-hidden</code> — it never
+            eats a click and never announces. Not a color-only cue (PRN-14): it is a redundant affordance over content
+            that stays reachable by scroll, swipe and the region&apos;s own keyboard focus.{" "}
+            <code className="num">from</code> names the surface it dissolves into —{" "}
+            <code className="num">&quot;surface&quot;</code> inside a Card (the default),{" "}
+            <code className="num">&quot;bg&quot;</code> directly on the page background.
+          </p>
+          <div className="grid gap-3.5 md:grid-cols-2">
+            {/* Pinned to a deliberately narrow width so the fade is visible on a desktop, not
+                only on a phone: `min-w` wider than the host is exactly the condition scrollHint
+                exists for. On the real pages the host is the viewport. */}
+            <Card>
+              <CardHeader><CardTitle>Table scrollHint · from=&quot;surface&quot;</CardTitle></CardHeader>
+              <div className="max-w-[20rem]">
+                <Table className="min-w-[560px]" ariaLabel="Scroll hint demo" scrollHint>
+                  <THead>
+                    <Tr>
+                      <Th fit>Lead</Th>
+                      <Th>Address</Th>
+                      <Th>City</Th>
+                      <Th fit>St</Th>
+                      <Th fit align="right">ZIP</Th>
+                    </Tr>
+                  </THead>
+                  <TBody>
+                    {rows.slice(0, 3).map((l) => (
+                      <Tr key={l.id}>
+                        <Td fit className="num text-text-3">{l.id}</Td>
+                        <Td>{l.addr}</Td>
+                        <Td>{l.city}</Td>
+                        <Td fit>{l.st}</Td>
+                        <Td fit align="right" className="num">{l.zip}</Td>
+                      </Tr>
+                    ))}
+                  </TBody>
+                </Table>
+              </div>
+            </Card>
+            {/* The standalone pieces, on the shape they were extracted for: the portal's mobile
+                status-chip strip. The negative margin lives on the RELATIVE wrapper so the fade
+                lands on the true bleed edge while the scroller keeps its own padding. */}
+            <Card>
+              <CardHeader><CardTitle>Chip strip · from=&quot;bg&quot;</CardTitle></CardHeader>
+              <CardBody className="bg-bg">
+                {/* Held to a phone-ish width for the same reason as the table above. */}
+                <div className="relative -mx-4 max-w-[17rem]">
+                  <div ref={chipScrollerRef} className="flex gap-1.5 overflow-x-auto px-4 pb-1">
+                    {["All", "New", "Contacted", "Under contract", "Closed", "Dead"].map((s, i) => (
+                      <FilterPill key={s} active={i === 0} className="shrink-0">{s}</FilterPill>
+                    ))}
+                  </div>
+                  {moreChipsRight && <ScrollHintFade from="bg" />}
+                </div>
+                <p className="mt-3 text-step-1 text-text-3">
+                  Scroll the strip: the fade disappears at the right end and comes back on the way in.
+                </p>
+              </CardBody>
             </Card>
           </div>
         </Section>
