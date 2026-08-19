@@ -77,11 +77,11 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
-function renderLeads() {
+function renderLeads(props: { initialPartnerId?: string } = {}) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
   return render(
     <QueryClientProvider client={qc}>
-      <LeadsView initialQ="" />
+      <LeadsView initialQ="" initialPartnerId={props.initialPartnerId} />
     </QueryClientProvider>,
   );
 }
@@ -155,5 +155,35 @@ describe("N3B-03/C-54: the filtered-to-zero leads list offers a way out", () => 
     // Byte-identical request: one reset, reached two ways (the WP's "do NOT invent a second
     // reset" — this is what would fail if the two implementations drifted).
     await waitFor(() => expect(leadsCalls().at(-1)).toBe(viaClearAll));
+  });
+});
+
+// N3C-05/C-69 — the partner-detail "View all in Leads →" deep link. The filter bar commits
+// its whole set upward on mount, so a partner seeded only into the page's initial Filters
+// would be wiped by that first commit before a single request went out; this pins the seed
+// all the way through to the REQUEST.
+describe("N3C-05/C-69: /leads?partnerId= opens pre-filtered to one partner", () => {
+  it("N3C-05/C-69: every list request carries the partner filter — no unfiltered first flash", async () => {
+    renderLeads({ initialPartnerId: PARTNER_ID });
+    await waitFor(() => expect(leadsCalls().length).toBeGreaterThan(0));
+    for (const url of leadsCalls()) {
+      expect(new URLSearchParams(url.slice(url.indexOf("?") + 1)).get("partnerId")).toBe(PARTNER_ID);
+    }
+  });
+
+  it("N3C-05/C-69: the deep-linked filter is visible and clearable, not a hidden narrowing", async () => {
+    const user = userEvent.setup();
+    renderLeads({ initialPartnerId: PARTNER_ID });
+    await waitFor(() => expect(lastParams().get("partnerId")).toBe(PARTNER_ID));
+    // The list is empty in this suite, so C-54's way out is on screen — and it recognises the
+    // deep-linked partner as a filter rather than leaving the admin stuck in a narrowed view.
+    await user.click(await screen.findByRole("button", { name: "Clear filters" }));
+    await waitFor(() => expect(lastParams().get("partnerId")).toBeNull());
+  });
+
+  it("N3C-05/C-69: no ?partnerId= leaves the list unfiltered", async () => {
+    renderLeads();
+    await waitFor(() => expect(leadsCalls().length).toBeGreaterThan(0));
+    expect(lastParams().get("partnerId")).toBeNull();
   });
 });

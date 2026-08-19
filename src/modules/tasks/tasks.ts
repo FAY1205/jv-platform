@@ -16,7 +16,7 @@ import {
 } from "@/lib/scope";
 import { releasedLeads } from "../run/hold-filter";
 import { maskAuditValue } from "@/modules/audit/redact";
-import { groupByDue, utcDateString, type DueGroup } from "./dates";
+import { DUE_GROUPS, groupByDue, utcDateString, type DueGroup } from "./dates";
 import { MY_TASKS_PAGE_SIZE, type MyTasksQuery } from "./schema";
 
 // WP-J2 / distribution hold: a partner can neither read nor write tasks on a recalled
@@ -130,7 +130,42 @@ export interface MyTasksPage {
   page: number;
   pageSize: number;
   total: number;
+  /** N3C-03/C-60: the TRUE per-bucket totals across EVERY page of the same predicate — what
+   *  "3 overdue" has to mean. The client used to count the buckets on the page it happened to
+   *  be holding, so a fourth overdue task on page 2 was simply invisible and the badge
+   *  under-reported the backlog (PRN-15: the number is computed once, server-side).
+   *
+   *  `null` on the Done tab — a completed task is never bucketed by due date (it isn't
+   *  "overdue" because its date passed), so the Done list is flat and there is no honest
+   *  per-bucket number to report. Typed nullable rather than zero-filled so a caller that
+   *  renders it cannot mistake "not applicable" for "none". */
+  groupTotals: Record<DueGroup, number> | null;
+  /** N3C-03/C-60 (audit-tenancy F-4): the UTC calendar date the server used to compute `group`
+   *  and `groupTotals`. Shipped so the client can bucket rows against the SAME clock the
+   *  totals were counted with. Without it, a browser whose clock or offset puts it on a
+   *  different calendar day re-buckets the rows locally and a task's section stops matching
+   *  the count in the header above it — the exact drift class this WP closed on the server
+   *  side. One clock, and it is named in the payload rather than assumed. */
+  today: string;
 }
+
+/**
+ * N3C-03/C-60 — the per-bucket predicates for the SQL aggregate, in one place.
+ *
+ * ⚠️ `groupByDue` (modules/tasks/dates.ts) remains the single source of truth for the bucket a
+ * ROW lands in; these are the same rule expressed over the `date` column so the TOTALS can be
+ * counted across pages without fetching them. `due_on` is a calendar `date` and `today` is
+ * `utcDateString(now)`, so each comparison is the identical calendar comparison groupByDue
+ * performs on the zero-padded ISO strings — no Date construction, no DST edge, on either side.
+ * A drift-guard unit test pins the two together on boundary dates
+ * (tests/unit/tasks-group-totals.test.ts); change one and it fails.
+ */
+export const DUE_GROUP_CONDITIONS: Record<DueGroup, (today: string) => SQL> = {
+  overdue: (today) => sql`${schema.leadTasks.dueOn} < ${today}::date`,
+  today: (today) => sql`${schema.leadTasks.dueOn} = ${today}::date`,
+  upcoming: (today) => sql`${schema.leadTasks.dueOn} > ${today}::date`,
+  none: () => sql`${schema.leadTasks.dueOn} is null`,
+};
 
 export interface TaskInput {
   title: string;
@@ -626,7 +661,17 @@ export async function listMyTasks(
     liveLeadGate(scope, db),
   );
 
-  const [rows, totals] = await Promise.all([
+  // N3C-03/C-60: the bucket totals are counted over the SAME `where` as the rows and the
+  // count, in the SAME Promise.all round — no extra latency, and scope-safe by construction
+  // (they compose taskWhere/liveLeadGate rather than repeating any predicate, PRN-08). Like
+  // the count query they select from lead_tasks alone: `where` never depends on the rows
+  // query's identity joins, so it stands on its own here too.
+  // The clock is the injected `now` (never new Date() inside), so the SQL comparison and the
+  // per-row groupByDue below are answering "today" with the exact same date string.
+  const today = utcDateString(now);
+  const wantsGroupTotals = query.status !== "done";
+
+  const [rows, totals, groupRows] = await Promise.all([
     db
       .select({
         ...TASK_COLUMNS,
@@ -650,9 +695,23 @@ export async function listMyTasks(
       .limit(pageSize)
       .offset((page - 1) * pageSize),
     db.select({ n: count() }).from(schema.leadTasks).where(where),
+    wantsGroupTotals
+      ? db
+          .select({
+            overdue: sql<number>`(count(*) filter (where ${DUE_GROUP_CONDITIONS.overdue(today)}))::int`,
+            today: sql<number>`(count(*) filter (where ${DUE_GROUP_CONDITIONS.today(today)}))::int`,
+            upcoming: sql<number>`(count(*) filter (where ${DUE_GROUP_CONDITIONS.upcoming(today)}))::int`,
+            none: sql<number>`(count(*) filter (where ${DUE_GROUP_CONDITIONS.none(today)}))::int`,
+          })
+          .from(schema.leadTasks)
+          .where(where)
+      : Promise.resolve(null),
   ]);
 
-  const today = utcDateString(now);
+  const groupTotals: Record<DueGroup, number> | null = groupRows
+    ? (Object.fromEntries(DUE_GROUPS.map((g) => [g, Number(groupRows[0]?.[g] ?? 0)])) as Record<DueGroup, number>)
+    : null;
+
   return {
     items: rows.map((r) => ({
       ...toView(r),
@@ -665,5 +724,7 @@ export async function listMyTasks(
     page,
     pageSize,
     total: totals[0]?.n ?? 0,
+    groupTotals,
+    today,
   };
 }

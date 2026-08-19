@@ -6,6 +6,7 @@ import { randomUUID } from "node:crypto";
 import * as schema from "@/db/schema";
 import type { ScopeContext } from "@/lib/scope";
 import { taskWhere } from "@/lib/scope";
+import { listMyTasks } from "@/modules/tasks/tasks";
 
 // WP-TSK-1 / TSK-09 (live): lead_tasks isolation matrix — cross-tenant, cross-partner,
 // cross-stream (admin↔partner), and post-re-route invisibility (ADR-0044). Exercises
@@ -237,6 +238,61 @@ suite("TSK-09/ADR-0044: two-stream lead-task visibility", () => {
     expect(await readTitles(partnerX())).not.toContain("TENANT-B partner task");
     const pbScope: ScopeContext = { tenantId: id.tenantB, role: "partner", userId: id.pbUser, partnerId: id.pb };
     expect(await readTitles(pbScope)).toContain("TENANT-B partner task");
+  });
+
+  // N3C-03/C-60 (audit-tenancy F-1): the new per-bucket AGGREGATE is a second read path over
+  // lead_tasks. Row visibility being tenant-safe does not by itself prove a `count(*) filter`
+  // is — an aggregate that lost the tenant predicate returns no rows to inspect, just a wrong
+  // number, which is exactly the failure a rows-only isolation matrix cannot see. This is the
+  // two-tenant fixture this file already owns, pointed at the totals.
+  it("N3C-03/C-60: My Tasks group totals never count another tenant's tasks", async () => {
+    const NOW = new Date("2026-08-15T12:00:00Z");
+    // Both tenants get their own OVERDUE work, so neither side's assertion can pass by being
+    // empty (TST-11) and a leak in either direction is visible as a wrong total.
+    await db.insert(schema.leadTasks).values([
+      { tenantId: id.tenant, leadId: id.leadX, authorUserId: id.adminUser, authorRole: "admin", title: "A-OVERDUE", dueOn: "2026-08-01" },
+      { tenantId: id.tenantB, leadId: id.leadB, authorUserId: id.adminUserB, authorRole: "admin", title: "B-OVERDUE-1", dueOn: "2026-08-02" },
+      { tenantId: id.tenantB, leadId: id.leadB, authorUserId: id.adminUserB, authorRole: "admin", title: "B-OVERDUE-2", dueOn: "2026-08-03" },
+      { tenantId: id.tenantB, leadId: id.leadB, authorUserId: id.adminUserB, authorRole: "admin", title: "B-UPCOMING", dueOn: "2026-09-01" },
+    ]);
+
+    const bScope: ScopeContext = { tenantId: id.tenantB, role: "admin", userId: id.adminUserB };
+    const a = await listMyTasks(admin(), { status: "open", page: 1, pageSize: 100 }, NOW);
+    const b = await listMyTasks(bScope, { status: "open", page: 1, pageSize: 100 }, NOW);
+
+    // Non-vacuous on BOTH sides: each tenant really does have overdue work of its own.
+    expect(a.groupTotals!.overdue).toBeGreaterThan(0);
+    expect(b.groupTotals!.overdue).toBeGreaterThan(0);
+
+    // Disjoint: neither tenant's LIST contains the other's rows…
+    const aTitles = a.items.map((t) => t.title);
+    const bTitles = b.items.map((t) => t.title);
+    expect(aTitles).toContain("A-OVERDUE");
+    expect(aTitles).not.toContain("B-OVERDUE-1");
+    expect(bTitles).toContain("B-OVERDUE-1");
+    expect(bTitles).not.toContain("A-OVERDUE");
+    expect(aTitles.filter((t) => bTitles.includes(t))).toHaveLength(0);
+
+    // …and the TOTALS describe exactly the same set as those rows. Both fit one page here, so
+    // this is a real equality: a totals query that dropped the tenant predicate would count
+    // the union and blow past its own item count.
+    for (const [label, pageResult] of [["A", a], ["B", b]] as const) {
+      expect(Object.values(pageResult.groupTotals!).reduce((x, y) => x + y, 0), label).toBe(pageResult.total);
+      expect(pageResult.total, label).toBe(pageResult.items.length);
+      for (const g of ["overdue", "today", "upcoming", "none"] as const) {
+        expect(pageResult.groupTotals![g], `${label}/${g}`).toBe(pageResult.items.filter((t) => t.group === g).length);
+      }
+    }
+    // Concretely: B has two overdue and one upcoming of its own; A's single overdue is not
+    // among them (and vice versa).
+    expect(b.groupTotals!.overdue).toBe(2);
+    expect(b.groupTotals!.upcoming).toBe(1);
+    expect(a.groupTotals!.overdue).toBe(1);
+
+    // The server's clock travels with the payload (audit-tenancy F-4).
+    expect(a.today).toBe("2026-08-15");
+
+    await db.delete(schema.leadTasks).where(inArray(schema.leadTasks.title, ["A-OVERDUE", "B-OVERDUE-1", "B-OVERDUE-2", "B-UPCOMING"]));
   });
 
   it("TSK-09/SEC-01: BOTH RLS policy halves carry the full app predicate (qual AND with_check)", async () => {

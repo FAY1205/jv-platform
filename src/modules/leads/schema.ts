@@ -60,11 +60,36 @@ const csv = (v: unknown, allowed: readonly string[]): string[] => {
   return [...seen];
 };
 
+/**
+ * `?partnerId=` — a partner UUID, or the "unmatched" sentinel the query layer treats specially;
+ * anything else degrades to null (no partner filter) rather than 400-ing.
+ *
+ * N3C-05/C-69: extracted so the LIST endpoint, the BOARD endpoint and the /leads server shell
+ * (which now accepts ?partnerId= for the partner-detail "View all in Leads →" deep link) all
+ * validate the param through ONE definition — a crafted URL cannot mean one thing to the page
+ * and another to the API it calls, and the shell never hand-rolls its own UUID check.
+ */
+export const partnerIdParam = () =>
+  z.unknown().optional().transform((v) => (typeof v === "string" && UUID_RE.test(v) ? v : v === "unmatched" ? "unmatched" : null));
+
+/**
+ * A bare partner UUID from a URL — no "unmatched" sentinel. Anything else degrades to null.
+ *
+ * N3C-04/C-56 (audit-tenancy F-5): the Partners page's `?edit=` deep link. Its roster-only
+ * invariant ("this can only ever name a partner row") was a COMMENT; this makes it a parse.
+ * Nothing downstream builds a query from the value, so the check is defence in depth rather
+ * than a fix — but the boundary is now enforced where the value enters, not asserted where it
+ * happens to be used, which is what survives the next edit. Shares `UUID_RE` with
+ * `partnerIdParam` so "what a partner id looks like" has one definition.
+ */
+export const partnerUuidParam = () =>
+  z.unknown().optional().transform((v) => (typeof v === "string" && UUID_RE.test(v) ? v : null));
+
 export const LeadsQuerySchema = z.object({
   q: z.unknown().optional().transform((v) => (typeof v === "string" ? v.trim().slice(0, 120) : "")),
   page: pageParam(),
   pageSize: pageSizeParam(),
-  partnerId: z.unknown().optional().transform((v) => (typeof v === "string" && UUID_RE.test(v) ? v : v === "unmatched" ? "unmatched" : null)),
+  partnerId: partnerIdParam(),
   state: z.unknown().optional().transform((v) => (typeof v === "string" && /^[a-z]{2}$/i.test(v.trim()) ? v.trim().toUpperCase() : "")),
   /** Multi-select workflow-status + "Removed MLS" filter (comma-separated). */
   statuses: z.unknown().optional().transform((v) => csv(v, LEAD_STATUS_FILTERS)),
@@ -101,7 +126,7 @@ export const BoardQuerySchema = z
     // Clamped (tenancy F-4): an absurd `?page=1e308` would otherwise multiply into a
     // non-finite offset and blow up in the driver instead of degrading.
     page: pageParam({ max: BOARD_MAX_PAGE }),
-    partnerId: z.unknown().optional().transform((v) => (typeof v === "string" && UUID_RE.test(v) ? v : v === "unmatched" ? "unmatched" : null)),
+    partnerId: partnerIdParam(),
     hot: z.unknown().optional().transform((v) => v === "1" || v === "true" || v === true),
     /** KAN-09 + TAG-03: shared parser with the list (one meaning for `?tags=`). */
     tags: tagsParam(),

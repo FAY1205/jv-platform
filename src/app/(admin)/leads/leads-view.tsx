@@ -17,6 +17,8 @@ import type { SavedViewFilters } from "@/modules/saved-views/schema";
 import { US_STATES } from "@/lib/us-states";
 import { googleSearchUrl } from "@/lib/search-links";
 import { setPreferences, usePreferences, type LeadsViewPref } from "@/lib/preferences";
+import { useLeadNavCounts } from "@/lib/lead-counts";
+import { rowClickGuard, CLICKABLE_ROW_CLASS } from "@/lib/row-click";
 import { useTags, useLeadTagMutations, atTagLimit } from "@/lib/tags-client";
 
 const LeadDialog = dynamic(() => import("./lead-dialog").then((m) => m.LeadDialog), { ssr: false });
@@ -89,22 +91,26 @@ interface LeadsViewProps {
   /** UXF-11.1: tag ids from `?tags=`, already parsed + bounded by the SHARED parser the two
    *  leads endpoints use. Deep-links into a tag-filtered list (Settings → Tags usage counts). */
   initialTags?: readonly string[];
+  /** N3C-05/C-69: partner id (or the "unmatched" sentinel) from `?partnerId=`, already
+   *  validated by the SHARED `partnerIdParam()`. "" = no partner filter. Deep-links into a
+   *  partner-filtered list (partner detail → "View all in Leads →"). */
+  initialPartnerId?: string;
 }
 
-export function LeadsView({ initialQ, initialOpenRef = null, initialHot = false, initialTags = [] }: LeadsViewProps) {
+export function LeadsView({ initialQ, initialOpenRef = null, initialHot = false, initialTags = [], initialPartnerId = "" }: LeadsViewProps) {
   return (
     <AppShell>
-      <LeadsBody initialQ={initialQ} initialOpenRef={initialOpenRef} initialHot={initialHot} initialTags={initialTags} />
+      <LeadsBody initialQ={initialQ} initialOpenRef={initialOpenRef} initialHot={initialHot} initialTags={initialTags} initialPartnerId={initialPartnerId} />
     </AppShell>
   );
 }
 
 // Rendered inside AppShell's PageHeaderProvider so usePageHeader resolves — the "Leads"
 // title lives in the topbar (WP-E shell pattern), so no in-body <h1>.
-function LeadsBody({ initialQ, initialOpenRef = null, initialHot = false, initialTags = [] }: LeadsViewProps) {
+function LeadsBody({ initialQ, initialOpenRef = null, initialHot = false, initialTags = [], initialPartnerId = "" }: LeadsViewProps) {
   usePageHeader({ title: "Leads" });
 
-  const [filters, setFilters] = React.useState<Filters>({ ...EMPTY, q: initialQ, hot: initialHot, tags: [...initialTags] });
+  const [filters, setFilters] = React.useState<Filters>({ ...EMPTY, q: initialQ, hot: initialHot, tags: [...initialTags], partnerId: initialPartnerId });
   const [sort, setSort] = React.useState<LeadSortField>("received");
   const [dir, setDir] = React.useState<"asc" | "desc">("desc");
   const [page, setPage] = React.useState(1);
@@ -192,7 +198,7 @@ function LeadsBody({ initialQ, initialOpenRef = null, initialHot = false, initia
 
       {/* seedTags is passed as a CSV string, not an array: the bar is React.memo'd, and a
           fresh array literal per render would defeat that on every unrelated re-render. */}
-      <LeadsFilterBar seedQ={initialQ} seedHot={initialHot} seedTags={initialTags.join(",")} view={view} applied={applied} onChange={setFilters} />
+      <LeadsFilterBar seedQ={initialQ} seedHot={initialHot} seedTags={initialTags.join(",")} seedPartnerId={initialPartnerId} view={view} applied={applied} onChange={setFilters} />
 
       {view === "board" ? (
         // WP-UX-3 (audit 2.3): the board carries the WHOLE committed filter set — one filter
@@ -232,7 +238,7 @@ function LeadsBody({ initialQ, initialOpenRef = null, initialHot = false, initia
 }
 
 // ── Filter bar (isolated; owns raw text + debounce, lifts committed filters) ──
-const LeadsFilterBar = React.memo(function LeadsFilterBar({ seedQ, seedHot = false, seedTags = "", view = "list", applied = null, onChange }: { seedQ: string; seedHot?: boolean; seedTags?: string; view?: LeadsViewPref; applied?: AppliedView | null; onChange: (f: Filters) => void }) {
+const LeadsFilterBar = React.memo(function LeadsFilterBar({ seedQ, seedHot = false, seedTags = "", seedPartnerId = "", view = "list", applied = null, onChange }: { seedQ: string; seedHot?: boolean; seedTags?: string; seedPartnerId?: string; view?: LeadsViewPref; applied?: AppliedView | null; onChange: (f: Filters) => void }) {
   // WP-UX-3 (audit 2.3): the board now honours the WHOLE filter set, so every control
   // stays visible in both modes. The one exception: the status pills are list-only —
   // the board's columns already express status, and two answers to "which statuses am
@@ -242,7 +248,11 @@ const LeadsFilterBar = React.memo(function LeadsFilterBar({ seedQ, seedHot = fal
   // Partner / Source / State are ALL searchable Comboboxes (owner: make them match) — one
   // control shape, "" = the "All …" placeholder, selection commits directly (no debounce).
   const [state, setState] = React.useState("");
-  const [partnerId, setPartnerId] = React.useState("");
+  // N3C-05/C-69: seeded from `?partnerId=` on first mount (the partner-detail "View all in
+  // Leads →" deep link). A seed only — user edits and saved views take over, exactly like
+  // ?q= and ?tags=. The bar commits its whole set upward on mount, so seeding it HERE (not
+  // only in the parent's initial Filters) is what stops that first commit from clearing it.
+  const [partnerId, setPartnerId] = React.useState(seedPartnerId);
   const [source, setSource] = React.useState("");
   const [statuses, setStatuses] = React.useState<string[]>([...DEFAULT_STATUS_FILTERS]);
   const [hot, setHot] = React.useState(seedHot);
@@ -455,6 +465,10 @@ function LeadsTable({
     placeholderData: keepPreviousData,
   });
   const data = leadsQ.data;
+  // N3C-01/Q3: the workspace total, read from the SAME ["leads","counts"] cache entry the
+  // shell's nav badges use (lib/lead-counts) — no second endpoint hit, and the header can
+  // never disagree with the badge.
+  const workspaceTotal = useLeadNavCounts().data?.total ?? null;
   const hasFilters = Boolean(filters.q || filters.partnerId || filters.state || filters.source || filters.hot || filters.tags.length || !isDefaultStatuses(filters.statuses) || filters.dateFrom);
   const sortDir = (f: LeadSortField) => (sort === f ? dir : null);
   // The SAME cache entry the filter bar reads (TAGS_KEY) — one roster fetch for the page,
@@ -483,9 +497,27 @@ function LeadsTable({
         <div className="mb-2 flex min-h-[1.5rem] items-center justify-between gap-2">
           <p className="text-step-1 text-text-3" aria-live="polite">
             {data.total > 0 && (
+              // N3C-01/Q3: at the DEFAULT filter state the list is the workspace's ACTIVE
+              // leads (Removed MLS is filtered out), and the sidebar badge now says so too.
+              // Naming both numbers is what makes the gap self-explanatory instead of a
+              // discrepancy the reader has to reconcile. `data.total` IS the active count by
+              // construction (the same predicate produced the rows); `workspaceTotal` comes
+              // from the shared counts cache the shell already populated — one server-side
+              // source, no client-side arithmetic (PRN-15). It is omitted until that cache
+              // settles rather than printed as a placeholder zero.
               <>
                 <span className="num font-semibold text-text-2">{data.total.toLocaleString()}</span>{" "}
-                {data.total === 1 ? "lead" : "leads"}{hasFilters ? " match the filters" : ""}
+                {!hasFilters && workspaceTotal !== null ? (
+                  <>
+                    {data.total === 1 ? "active lead" : "active leads"}
+                    {" · "}
+                    <span className="num font-semibold text-text-2">{workspaceTotal.toLocaleString()}</span> total
+                  </>
+                ) : (
+                  <>
+                    {data.total === 1 ? "lead" : "leads"}{hasFilters ? " match the filters" : ""}
+                  </>
+                )}
               </>
             )}
           </p>
@@ -533,7 +565,15 @@ function LeadsTable({
             </THead>
             <TBody>
               {data!.leads.map((l) => (
-                <Tr key={l.refId} className="group hover:bg-surface-2">
+                // N3C-02/Q5: the whole row opens the lead. Pointer convenience only — the
+                // keyboard/AT path is still the RowOpenButton in the first cell (so no
+                // tabIndex/role here); rowClickGuard defers to inner controls and to an
+                // in-progress text selection (lib/row-click).
+                <Tr
+                  key={l.refId}
+                  className={"group " + CLICKABLE_ROW_CLASS}
+                  onClick={(e) => { if (rowClickGuard(e.target)) onOpen(l.refId); }}
+                >
                   <Td fit>
                     <span className="inline-flex items-center gap-1.5">
                       <RowOpenButton className="text-xs" onClick={() => onOpen(l.refId)}>{l.refId}</RowOpenButton>

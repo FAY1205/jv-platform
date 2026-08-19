@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
 import * as React from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen, within } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ToastProvider } from "@/components";
 
@@ -14,9 +15,10 @@ vi.mock("@/lib/api", () => ({
   apiGet,
   ApiError: class ApiError extends Error {},
 }));
+const { replace } = vi.hoisted(() => ({ replace: vi.fn() }));
 vi.mock("next/navigation", () => ({
   usePathname: () => "/partners",
-  useRouter: () => ({ push: vi.fn(), replace: vi.fn(), back: vi.fn(), forward: vi.fn(), refresh: vi.fn() }),
+  useRouter: () => ({ push: vi.fn(), replace, back: vi.fn(), forward: vi.fn(), refresh: vi.fn() }),
 }));
 vi.mock("next/dynamic", () => ({
   default: () => {
@@ -26,7 +28,7 @@ vi.mock("next/dynamic", () => ({
   },
 }));
 
-import PartnersPage from "@/app/(admin)/partners/page";
+import { PartnersView } from "@/app/(admin)/partners/partners-view";
 
 const partner = (over: Partial<Record<string, unknown>> = {}) => ({
   id: "p1",
@@ -45,8 +47,13 @@ const partner = (over: Partial<Record<string, unknown>> = {}) => ({
 });
 
 beforeEach(() => {
+  replace.mockClear();
   apiGet.mockReset();
   apiGet.mockImplementation(async (url: string) => {
+    // The edit form fetches ONE partner's detail (coverage lives there, not on the roster row).
+    if (/\/api\/admin\/partners\/[^/]+$/.test(url)) {
+      return { partner: { ...partner(), territory: { states: [], zips: [] } } };
+    }
     if (url.includes("/api/admin/partners")) {
       return {
         partners: [
@@ -63,15 +70,19 @@ beforeEach(() => {
   });
 });
 
-function renderPage() {
+function renderPage(initialEditId: string | null = null) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
-  return render(
+  const ui = (id: string | null) => (
     <QueryClientProvider client={qc}>
       <ToastProvider>
-        <PartnersPage />
+        <PartnersView initialEditId={id} />
       </ToastProvider>
-    </QueryClientProvider>,
+    </QueryClientProvider>
   );
+  const view = render(ui(initialEditId));
+  // A soft navigation re-renders this component with a new prop rather than remounting it —
+  // what router.replace does on the force-dynamic shell (the leads ?open= harness precedent).
+  return { ...view, rerenderWith: (id: string | null) => view.rerender(ui(id)) };
 }
 
 describe("UXF-10.1/10.2: partners roster identity + coverage cells", () => {
@@ -111,5 +122,69 @@ describe("UXF-10.1/10.2: partners roster identity + coverage cells", () => {
     await screen.findByRole("link", { name: /quiet holdings/i });
     expect(screen.getByText("No email")).toBeInTheDocument();
     expect(screen.queryByText("no email")).not.toBeInTheDocument();
+  });
+});
+
+// N3C-04/C-56 — the roster's edit state lives in `?edit=<id>`, so "edit this partner" is a
+// link from anywhere (the partner detail page's "Edit partner" and its admin-notes empty
+// state both point here) instead of an instruction to go and find a row's ⋯ menu.
+describe("N3C-04/C-56: partners ?edit= deep link", () => {
+  it("N3C-04/C-56: ?edit=<id> opens that partner's edit form once the roster loads", async () => {
+    renderPage("p1");
+    expect(await screen.findByRole("dialog", { name: /Edit PR-001/i })).toBeInTheDocument();
+  });
+
+  it("N3C-04/C-56: an id that matches no partner opens nothing — a stale link is not an error", async () => {
+    renderPage("does-not-exist");
+    await screen.findByRole("link", { name: /lone star buyers collective/i });
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("N3C-04/C-56: no ?edit= leaves the roster closed, and the house row is not editable through it", async () => {
+    renderPage(null);
+    await screen.findByRole("link", { name: /lone star buyers collective/i });
+    expect(screen.queryByRole("dialog")).toBeNull();
+    // The house territory has its own dialog and is not part of the roster the link matches.
+    renderPage("house");
+    await screen.findAllByRole("link", { name: /lone star buyers collective/i });
+    expect(screen.queryByRole("dialog", { name: /Edit HOUSE/i })).toBeNull();
+  });
+
+  it("N3C-04/C-56: closing the form drops ?edit= from the URL (replace, not push — no history spam)", async () => {
+    const user = userEvent.setup();
+    renderPage("p1");
+    await screen.findByRole("dialog", { name: /Edit PR-001/i });
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(replace).toHaveBeenCalledWith("/partners", { scroll: false });
+  });
+
+  // pr-reviewer F-2: the seed is ONE-SHOT by design. router.replace on a force-dynamic route
+  // re-renders this page with a fresh prop, so a seed keyed on "the prop is set" (rather than
+  // "we have not seeded yet") would re-open the form the moment the user closed it — an
+  // un-closeable dialog. This is that regression, written down.
+  it("N3C-04/C-56: closing then re-rendering with the SAME ?edit= does not re-open the form", async () => {
+    const user = userEvent.setup();
+    const { rerenderWith } = renderPage("p1");
+    await screen.findByRole("dialog", { name: /Edit PR-001/i });
+
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+
+    // What the URL sync looks like to this component: the server shell re-renders it, and on a
+    // slow/duplicated navigation the prop can still carry the id it was opened with.
+    rerenderWith("p1");
+    expect(screen.queryByRole("dialog")).toBeNull();
+    // …and again, for good measure — the flag is state, not a render-count coincidence.
+    rerenderWith("p1");
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("N3C-04/C-56: opening edit from the row menu writes ?edit=<id> into the URL", async () => {
+    const user = userEvent.setup();
+    renderPage(null);
+    const row = (await screen.findByText("lone.star@example.com")).closest("tr")!;
+    await user.click(within(row).getByRole("button"));
+    await user.click(await screen.findByRole("menuitem", { name: /edit/i }));
+    expect(replace).toHaveBeenCalledWith("/partners?edit=p1", { scroll: false });
   });
 });

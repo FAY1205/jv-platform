@@ -104,3 +104,39 @@ describe("partner detail header — coverage summary", () => {
     expect(await screen.findByText("· 1 ZIP · 1 state")).toBeTruthy();
   });
 });
+
+// N3C-04/C-56 + N3C-05/C-69: the partner detail page's three dead ends. "Edit on Partners →"
+// dropped the admin on a bare roster; the admin-notes empty state told them to edit without
+// offering a way; and "Recent leads · last N" named a bigger set with no route to it. All
+// three are now deep links that carry the partner's identity.
+describe("N3C-04/C-56 + N3C-05/C-69: partner detail deep links", () => {
+  it("N3C-04/C-56: the header action is 'Edit partner' and opens the roster's edit form", async () => {
+    mockPartner();
+    renderDetail();
+    const link = await screen.findByRole("link", { name: "Edit partner" });
+    expect(link).toHaveAttribute("href", "/partners?edit=p1");
+    // The old label named a destination, not the action it performs.
+    expect(screen.queryByRole("link", { name: /Edit on Partners/i })).toBeNull();
+  });
+
+  it("N3C-04/C-56: the admin-notes empty state offers the same deep link", async () => {
+    mockPartner({ adminNotes: null });
+    renderDetail();
+    const cta = await screen.findByRole("link", { name: "Add notes" });
+    expect(cta).toHaveAttribute("href", "/partners?edit=p1");
+  });
+
+  it("N3C-04/C-56: a partner WITH notes shows the notes, not the CTA", async () => {
+    mockPartner({ adminNotes: "Prefers SMS before 9am." });
+    renderDetail();
+    expect(await screen.findByText("Prefers SMS before 9am.")).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Add notes" })).toBeNull();
+  });
+
+  it("N3C-05/C-69: Recent leads offers 'View all in Leads →' filtered to this partner", async () => {
+    mockPartner();
+    renderDetail();
+    const link = await screen.findByRole("link", { name: /View all in Leads/ });
+    expect(link).toHaveAttribute("href", "/leads?partnerId=p1");
+  });
+});

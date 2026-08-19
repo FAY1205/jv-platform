@@ -660,10 +660,44 @@ export async function getAdminLeadDetail(scope: ScopeContext, refId: string): Pr
   };
 }
 
-/** The two admin nav-badge counts. */
+/** N3C-01/Q3 — "active" = a lead the default /leads view shows, i.e. one whose derived status
+ *  is NOT "Removed MLS". `statusExpr` prints that verdict from exactly this column, and
+ *  DEFAULT_STATUS_FILTERS (modules/leads/schema) hides exactly this set, so the badge and the
+ *  default list agree by construction. `is distinct from` (not `<>`) because the semantics are
+ *  "anything that isn't removed" — the column is NOT NULL today, but a null must never be
+ *  silently dropped from a headline count if that ever changes.
+ *
+ *  A named builder rather than an inline fragment so "active" has ONE definition here the day
+ *  a second reader needs it (PRN-15) — the `unmatchedWhere` precedent one screen up.
+ *
+ *  ⚠️ CHOSEN INVARIANT (audit-tenancy F-3). "Active" is expressible two ways, and they agree
+ *  only while every lead's workflow status is one of the seeded six:
+ *    (a) THIS one — the column: `mls_status is distinct from 'removed'`;
+ *    (b) "derived status ∈ DEFAULT_STATUS_FILTERS" over `statusExpr` — literally what the
+ *        default /leads list sends as its `statuses` filter.
+ *  `lead_status_history.status` is TEXT, not an enum, because the status list is
+ *  tenant-editable (SEAM-06). The moment a tenant adds "Escalated", a lead in it is still not
+ *  removed — (a) counts it — but it matches none of the six enumerated filters, so (b) drops
+ *  it. (a) is therefore the definition that keeps meaning "a live lead" as the seam opens; (b)
+ *  would silently under-count and, worse, is already the reason such a lead would be missing
+ *  from the default LIST. We count (a) deliberately: the badge must never under-report live
+ *  work because of a status the enumerated set has not been taught about.
+ *
+ *  Both halves of that — the equivalence while statuses are seeded, and the exact divergence
+ *  once one is not — are pinned in tests/integration/leads-count.test.ts, so a future SEAM-06
+ *  change has to confront the choice rather than discover it. */
+function notRemoved(): SQL {
+  return sql`${schema.leads.mlsStatus} is distinct from 'removed'`;
+}
+
+/** The admin nav-badge counts. */
 export interface LeadNavCounts {
-  /** Total leads in the workspace — the Leads badge. */
+  /** Total leads in the workspace, soft-deleted excluded. */
   total: number;
+  /** N3C-01/Q3: leads the default /leads view shows (not MLS-removed) — the Leads badge and
+   *  the left half of the "N active leads · M total" header. THE server-side source: the
+   *  client never re-derives it (PRN-15). */
+  active: number;
   /** Currently-unmatched leads (the backlog) — the Unmatched badge. */
   unmatched: number;
 }
@@ -677,17 +711,35 @@ export interface LeadNavCounts {
  *  number is a FILTER over that same scan, composing the existing `unmatchedWhere` so the
  *  backlog definition lives in exactly one place. `unmatchedWhere` is a strict narrowing of
  *  the outer predicate (it repeats the tenant + soft-delete clauses), so the FILTER can only
- *  ever select a subset of the counted rows. */
+ *  ever select a subset of the counted rows.
+ *
+ *  N3C-01/Q3: `active` joins them as a THIRD filter over the same scan — no second round trip,
+ *  no second scope resolution. Like `unmatched` it is a strict narrowing of the outer predicate
+ *  (which already carries the tenant + soft-delete legs, PRN-08), so it can only ever select a
+ *  subset of `total`.
+ *
+ *  audit-tenancy F-2: the outer predicate is `leadWhere(scope)`, not a bare `tenantWhere` on
+ *  leads. Both are identical for the admin stream this endpoint serves today, but the BUILDER
+ *  is the live scope boundary (ADR-0013): `leadWhere` is the one place that knows a partner
+ *  stream must also be narrowed to its own leads. Pinning the boundary here rather than in a
+ *  route comment means the day this read is reused by a non-admin caller — a portal badge, a
+ *  digest, an assistant tool — it narrows correctly instead of quietly reporting the whole
+ *  tenant. Zero behaviour change for the current caller. */
 export async function leadNavCounts(scope: ScopeContext): Promise<LeadNavCounts> {
   const db = getDb();
   const [row] = await db
     .select({
       total: sql<number>`count(*)::int`,
+      active: sql<number>`(count(*) filter (where ${notRemoved()}))::int`,
       unmatched: sql<number>`(count(*) filter (where ${unmatchedWhere(scope)}))::int`,
     })
     .from(schema.leads)
-    .where(and(tenantWhere(schema.leads, scope), isNull(schema.leads.deletedAt)));
-  return { total: Number(row?.total ?? 0), unmatched: Number(row?.unmatched ?? 0) };
+    .where(and(leadWhere(scope), isNull(schema.leads.deletedAt)));
+  return {
+    total: Number(row?.total ?? 0),
+    active: Number(row?.active ?? 0),
+    unmatched: Number(row?.unmatched ?? 0),
+  };
 }
 
 export interface UnmatchedStateStats {

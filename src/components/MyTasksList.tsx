@@ -57,6 +57,12 @@ interface MyTasksPage {
   page: number;
   pageSize: number;
   total: number;
+  /** N3C-03/C-60: the true per-bucket totals across every page, computed server-side in the
+   *  same round trip as the rows. `null` on the Done tab (completed tasks aren't bucketed by
+   *  due date). Never re-derived here — PRN-15. */
+  groupTotals: Record<DueGroup, number> | null;
+  /** N3C-03/C-60: the UTC date the server bucketed `groupTotals` against. */
+  today: string;
 }
 
 export interface MyTasksListProps {
@@ -64,8 +70,10 @@ export interface MyTasksListProps {
    *  the same ?open=<ref> convention the notifications and Leads pages already use
    *  (retired /leads/[ref] and /portal/leads/[ref] pages both redirect through it). */
   leadHrefBase: string;
-  /** Injected "today" (TSK-10 discipline) — tests pass a fixed date; defaults to now,
-   *  computed ONCE at this component's boundary, never re-derived per row. */
+  /** Injected "today" (TSK-10 discipline) — tests and the gallery pass a fixed date. Left
+   *  unset in the app: the payload's own `today` (the clock the server counted the totals
+   *  with) takes over, falling back to the local date only before the first response.
+   *  Whichever wins is resolved ONCE at this component's boundary, never per row. */
   today?: string;
   /** The card heading. Defaults to "My Tasks"; pass `null` to omit it where the surrounding
    *  page already supplies the heading (the portal shows "Your tasks"), so the two don't
@@ -99,13 +107,22 @@ const STATUS_OPTIONS = [
 export function MyTasksList({ leadHrefBase, today, title = "My Tasks" }: MyTasksListProps) {
   const qc = useQueryClient();
   const toast = useToast();
-  const todayStr = today ?? utcDateString(new Date());
   const [status, setStatus] = React.useState<"open" | "done">("open");
   const [page, setPage] = React.useState(1);
   const key = React.useMemo(() => ["my-tasks", status, page] as const, [status, page]);
 
   const q = useQuery({ queryKey: key, queryFn: () => apiGet<MyTasksPage>(`/api/tasks?status=${status}&page=${page}`) });
   const items = q.data?.items ?? [];
+
+  // ONE clock for the whole list, in this order (N3C-03/C-60, audit-tenancy F-4):
+  //   1. the `today` prop — tests pin a fixed date;
+  //   2. the SERVER's `today`, the date it bucketed `groupTotals` against. Preferring it over
+  //      the browser is the point: a device whose clock or timezone offset lands on a
+  //      different calendar day would otherwise re-bucket the rows locally and drop a task
+  //      into a section whose header count (a server number) disagrees with it;
+  //   3. the local date, only until the first payload arrives — there is nothing else to use
+  //      for the skeleton pass, and no counts are on screen yet to disagree with.
+  const todayStr = today ?? q.data?.today ?? utcDateString(new Date());
 
   const [pendingToggleIds, setPendingToggleIds] = React.useState<ReadonlySet<string>>(new Set());
   // TSK-04: optimistic complete/reopen, rolled back + toasted on failure (identical shape
@@ -132,21 +149,42 @@ export function MyTasksList({ leadHrefBase, today, title = "My Tasks" }: MyTasks
     },
   });
 
-  // TSK-07/TSK-10: grouping happens HERE, client-side, from the raw `dueOn` + the injected
-  // `today` — never the server's `group` field — so the pure groupByDue predicate stays the
-  // single source of truth for the bucket a task lands in. Scoped to the CURRENTLY FETCHED
-  // PAGE only: a task on page 2 isn't counted here. A server-side grouping that spans every
-  // page (so "3 overdue" is always the true total, not just this page's) is a future WP —
-  // noted as a WP candidate in the WP-TSK-5 summary, not built here.
+  // TSK-07/TSK-10: which ROWS land in which section is decided HERE, client-side, from the
+  // raw `dueOn` + the injected `today` — never the server's `group` field — so the pure
+  // groupByDue predicate stays the single source of truth for a task's bucket. This is
+  // page-scoped by nature: it can only place the rows this page fetched.
+  //
+  // N3C-03/C-60: the NUMBERS are no longer page-scoped. The counts beside the badge and the
+  // section headers now come from `groupTotals`, computed server-side over every page of the
+  // same query (PRN-15) — the WP-TSK-5 note that deferred this is now discharged. Before,
+  // a fourth overdue task sitting on page 2 was invisible and the badge read "3 overdue"
+  // while four were overdue.
+  //
+  // ⚠️ THE SPLIT this creates, stated plainly (pr-reviewer F-1): the badge counts the whole
+  // QUERY, the sections render this PAGE. On page 2 of an overdue-heavy list the header can
+  // therefore read "4 overdue" while no Overdue section is on screen at all — a number with
+  // no visible referent, which reads as a bug rather than as paging. `overdueElsewhere` below
+  // is the disclosure: whenever the badge outruns the rows in front of the reader, a muted
+  // line under the header says where the rest are. (A jump-to-the-page affordance is a
+  // separate candidate — deliberately NOT built here.)
   //
   // Done tasks are never re-grouped by due date (a completed task isn't "overdue" just
   // because its due date has passed) — the Done tab renders a flat list; its due chip
-  // already reads "Done · Aug 12" regardless of `dueOn`.
+  // already reads "Done · Aug 12" regardless of `dueOn`. That is also why the server sends
+  // `groupTotals: null` there.
+  const groupTotals = q.data?.groupTotals ?? null;
   const groups: { key: DueGroup; tasks: MyTask[] }[] =
     status === "open"
       ? DUE_GROUPS.map((g) => ({ key: g, tasks: items.filter((t) => groupByDue(t.dueOn, todayStr) === g) })).filter((g) => g.tasks.length > 0)
       : [];
-  const overdueOnPage = status === "open" ? (groups.find((g) => g.key === "overdue")?.tasks.length ?? 0) : 0;
+  // The server total when it is there; the page's own count until the first payload lands
+  // (an optimistic cache write from a toggle carries no totals of its own).
+  const groupTotal = (g: { key: DueGroup; tasks: MyTask[] }) => groupTotals?.[g.key] ?? g.tasks.length;
+  const overdueOnPage = groups.find((g) => g.key === "overdue")?.tasks.length ?? 0;
+  const overdueTotal = status === "open" ? (groupTotals?.overdue ?? overdueOnPage) : 0;
+  // How many of the badge's overdue tasks are NOT on this page. Zero on a single-page list,
+  // so the disclosure line never appears where it would be noise.
+  const overdueElsewhere = Math.max(0, overdueTotal - overdueOnPage);
 
   const totalPages = q.data ? Math.max(1, Math.ceil(q.data.total / q.data.pageSize)) : 1;
 
@@ -154,9 +192,16 @@ export function MyTasksList({ leadHrefBase, today, title = "My Tasks" }: MyTasks
     <Card>
       <CardHeader>
         {title !== null && <CardTitle as="h2">{title}</CardTitle>}
-        {overdueOnPage > 0 && (
+        {overdueTotal > 0 && (
           // PRN-14: color never carries the meaning alone — the text "N overdue" says it too.
-          <Badge variant="removed">{overdueOnPage} overdue</Badge>
+          // The title spells out the badge/section split for anyone who hovers it; the muted
+          // line under the card header (below) is the version nobody has to hover for.
+          <Badge
+            variant="removed"
+            title={overdueElsewhere > 0 ? `${overdueTotal} overdue in total — ${overdueElsewhere} on another page` : undefined}
+          >
+            {overdueTotal} overdue
+          </Badge>
         )}
         <span className="ml-auto" />
         <SegmentedControl
@@ -171,6 +216,17 @@ export function MyTasksList({ leadHrefBase, today, title = "My Tasks" }: MyTasks
       </CardHeader>
 
       <CardBody className="flex flex-col gap-1">
+        {/* pr-reviewer F-1: the badge counts the whole query, the sections below render this
+            page. When those disagree, say so — otherwise "4 overdue" over a page with one (or
+            zero) Overdue rows reads as a broken count instead of as paging. Muted, one line,
+            and absent entirely on a single-page list. `aria-live` off on purpose: it is
+            context for the badge, not an event. */}
+        {overdueElsewhere > 0 && (
+          <p className="pb-1 text-step-1 text-text-3">
+            <span className="num font-semibold">{overdueElsewhere}</span> of the overdue tasks{" "}
+            {overdueElsewhere === 1 ? "is" : "are"} on another page.
+          </p>
+        )}
         {q.isPending ? (
           <div className="flex flex-col gap-2">
             <Skeleton className="h-12 w-full" />
@@ -198,7 +254,7 @@ export function MyTasksList({ leadHrefBase, today, title = "My Tasks" }: MyTasks
               <h3 className={cn("flex items-center gap-2 pt-3 pb-1 text-xs font-bold uppercase tracking-wide first:pt-1", GROUP_TEXT_CLASS[g.key])}>
                 <span className={cn("h-1.5 w-1.5 rounded-full", GROUP_DOT_CLASS[g.key])} aria-hidden="true" />
                 <span>{GROUP_LABEL[g.key]}</span>
-                <span className="num font-semibold text-text-3">· {g.tasks.length}</span>
+                <span className="num font-semibold text-text-3">· {groupTotal(g)}</span>
               </h3>
               <ul className="flex flex-col">
                 {g.tasks.map((t) => (
