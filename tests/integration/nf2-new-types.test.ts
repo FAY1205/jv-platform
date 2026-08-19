@@ -9,7 +9,12 @@ import { purgeAuditLog } from "../helpers/audit";
 import { releaseTenantLeads } from "../helpers/hold";
 import { addLeadTask, editLeadTask } from "@/modules/tasks/tasks";
 import { addLeadNote } from "@/modules/notes/notes";
-import { notifyImportFailed, notifyImportProcessed } from "@/modules/notify/events";
+import {
+  notifyImportFailed,
+  notifyImportProcessed,
+  notifyPartnerActivated,
+  notifyTaskAssigned,
+} from "@/modules/notify/events";
 import { saveNotificationPrefs } from "@/modules/notify/prefs";
 import { saveSubjectOverride } from "@/modules/notify/pref-overrides";
 import { jsonRequest, scopeContextMock, setRouteScope } from "./_route-harness";
@@ -28,11 +33,39 @@ import { jsonRequest, scopeContextMock, setRouteScope } from "./_route-harness";
 
 vi.mock("@/lib/scope-context", async (importOriginal) => scopeContextMock(await importOriginal()));
 
+/**
+ * Detection stub for the ROUTE-level failure legs (pr-reviewer F-2). The uploads route decides
+ * two of its three failure classes from `detectProfile(headers, loadProfilesForDetection(...))`,
+ * so controlling the profile list is what makes `missing_required` reachable without seeding a
+ * format; `throwNext` reaches the `process_failed` catch, which is otherwise only entered by a
+ * genuine defect. `vi.hoisted` because vi.mock is hoisted above the imports.
+ *
+ * Default `{ profiles: [] }` reproduces a tenant with no saved formats, which is what the
+ * `unrecognized` leg wants — and reproduces it deterministically, rather than depending on none
+ * of the built-in SEED profiles happening to match the fixture's headers.
+ */
+const detection = vi.hoisted(() => ({ profiles: [] as unknown[], throwNext: false }));
+vi.mock("@/modules/sources/profile-store", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/modules/sources/profile-store")>();
+  return {
+    ...actual,
+    loadProfilesForDetection: async () => {
+      if (detection.throwNext) throw new Error("detection store unavailable");
+      return detection.profiles;
+    },
+  };
+});
+
 const url = process.env.DATABASE_URL;
 const suite = url ? describe : describe.skip;
 
-const SLUG = "test-nf2-new-types";
-const SLUG_B = "test-nf2-new-types-b";
+// Slugs are UNIQUE PER RUN (the `test-scp03-alpha-*` precedent). `cleanup()` resolves tenants
+// BY SLUG and then deletes their users, so a fixed slug lets two runs against the same test
+// project delete each other's rows mid-flight. The suffix scopes both setup and cleanup to
+// this process's own tenants.
+const RUN = randomUUID().slice(0, 8);
+const SLUG = `test-nf2-new-types-${RUN}`;
+const SLUG_B = `test-nf2-new-types-b-${RUN}`;
 const REF_X = "LD-26-40001";
 const TASK_TITLE = "Call Marjorie Blenkinsop on 555-0134";
 const NOTE_BODY = "Seller says call back after 4pm on 555-0134";
@@ -92,10 +125,24 @@ suite("WP-NF2 NTF-11: four new notification types", () => {
       .insert(schema.partners)
       .values({ tenantId: t.id, refId: "JV-003", name: "Zephyr Realty", color: "#333333", status: "invited" })
       .returning({ id: schema.partners.id });
+    // PV is ALREADY active — the re-accept no-op leg owns it, so that test asserts a property
+    // of the route rather than depending on a sibling test having run first (audit-tenancy F-8).
+    const [pv] = await db
+      .insert(schema.partners)
+      .values({ tenantId: t.id, refId: "JV-004", name: "Vantage Homes", color: "#444444", status: "active" })
+      .returning({ id: schema.partners.id });
+    // PW stays invited for the whole suite: it is the target of the CROSS-TENANT promotion
+    // probe, which must leave it untouched.
+    const [pw] = await db
+      .insert(schema.partners)
+      .values({ tenantId: t.id, refId: "JV-005", name: "Westbrook Group", color: "#555555", status: "invited" })
+      .returning({ id: schema.partners.id });
     id.px = px.id;
     id.pz = pz.id;
+    id.pv = pv.id;
+    id.pw = pw.id;
 
-    for (const k of ["adminA", "adminB", "adminGone", "memberA", "viewerA", "pxUser", "pxUser2", "pzUser", "adminOther"]) {
+    for (const k of ["adminA", "adminB", "adminGone", "memberA", "viewerA", "pxUser", "pxUser2", "pzUser", "pvUser", "adminOther"]) {
       id[k] = randomUUID();
     }
     // created_at is pinned so `activeAdminSeats`' deterministic order (and therefore the
@@ -112,6 +159,7 @@ suite("WP-NF2 NTF-11: four new notification types", () => {
       { id: id.pxUser, tenantId: t.id, email: "px@nf2.test", role: "partner" as const, partnerId: px.id, createdAt: new Date("2026-01-06T00:00:00.000Z") },
       { id: id.pxUser2, tenantId: t.id, email: "px2@nf2.test", role: "partner" as const, partnerId: px.id, createdAt: new Date("2026-01-07T00:00:00.000Z") },
       { id: id.pzUser, tenantId: t.id, email: "pz@nf2.test", role: "partner" as const, partnerId: pz.id, createdAt: new Date("2026-01-08T00:00:00.000Z") },
+      { id: id.pvUser, tenantId: t.id, email: "pv@nf2.test", role: "partner" as const, partnerId: pv.id, createdAt: new Date("2026-01-09T00:00:00.000Z") },
       // Tenant B's admin: the cross-tenant probe. Every emit below must leave them alone.
       { id: id.adminOther, tenantId: tb.id, email: "admin@nf2-b.test", role: "admin" as const },
     ]);
@@ -135,6 +183,8 @@ suite("WP-NF2 NTF-11: four new notification types", () => {
 
   beforeEach(async () => {
     setRouteScope(null);
+    detection.profiles = [];
+    detection.throwNext = false;
     await db.delete(schema.notifications).where(inArray(schema.notifications.tenantId, [id.tenant, id.tenantB]));
     await db.delete(schema.emailOutbox).where(inArray(schema.emailOutbox.tenantId, [id.tenant, id.tenantB]));
     await db.delete(schema.notificationPrefOverrides).where(eq(schema.notificationPrefOverrides.tenantId, id.tenant));
@@ -256,6 +306,38 @@ suite("WP-NF2 NTF-11: four new notification types", () => {
     expect(await recipients("task_assigned")).toEqual([id.adminB]);
   });
 
+  // ── notifyTaskAssigned's OWN pins (audit-tenancy F-2) ──────────────────────
+  //
+  // Every leg above reaches this emit through addLeadTask/editLeadTask, which means it reaches
+  // it through `resolveAssignee` — and resolveAssignee already refuses a foreign-tenant seat, a
+  // cross-stream seat and a deactivated seat. So the function's OWN tenant and active-seat pins
+  // can never be exercised from a caller: delete them and every test above still passes. These
+  // three call it DIRECTLY, which is the only way to prove the pins do something, and the third
+  // is the non-vacuity control — without it, a function that returned early on every input
+  // would satisfy the first two.
+
+  it("TST-01c: notifyTaskAssigned ignores a seat from ANOTHER tenant (direct call)", async () => {
+    // adminOther lives in tenant B. `users.id` is globally unique, so without the tenant pin
+    // this read would find them and write a row into tenant A addressed to a stranger.
+    await notifyTaskAssigned(db, id.tenant, { leadRef: REF_X, assigneeUserId: id.adminOther });
+    expect(await allNotifications()).toHaveLength(0);
+    expect(await allEmails()).toHaveLength(0);
+  });
+
+  it("TST-01c: notifyTaskAssigned ignores a DEACTIVATED seat (direct call)", async () => {
+    // A closed seat is refused a session, so it is refused a notification (F-7). resolveAssignee
+    // enforces this too (TSK-13) — this proves the recipient boundary states it independently.
+    await notifyTaskAssigned(db, id.tenant, { leadRef: REF_X, assigneeUserId: id.adminGone });
+    expect(await allNotifications()).toHaveLength(0);
+  });
+
+  it("TST-01c: notifyTaskAssigned DOES fire for a live in-tenant seat (non-vacuity control)", async () => {
+    await notifyTaskAssigned(db, id.tenant, { leadRef: REF_X, assigneeUserId: id.adminB });
+    const rows = await notificationsOfType("task_assigned");
+    expect(rows).toHaveLength(1);
+    expect(rows[0].userId).toBe(id.adminB);
+  });
+
   // ── partner_note ───────────────────────────────────────────────────────────
 
   it("TST-01c: a PARTNER note notifies every ACTIVE admin-TIER seat, and nobody else", async () => {
@@ -349,6 +431,67 @@ suite("WP-NF2 NTF-11: four new notification types", () => {
     expect(rows[0].title).toContain("format");
   });
 
+  it("NTF-11/ING-08: the uploads route emits on the missing_required 422, and still answers 422", async () => {
+    // The other pre-row ING-08 branch. A saved format whose REQUIRED column is absent and has
+    // no candidate to remap onto is a hard block — and now also a durable admin record. The
+    // assertion covers BOTH: the HTTP contract the upload screen depends on is unchanged, and
+    // the notification is additional rather than instead.
+    detection.profiles = [
+      {
+        id: "11111111-1111-4111-8111-111111111111",
+        name: "NF2 Probe Format",
+        version: 1,
+        headerSignature: ["Alpha", "Beta", "Gamma", "Seller First"],
+        mapping: { sellerFirst: "Seller First" },
+        requiredColumns: ["sellerFirst"],
+        strictness: "flexible",
+      },
+    ];
+    const { POST } = await import("@/app/api/uploads/route");
+    setRouteScope(adminA());
+    const res = await POST(
+      jsonRequest("POST", "/api/uploads", {
+        filename: "no-seller-column.xlsx",
+        headers: ["Alpha", "Beta", "Gamma"],
+        rows: [{ Alpha: "1" }],
+      }),
+    );
+    expect(res.status).toBe(422);
+    const body = await res.json();
+    expect(body.code).toBe("missing_required");
+    expect(body.missingRequired).toContain("sellerFirst");
+
+    const rows = await notificationsOfType("import_result");
+    expect(rows.map((r) => r.userId).sort()).toEqual([id.adminA, id.adminB].sort());
+    expect(rows[0].title).toContain("no-seller-column.xlsx");
+    expect(rows[0].title).toContain("required columns are missing");
+    expect(rows[0].deepLink).toBe("/upload");
+  });
+
+  it("NTF-11: the uploads route emits on the process_failed catch, and still answers 500", async () => {
+    // The unexpected-failure leg — the one that used to leave no trace anywhere once the tab
+    // was closed. Forced by making the detection load throw, which is the earliest thing inside
+    // the route's try; any later throw takes the same catch.
+    detection.throwNext = true;
+    const { POST } = await import("@/app/api/uploads/route");
+    setRouteScope(adminA());
+    const res = await POST(
+      jsonRequest("POST", "/api/uploads", {
+        filename: "exploding.xlsx",
+        headers: ["Anything"],
+        rows: [{ Anything: "1" }],
+      }),
+    );
+    expect(res.status).toBe(500);
+    expect((await res.json()).code).toBe("process_failed");
+
+    // Recipients INCLUDE the actor (§10.2) — nothing else is going to tell them.
+    const rows = await notificationsOfType("import_result");
+    expect(rows.map((r) => r.userId).sort()).toEqual([id.adminA, id.adminB].sort());
+    expect(rows[0].title).toContain("exploding.xlsx");
+    expect(rows[0].title).toContain("processing failed");
+  });
+
   // ── partner_activated ──────────────────────────────────────────────────────
 
   it("TST-01c: accepting the ToS promotes invited → active and notifies the admins ONCE", async () => {
@@ -377,15 +520,67 @@ suite("WP-NF2 NTF-11: four new notification types", () => {
   });
 
   it("TST-01c: re-accepting is a NO-OP — the invite is only accepted once, ever", async () => {
-    // The partner is already `active` from the test above (the fixture is not re-seeded), so
-    // the conditional UPDATE matches zero rows. Without the `.returning()` this PR added, the
-    // route could not tell the difference and every ToS re-acceptance would re-announce the
-    // partner to every admin, forever.
+    // SELF-CONTAINED (audit-tenancy F-8): this uses PV, seeded ALREADY ACTIVE, instead of
+    // leaning on the previous test having promoted PZ. The pre-state is asserted here, so the
+    // test states its own premise and cannot silently become vacuous if the file is reordered,
+    // filtered to a single `it`, or if the promotion test starts failing.
+    const [pre] = await db
+      .select({ status: schema.partners.status })
+      .from(schema.partners)
+      .where(eq(schema.partners.id, id.pv));
+    expect(pre.status).toBe("active");
+
+    // Without the `.returning()` this PR added, the route could not tell a real transition from
+    // a no-op, and every ToS re-acceptance would re-announce the partner to every admin forever.
     const { POST } = await import("@/app/api/auth/tos/accept/route");
-    setRouteScope({ tenantId: id.tenant, role: "partner", userId: id.pzUser, partnerId: id.pz });
+    setRouteScope({ tenantId: id.tenant, role: "partner", userId: id.pvUser, partnerId: id.pv });
     const res = await POST(jsonRequest("POST", "/api/auth/tos/accept", {}));
     expect(res.status).toBe(200);
     expect(await notificationsOfType("partner_activated")).toHaveLength(0);
+    // The ToS acceptance itself still recorded — the no-op is the PROMOTION, not the accept.
+    const accepted = await db
+      .select({ userId: schema.tosAcceptances.userId })
+      .from(schema.tosAcceptances)
+      .where(eq(schema.tosAcceptances.userId, id.pvUser));
+    expect(accepted).toHaveLength(1);
+  });
+
+  it("TST-01c: a FORGED partner scope cannot promote another tenant's partner", async () => {
+    // audit-tenancy F-1. The scope names tenant B but carries tenant A's invited partner id —
+    // the shape a broken/hostile scope resolution would produce. `scope.partnerId` comes from
+    // the session, but an id is not a scope: without the tenant predicate on the UPDATE, this
+    // request activates a partner in a tenant the caller has nothing to do with and tells that
+    // tenant's admins about it. (A production reachability probe found no scope that can
+    // currently produce this pairing — which is exactly why it has to be pinned in the
+    // statement rather than trusted to stay true of the data.)
+    const { POST } = await import("@/app/api/auth/tos/accept/route");
+    setRouteScope({ tenantId: id.tenantB, role: "partner", userId: id.adminOther, partnerId: id.pw });
+    const res = await POST(jsonRequest("POST", "/api/auth/tos/accept", {}));
+    expect(res.status).toBe(200); // the caller learns nothing from the status either
+
+    const [pw] = await db
+      .select({ status: schema.partners.status, activatedAt: schema.partners.activatedAt })
+      .from(schema.partners)
+      .where(eq(schema.partners.id, id.pw));
+    expect(pw.status).toBe("invited"); // untouched
+    expect(pw.activatedAt).toBeNull();
+    expect(await allNotifications()).toHaveLength(0);
+    expect(await allEmails()).toHaveLength(0);
+  });
+
+  it("TST-01c: notifyPartnerActivated resolves nothing for another tenant's partner id (direct call)", async () => {
+    // audit-tenancy F-3. The emit's own tenant pin, exercised directly — the route can no
+    // longer deliver a mismatched pair to it (the leg above), so this is the only way to prove
+    // the pin still does something. A missing pin would leak the partner's NAME and REF ID into
+    // a foreign tenant's notification titles.
+    await notifyPartnerActivated(db, id.tenantB, { partnerId: id.px });
+    expect(await allNotifications()).toHaveLength(0);
+
+    // Non-vacuity control: the same call with the RIGHT tenant does fan out.
+    await notifyPartnerActivated(db, id.tenant, { partnerId: id.px });
+    const rows = await notificationsOfType("partner_activated");
+    expect(rows.map((r) => r.userId).sort()).toEqual([id.adminA, id.adminB].sort());
+    expect(rows[0].title).toBe("PX (JV-001) accepted their invite");
   });
 
   it("TST-01c: an ADMIN accepting the ToS never emits partner_activated", async () => {

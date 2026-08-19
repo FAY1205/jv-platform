@@ -157,6 +157,18 @@ export interface AdminSeat {
 }
 
 /**
+ * ⚠️ SCOPE-GUARD-ADJACENT — this function decides a RECIPIENT SET, i.e. who may be told
+ * something about a tenant. It is not in lib/scope.ts because it answers a narrower question
+ * than the guard's builders do, but it belongs to the same family and must be changed with the
+ * same care. Its siblings, and how they differ:
+ *   • `sameStreamUsersWhere` / `streamUsersWhere` (lib/scope.ts) — the PRN-13 STREAM predicate
+ *     (`role <> 'partner'`). Deliberately NOT used here: it admits member and viewer seats,
+ *     which is a different and wider question than "who operates the pipeline".
+ *   • `activePartnerSeats` (above) — the partner-side twin: same active-seat and deterministic
+ *     -order rules, org wall instead of the tier pin. Keep the two in step.
+ * A change to what "an admin-tier recipient" means lands HERE and reaches every ops emit;
+ * a change to what "my stream" means lands in lib/scope.ts and must not be duplicated here.
+ *
  * THE admin-TIER recipient set for an ops notification (WP-NF2 NTF-11). One definition,
  * reused by `notifyStatusChange` and by every new ops emit in `events.ts` — the query had
  * started to be copy-pasted per emit site, which is exactly how one copy quietly loses the

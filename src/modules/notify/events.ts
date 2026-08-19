@@ -138,6 +138,15 @@ export function leadDeepLinkFor(stream: NotifRole, leadRef: string): string {
  * Those two gates live at the call site because only it holds the before/after pair; everything
  * that depends on the RECIPIENT lives here.
  *
+ * ⚠️ CALLER CONTRACT (audit-tenancy F-2): `assigneeUserId` MUST come from `resolveAssignee`,
+ * which is what enforces the caller's own STREAM (`sameStreamUsersWhere`). The seat read below
+ * pins TENANT and ACTIVE-SEAT only — it does NOT re-check the stream, because "who may be
+ * assigned this task" is the write path's question and re-deciding it here from a different set
+ * of predicates would be a second, divergable answer. Both of this function's own pins are
+ * therefore un-exercisable through the live callers (resolveAssignee already refuses a foreign
+ * or closed seat), so they are proved by DIRECT-CALL legs in the integration suite rather than
+ * by a caller-mediated test that would pass vacuously.
+ *
  * The seat is re-read (tenant-pinned, active) for its ROLE and EMAIL: the preference bucket is
  * `streamPrefRole(assignee.role)` — the assignee's own stream, which is what decides both which
  * catalog row gates this and which app the deep link points at.
@@ -254,6 +263,36 @@ export async function notifyPartnerNote(db: DB, tenantId: string, input: { leadR
  *  value, so these are REQUEST outcomes, not stored states). */
 export type ImportFailureClass = "missing_required" | "unrecognized" | "process_failed";
 
+/** The longest filename a notification title will carry. Past this the title stops being
+ *  scannable in a bell row and starts being a paragraph; the failure phrase after it is the
+ *  part that must survive. */
+export const TITLE_FILENAME_MAX = 120;
+
+/**
+ * Normalize a caller-supplied filename for use inside a ONE-LINE title/subject (audit-tenancy
+ * F-7). PURE.
+ *
+ * A filename is operator data and is deliberately allowed in the payload (SEC-05: an admin
+ * named their own file — no seller owns it). What is NOT allowed is for it to reshape the
+ * message around it: the upload body accepts up to 255 characters of arbitrary text, so an
+ * embedded CR/LF would split a rendered title into two lines (and an email SUBJECT header into
+ * two headers), a control character can corrupt a terminal log line, and 255 characters of
+ * padding can push the failure class out of view in a bell row.
+ *
+ * So: strip C0/C1 controls, collapse every run of whitespace to one space, trim, and cap —
+ * with an ellipsis when the cap bites, so a truncated name never reads as the whole name.
+ * `"…"` (one character) rather than "..." keeps the budget honest.
+ */
+export function titleSafeFilename(filename: string): string {
+  // C0 (\u0000-\u001f, which is where CR, LF and TAB live), DEL (\u007f) and C1
+  // (\u0080-\u009f). Replaced with a SPACE rather than deleted, so "a\nb" reads "a b"
+  // instead of silently becoming the different filename "ab".
+  const stripped = filename.replace(/[\u0000-\u001f\u007f-\u009f]/g, " ");
+  const collapsed = stripped.replace(/\s+/g, " ").trim();
+  if (collapsed === "") return "(unnamed file)";
+  return collapsed.length <= TITLE_FILENAME_MAX ? collapsed : `${collapsed.slice(0, TITLE_FILENAME_MAX - 1)}\u2026`;
+}
+
 /** A short human phrase per failure class. PURE, and unit-pinned so the notification copy
  *  cannot drift from the ING-08 vocabulary the upload screen uses. */
 export function importFailurePhrase(failure: ImportFailureClass): string {
@@ -320,8 +359,10 @@ export async function notifyImportFailed(
       event: "import_result",
       type: "import_result",
       // The filename is operator data (SEC-05: an admin named their own file — no seller owns
-      // it), so it is safe to render. The file's CONTENTS never appear.
-      title: `Import failed: ${input.filename} — ${importFailurePhrase(input.failure)}`,
+      // it), so it is safe to render, and the file's CONTENTS never appear. It is still
+      // NORMALIZED first (audit-tenancy F-7): allowed to be present is not the same as allowed
+      // to be any shape — a title is one line, and this one also becomes an email subject.
+      title: `Import failed: ${titleSafeFilename(input.filename)} — ${importFailurePhrase(input.failure)}`,
       body: "An upload could not be processed. Open Upload to see the details and try again.",
       deepLink: "/upload",
       meta: { failure: input.failure },

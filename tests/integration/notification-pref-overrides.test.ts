@@ -7,7 +7,7 @@ import type { ScopeContext } from "@/lib/scope";
 import type * as ScopeContextModule from "@/lib/scope-context";
 import { jsonRequest, scopeContextMock, setRouteScope } from "./_route-harness";
 import { enqueueRunDigests, notifyStatusChange, notifyLeadAssigned } from "@/modules/notify/outbox";
-import { DEFAULT_NOTIFICATION_PREFS, mergeNotificationPrefs } from "@/modules/notify/prefs";
+import { DEFAULT_NOTIFICATION_PREFS, NOTIFICATION_EVENTS, mergeNotificationPrefs } from "@/modules/notify/prefs";
 import {
   ensureSubjectToken,
   loadOverridesFor,
@@ -32,10 +32,30 @@ import { GET as getMyPrefs, PUT as putMyPrefs } from "@/app/api/me/notification-
 
 const url = process.env.DATABASE_URL;
 const suite = url ? describe : describe.skip;
-const SLUG_A = "test-nf2-overrides-a";
-const SLUG_B = "test-nf2-overrides-b";
+// Slugs are UNIQUE PER RUN (the `test-scp03-alpha-*` precedent). A fixed slug makes this
+// suite's `cleanup()` — which resolves tenants BY SLUG and then deletes their users — a
+// cross-process weapon: two runs against the same test project (two sessions, or a local run
+// racing CI) each delete the other's tenants mid-flight, producing FK violations on `users`
+// and 403s from routes whose seat has just been removed underneath them. The suffix scopes
+// every setup and every cleanup to this process's own rows. Nothing else changes: cleanup
+// still matches by slug, it just cannot match anyone else's.
+const RUN = randomUUID().slice(0, 8);
+const SLUG_A = `test-nf2-overrides-a-${RUN}`;
+const SLUG_B = `test-nf2-overrides-b-${RUN}`;
 
 const overrides = schema.notificationPrefOverrides;
+
+/**
+ * The catalog keys a role bucket owns, DERIVED rather than frozen as a literal.
+ *
+ * These assertions used to spell the list out, which made every future catalog addition break
+ * three tests that are not about the catalog at all (WP-NF2 PR B's four new types did exactly
+ * that). What each of them actually claims is a BUCKET claim — "this caller sees their own
+ * bucket and not the other one" — so the list is derived and the anti-leak half is asserted
+ * separately and explicitly below, where it cannot be satisfied by the derivation.
+ */
+const bucketKeys = (role: "admin" | "partner") =>
+  NOTIFICATION_EVENTS.filter((e) => e.role === role).map((e) => e.key);
 const summary: RunSummary = { total: 2, kept: 2, removed: 0, unmatched: 0, perPartner: [] };
 
 suite("WP-NF2 PR A: per-subject prefs + tokenized unsubscribe", () => {
@@ -421,7 +441,9 @@ suite("WP-NF2 PR A: per-subject prefs + tokenized unsubscribe", () => {
     };
     expect(body.role).toBe("admin");
     expect(body.allEmailsOff).toBe(false);
-    expect(body.events.map((e) => e.key)).toEqual(["run_summary", "hot_leads", "status_change", "task_due"]);
+    expect(body.events.map((e) => e.key)).toEqual(bucketKeys("admin"));
+    // The claim the derived list cannot make on its own: a partner-only key never appears.
+    expect(body.events.map((e) => e.key)).not.toContain("new_leads");
     expect(body.events.every((e) => e.overridden.email === false && e.overridden.inApp === false)).toBe(true);
   });
 
@@ -444,7 +466,12 @@ suite("WP-NF2 PR A: per-subject prefs + tokenized unsubscribe", () => {
     setRouteScope(partnerScope());
     const body = (await (await getMyPrefs()).json()) as { role: string; events: { key: string }[] };
     expect(body.role).toBe("partner");
-    expect(body.events.map((e) => e.key)).toEqual(["hot_leads", "new_leads", "assigned_lead", "task_due"]);
+    expect(body.events.map((e) => e.key)).toEqual(bucketKeys("partner"));
+    // The anti-leak half, stated directly: admin-ONLY ops keys are never offered to a partner
+    // (WP-NF2 §10.4 — partner_note/import_result/partner_activated have no partner bucket).
+    for (const adminOnly of ["run_summary", "status_change", "partner_note", "import_result", "partner_activated"]) {
+      expect(body.events.map((e) => e.key)).not.toContain(adminOnly);
+    }
   });
 
   it("NTF-15: a member seat reads the ADMIN bucket", async () => {
@@ -452,7 +479,8 @@ suite("WP-NF2 PR A: per-subject prefs + tokenized unsubscribe", () => {
     setRouteScope({ tenantId: id.tenantA, role: "member", userId: id.member });
     const body = (await (await getMyPrefs()).json()) as { role: string; events: { key: string }[] };
     expect(body.role).toBe("admin");
-    expect(body.events.map((e) => e.key)).toEqual(["run_summary", "hot_leads", "status_change", "task_due"]);
+    expect(body.events.map((e) => e.key)).toEqual(bucketKeys("admin"));
+    expect(body.events.map((e) => e.key)).not.toContain("new_leads");
   });
 
   it("NTF-15: a partner PUT cannot store an admin-bucket event key", async () => {

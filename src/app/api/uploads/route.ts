@@ -12,6 +12,7 @@ import { MAX_UPLOAD_ROWS, exceedsBodyLimit, parseContentLength } from "@/lib/upl
 import { jsonOk, jsonError, jsonServerError, newTraceId } from "@/lib/http";
 import { NextResponse } from "next/server";
 import { requireCapabilityResponse } from "@/lib/authz";
+import { logError } from "@/lib/observability";
 
 // F-86: bound the serverless function's runtime for a large-run process.
 export const maxDuration = 60;
@@ -131,7 +132,15 @@ async function notifyUploadCrash(filename: string): Promise<void> {
   try {
     const scope = await getServerScope();
     await notifyImportFailed(getDb(), scope.tenantId, { filename, failure: "process_failed" });
-  } catch {
-    // No session, no tenant, or the notify path itself is down — the 500 below is the signal.
+  } catch (e) {
+    // A failure while REPORTING a failure. The 500 still goes out — that is the whole point of
+    // the swallow — but the swallow itself must not be silent (ADR-0014): this is the one path
+    // where an admin is told nothing at all, in-app or by email, about an import that blew up,
+    // so the only trace it ever leaves is this line. Ids and messages only, never seller data
+    // (SEC-05); the filename is operator data, as in the notification itself.
+    logError("import_result_crash_notify_failed", {
+      filename,
+      message: e instanceof Error ? e.message : String(e),
+    });
   }
 }
