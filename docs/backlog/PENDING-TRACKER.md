@@ -56,6 +56,38 @@ real partner-role portal session. New candidates C-44–C-50 minted; owner-decis
 
 ---
 
+## Build order (N-slices; consolidated from the Twenty adoption report — updated 2026-08-19)
+
+The canonical execution sequence. Statuses here; per-item detail in CANDIDATES.md / the WP files.
+★ = owner-gated before build. **Owner-question queue:** the deep-UX audit's 11 deferred questions
+are mapped to gates (memory `jv-leads-owner-question-queue`) — Claude asks them at each slice
+kickoff unprompted; answers land in Slice 8.
+
+| # | Slice | Status | Gate |
+|---|---|---|---|
+| N1 | Finish the work layer (task edit UI + assignee picker) | ✅ **DONE** (PR #134) | — |
+| NF1 | Notifications correctness (8 defects) | ✅ **DONE** (PRs #131 + #132, prod-verified) | — |
+| N2 | AI batch (chips, activity tool, rate auto-clear, copy) | ✅ **DONE** (PR #133) — clickable lead refs deferred → C-78 | — |
+| **N3a** | **Runtime + dead-ends:** C-51 portal hydration fix (+ app-wide Skeleton-in-phrasing sweep) · C-55 new-tab mitigation (`target=_blank`) · C-57 coverage-map `interactive={isDesktop}` · C-49 coverage-text sweep | ☐ **next up** · Tier B/S, one PR | after: ASK owner the C-55 public-`/terms`-vs-WP-LGL-1 timing |
+| **N3b** | **Systemic primitives:** C-52 hit-target pass (Checkbox / Dialog-close / FilterPill primitives + tag swatches + bell link; careful of TasksPanel's existing 44px label wrapper) · C-53 `scrollHint`+`min-w` on leads/unmatched/imports + portal chip row · C-54 Clear-filters on the three filtered-empties | ☐ · Tier B, one PR | — |
+| **N3c** | **Consistency + smalls:** C-58 · C-61 · C-63 · C-65 · C-66 · C-67 · C-68 · C-69 · C-70 · C-60 (server task totals — totals-in-existing-response only) · C-56 (`/partners?edit=<id>` deep-link) · C-48 confirmed-open remainder (§1.2 phantom tiles, §12.1 mobile plate) · plus Q3 qualifier / Q5 row-click / Q9 ToS sign-out / Q10 mobile plate IF owner nods | ☐ · Tier B/S, 1–2 PRs | kickoff: ASK owner Q3/Q5/Q9/Q10 |
+| N4 | Search v2 (Postgres search engine: partial words, ranked, phone-proof — Ctrl-K + leads + portal) | ☐ | **Tier A migration** → parked-PR greenlight |
+| NF2 | Notifications v2 (new types, /notifications page, per-user + partner settings, unsubscribe) | ☐ | mockup-light; re-ask Q8 here |
+| N5 ★ | Lead record redesign (side panel vs tabs + prev/next N-of-M + inline editing) | ☐ | **layout pick + mockup**; ASK Q1/Q2/Q4/Q7; absorbs C-59 |
+| N6 | Leads power tools (bulk select/status/tag "all matching", Update-view, Ctrl-K actions) | ☐ | mockup |
+| N7 | Timeline v2 (before → after diffs; person/import/system attribution) | ☐ | — |
+| NF3 ★ | Notification rollups (bundle reminders + status floods; due-soon lead time) | ☐ | **owner rollup decision** (Slice 8) |
+| N8 | Seller 360 (read-only cross-lead view, never merges) | ☐ | mockup |
+| N9 ★ | Deal economics (offer value, close date, lost reason, $ per column) | ☐ | **owner un-skip** |
+| N10 ★ | File attachments (private storage, expiring links) | ☐ | **owner revisit** |
+| N11 ★ | Automation v1 (if-this-then-that via the notify pipeline + webhooks) | ☐ | **event-seam ADR** |
+| N12 ★ | Scale pack (C-43 stored current-status — measured + ADR-scoped, ready; smooth-scroll tables; smart counts) | ☐ armed | **~80k-leads trigger** |
+| N13 | Commercialization (Stripe, API keys, webhooks, 2FA, domain auto-join, flags, onboarding, impersonation, tz) | ☐ | **Phase D start** |
+
+**Not in N3 by decision:** C-59 → N5 · C-62 → the Q8 modality call (standing ai-redesign-spec
+deferral) · C-55's public route → owner timing vs WP-LGL-1. Audit re-rates recorded 2026-08-19:
+H-3 was already fixed by #133 (real High count = 2); C-64 dissolves into C-52/C-53.
+
 ## Slice 1 — Hardening & audit closeouts (small, low-risk; batch like batch 1)
 Loose ends surfaced by the security/retention work. All independent, mostly Tier B/S — a good
 single-PR batch.
