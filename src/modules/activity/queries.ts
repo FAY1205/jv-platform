@@ -54,7 +54,10 @@ export async function listAdminActivity(scope: ScopeContext, query: ActivityQuer
   if (query.dateFrom) conds.push(gte(schema.auditLog.createdAt, new Date(`${query.dateFrom}T00:00:00Z`)));
   if (query.dateTo) conds.push(lte(schema.auditLog.createdAt, new Date(`${query.dateTo}T23:59:59Z`)));
   if (query.q) {
-    const like = `%${query.q}%`;
+    // Same literal-match rule as securityCondition() above and the SRCH surfaces (WP-N4):
+    // the user's text is escaped so `%`/`_` match literally instead of widening the filter
+    // to every row. The pattern stays a bound parameter either way.
+    const like = `%${escapeLike(query.q)}%`;
     conds.push(or(ilike(schema.auditLog.action, like), ilike(schema.auditLog.entityRef, like))!);
   }
   const where = and(...conds);
