@@ -16,6 +16,7 @@ import {
 } from "@/lib/scope";
 import { releasedLeads } from "../run/hold-filter";
 import { maskAuditValue } from "@/modules/audit/redact";
+import { notifyTaskAssigned } from "@/modules/notify/events";
 import { DUE_GROUPS, groupByDue, utcDateString, type DueGroup } from "./dates";
 import { MY_TASKS_PAGE_SIZE, type MyTasksQuery } from "./schema";
 
@@ -374,7 +375,13 @@ export async function listStreamAssignees(scope: ScopeContext): Promise<TaskAssi
 
 /** Re-resolve a task through the scope guard. `taskWhere ∩ id` is the whole authorization: a task
  *  id from another tenant, org, or stream — or on a lead the partner cannot see yet (taskWhere now
- *  carries the distribution hold itself, C-8/WP-TSK-2a) — simply does not resolve (PRN-08). */
+ *  carries the distribution hold itself, C-8/WP-TSK-2a) — simply does not resolve (PRN-08).
+ *
+ *  WP-NF2 NTF-11: the lead's REF travels with the row. `editLeadTask`'s assignment notification
+ *  needs it (the recipient is told which lead, never the task title), and the join is the cheapest
+ *  honest way to get it — the alternative, a second lookup after the transaction, would read the
+ *  lead OUTSIDE the guard that just authorized the task. It carries its OWN tenant predicate
+ *  rather than trusting the FK (R-65 / audit-tenancy F-5). */
 async function resolveTask(db: DB, scope: ScopeContext, taskId: string) {
   const [task] = await db
     .select({
@@ -385,8 +392,13 @@ async function resolveTask(db: DB, scope: ScopeContext, taskId: string) {
       assignedToUserId: schema.leadTasks.assignedToUserId,
       authorUserId: schema.leadTasks.authorUserId,
       doneAt: schema.leadTasks.doneAt,
+      leadRefId: schema.leads.refId,
     })
     .from(schema.leadTasks)
+    .innerJoin(
+      schema.leads,
+      and(eq(schema.leads.id, schema.leadTasks.leadId), tenantWhere(schema.leads, scope)),
+    )
     .where(and(taskWhere(scope, db), eq(schema.leadTasks.id, taskId)));
   if (!task) throw new TaskNotFoundError(taskId);
   return task;
@@ -444,7 +456,7 @@ export async function addLeadTask(
   traceId?: string,
 ): Promise<{ id: string }> {
   const db = getDb();
-  return db.transaction(async (tx) => {
+  const created = await db.transaction(async (tx) => {
     const lead = await resolveLead(tx, scope, leadRefId);
     const assignedToUserId = await resolveAssignee(tx, scope, input.assignedToUserId);
     const [task] = await tx
@@ -471,8 +483,41 @@ export async function addLeadTask(
       after: { title: maskAuditValue(input.title), dueOn: input.dueOn ?? null, assignedToUserId, leadRefId },
       traceId: traceId ?? null,
     });
-    return { id: task.id };
+    return { id: task.id, tenantId: lead.tenantId, assignedToUserId };
   });
+
+  // WP-NF2 NTF-11 — AFTER the transaction commits, never inside it. Two reasons, both learned
+  // the hard way in PR A: a notification must not be able to roll back the work it reports on,
+  // and an emit inside the write transaction holds that transaction open across a fan-out's
+  // worth of round trips (the reminder sweep paid exactly that under an advisory lock).
+  //
+  // A NEW task has no previous assignee, so the single gate is "not myself": self-assignment is
+  // the overwhelmingly common case and telling someone what they just did is noise.
+  await notifyIfReassigned(scope, leadRefId, created.tenantId, created.assignedToUserId, null);
+  return { id: created.id };
+}
+
+/**
+ * TSK/NTF-11: the shared `task_assigned` gate for both write paths.
+ *
+ * Emits only when the SERVER-RESOLVED assignee is a different person from both the actor and
+ * the previous holder — so a self-assign, and a re-save that leaves the assignee untouched,
+ * produce nothing. `assigneeUserId` comes from `resolveAssignee` (tenant + own-stream + active
+ * seat), never from the request body (PRN-08a).
+ *
+ * `void`-returning and best-effort inside (`notifyTaskAssigned` swallows), so neither caller has
+ * to wrap it: the task is already committed and its API response must not depend on the bell.
+ */
+async function notifyIfReassigned(
+  scope: ScopeContext,
+  leadRefId: string,
+  tenantId: string,
+  assigneeUserId: string,
+  previousAssigneeUserId: string | null,
+): Promise<void> {
+  if (assigneeUserId === scope.userId) return;
+  if (assigneeUserId === previousAssigneeUserId) return;
+  await notifyTaskAssigned(getDb(), tenantId, { leadRef: leadRefId, assigneeUserId });
 }
 
 /**
@@ -487,7 +532,7 @@ export async function editLeadTask(
   traceId?: string,
 ): Promise<void> {
   const db = getDb();
-  await db.transaction(async (tx) => {
+  const edited = await db.transaction(async (tx) => {
     const task = await resolveTask(tx, scope, taskId);
     if (task.doneAt !== null) throw new TaskClosedError(taskId);
 
@@ -526,7 +571,29 @@ export async function editLeadTask(
       },
       traceId: traceId ?? null,
     });
+    return {
+      tenantId: task.tenantId,
+      leadRefId: task.leadRefId,
+      // `undefined` (not null) when the patch did not touch the assignee at all — the
+      // notification gate below must distinguish "unchanged" from "resolved to someone".
+      assignedToUserId: set.assignedToUserId,
+      previousAssigneeUserId: task.assignedToUserId,
+    };
   });
+
+  // WP-NF2 NTF-11 — post-commit, same contract as addLeadTask. A title-only or due-date-only
+  // edit never reaches the emit: `set.assignedToUserId` is populated only when the patch
+  // actually carried an assignee, and `notifyIfReassigned` then drops the case where the
+  // resolved id equals the one already on the row (a re-save of the same assignee).
+  if (edited.assignedToUserId !== undefined) {
+    await notifyIfReassigned(
+      scope,
+      edited.leadRefId,
+      edited.tenantId,
+      edited.assignedToUserId,
+      edited.previousAssigneeUserId,
+    );
+  }
 }
 
 /** TSK-04: mark done. IDEMPOTENT — completing an already-completed task writes nothing

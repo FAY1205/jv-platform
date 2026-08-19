@@ -56,6 +56,11 @@ suite("WP-TSK-2: lead tasks module (TSK-01..07)", () => {
     await db.delete(schema.leadTasks).where(inArray(schema.leadTasks.tenantId, tids));
     await db.delete(schema.leads).where(inArray(schema.leads.tenantId, tids));
     await db.delete(schema.uploads).where(inArray(schema.uploads.tenantId, tids));
+    // WP-NF2 NTF-11: assigning a task to someone other than yourself now writes a
+    // `task_assigned` notification, which FKs `users`. Must go before the users delete.
+    await db.delete(schema.notifications).where(inArray(schema.notifications.tenantId, tids));
+    await db.delete(schema.emailOutbox).where(inArray(schema.emailOutbox.tenantId, tids));
+    await db.delete(schema.notificationPrefOverrides).where(inArray(schema.notificationPrefOverrides.tenantId, tids));
     await db.delete(schema.users).where(inArray(schema.users.tenantId, tids));
     await db.delete(schema.partners).where(inArray(schema.partners.tenantId, tids));
     await db.delete(schema.tenants).where(inArray(schema.tenants.id, tids));

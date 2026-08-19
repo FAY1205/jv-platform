@@ -37,17 +37,41 @@ export const NOTIFICATION_EVENTS = [
   { role: "admin", key: "hot_leads", label: "A hot lead is found in an upload" },
   { role: "admin", key: "status_change", label: "A partner updates a lead's status" },
   { role: "admin", key: "task_due", label: "A task is due or overdue" },
+  // WP-NF2 NTF-11. `task_assigned` is the only new event with BOTH buckets — a task can be
+  // handed to a staff seat or to a partner seat, and each stream reads its own row.
+  { role: "admin", key: "task_assigned", label: "A task is assigned to you" },
+  // The other three are OPS events: they describe the tenant's pipeline, not a lead someone
+  // owns, so they exist only in the admin bucket (WP-NF2 §10.4 — admin-TIER recipients).
+  { role: "admin", key: "partner_note", label: "A partner adds a note to a lead" },
+  { role: "admin", key: "import_result", label: "An import completes or fails" },
+  { role: "admin", key: "partner_activated", label: "A partner accepts their invite" },
   { role: "partner", key: "hot_leads", label: "A hot lead is routed to you" },
   { role: "partner", key: "new_leads", label: "New leads distributed to you" },
   { role: "partner", key: "assigned_lead", label: "A lead is assigned to you" },
   { role: "partner", key: "task_due", label: "A task is due or overdue" },
+  { role: "partner", key: "task_assigned", label: "A task is assigned to you" },
 ] as const;
 
 export type NotifEvent = (typeof NOTIFICATION_EVENTS)[number]["key"];
 
 export interface NotificationPrefs {
-  admin: { run_summary: NotifChannel; hot_leads: NotifChannel; status_change: NotifChannel; task_due: NotifChannel };
-  partner: { hot_leads: NotifChannel; new_leads: NotifChannel; assigned_lead: NotifChannel; task_due: NotifChannel };
+  admin: {
+    run_summary: NotifChannel;
+    hot_leads: NotifChannel;
+    status_change: NotifChannel;
+    task_due: NotifChannel;
+    task_assigned: NotifChannel;
+    partner_note: NotifChannel;
+    import_result: NotifChannel;
+    partner_activated: NotifChannel;
+  };
+  partner: {
+    hot_leads: NotifChannel;
+    new_leads: NotifChannel;
+    assigned_lead: NotifChannel;
+    task_due: NotifChannel;
+    task_assigned: NotifChannel;
+  };
 }
 
 // SET-03: "Digests on; alerts off" — digests email on; the status-change alert email
@@ -61,6 +85,14 @@ export const DEFAULT_NOTIFICATION_PREFS: NotificationPrefs = {
     hot_leads: { email: true, inApp: true },
     status_change: { email: false, inApp: true },
     task_due: { email: true, inApp: true },
+    // WP-NF2 NTF-11 (§10.1): all four new types default {email:false, inApp:true} — the
+    // `assigned_lead` precedent. They are per-USER, event-driven signals whose volume scales
+    // with how busy a tenant is, so the bell is the safe default surface and the email leg is
+    // opt-in per seat (NTF-15). Flipping any of these to email-on is a one-line owner decision.
+    task_assigned: { email: false, inApp: true },
+    partner_note: { email: false, inApp: true },
+    import_result: { email: false, inApp: true },
+    partner_activated: { email: false, inApp: true },
   },
   partner: {
     hot_leads: { email: true, inApp: true },
@@ -71,6 +103,7 @@ export const DEFAULT_NOTIFICATION_PREFS: NotificationPrefs = {
     // The default is deliberately unchanged behavior; whether to email is an owner decision.
     assigned_lead: { email: false, inApp: true },
     task_due: { email: true, inApp: true },
+    task_assigned: { email: false, inApp: true },
   },
 };
 
@@ -78,10 +111,25 @@ const ChannelSchema = z.object({ email: z.boolean(), inApp: z.boolean() }).parti
 export const NotificationPrefsSchema = z
   .object({
     admin: z
-      .object({ run_summary: ChannelSchema, hot_leads: ChannelSchema, status_change: ChannelSchema, task_due: ChannelSchema })
+      .object({
+        run_summary: ChannelSchema,
+        hot_leads: ChannelSchema,
+        status_change: ChannelSchema,
+        task_due: ChannelSchema,
+        task_assigned: ChannelSchema,
+        partner_note: ChannelSchema,
+        import_result: ChannelSchema,
+        partner_activated: ChannelSchema,
+      })
       .partial(),
     partner: z
-      .object({ hot_leads: ChannelSchema, new_leads: ChannelSchema, assigned_lead: ChannelSchema, task_due: ChannelSchema })
+      .object({
+        hot_leads: ChannelSchema,
+        new_leads: ChannelSchema,
+        assigned_lead: ChannelSchema,
+        task_due: ChannelSchema,
+        task_assigned: ChannelSchema,
+      })
       .partial(),
   })
   .partial();
@@ -108,12 +156,17 @@ export function mergeNotificationPrefs(stored: NotificationPrefsInput | null | u
       hot_leads: ch(d.admin.hot_leads, s.admin?.hot_leads),
       status_change: ch(d.admin.status_change, s.admin?.status_change),
       task_due: ch(d.admin.task_due, s.admin?.task_due),
+      task_assigned: ch(d.admin.task_assigned, s.admin?.task_assigned),
+      partner_note: ch(d.admin.partner_note, s.admin?.partner_note),
+      import_result: ch(d.admin.import_result, s.admin?.import_result),
+      partner_activated: ch(d.admin.partner_activated, s.admin?.partner_activated),
     },
     partner: {
       hot_leads: ch(d.partner.hot_leads, s.partner?.hot_leads),
       new_leads: ch(d.partner.new_leads, s.partner?.new_leads),
       assigned_lead: ch(d.partner.assigned_lead, s.partner?.assigned_lead),
       task_due: ch(d.partner.task_due, s.partner?.task_due),
+      task_assigned: ch(d.partner.task_assigned, s.partner?.task_assigned),
     },
   };
 }

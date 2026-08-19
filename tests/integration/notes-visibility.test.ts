@@ -30,6 +30,11 @@ suite("PRN-13/NTS: two-stream note visibility", () => {
     await db.delete(schema.leadNotes).where(inArray(schema.leadNotes.tenantId, tids));
     await db.delete(schema.leads).where(inArray(schema.leads.tenantId, tids));
     await db.delete(schema.uploads).where(inArray(schema.uploads.tenantId, tids));
+    // WP-NF2 NTF-11: a PARTNER note now writes a `partner_note` notification for every
+    // admin-tier seat, which FKs `users`. Must go before the users delete.
+    await db.delete(schema.notifications).where(inArray(schema.notifications.tenantId, tids));
+    await db.delete(schema.emailOutbox).where(inArray(schema.emailOutbox.tenantId, tids));
+    await db.delete(schema.notificationPrefOverrides).where(inArray(schema.notificationPrefOverrides.tenantId, tids));
     await db.delete(schema.users).where(inArray(schema.users.tenantId, tids));
     await db.delete(schema.partners).where(inArray(schema.partners.tenantId, tids));
     await db.delete(schema.tenants).where(inArray(schema.tenants.id, tids));

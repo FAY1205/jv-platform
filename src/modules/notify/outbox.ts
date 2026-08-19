@@ -150,7 +150,59 @@ export async function activePartnerSeats(
   return rows.flatMap((r) => (r.partnerId ? [{ id: r.id, email: r.email, partnerId: r.partnerId }] : []));
 }
 
-/** The same seats, grouped by partner id (fan-out targets per org). Order preserved. */
+/** One notifiable ADMIN-TIER seat. `email` is the seat's own `users.email`. */
+export interface AdminSeat {
+  id: string;
+  email: string;
+}
+
+/**
+ * ⚠️ SCOPE-GUARD-ADJACENT — this function decides a RECIPIENT SET, i.e. who may be told
+ * something about a tenant. It is not in lib/scope.ts because it answers a narrower question
+ * than the guard's builders do, but it belongs to the same family and must be changed with the
+ * same care. Its siblings, and how they differ:
+ *   • `sameStreamUsersWhere` / `streamUsersWhere` (lib/scope.ts) — the PRN-13 STREAM predicate
+ *     (`role <> 'partner'`). Deliberately NOT used here: it admits member and viewer seats,
+ *     which is a different and wider question than "who operates the pipeline".
+ *   • `activePartnerSeats` (above) — the partner-side twin: same active-seat and deterministic
+ *     -order rules, org wall instead of the tier pin. Keep the two in step.
+ * A change to what "an admin-tier recipient" means lands HERE and reaches every ops emit;
+ * a change to what "my stream" means lands in lib/scope.ts and must not be duplicated here.
+ *
+ * THE admin-TIER recipient set for an ops notification (WP-NF2 NTF-11). One definition,
+ * reused by `notifyStatusChange` and by every new ops emit in `events.ts` — the query had
+ * started to be copy-pasted per emit site, which is exactly how one copy quietly loses the
+ * `deactivated_at` predicate.
+ *
+ * The three rules, all deliberate and all pinned by TST-01c legs:
+ *  - `role = 'admin'` — the ADMIN TIER, not the admin STREAM (Phase C / audit-tenancy F-8):
+ *    member and viewer seats do lead work, not pipeline operations, so they are excluded.
+ *    This is the ONE place in the notify module that legitimately compares to the literal
+ *    (`streamUsersWhere` would widen it to the whole stream, which is a different question).
+ *  - `deactivated_at IS NULL` — a seat refused a session is refused a notification (F-7).
+ *  - deterministic order (`created_at`, `id`) — the shared-mailbox dedupe downstream keeps
+ *    the FIRST seat's copy, so "first" has to be a fact rather than a planner accident.
+ *
+ * Takes a tenantId STRING, not a ScopeContext: the partner_activated emit runs under a
+ * PARTNER scope (the partner accepting their own invite) and still has to reach the tenant's
+ * admins, so the recipient set cannot be derived from the caller's own stream. PRN-08:
+ * tenant-pinned through the shared builder either way.
+ */
+export async function activeAdminSeats(db: DB, tenantId: string): Promise<AdminSeat[]> {
+  return db
+    .select({ id: schema.users.id, email: schema.users.email })
+    .from(schema.users)
+    .where(
+      and(
+        tenantIdWhere(schema.users, tenantId),
+        eq(schema.users.role, "admin"),
+        isNull(schema.users.deactivatedAt),
+      ),
+    )
+    .orderBy(asc(schema.users.createdAt), asc(schema.users.id));
+}
+
+/** The same PARTNER seats, grouped by partner id (fan-out targets per org). Order preserved. */
 export async function activePartnerSeatsByPartner(
   db: DB,
   scope: ScopeContext,
@@ -542,18 +594,11 @@ export async function notifyStatusChange(
   // across every tenant, keeps its early-out (NTF-09, task-reminders.ts).
   const prefs = await loadNotificationPrefs(db, scope);
 
-  const admins = await db
-    .select({ id: schema.users.id, email: schema.users.email })
-    .from(schema.users)
-    // Phase C DECISION (audit-tenancy F-8): ops notifications (run summaries, status alerts)
-    // go to the ADMIN TIER only — member/viewer seats do lead work, not pipeline operations.
-    // Deliberate, not pending; flagged as an owner-adjustable default.
-    // Phase C (audit-tenancy F-7): deactivated seats receive nothing.
-    .where(and(tenantWhere(schema.users, scope), eq(schema.users.role, "admin"), isNull(schema.users.deactivatedAt)))
-    // The shared-mailbox dedupe below keeps the FIRST seat's copy, so "first" has to be a fact,
-    // not whatever the planner happened to return. Same deterministic ordering activePartnerSeats
-    // uses — stable across ticks and across replicas.
-    .orderBy(asc(schema.users.createdAt), asc(schema.users.id));
+  // WP-NF2 NTF-11: the shared admin-TIER recipient set (`activeAdminSeats` above) — the same
+  // query with the same three predicates (role='admin' tier per audit-tenancy F-8, active
+  // seats per F-7, deterministic order for the shared-mailbox dedupe below), stated once so
+  // the four new ops emits cannot drift from this one.
+  const admins = await activeAdminSeats(db, scope.tenantId);
   if (admins.length === 0) return;
 
   const overrides = await loadOverridesFor(db, scope.tenantId, admins.map((a) => a.id));
@@ -604,9 +649,15 @@ export async function notifyStatusChange(
   }
 }
 
-/** The assignment notification's email body, in the notifyStatusChange shape (SEC-05: the lead
- *  REF only — never seller PII). Pure. */
-function assignedEmailHtml(title: string, sentence: string, unsubscribe?: UnsubscribeLinks): string {
+/**
+ * A one-sentence notification email, in the notifyStatusChange shape (SEC-05: refs and
+ * operator data only — never seller PII). Pure.
+ *
+ * Exported for WP-NF2's `events.ts`, whose four new types render the identical
+ * single-paragraph body. Was `assignedEmailHtml`; renamed rather than copied so a fifth
+ * caller does not grow a fifth private shell.
+ */
+export function notificationEmailHtml(title: string, sentence: string, unsubscribe?: UnsubscribeLinks): string {
   return renderEmailDocument({
     title,
     preheader: title,
@@ -668,7 +719,7 @@ export async function notifyLeadAssigned(
         to: seat.email,
         subject: title,
         body: `${sentence} Lead ${input.leadRef}.`,
-        html: assignedEmailHtml(
+        html: notificationEmailHtml(
           title,
           `${sentence} Lead ${input.leadRef}.`,
           // A per-USER notification carries the SEAT's token — the org token belongs to the
@@ -721,7 +772,7 @@ export async function notifyLeadsBulkAssigned(
         to: seat.email,
         subject: title,
         body: sentence,
-        html: assignedEmailHtml(
+        html: notificationEmailHtml(
           title,
           sentence,
           await subjectUnsubscribeLinks(db, scope.tenantId, { userId: seat.id }, { baseUrl: env.APP_URL, role: "partner", event: "assigned_lead" }),
