@@ -20,7 +20,12 @@ stale copy at src/app/(admin)/settings/ai/page.tsx:7.
 
 ### C-45b — masked audit-trail tool (AIS-11, mint)
 - [ ] New tool `get_recent_activity` in modules/ai/tools.ts wrapping `listAdminActivity(scope,
-      {page:1, pageSize:15, category?})` with an input `category: enum(all|security|data)`.
+      {page:1, pageSize:20, category?})` with an input `category: enum(all|security|data)`.
+      (Shipped 20, not the 15 first specced: `pageSize` is the shared `pageSizeParam()`
+      whitelist {10,20,50} in lib/query-params, so 15 is not representable anywhere in the
+      product — and 20 is the Activity screen's own first page, so the assistant reads exactly
+      the rows the admin sees.) The tool is gated on `ops.admin` (the capability /api/activity
+      requires), NOT on `ai.use`, and is ABSENT from a member's tool set rather than throwing.
       Projection (mask.ts, allowlist per house convention): `{when, actor: maskActorEmail,
       action, entityType, ref, category}` — **DROP `before`/`after` entirely** (arbitrary jsonb,
       the free-text/PII carrier) and **`ref` only when entityRef matches a ref-shaped id**

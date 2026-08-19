@@ -141,17 +141,29 @@ export function buildAiTools(scope: ScopeContext): ToolSet {
         return d ? { source: `Import ${d.upload.refId}`, ...maskRunDetail(d) } : { source: "Imports", notFound: ref };
       },
     }),
-    get_recent_activity: tool({
-      description: "The workspace audit trail — the 20 most recent entries (when, who, what action, which record): imports and voids, rule and coverage edits, partner changes, sign-in and security events. `category` narrows to security events or routine data changes. Call this for 'what changed recently / who changed X / has anything happened' questions. Actor emails are masked and the entry's before/after detail is not available.",
-      inputSchema: z.object({ category: z.enum(ACTIVITY_CATEGORY_FILTERS).default("all") }),
-      execute: async ({ category }) => {
-        const page = await listAdminActivity(scope, activityQuery(category));
-        return {
-          source: "Activity", path: "/activity",
-          category, total: page.total,
-          entries: page.items.map(maskActivityItem),
-        };
-      },
-    }),
+    // AIS-11 (C-45b): the audit trail is gated on `ops.admin`, NOT on `ai.use`. The human
+    // surface for this data (/api/activity) requires ops.admin, which is ADMIN_LOCKED
+    // (ADR-0049 §11.3) — while ai.use is in the DEFAULT member set. Gating the tool on ai.use
+    // alone would have let a member read through the assistant what the Activity screen
+    // refuses them: the assistant must never be a capability bypass. The tool is ABSENT rather
+    // than throwing, so a member's assistant simply has no audit-trail door to knock on (the
+    // model can't call, or apologise for, a tool it was never handed) — the same posture as
+    // the rest of the surface, where refusal is structural rather than an error string.
+    ...(can(scope, "ops.admin")
+      ? {
+          get_recent_activity: tool({
+            description: "The workspace audit trail — the 20 most recent entries (when, who, what action, which record): imports and voids, rule and coverage edits, partner and team changes, and security events. `category` narrows to security events or routine data changes. Call this for 'what changed recently / who changed X / has anything happened' questions. Actor emails are masked and the entry's before/after detail is not available.",
+            inputSchema: z.object({ category: z.enum(ACTIVITY_CATEGORY_FILTERS).default("all") }),
+            execute: async ({ category }) => {
+              const page = await listAdminActivity(scope, activityQuery(category));
+              return {
+                source: "Activity", path: "/activity",
+                category, total: page.total,
+                entries: page.items.map(maskActivityItem),
+              };
+            },
+          }),
+        }
+      : {}),
   };
 }

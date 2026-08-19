@@ -2,6 +2,7 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { drizzle, type PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 import { inArray } from "drizzle-orm";
+import { purgeAuditLog } from "../helpers/audit";
 import { randomUUID } from "node:crypto";
 import * as schema from "@/db/schema";
 import { buildAiTools } from "@/modules/ai/tools";
@@ -37,6 +38,14 @@ const PARTNER_EMAIL_SENTINEL = "partner-secret@acme.test";
 const PARTNER_PHONE_SENTINEL = "555-0777";
 const PARTNER_DEAL_TERMS_SENTINEL = "SECRET-DEAL-TERMS-XyZ";
 const PARTNER_ADMIN_NOTES_SENTINEL = "ADMIN-ONLY-PARTNER-NOTE-XyZ";
+// C-45b (AIS-11): the audit trail is the newest tool's subject matter, and its `before`/`after`
+// jsonb columns are the free-text/PII carrier the projection drops entirely. Tenant B's marker
+// goes into the fields the projection ACTUALLY emits (action + entityRef) — hiding it in a
+// column no projection could ever return would make the isolation sweep pass vacuously.
+const AUDIT_JSONB_SENTINEL = "AUDIT-BEFORE-AFTER-SECRET-XyZ";
+const AUDIT_JSONB_EMAIL_SENTINEL = "audit-jsonb-pat.seller@example.test";
+const TENANT_B_AUDIT_ACTION = `lead.status_changed.${TENANT_B_MARKER}`;
+const TENANT_B_AUDIT_REF = `LD-26-95002 ${TENANT_B_MARKER}`;
 
 // The runtime shape (`execute(input, {toolCallId, messages})`) is what matters here;
 // this minimal structural type avoids fighting ToolSet's generic per-key union type (AI SDK v6).
@@ -53,6 +62,9 @@ suite("WP-AI-1 Task 13: TST-10 injection + isolation + link-whitelist suite", ()
     const t = await db.select({ id: schema.tenants.id }).from(schema.tenants).where(inArray(schema.tenants.slug, [SLUG, SLUG_B]));
     const tids = t.map((x) => x.id);
     if (tids.length === 0) return;
+    // audit_log is append-only (migration 0014) — teardown goes through the deliberate
+    // session-scoped escape hatch, exactly as a retention sweep would.
+    await purgeAuditLog(db, inArray(schema.auditLog.tenantId, tids));
     for (const tbl of [schema.leadNotes, schema.leads, schema.uploads, schema.users, schema.partners]) {
       await db.delete(tbl).where(inArray(tbl.tenantId, tids));
     }
@@ -129,6 +141,30 @@ suite("WP-AI-1 Task 13: TST-10 injection + isolation + link-whitelist suite", ()
       body: NOTE_SENTINEL,
     });
 
+    // Real audit rows for the AIS-11 tool to read — without these, every sweep over
+    // get_recent_activity would run against an EMPTY trail and prove nothing.
+    await db.insert(schema.auditLog).values([
+      {
+        tenantId: tA.id,
+        actorUserId: adminUserIdA,
+        action: "lead.note.added",
+        entityType: "lead_note",
+        // What most writers actually put here: a raw UUID, which the projection must null out.
+        entityRef: randomUUID(),
+        before: { body: null },
+        after: { body: `${NOTE_SENTINEL} ${AUDIT_JSONB_SENTINEL}`, sellerEmail: AUDIT_JSONB_EMAIL_SENTINEL },
+      },
+      {
+        tenantId: tA.id,
+        actorUserId: adminUserIdA,
+        action: "partner.coverage.updated",
+        entityType: "partner",
+        entityRef: PARTNER_REF, // a real (pre-0022 JV-) reference — this one survives
+        before: { states: ["SC"], adminNotes: PARTNER_ADMIN_NOTES_SENTINEL },
+        after: { states: ["SC", "GA"] },
+      },
+    ]);
+
     toolsA = buildAiTools(scopeA);
 
     // ── Tenant B: isolation control (PRN-08) ──
@@ -159,6 +195,17 @@ suite("WP-AI-1 Task 13: TST-10 injection + isolation + link-whitelist suite", ()
       partnerId: pB.id,
       matchMethod: "state_fallback",
     });
+    // Tenant B's marker in the two fields get_recent_activity DOES project — so a broken
+    // tenant filter surfaces it, instead of it hiding behind a column the projection drops.
+    await db.insert(schema.auditLog).values({
+      tenantId: tB.id,
+      actorUserId: adminUserIdB,
+      action: TENANT_B_AUDIT_ACTION,
+      entityType: "lead",
+      entityRef: TENANT_B_AUDIT_REF,
+      before: { status: "New" },
+      after: { status: "Contacted" },
+    });
   });
 
   afterAll(async () => {
@@ -166,8 +213,17 @@ suite("WP-AI-1 Task 13: TST-10 injection + isolation + link-whitelist suite", ()
     await client.end();
   });
 
-  // Benign, valid args for every tool `buildAiTools` returns — used by the two
-  // structural-absence tests below so ALL 10 tools get exercised, not just the
+  // The tool surface an ADMIN scope gets. Asserted by name rather than by count: the set is
+  // now capability-dependent (get_recent_activity is present only with ops.admin, C-45b), so a
+  // bare number would hide both a tool going missing and the wrong scope being seeded here.
+  const ADMIN_TOOL_NAMES = [
+    "get_dashboard_stats", "get_partner_performance", "list_partners", "get_partner_territory",
+    "get_coverage_summary", "find_leads", "get_lead", "list_imports", "get_import",
+    "get_recent_activity",
+  ];
+
+  // Benign, valid args for every tool `buildAiTools` returns — used by the
+  // structural-absence tests below so the WHOLE surface gets exercised, not just the
   // ones an attacker could plausibly target directly. Throwing on a missing
   // entry (rather than skipping) keeps this list honest if the tool surface grows.
   const BENIGN_ARGS: Record<string, unknown> = {
@@ -197,7 +253,7 @@ suite("WP-AI-1 Task 13: TST-10 injection + isolation + link-whitelist suite", ()
 
   it("TST-10: note bodies are structurally absent from every tool output", async () => {
     const names = Object.keys(toolsA);
-    expect(names).toHaveLength(10); // guards this test actually covers the full tool surface
+    expect([...names].sort()).toEqual([...ADMIN_TOOL_NAMES].sort()); // guards this covers the full tool surface
     for (const name of names) {
       const out = JSON.stringify(await execAll(name, (toolsA as Record<string, unknown>)[name]));
       expect(out, name).not.toContain(NOTE_SENTINEL);
@@ -206,7 +262,7 @@ suite("WP-AI-1 Task 13: TST-10 injection + isolation + link-whitelist suite", ()
 
   it("TST-10/SEC-05: partner email/phone/dealTerms/adminNotes are structurally absent from every tool output", async () => {
     const names = Object.keys(toolsA);
-    expect(names).toHaveLength(10); // guards this test actually covers the full tool surface
+    expect([...names].sort()).toEqual([...ADMIN_TOOL_NAMES].sort()); // guards this covers the full tool surface
     for (const name of names) {
       const out = JSON.stringify(await execAll(name, (toolsA as Record<string, unknown>)[name]));
       expect(out, name).not.toContain(PARTNER_EMAIL_SENTINEL);
@@ -221,6 +277,43 @@ suite("WP-AI-1 Task 13: TST-10 injection + isolation + link-whitelist suite", ()
       const out = JSON.stringify(await execAll(name, (toolsA as Record<string, unknown>)[name]));
       expect(out, name).not.toContain(TENANT_B_MARKER);
     }
+  });
+
+  it("AIS-11/PRN-08: get_recent_activity returns only this tenant's trail, with before/after absent", async () => {
+    const out = (await exec(toolsA.get_recent_activity as unknown as ToolExec, { category: "all" })) as {
+      entries: { when: string; actor: string | null; action: string; entityType: string; ref: string | null; category: string }[];
+    };
+    // Vacuity guard: an empty trail would pass every absence assertion below for free.
+    expect(out.entries.length).toBeGreaterThan(0);
+
+    const json = JSON.stringify(out);
+    // The jsonb snapshot columns — the audit log's free-text/PII carrier — never ship (SEC-05).
+    expect(json).not.toContain(AUDIT_JSONB_SENTINEL);
+    expect(json).not.toContain(AUDIT_JSONB_EMAIL_SENTINEL);
+    expect(json).not.toContain(NOTE_SENTINEL);
+    expect(json).not.toContain(PARTNER_ADMIN_NOTES_SENTINEL);
+    // Tenant B's row is invisible in BOTH fields this tool actually projects (PRN-08).
+    expect(json).not.toContain(TENANT_B_MARKER);
+    expect(out.entries.map((e) => e.action)).not.toContain(TENANT_B_AUDIT_ACTION);
+    expect(out.entries.map((e) => e.ref)).not.toContain(TENANT_B_AUDIT_REF);
+
+    // Actors are masked to initial + domain; the raw staff address never appears.
+    expect(json).not.toContain("admin-a@t.test");
+    expect(out.entries.some((e) => e.actor === "a…@t.test")).toBe(true);
+
+    // Ref projection over REAL rows: the coverage entry keeps its partner reference, the
+    // note entry's raw UUID is nulled out (prompt rule 5).
+    const coverage = out.entries.find((e) => e.action === "partner.coverage.updated");
+    expect(coverage?.ref).toBe(PARTNER_REF);
+    const note = out.entries.find((e) => e.action === "lead.note.added");
+    expect(note).toBeDefined();
+    expect(note?.ref).toBeNull();
+
+    // Category narrowing runs the same masked path (coverage is a SECURITY marker, ACT-04).
+    const secure = (await exec(toolsA.get_recent_activity as unknown as ToolExec, { category: "security" })) as typeof out;
+    expect(secure.entries.length).toBeGreaterThan(0);
+    expect(secure.entries.every((e) => e.category === "security")).toBe(true);
+    expect(JSON.stringify(secure)).not.toContain(TENANT_B_MARKER);
   });
 
   it("TST-10: the system prompt is static — user/screen input cannot append instructions", () => {

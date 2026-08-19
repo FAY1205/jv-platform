@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import type { z } from "zod";
 import { buildAiTools } from "@/modules/ai/tools";
+import { can } from "@/lib/authz";
 import type { ScopeContext } from "@/lib/scope";
 
 // The DB-backed behaviour of the tool surface lives in tests/integration/ai-tools.test.ts
@@ -23,6 +24,22 @@ describe("AIA-02: the assistant tool surface", () => {
     expect(schema.parse({ category: "data" })).toEqual({ category: "data" });
     // A category the activity screen does not offer is rejected at the boundary, not coerced.
     expect(() => schema.parse({ category: "everything" })).toThrow();
+  });
+
+  it("AIS-11: the audit trail follows ops.admin, not ai.use — a member's tool set has no such door", () => {
+    // The human surface for this data (/api/activity) requires ops.admin, which is
+    // ADMIN_LOCKED (ADR-0049 §11.3), while ai.use is in the DEFAULT member set. If the tool
+    // rode ai.use, a member could read through the assistant what the Activity screen refuses
+    // them — the assistant must never be a capability bypass. Absent, not throwing: the model
+    // cannot call (or apologise for) a tool it was never handed.
+    const member = { ...adminScope, role: "member" } as ScopeContext;
+    expect(can(member, "ai.use")).toBe(true); // the member CAN use the assistant…
+    expect(can(member, "ops.admin")).toBe(false); // …but not read the audit trail
+    expect(Object.keys(buildAiTools(member))).not.toContain("get_recent_activity");
+    expect(Object.keys(buildAiTools(adminScope))).toContain("get_recent_activity");
+    // Every other tool is unaffected — this gate removes one door, not the assistant.
+    expect(Object.keys(buildAiTools(member))).toContain("get_dashboard_stats");
+    expect(Object.keys(buildAiTools(member)).length).toBe(Object.keys(buildAiTools(adminScope)).length - 1);
   });
 
   it("AIS-11: partner scope is unreachable by construction — no partner-scoped activity branch exists", () => {

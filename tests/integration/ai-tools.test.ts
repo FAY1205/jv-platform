@@ -3,6 +3,7 @@ import { drizzle, type PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 import { inArray } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
+import { purgeAuditLog } from "../helpers/audit";
 import * as schema from "@/db/schema";
 import { buildAiTools } from "@/modules/ai/tools";
 import type { ScopeContext } from "@/lib/scope";
@@ -19,6 +20,10 @@ const SLUG_B = "test-ai-tools-wpai1-b";
 const LEAD_REF = "LD-26-90001";
 const TENANT_B_PARTNER_NAME = "ZZZ-TenantB-Partner";
 const PII_PHONE = "555-0142";
+// AIS-11 (C-45b): audit rows on BOTH sides so the tool's tenant filter is proved against real
+// data. B's marker sits in `action` — a field the projection emits — not a dropped column.
+const TENANT_A_AUDIT_ACTION = "partner.coverage.updated";
+const TENANT_B_AUDIT_MARKER = "ZZZ-TenantB-Audit-Marker";
 
 // The runtime shape (`execute(input, {toolCallId, messages})`) is what matters here;
 // this minimal structural type avoids fighting ToolSet's generic per-key union type (AI SDK v6).
@@ -35,6 +40,8 @@ suite("WP-AI-1 Task 10: AI tool surface (SEAM-07/AIA-02/SEC-05)", () => {
     const t = await db.select({ id: schema.tenants.id }).from(schema.tenants).where(inArray(schema.tenants.slug, [SLUG, SLUG_B]));
     const tids = t.map((x) => x.id);
     if (tids.length === 0) return;
+    // audit_log is append-only (migration 0014) — teardown uses the deliberate escape hatch.
+    await purgeAuditLog(db, inArray(schema.auditLog.tenantId, tids));
     for (const tbl of [schema.leads, schema.uploads, schema.users, schema.partners]) {
       await db.delete(tbl).where(inArray(tbl.tenantId, tids));
     }
@@ -87,6 +94,16 @@ suite("WP-AI-1 Task 10: AI tool surface (SEAM-07/AIA-02/SEC-05)", () => {
       matchMethod: "state_fallback",
     });
 
+    await db.insert(schema.auditLog).values({
+      tenantId: tA.id,
+      actorUserId: adminUserIdA,
+      action: TENANT_A_AUDIT_ACTION,
+      entityType: "partner",
+      entityRef: "JV-101",
+      before: { states: ["SC"] },
+      after: { states: ["SC", "GA"] },
+    });
+
     toolsA = buildAiTools(scopeA);
 
     // ── Tenant B: proves cross-tenant invisibility (PRN-08/AIA-02) ──
@@ -116,6 +133,15 @@ suite("WP-AI-1 Task 10: AI tool surface (SEAM-07/AIA-02/SEC-05)", () => {
       partnerId: pB.id,
       matchMethod: "state_fallback",
     });
+    await db.insert(schema.auditLog).values({
+      tenantId: tB.id,
+      actorUserId: adminUserIdB,
+      action: `lead.status_changed.${TENANT_B_AUDIT_MARKER}`,
+      entityType: "lead",
+      entityRef: `LD-26-90002 ${TENANT_B_AUDIT_MARKER}`,
+      before: { status: "New" },
+      after: { status: "Contacted" },
+    });
   });
 
   afterAll(async () => {
@@ -127,6 +153,21 @@ suite("WP-AI-1 Task 10: AI tool surface (SEAM-07/AIA-02/SEC-05)", () => {
     const out = JSON.stringify(await exec(toolsA.list_partners as unknown as ToolExec, {}));
     expect(out).toContain("Ridgeline");
     expect(out).not.toContain(TENANT_B_PARTNER_NAME);
+  });
+
+  it("AIS-11/PRN-08: get_recent_activity sees only the session tenant's trail", async () => {
+    const out = (await exec(toolsA.get_recent_activity as unknown as ToolExec, { category: "all" })) as {
+      total: number;
+      entries: { action: string; ref: string | null; actor: string | null }[];
+    };
+    // Vacuity guard: seeded rows exist on both sides, so absence below is a real result.
+    expect(out.entries.length).toBeGreaterThan(0);
+    expect(out.entries.map((e) => e.action)).toContain(TENANT_A_AUDIT_ACTION);
+    const json = JSON.stringify(out);
+    expect(json).not.toContain(TENANT_B_AUDIT_MARKER);
+    expect(json).not.toContain("admin-b@t.test");
+    // `total` is the scoped count, not a global one — a leak here would be silent.
+    expect(out.total).toBe(out.entries.length);
   });
 
   it("owner-test F-3: ambiguous partner name returns ALL matches, no silent pick", async () => {

@@ -17,9 +17,9 @@ import type { AdminActivityItem } from "@/modules/activity/queries";
 
 // AIS-11 (C-45b) added the audit-trail projection, whose dropped columns join the sweep:
 // `before`/`after` are arbitrary jsonb row snapshots (the free-text + PII carrier of the
-// audit log), `entityRef` is the RAW reference (a UUID for entity types that have no
-// ref-shaped id — prompt rule 5 bans those), and `id` is the audit row's own UUID. All four
-// are absent from every projection here, so the leak test holds them absent forever.
+// audit log), `entityRef` is the RAW reference (usually a UUID, sometimes operator free text
+// — prompt rule 5 bans both), and `id` is the audit row's own UUID. All four are absent from
+// every projection here, so the leak test holds them absent forever.
 export const BANNED_KEYS = ["seller", "address", "notes", "reasonForSelling", "motivation", "timeToSell", "activity", "leads", "email", "phone", "reason", "tags", "before", "after", "entityRef", "id"] as const;
 
 export interface MaskedPartnerRef { name: string; refId: string }
@@ -80,11 +80,18 @@ export function maskActorEmail(email: string | null | undefined): string | null 
   return `${email[0]}…@${email.slice(at + 1)}`;
 }
 
-/** Ref-shaped ids the product actually mints (leads, partners, imports, uploads, source
- *  profiles). `entityRef` is nullable and, for entity types without a public reference,
- *  holds an internal UUID — which prompt rule 5 forbids the model from writing. Anything
- *  that isn't ref-shaped is therefore projected as null, not passed through. */
-const REF_SHAPED = /^(LD|PR|IM|UP|SP)-/i;
+/** The reference shapes the product actually mints — db/ref-ids.ts mints exactly three
+ *  (LD-YY-#####, PR-###, IM-YY-###) and migration 0022 renamed partner JV-### → PR-###.
+ *  JV- is kept deliberately: audit_log is APPEND-ONLY, so pre-0022 partner refs still sit in
+ *  the trail this tool reads — historical rows are its whole subject matter.
+ *
+ *  FULLY ANCHORED, not a prefix test. `entityRef` is a free-text column: most writers put a
+ *  raw UUID in it (a note id, a task id, a tag id, a user id, tenants.id) and
+ *  sources/profile-store.ts writes `${profile.name} v${n}` — operator-authored text. A
+ *  prefix-only match would pass "SP-Weekly list pat@example.test v3" or "PR-003 <injected
+ *  text>" straight to the model, which is exactly the PII/injection channel this projection
+ *  exists to close. Anything that is not a whole, well-formed reference becomes null. */
+const REF_SHAPED = /^(?:LD-\d{2}-\d{5,}|PR-\d{3,}|IM-\d{2}-\d{3,}|JV-\d{3,})$/i;
 
 /** AIS-11 (C-45b): the audit-trail projection for `get_recent_activity`. Allowlist, like
  *  every mask here — `before`/`after` (arbitrary jsonb row snapshots: note bodies, filenames,

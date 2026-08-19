@@ -36,7 +36,8 @@ describe("contextual suggestions (owner: chips change with the screen)", () => {
     }
     expect(suggestionsFor("rules")).toContain("What makes a lead Hot?");
     expect(suggestionsFor("upload")).toContain("What happens after I upload a file?");
-    // Activity has no audit-trail tool yet (WP-AI-TOOL-ACTIVITY) — its chips ride real ones.
+    // C-45b gave activity a native audit-trail chip; the rest still ride list_imports /
+    // get_dashboard_stats, which is what this leg guards.
     expect(suggestionsFor("activity")).toContain("What happened in the last import?");
   });
 
