@@ -4,7 +4,7 @@ import { describe, expect, it, vi, afterEach } from "vitest";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { NotificationsPage, ToastProvider } from "@/components";
+import { NotificationBell, NotificationsPage, ToastProvider } from "@/components";
 
 // WP-NF2 PR C (NTF-12 / NTF-15): the shared /notifications page, mounted identically by the
 // admin and the portal. What is worth pinning here is everything the bell does NOT do:
@@ -393,7 +393,16 @@ describe("NotificationsPage preferences (NTF-15)", () => {
 
     const email = screen.getByRole("checkbox", { name: "Email New leads assigned to you" });
     expect(email).not.toBeChecked();
-    expect(email).toBeDisabled(); // the choice cannot take effect, so it is not offered
+    // STANDING inert, expressed with aria-disabled — NOT native `disabled`, which would drop the
+    // box out of the tab order and take the explanation with it (Checkbox.tsx:15-25). jest-dom's
+    // toBeDisabled() only sees the native attribute, so assert the aria state and then prove the
+    // control is still reachable and still inert.
+    expect(email).toHaveAttribute("aria-disabled", "true");
+    expect(email).not.toBeDisabled();
+    email.focus();
+    expect(email).toHaveFocus(); // a keyboard user can still land on it and hear why
+    await user.click(email);
+    expect(email).not.toBeChecked(); // …and activation is swallowed
     // NTF-13 §10.7: the kill switch is EMAIL-only — unsubscribing must never blind the bell.
     expect(screen.getByRole("checkbox", { name: "In-app New leads assigned to you" })).toBeChecked();
     expect(screen.getByRole("checkbox", { name: "In-app New leads assigned to you" })).toBeEnabled();
@@ -439,5 +448,51 @@ describe("NotificationsPage preferences (NTF-15)", () => {
 
     await user.click(screen.getByRole("button", { name: "Retry" }));
     expect(await screen.findByText("A task is due")).toBeInTheDocument();
+  });
+});
+
+describe("Bell and page reconciliation (NTF-12)", () => {
+  // The two surfaces cache the SAME feed under two different keys in two different SHAPES (flat
+  // vs. infinite). A mark-read on one must not leave the other showing a number the server no
+  // longer agrees with — which is exactly what happens if either side forgets the other's key.
+  // Mounted together under ONE QueryClient, as they are in the real shells.
+
+  /** The bell's aria-live region — the honest read of what the badge believes. A `span`, so this
+   *  never picks up the page's own <p aria-live> or the toast stack's <div>. */
+  const bellLiveText = () => document.querySelector("span[aria-live='polite']")?.textContent ?? "";
+
+  it("NTF-12: marking a row read ON THE PAGE updates the BELL badge once the write settles", async () => {
+    let marked = false;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string, init?: RequestInit) => {
+        if ((init?.method ?? "GET").toUpperCase() !== "GET") {
+          marked = true;
+          return ok({ code: "ok" });
+        }
+        // Server truth flips only after the write, so a bell that reaches zero got there by
+        // REFETCHING — it cannot have inherited the page's optimistic write, which lives under a
+        // different key in a shape the bell cannot even read.
+        const row = marked ? { ...notif(1), readAt: "2026-08-18T10:00:00.000Z" } : notif(1);
+        return ok({ notifications: [row], unread: marked ? 0 : 1, nextCursor: null });
+      }),
+    );
+    const user = userEvent.setup();
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+    render(
+      <QueryClientProvider client={qc}>
+        <ToastProvider>
+          <NotificationBell />
+          <NotificationsPage />
+        </ToastProvider>
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() => expect(bellLiveText()).toBe("1 unread notification"));
+    // The bell's dropdown is closed, so this row button is unambiguously the PAGE's.
+    await user.click(await screen.findByRole("button", { name: /Notification 1/ }));
+
+    await waitFor(() => expect(screen.getByText("No unread notifications")).toBeInTheDocument());
+    await waitFor(() => expect(bellLiveText()).toBe(""));
   });
 });

@@ -73,15 +73,15 @@ suite("NTF-12: notification feed keyset pagination (FEP-03)", () => {
     return (await getNotifications(new Request(`${APP_ORIGIN}/api/notifications${query}`))).status;
   }
 
-  /** Walk every page from the start at `limit`, returning the ids in visit order. */
-  async function walk(limit: number): Promise<string[]> {
-    const seen: string[] = [];
+  /** Walk every page from the start at `limit`, returning the rows in visit order. */
+  async function walk(limit: number): Promise<FeedBody["notifications"]> {
+    const seen: FeedBody["notifications"] = [];
     let cursor: string | null = null;
     for (let guard = 0; guard < 50; guard++) {
       const page: FeedBody = await feed(
         `?limit=${limit}${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`,
       );
-      seen.push(...page.notifications.map((n) => n.id));
+      seen.push(...page.notifications);
       if (!page.nextCursor) return seen;
       cursor = page.nextCursor;
     }
@@ -138,6 +138,18 @@ suite("NTF-12: notification feed keyset pagination (FEP-03)", () => {
       row(tb.id, id.stranger, "stranger-1"),
       row(tb.id, id.stranger, "stranger-2"),
     ]);
+    // The row that makes the TENANT leg of ownerWhere load-bearing: tenant B, but MY user id.
+    // Every neighbour above differs from the caller in BOTH legs, so deleting
+    // `eq(tenant_id, …)` from ownerWhere would ship green against them — the user pin alone
+    // would still exclude every one. This row is excluded by the tenant pin and NOTHING else,
+    // so it is the only fixture here that fails if that leg is dropped.
+    //
+    // It is deliberately INCONSISTENT data (a user of tenant A owning a tenant-B notification):
+    // the two FKs are independent, so Postgres accepts it, and there is no RLS backstop to
+    // catch it either — the table is deny-by-default and every reader is the service role
+    // (ADR-0013: the app layer IS the boundary). This is exactly the shape a mis-scoped write
+    // elsewhere would leave behind, and the read path must not surface it.
+    await db.insert(schema.notifications).values([row(tb.id, id.me, "wrong-tenant")]);
 
     // The tie is real, not an accident of a fast machine: assert it before relying on it.
     const [tie] = await db.execute<{ n: number; distinct_at: number }>(sql`
@@ -167,10 +179,35 @@ suite("NTF-12: notification feed keyset pagination (FEP-03)", () => {
     // limit=2 puts a page boundary INSIDE the five-row tie group (rows 5 and 6 of 9 are both
     // ties), which is precisely where a timestamp-only cursor loses or repeats rows.
     for (const limit of [1, 2, 3, 4]) {
-      const seen = await walk(limit);
+      const seen = (await walk(limit)).map((n) => n.id);
       expect(seen, `limit=${limit}: no gaps, no dupes, correct order`).toEqual(expectedOrder);
       expect(new Set(seen).size, `limit=${limit}: every id unique`).toBe(expectedOrder.length);
     }
+  });
+
+  it("PRN-08: the TENANT leg is load-bearing — a foreign-tenant row owned by MY user id is invisible", async () => {
+    // The only fixture in this suite excluded by the tenant pin ALONE. If `eq(tenant_id, …)`
+    // were dropped from ownerWhere, every other negative here would still pass on the user pin
+    // and this one — and only this one — would start appearing.
+    setRouteScope(meScope());
+
+    // Not on any page of a full cursor walk (at a page size that puts boundaries inside the tie).
+    const walked = await walk(2);
+    expect(walked.map((n) => n.title)).not.toContain("wrong-tenant");
+    expect(walked.map((n) => n.id)).toEqual(expectedOrder);
+
+    // Not on the bare call either, and it does not inflate the count the header renders.
+    const bare = await feed();
+    expect(bare.notifications).toHaveLength(9);
+    expect(bare.notifications.map((n) => n.title)).not.toContain("wrong-tenant");
+    expect(bare.unread).toBe(9);
+
+    // …and the row genuinely exists — otherwise this test proves nothing at all.
+    const [present] = await db.execute<{ n: number }>(sql`
+      select count(*)::int as n from notifications
+      where tenant_id = ${id.tenantB} and user_id = ${id.me} and title = 'wrong-tenant'
+    `);
+    expect(Number(present.n), "the inconsistent fixture row was actually inserted").toBe(1);
   });
 
   it("NTF-12: nextCursor is null exactly when the page was not full", async () => {

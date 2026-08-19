@@ -108,7 +108,16 @@ export function NotificationsPage() {
     initialPageParam: null as string | null,
     // `null` ends the list — the server returns it as soon as a page comes back short.
     getNextPageParam: (last) => last.nextCursor,
-    refetchOnWindowFocus: true,
+    // Focus-refetch ONLY while a single page is loaded. TanStack refetches EVERY loaded page of
+    // an infinite query, and each page also recomputes the unread count server-side — so a
+    // blanket `true` costs 2N queries per tab focus after N presses of "Load more", which is
+    // real load for a reader who has simply scrolled back through their history. Gating on
+    // "at most one page loaded" keeps the case that actually matters (open the page, tab away,
+    // come back to a fresh top-of-feed) at its old cost and drops the amplification. Deeper
+    // pages are history: they do not change, and anything that DOES change them — a mark-read or
+    // mark-all from either surface — invalidates both keys explicitly, so the page still
+    // reconciles. Retry/refetch remains available from the error state.
+    refetchOnWindowFocus: (query) => (query.state.data?.pages.length ?? 0) <= 1,
   });
 
   const notifications = React.useMemo(
@@ -399,9 +408,13 @@ function PreferencesCard() {
                     <Checkbox
                       checked={ch.email}
                       onCheckedChange={() => toggle(ev.key, "email")}
-                      // Transient-by-choice: while emails are paused, the per-event email
-                      // choice cannot take effect, so it is not offered.
-                      disabled={draft.allEmailsOff}
+                      // STANDING inert state, not a transient one: while emails are paused this
+                      // choice cannot take effect, and that stays true until the reader flips the
+                      // switch below. `ariaDisabled` (not native `disabled`) per the Checkbox
+                      // contract — the box keeps its place in the tab order and its accessible
+                      // name, so a keyboard user can reach it and find out WHY it is inert
+                      // instead of tabbing over a control that silently vanished.
+                      ariaDisabled={draft.allEmailsOff}
                       ariaLabel={`Email ${ev.label}`}
                     />
                   </div>

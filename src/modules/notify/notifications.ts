@@ -102,8 +102,14 @@ export async function listNotifications(
   opts: ListNotificationsOptions = {},
 ): Promise<NotificationFeedPage> {
   // Clamped here as well as Zod-bounded at the route: this module is called directly by
-  // server code too, and an unbounded limit is a whole-archive scan.
-  const limit = Math.min(Math.max(1, Math.trunc(opts.limit ?? FEED_PAGE_SIZE)), FEED_PAGE_MAX);
+  // server code too, and an unbounded limit is a whole-archive scan. The finite check is not
+  // decoration — `Math.min/max` propagate NaN rather than clamping it, so a non-finite limit
+  // from a future server-side caller would reach `.limit(NaN)` and fail at the driver instead
+  // of quietly falling back to the default.
+  const requested = opts.limit ?? FEED_PAGE_SIZE;
+  const limit = Number.isFinite(requested)
+    ? Math.min(Math.max(1, Math.trunc(requested)), FEED_PAGE_MAX)
+    : FEED_PAGE_SIZE;
   const cursor = opts.cursor ?? null;
   const rows = await getDb()
     .select({

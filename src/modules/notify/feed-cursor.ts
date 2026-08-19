@@ -60,7 +60,15 @@ export function decodeNotificationCursor(raw: string): NotificationCursor | null
   if (sep <= 0) return null;
   const createdAt = decoded.slice(0, sep);
   const id = decoded.slice(sep + 1);
-  if (!ISO_UTC_RE.test(createdAt) || Number.isNaN(new Date(createdAt).getTime())) return null;
+  if (!ISO_UTC_RE.test(createdAt)) return null;
+  // SHAPE and RANGE. The regex alone admits instants JS parses happily but Postgres'
+  // `::timestamptz` cast can refuse outright — `0000-01-01T00:00:00.000Z` is the reachable one
+  // (year zero does not exist in the proleptic Gregorian calendar Postgres speaks). Letting one
+  // through turns a hostile query parameter into a database error, i.e. a 500 and a Sentry page
+  // for what is plainly a 400. The floor is the epoch: a notification predating 1970 is not a
+  // thing this app can have written.
+  const at = new Date(createdAt).getTime();
+  if (Number.isNaN(at) || at < 0) return null;
   if (!UUID_RE.test(id)) return null;
   return { createdAt, id };
 }

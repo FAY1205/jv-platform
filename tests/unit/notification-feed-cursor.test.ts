@@ -53,6 +53,18 @@ describe("NTF-12: the notification feed cursor codec", () => {
     expect(decodeNotificationCursor(b64(`2026-13-45T09:30:00.000Z|${ID}`))).toBeNull();
   });
 
+  it("NTF-12: refuses an instant the DATABASE would reject — a 400, never a 500", () => {
+    // Shape is not enough. `0000-01-01T00:00:00.000Z` matches the ISO pattern and JS parses it
+    // without complaint, but year zero does not exist in the proleptic Gregorian calendar
+    // Postgres speaks, so the `::timestamptz` cast can refuse it — turning a hostile query
+    // parameter into a database error, i.e. a 500 and a Sentry page for what is plainly a 400.
+    const b64 = (s: string) => Buffer.from(s, "utf8").toString("base64url");
+    expect(decodeNotificationCursor(b64(`0000-01-01T00:00:00.000Z|${ID}`))).toBeNull();
+    expect(decodeNotificationCursor(b64(`1969-12-31T23:59:59.999Z|${ID}`))).toBeNull(); // pre-epoch
+    // The epoch itself, and anything after it, still decodes — the floor must not eat real data.
+    expect(decodeNotificationCursor(b64(`1970-01-01T00:00:00.000Z|${ID}`))).not.toBeNull();
+  });
+
   it("NTF-12: refuses an oversized token rather than decoding megabytes of attacker input", () => {
     expect(decodeNotificationCursor("A".repeat(CURSOR_MAX_LENGTH + 1))).toBeNull();
   });
