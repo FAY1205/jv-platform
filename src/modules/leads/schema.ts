@@ -72,6 +72,19 @@ const csv = (v: unknown, allowed: readonly string[]): string[] => {
 export const partnerIdParam = () =>
   z.unknown().optional().transform((v) => (typeof v === "string" && UUID_RE.test(v) ? v : v === "unmatched" ? "unmatched" : null));
 
+/**
+ * A bare partner UUID from a URL — no "unmatched" sentinel. Anything else degrades to null.
+ *
+ * N3C-04/C-56 (audit-tenancy F-5): the Partners page's `?edit=` deep link. Its roster-only
+ * invariant ("this can only ever name a partner row") was a COMMENT; this makes it a parse.
+ * Nothing downstream builds a query from the value, so the check is defence in depth rather
+ * than a fix — but the boundary is now enforced where the value enters, not asserted where it
+ * happens to be used, which is what survives the next edit. Shares `UUID_RE` with
+ * `partnerIdParam` so "what a partner id looks like" has one definition.
+ */
+export const partnerUuidParam = () =>
+  z.unknown().optional().transform((v) => (typeof v === "string" && UUID_RE.test(v) ? v : null));
+
 export const LeadsQuerySchema = z.object({
   q: z.unknown().optional().transform((v) => (typeof v === "string" ? v.trim().slice(0, 120) : "")),
   page: pageParam(),

@@ -25,12 +25,7 @@ vi.mock("next/dynamic", () => ({
 const { apiGet } = vi.hoisted(() => ({ apiGet: vi.fn() }));
 vi.mock("@/lib/api", () => ({ apiGet, ApiError: class ApiError extends Error {} }));
 
-class ResizeObserverStub {
-  observe() {}
-  unobserve() {}
-  disconnect() {}
-}
-(globalThis as unknown as { ResizeObserver: unknown }).ResizeObserver = ResizeObserverStub;
+// ResizeObserver is stubbed globally in tests/setup.ts; pointer capture is not.
 if (typeof Element !== "undefined") {
   Element.prototype.hasPointerCapture ??= () => false;
   Element.prototype.setPointerCapture ??= () => {};

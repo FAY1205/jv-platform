@@ -72,6 +72,8 @@ import {
   PortalDevices,
   TasksPanel,
   type LeadTask,
+  MyTasksList,
+  type MyTask,
   Timeline,
   type TimelineEntry,
 } from "@/components";
@@ -297,6 +299,87 @@ function TasksPanelErrorDemo() {
   return (
     <QueryClientProvider client={qc}>
       <TasksPanel leadRef="LD-26-DEMO-ERR" today="2026-08-15" />
+    </QueryClientProvider>
+  );
+}
+
+// ── My Tasks (WP-TSK-5, N3C-03/C-60) ─────────────────────────────────────────
+// design F-2: MyTasksList is the shared "My Tasks" list behind /tasks and /portal/tasks, and
+// it had never had a gallery card — two consecutive WPs changed its behaviour with no place
+// to see it. The seeded-QueryClient recipe is TasksPanelDemo's, one key over
+// (["my-tasks", status, page], what the component's own useQuery reads).
+//
+// The pair below exists to show the ONE thing that is easy to misread in this component:
+// the badge and the section headers report SERVER totals for the whole query, while the rows
+// are this page's. `today` is pinned so the buckets never move.
+const MY_TASKS_TODAY = "2026-08-15";
+const myTask = (over: Partial<MyTask> & Pick<MyTask, "id" | "title">): MyTask => ({
+  dueOn: null,
+  assignedToUserId: "u1",
+  authorUserId: "u1",
+  authorRole: "admin",
+  doneAt: null,
+  createdAt: "2026-08-10T00:00:00.000Z",
+  updatedAt: "2026-08-10T00:00:00.000Z",
+  assignee: DEMO_SELF,
+  author: DEMO_SELF,
+  leadRefId: "LD-26-00404",
+  leadSeller: "Marcus Whitfield",
+  leadCity: "Phoenix",
+  leadState: "AZ",
+  group: "none",
+  ...over,
+});
+const MY_TASKS_PAGE_1: MyTask[] = [
+  myTask({ id: "mt-1", title: "Call seller to schedule walkthrough", dueOn: "2026-08-13", group: "overdue" }),
+  myTask({ id: "mt-2", title: "Send comps + preliminary offer range", dueOn: "2026-08-15", group: "today", leadRefId: "LD-26-00291", leadSeller: "Priya Raman", leadCity: "Mesa" }),
+  myTask({ id: "mt-3", title: "Re-check MLS status before offer", dueOn: "2026-08-18", group: "upcoming", leadRefId: "LD-26-00318", leadSeller: "Dana Fields", leadCity: null, leadState: null }),
+];
+
+function myTasksClient(payload: Record<string, unknown>) {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } });
+  client.setQueryData(["me"], TASKS_DEMO_ME);
+  client.setQueryData(["my-tasks", "open", 1], payload);
+  return client;
+}
+
+/** Page 1 of a longer list: 4 overdue exist, only 1 is on this page. The badge reports the
+ *  query total, the Overdue header reports 4 over a single row, and the muted line under the
+ *  header accounts for the difference (pr-reviewer F-1). */
+function MyTasksListDemo() {
+  const [qc] = React.useState(() =>
+    myTasksClient({
+      items: MY_TASKS_PAGE_1,
+      page: 1,
+      pageSize: 3,
+      total: 9,
+      groupTotals: { overdue: 4, today: 2, upcoming: 3, none: 0 },
+      today: MY_TASKS_TODAY,
+    }),
+  );
+  return (
+    <QueryClientProvider client={qc}>
+      <MyTasksList leadHrefBase="/leads?open=" today={MY_TASKS_TODAY} />
+    </QueryClientProvider>
+  );
+}
+
+/** The same list when everything fits on one page: totals equal the rows, so the badge has a
+ *  visible referent and the "on another page" line is absent entirely. */
+function MyTasksListSinglePageDemo() {
+  const [qc] = React.useState(() =>
+    myTasksClient({
+      items: MY_TASKS_PAGE_1,
+      page: 1,
+      pageSize: 20,
+      total: 3,
+      groupTotals: { overdue: 1, today: 1, upcoming: 1, none: 0 },
+      today: MY_TASKS_TODAY,
+    }),
+  );
+  return (
+    <QueryClientProvider client={qc}>
+      <MyTasksList leadHrefBase="/leads?open=" today={MY_TASKS_TODAY} title="My Tasks — single page" />
     </QueryClientProvider>
   );
 }
@@ -1221,6 +1304,27 @@ function Gallery() {
             <div className="flex flex-col gap-2">
               <p className="text-step-1 font-semibold text-text-3">Timeline — All / Tasks / Notes / Status filters</p>
               <Timeline activity={TIMELINE_DEMO} />
+            </div>
+          </div>
+        </Section>
+
+        <Section title="My Tasks (WP-TSK-5 · N3C-03/C-60) — the shared /tasks + /portal/tasks list">
+          <p className="mb-3 text-step-1 text-text-3">
+            One component behind both the admin and partner task pages. The number beside the badge and on each
+            section header is a SERVER total for the whole query; the rows underneath are only the page you are on.
+            The pair below is that distinction: on the left, four overdue tasks exist and one is on this page, so a
+            muted line accounts for the other three; on the right everything fits on one page and the line is gone.
+            <code className="ml-1 rounded bg-surface-3 px-1">today</code> is pinned to {MY_TASKS_TODAY} so the
+            buckets never move under you.
+          </p>
+          <div className="grid gap-4 md:grid-cols-2">
+            <div className="flex flex-col gap-2">
+              <p className="text-step-1 font-semibold text-text-3">Page 1 of a longer list — totals outrun the page</p>
+              <MyTasksListDemo />
+            </div>
+            <div className="flex flex-col gap-2">
+              <p className="text-step-1 font-semibold text-text-3">Single page — totals equal the rows</p>
+              <MyTasksListSinglePageDemo />
             </div>
           </div>
         </Section>

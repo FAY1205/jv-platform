@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import * as React from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen, within } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ToastProvider } from "@/components";
@@ -72,13 +72,17 @@ beforeEach(() => {
 
 function renderPage(initialEditId: string | null = null) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
-  return render(
+  const ui = (id: string | null) => (
     <QueryClientProvider client={qc}>
       <ToastProvider>
-        <PartnersView initialEditId={initialEditId} />
+        <PartnersView initialEditId={id} />
       </ToastProvider>
-    </QueryClientProvider>,
+    </QueryClientProvider>
   );
+  const view = render(ui(initialEditId));
+  // A soft navigation re-renders this component with a new prop rather than remounting it —
+  // what router.replace does on the force-dynamic shell (the leads ?open= harness precedent).
+  return { ...view, rerenderWith: (id: string | null) => view.rerender(ui(id)) };
 }
 
 describe("UXF-10.1/10.2: partners roster identity + coverage cells", () => {
@@ -152,6 +156,27 @@ describe("N3C-04/C-56: partners ?edit= deep link", () => {
     await screen.findByRole("dialog", { name: /Edit PR-001/i });
     await user.click(screen.getByRole("button", { name: "Cancel" }));
     expect(replace).toHaveBeenCalledWith("/partners", { scroll: false });
+  });
+
+  // pr-reviewer F-2: the seed is ONE-SHOT by design. router.replace on a force-dynamic route
+  // re-renders this page with a fresh prop, so a seed keyed on "the prop is set" (rather than
+  // "we have not seeded yet") would re-open the form the moment the user closed it — an
+  // un-closeable dialog. This is that regression, written down.
+  it("N3C-04/C-56: closing then re-rendering with the SAME ?edit= does not re-open the form", async () => {
+    const user = userEvent.setup();
+    const { rerenderWith } = renderPage("p1");
+    await screen.findByRole("dialog", { name: /Edit PR-001/i });
+
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+
+    // What the URL sync looks like to this component: the server shell re-renders it, and on a
+    // slow/duplicated navigation the prop can still carry the id it was opened with.
+    rerenderWith("p1");
+    expect(screen.queryByRole("dialog")).toBeNull();
+    // …and again, for good measure — the flag is state, not a render-count coincidence.
+    rerenderWith("p1");
+    expect(screen.queryByRole("dialog")).toBeNull();
   });
 
   it("N3C-04/C-56: opening edit from the row menu writes ?edit=<id> into the URL", async () => {

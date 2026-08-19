@@ -1,10 +1,11 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { drizzle, type PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
-import { inArray } from "drizzle-orm";
+import { and, eq, inArray, isNull } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import * as schema from "@/db/schema";
-import { leadNavCounts } from "@/modules/leads/queries";
+import { leadNavCounts, listLeads } from "@/modules/leads/queries";
+import { LeadsQuerySchema, DEFAULT_STATUS_FILTERS } from "@/modules/leads/schema";
 import type { ScopeContext } from "@/lib/scope";
 
 const url = process.env.DATABASE_URL;
@@ -29,6 +30,7 @@ suite("WP-B: leadNavCounts (PRN-08 isolation + soft-delete exclusion)", () => {
       .where(inArray(schema.tenants.slug, [SLUG_A, SLUG_B]));
     const tids = t.map((x) => x.id);
     if (tids.length === 0) return;
+    await db.delete(schema.leadStatusHistory).where(inArray(schema.leadStatusHistory.tenantId, tids));
     await db.delete(schema.leads).where(inArray(schema.leads.tenantId, tids));
     await db.delete(schema.uploads).where(inArray(schema.uploads.tenantId, tids));
     await db.delete(schema.tenants).where(inArray(schema.tenants.id, tids));
@@ -86,5 +88,75 @@ suite("WP-B: leadNavCounts (PRN-08 isolation + soft-delete exclusion)", () => {
     // if the new FILTER lost the outer tenant predicate, B would read A's rows too.
     const b = await leadNavCounts(scopeB);
     expect(b).toEqual({ total: 2, active: 1, unmatched: 1 });
+  });
+
+  // audit-tenancy F-2: the outer predicate is the `leadWhere` BUILDER, not a hand-rolled
+  // tenant equality. For the admin stream the two are identical, so this leg pins the
+  // observable half — the boundary is a builder call, and it still isolates.
+  it("N3C-01/Q3 (audit-tenancy F-2): the counts compose lib/scope's leadWhere, and stay isolated", async () => {
+    const [a, b] = await Promise.all([leadNavCounts(scopeA), leadNavCounts(scopeB)]);
+    // Neither tenant's numbers include the other's rows: the union would be 5 total / 3 active.
+    expect(a.total + b.total).toBe(5);
+    expect(a).not.toEqual(b);
+    expect(a.total).toBe(3);
+    expect(b.total).toBe(2);
+    // Every count is a strict narrowing of that scope's own total — never the union.
+    for (const c of [a, b]) {
+      expect(c.active).toBeLessThanOrEqual(c.total);
+      expect(c.unmatched).toBeLessThanOrEqual(c.total);
+    }
+  });
+
+  // audit-tenancy F-3: "active" has two expressible definitions. They agree while every
+  // status is one of the seeded six and diverge the moment SEAM-06 (tenant-editable statuses,
+  // `lead_status_history.status` is TEXT) puts a lead in a status the default filter set has
+  // never heard of. This pins BOTH halves so the choice can't be silently reversed.
+  it("N3C-01/Q3 (audit-tenancy F-3): 'active' is the not-removed COLUMN, and stays right when a status goes off-list", async () => {
+    // The query the /leads page actually opens with: schema defaults + the UI's default status
+    // selection (LeadsQuerySchema's own default is "no status filter"). 50 is the largest
+    // allowed page size and comfortably exceeds this fixture, so `total` is the whole set.
+    const defaultQuery = { ...LeadsQuerySchema.parse({ pageSize: "50" }), statuses: [...DEFAULT_STATUS_FILTERS] };
+
+    // (1) While every status is seeded, the two definitions agree — this is the equivalence
+    //     the "N active leads · M total" header leans on.
+    const before = await leadNavCounts(scopeA);
+    expect((await listLeads(scopeA, defaultQuery)).total).toBe(before.active);
+
+    // (2) Put one of A's kept leads into a tenant-custom status.
+    const [target] = await db
+      .select({ id: schema.leads.id })
+      .from(schema.leads)
+      .where(and(eq(schema.leads.tenantId, scopeA.tenantId), eq(schema.leads.mlsStatus, "kept"), isNull(schema.leads.deletedAt)))
+      .limit(1);
+    await db.insert(schema.leadStatusHistory).values({
+      tenantId: scopeA.tenantId,
+      leadId: target.id,
+      status: "Escalated", // not in LEAD_STATUS_FILTERS — exactly what SEAM-06 allows
+    });
+
+    try {
+      // The COUNT is unmoved: the lead is not MLS-removed, so it is still active. This is the
+      // property the badge needs — a custom status must never make live work vanish from it.
+      const after = await leadNavCounts(scopeA);
+      expect(after.active).toBe(before.active);
+      expect(after.total).toBe(before.total);
+
+      // The default LIST, filtering by the enumerated six, now drops that lead. Asserted, not
+      // wished away: this is the divergence, and it is the LIST's status filter that owns it.
+      // Had `active` been defined as "status ∈ DEFAULT_STATUS_FILTERS", the badge would have
+      // under-counted here too.
+      const listed = await listLeads(scopeA, defaultQuery);
+      expect(listed.total).toBe(before.active - 1);
+      expect(listed.total).toBeLessThan(after.active);
+
+      // With no status filter at all, the lead is back and the un-narrowed list agrees with
+      // `active` again once the removed row is excluded by hand — proving the gap is the
+      // enumerated set, not the count.
+      const unfiltered = await listLeads(scopeA, { ...defaultQuery, statuses: [] });
+      expect(unfiltered.total).toBe(after.total);
+      expect(unfiltered.leads.filter((l) => l.status !== "Removed MLS")).toHaveLength(after.active);
+    } finally {
+      await db.delete(schema.leadStatusHistory).where(eq(schema.leadStatusHistory.leadId, target.id));
+    }
   });
 });

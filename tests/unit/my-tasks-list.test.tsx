@@ -58,6 +58,9 @@ const TODAY_TASK = task({ id: "t2", title: "Send comps + preliminary offer range
 const UPCOMING = task({ id: "t3", title: "Re-check MLS status before offer", dueOn: "2026-08-18", leadRefId: "LD-25-01802", group: "upcoming" });
 const NO_DUE = task({ id: "t4", title: "Quarterly nurture check-in", dueOn: null, leadRefId: "LD-25-01640", group: "none" });
 
+// The default payload deliberately omits `groupTotals`/`today`: it is the pre-N3C-03 shape,
+// so every case using it also proves the component still renders from a payload without the
+// new fields (a cached page written by an older tab, or an optimistic toggle's cache entry).
 function page(items: MyTask[], total = items.length) {
   return { items, page: 1, pageSize: 20, total };
 }
@@ -251,12 +254,14 @@ describe("N3C-12/C-66: the truncated seller · city line carries a title", () =>
 // payload now carries the true per-bucket totals; the rows it places are still just this
 // page's. These cases pin that split.
 describe("N3C-03/C-60: MyTasksList reads server-side group totals", () => {
-  const pageWithTotals = (items: MyTask[], totals: Record<string, number>, total: number) => ({
+  const pageWithTotals = (items: MyTask[], totals: Record<string, number>, total: number, over: Record<string, unknown> = {}) => ({
     items,
     page: 1,
     pageSize: 20,
     total,
     groupTotals: totals,
+    today: TODAY,
+    ...over,
   });
 
   it("N3C-03/C-60: the overdue badge reports the SERVER total, not this page's row count", async () => {
@@ -298,6 +303,71 @@ describe("N3C-03/C-60: MyTasksList reads server-side group totals", () => {
     expect(await screen.findByText("1 overdue")).toBeInTheDocument();
     const headings = screen.getAllByRole("heading", { level: 3 }).map((h) => h.textContent ?? "");
     expect(headings[0]).toContain("1");
+    vi.unstubAllGlobals();
+  });
+
+  // pr-reviewer F-1: the badge counts the whole query, the sections render this page. When
+  // those disagree the reader gets a number with no visible referent unless we say why.
+  it("N3C-03/C-60 (pr-reviewer F-1): when the badge outruns the page, a line says where the rest are", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => jsonRes(pageWithTotals([OVERDUE, TODAY_TASK], { overdue: 4, today: 2, upcoming: 0, none: 0 }, 6))) as unknown as typeof fetch,
+    );
+    wrap(<MyTasksList leadHrefBase="/leads?open=" today={TODAY} />);
+    await screen.findByText("4 overdue");
+    // 4 overdue in the query, 1 rendered here ⇒ 3 accounted for elsewhere.
+    const line = screen.getByText(/on another page/);
+    expect(line.textContent?.replace(/\s+/g, " ")).toContain("3 of the overdue tasks are on another page");
+    // The badge carries the same fact for anyone who hovers it.
+    expect(screen.getByText("4 overdue")).toHaveAttribute("title", "4 overdue in total — 3 on another page");
+  });
+
+  it("N3C-03/C-60 (pr-reviewer F-1): the WORST case — a badge with no Overdue section at all — is explained", async () => {
+    // Page 2 of an overdue-heavy list: every overdue row is behind you.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => jsonRes(pageWithTotals([TODAY_TASK], { overdue: 4, today: 1, upcoming: 0, none: 0 }, 5))) as unknown as typeof fetch,
+    );
+    wrap(<MyTasksList leadHrefBase="/leads?open=" today={TODAY} />);
+    await screen.findByText("4 overdue");
+    const headings = screen.getAllByRole("heading", { level: 3 }).map((h) => h.textContent ?? "");
+    expect(headings.some((h) => h.includes("Overdue"))).toBe(false); // nothing on screen to match the badge
+    expect(screen.getByText(/on another page/).textContent?.replace(/\s+/g, " ")).toContain("4 of the overdue tasks are on another page");
+  });
+
+  it("N3C-03/C-60 (pr-reviewer F-1): a single-page list never shows the line — it would be noise", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => jsonRes(pageWithTotals([OVERDUE, TODAY_TASK], { overdue: 1, today: 1, upcoming: 0, none: 0 }, 2))) as unknown as typeof fetch,
+    );
+    wrap(<MyTasksList leadHrefBase="/leads?open=" today={TODAY} />);
+    await screen.findByText("1 overdue");
+    expect(screen.queryByText(/on another page/)).toBeNull();
+    expect(screen.getByText("1 overdue")).not.toHaveAttribute("title");
+  });
+
+  it("N3C-03/C-60 (audit-tenancy F-4): rows bucket against the SERVER's clock, not the browser's", async () => {
+    // The server says today is 2026-08-15 and counted 1 overdue on that basis. A device a day
+    // behind would call the 08-14 task "today" and render it under a header the server says
+    // holds 0 — the drift this field closes. No `today` prop here: the payload is the clock.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        jsonRes(pageWithTotals([OVERDUE], { overdue: 1, today: 0, upcoming: 0, none: 0 }, 1, { today: "2026-08-15" })),
+      ) as unknown as typeof fetch,
+    );
+    // The browser is a day behind the server.
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-14T12:00:00.000Z"));
+    wrap(<MyTasksList leadHrefBase="/leads?open=" />);
+    vi.useRealTimers();
+
+    await screen.findByText(OVERDUE.title);
+    const headings = screen.getAllByRole("heading", { level: 3 }).map((h) => h.textContent ?? "");
+    expect(headings).toHaveLength(1);
+    expect(headings[0]).toContain("Overdue"); // …not "Today", which the local clock would have given
+    expect(headings[0]).toContain("1");
+    expect(screen.getByText("1 overdue")).toBeInTheDocument();
     vi.unstubAllGlobals();
   });
 });

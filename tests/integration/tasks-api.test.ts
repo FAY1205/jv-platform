@@ -454,7 +454,19 @@ suite("WP-TSK-2: lead tasks module (TSK-01..07)", () => {
 
     // Cross-stream: the admin's My Tasks never contains a partner task.
     const adminMine = await listMyTasks(admin(), { status: "open", page: 1 }, new Date("2026-08-15T12:00:00Z"));
+    // TST-11 (audit-tenancy F-1): assert the admin actually HAS tasks first. A `not.toContain`
+    // over an empty list passes for the wrong reason — it would keep passing if listMyTasks
+    // returned nothing at all, which is precisely the regression this leg exists to catch.
+    expect(adminMine.items.length).toBeGreaterThan(0);
     expect(adminMine.items.map((t) => t.title)).not.toContain("due first");
+    // …and the NEW aggregate is scoped by the same predicate as the rows it describes: the
+    // admin's totals count the admin's tasks, never the partner's (which sum to 3 above).
+    expect(adminMine.groupTotals).not.toBeNull();
+    expect(adminMine.groupTotals!.overdue).toBe(adminMine.items.filter((t) => t.group === "overdue").length);
+    expect(Object.values(adminMine.groupTotals!).reduce((a, b) => a + b, 0)).toBe(adminMine.total);
+    // The admin's whole list fits one page here, so "totals === this page's buckets" is a real
+    // equality, not a coincidence of paging.
+    expect(adminMine.total).toBe(adminMine.items.length);
   });
 
   it("TSK-07: My Tasks paginates server-side", async () => {

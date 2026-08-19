@@ -64,14 +64,8 @@ const partner = {
 const { apiGet } = vi.hoisted(() => ({ apiGet: vi.fn() }));
 vi.mock("@/lib/api", () => ({ apiGet, ApiError: class ApiError extends Error {} }));
 
-// jsdom lacks ResizeObserver (the Table's scroll hint) and the pointer-capture APIs Radix
-// menus use — the same stubs the sibling leads component tests install.
-class ResizeObserverStub {
-  observe() {}
-  unobserve() {}
-  disconnect() {}
-}
-(globalThis as unknown as { ResizeObserver: unknown }).ResizeObserver = ResizeObserverStub;
+// jsdom has no pointer-capture APIs; Radix menus need them. (ResizeObserver is stubbed
+// globally in tests/setup.ts — N3C-11 put one there for every suite.)
 if (typeof Element !== "undefined") {
   Element.prototype.hasPointerCapture ??= () => false;
   Element.prototype.setPointerCapture ??= () => {};

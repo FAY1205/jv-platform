@@ -189,10 +189,18 @@ export default function PartnerDetailPage() {
               {/* N3C-04/C-56: the deep link opens THIS partner's edit form on the roster.
                   It used to land on the bare roster ("Edit on Partners →") and leave the
                   admin to find the row and its ⋯ menu — the label now names the action it
-                  actually performs. */}
+                  actually performs.
+
+                  audit-design-system F-1: this className is Button's `secondary` recipe
+                  hand-written onto an <a> (Button renders a <button>, so a navigation can't
+                  use it as-is). It had drifted: `transition-colors` and no `active:` state, so
+                  the one control on this page that looks like a Button didn't press like one.
+                  Realigned to Button's base — inline-flex/select-none, the same
+                  transition property list, and active:scale-[.98]. A `Button asChild` that
+                  would delete this copy is a candidate, not this WP. */}
               <Link
                 href={`/partners?edit=${partner.id}`}
-                className="shrink-0 rounded-lg border border-border bg-surface px-3.5 py-2 text-sm font-semibold text-text-2 shadow-xs transition-colors hover:border-text-3 hover:bg-surface-2"
+                className="inline-flex shrink-0 select-none items-center rounded-lg border border-border bg-surface px-3.5 py-2 text-sm font-semibold text-text-2 shadow-xs transition-[background-color,border-color,transform] duration-[120ms] hover:border-text-3 hover:bg-surface-2 active:scale-[.98]"
               >
                 Edit partner
               </Link>

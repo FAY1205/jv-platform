@@ -140,6 +140,13 @@ export interface MyTasksPage {
    *  per-bucket number to report. Typed nullable rather than zero-filled so a caller that
    *  renders it cannot mistake "not applicable" for "none". */
   groupTotals: Record<DueGroup, number> | null;
+  /** N3C-03/C-60 (audit-tenancy F-4): the UTC calendar date the server used to compute `group`
+   *  and `groupTotals`. Shipped so the client can bucket rows against the SAME clock the
+   *  totals were counted with. Without it, a browser whose clock or offset puts it on a
+   *  different calendar day re-buckets the rows locally and a task's section stops matching
+   *  the count in the header above it — the exact drift class this WP closed on the server
+   *  side. One clock, and it is named in the payload rather than assumed. */
+  today: string;
 }
 
 /**
@@ -718,5 +725,6 @@ export async function listMyTasks(
     pageSize,
     total: totals[0]?.n ?? 0,
     groupTotals,
+    today,
   };
 }

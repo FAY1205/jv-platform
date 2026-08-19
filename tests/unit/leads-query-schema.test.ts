@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { LeadsQuerySchema, BoardQuerySchema, partnerIdParam, DEFAULT_STATUS_FILTERS, LEAD_STATUS_FILTERS, isDefaultStatuses } from "@/modules/leads/schema";
+import { LeadsQuerySchema, BoardQuerySchema, partnerIdParam, partnerUuidParam, DEFAULT_STATUS_FILTERS, LEAD_STATUS_FILTERS, isDefaultStatuses } from "@/modules/leads/schema";
 
 // ADM/FEP-03: the global leads list — every query param is Zod-validated and
 // normalized so the query layer only ever sees safe, canonical values.
@@ -126,5 +126,21 @@ describe("SCR: default leads status filter (all workflow statuses, no Removed ML
       expect(LeadsQuerySchema.parse({ partnerId: v }).partnerId).toBe(p.parse(v));
       expect(BoardQuerySchema.parse({ partnerId: v }).partnerId).toBe(p.parse(v));
     }
+  });
+
+  // N3C-04/C-56 (audit-tenancy F-5): the Partners page's `?edit=` can only ever name a partner
+  // ROW — no "unmatched" sentinel, which is a leads-list concept and means nothing there.
+  it("N3C-04/C-56: partnerUuidParam accepts a partner UUID only — the ?edit= roster invariant", () => {
+    const uuid = "11111111-2222-3333-4444-555555555555";
+    const p = partnerUuidParam();
+    expect(p.parse(uuid)).toBe(uuid);
+    expect(p.parse(uuid.toUpperCase())).toBe(uuid.toUpperCase()); // UUIDs are case-insensitive
+    // The sentinel the SIBLING parser accepts is refused here: `?edit=unmatched` is nonsense.
+    expect(p.parse("unmatched")).toBeNull();
+    expect(p.parse("p1")).toBeNull();
+    expect(p.parse(undefined)).toBeNull();
+    expect(p.parse(["a", "b"])).toBeNull(); // a repeated ?edit= degrades, never throws
+    expect(p.parse("'; drop table partners;--")).toBeNull();
+    expect(p.parse(`${uuid} or 1=1`)).toBeNull(); // anchored: no prefix match
   });
 });
