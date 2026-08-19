@@ -7,6 +7,7 @@ import { useQuery } from "@tanstack/react-query";
 import { apiGet } from "@/lib/api";
 import { AppShell, PartnerTag, QueryErrorState, Skeleton, usePageHeader } from "@/components";
 import { UncoveredKey } from "@/components/map";
+import { useIsDesktop } from "@/lib/use-media-query";
 import type { StateCoverage, CoveragePartner, CountyCoverage } from "@/modules/coverage/map";
 
 // Perf: the county choropleth carries ~0.9 MB of geometry. Every other page that shows it code-splits
@@ -61,6 +62,11 @@ function CoverageBody() {
   });
   const [selected, setSelected] = React.useState<string | null>(null);
   const toggle = (id: string | null) => setSelected((prev) => (prev === id ? null : id));
+  // C-57: gate the hero map's interactivity to desktop — the same VP-2 gate the dashboard
+  // uses (dashboard/page.tsx). The interactive map binds `touch-none`, which otherwise
+  // swallows page-scroll over a full-width map on a phone. The Partners list beside the
+  // map stays the (keyboard- and touch-reachable) way to highlight a territory.
+  const isDesktop = useIsDesktop();
 
   // Topbar carries the title only — the "Manage partners" action was dropped
   // (owner testing note #8, 2026-07-15); Partners is one click away in the nav.
@@ -93,13 +99,25 @@ function CoverageBody() {
                 counties={data!.counties}
                 selectedPartnerId={selected}
                 onSelectPartner={toggle}
+                // C-57: interactive on desktop (hover tooltips + zoom/pan + click-to-highlight),
+                // static on phones so the map never traps page-scroll (`touch-none` only binds
+                // when interactive). Mirrors the dashboard hero (VP-2).
+                interactive={isDesktop}
                 caption={{ title: "US coverage", subtitle: `${data!.coveredCount}/51 states · ${data!.zipCoverageCount} ZIP overrides` }}
               />
               <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-step-1 text-text-3">
                 {/* WP-UX-4: the shared UncoveredKey — exact hatch parity with the map (PRN-14),
                     one recipe with the dashboard's legend. */}
                 <UncoveredKey />
-                <span className="text-text-3">Counties a partner covers by ZIP show at county level; the rest follow their state&apos;s partner · scroll or use +/− to zoom, drag to pan · click to highlight a partner. Prefer the keyboard? Use the Partners list to highlight and open each territory.</span>
+                {/* C-57: the pointer clause is DESKTOP-ONLY — with `interactive={isDesktop}`
+                    the phone map has no zoom, no pan and no click-to-highlight, and copy
+                    that promises interactions the viewport does not have is worse than no
+                    copy. The structural sentence and the Partners-list alternative (the
+                    path that works everywhere) always render. */}
+                <span className="text-text-3">
+                  Counties a partner covers by ZIP show at county level; the rest follow their state&apos;s partner
+                  {isDesktop ? " · scroll or use +/− to zoom, drag to pan · click to highlight a partner. Prefer the keyboard? Use" : ". Use"} the Partners list to highlight and open each territory.
+                </span>
               </div>
             </section>
 
