@@ -16,7 +16,11 @@ import { logError } from "@/lib/observability";
 // ─────────────────────────────────────────────────────────────────────────────
 
 // Protected page prefixes. Public: "/", "/login", "/forgot", "/reset", "/gallery",
-// "/portal/login", static assets.
+// "/terms", "/portal/login", static assets.
+// C-55: "/terms" (the public read-only Terms of Service & Privacy Policy) is DELIBERATELY
+// public and must stay absent from the list below — it is what /signup's consent checkbox
+// links to, so a prospect can read the terms before they have an account. Do not "fix" it
+// by adding it here; the gated ACCEPTANCE screens live at "/tos", which stays protected.
 // "/runs" stays listed defensively: next.config redirects it to /imports (old
 // notification deep links, bookmarks), and the prefix guard is belt-and-braces.
 // WP-TSK-5: "/tasks" (admin My Tasks) is a new page and needs its own entry — API routes

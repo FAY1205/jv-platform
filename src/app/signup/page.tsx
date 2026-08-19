@@ -258,7 +258,10 @@ export default function SignupPage() {
                 label={
                   <span>
                     I agree to the{" "}
-                    <Link href="/tos" className="font-semibold text-brand-ink hover:underline">
+                    {/* C-55: /terms (public, read-only), NOT /tos — /tos is the protected
+                        in-app acceptance gate, so this link used to bounce a prospect to
+                        /login. New tab so the half-filled form survives the detour. */}
+                    <Link href="/terms" target="_blank" rel="noopener" className="font-semibold text-brand-ink hover:underline">
                       Terms of Service &amp; Privacy Policy
                     </Link>
                   </span>
