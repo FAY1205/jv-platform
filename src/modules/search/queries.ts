@@ -111,12 +111,17 @@ export async function globalSearch(scope: ScopeContext, q: string): Promise<Sear
   // escaped, so `%` matches a literal percent sign instead of every row (SRCH-07). The SAME
   // builder backs the admin leads list and the portal list — one definition of what `q` means.
   const leadMatch = leadSearchMatch(q);
+  const partnerMatch = partnerSearchMatch(q);
+  // Unreachable today — isSearchable already rejected everything that tokenizes to nothing —
+  // but explicit, because the failure mode is silent: an undefined conjunct would drop OUT of
+  // the `and()` below and return every row the scope allows instead of matching none.
+  if (!leadMatch || !partnerMatch) return empty(q);
+
   // leadWhere (PRN-08) + the recall guard. No mls_status predicate — removed leads
   // stay findable by design (SRCH-01).
   const leadsWhere = and(leadWhere(scope), isNull(schema.leads.deletedAt), leadMatch)!;
   const leadRank = leadRankExpr(q, leadIdentifierMatch(q));
 
-  const partnerMatch = partnerSearchMatch(q);
   const partnersWhere = and(
     tenantWhere(schema.partners, scope),
     isNull(schema.partners.deletedAt),
