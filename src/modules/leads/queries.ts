@@ -1,10 +1,11 @@
-import { and, asc, desc, eq, gte, ilike, inArray, isNull, lte, ne, or, sql, type SQL } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, isNull, lte, ne, or, sql, type SQL } from "drizzle-orm";
 import { getDb } from "@/db";
 import * as schema from "@/db/schema";
 import { matchMethodLabel } from "@/lib/match-method";
 import { tenantWhere, partnerOwnsLead, leadWhere, type ScopeContext } from "@/lib/scope";
 import { SEED_LEAD_STATUSES, currentStatus } from "@/modules/portal/statuses";
 import type { ScoreGroup, ScoreStatus, ScoreBreakdown } from "@/modules/pipeline/score";
+import { leadSearchMatch } from "@/modules/search/match";
 import { tagsByLeadRef, type TagView } from "@/modules/tags/tags";
 import { noteAndTaskActivity, sortNewestFirst, type LeadActivity } from "./timeline";
 import { BOARD_COLUMNS, BOARD_PAGE_SIZE } from "./board";
@@ -44,15 +45,17 @@ function taggedWithAny(scope: ScopeContext, tagIds: readonly string[]): SQL {
  * WP-UX-3 — the free-text search predicate, shared by the list and the board so `?q=`
  * means exactly one thing across both endpoints (the `taggedWithAny` precedent above).
  * Returns undefined for a blank query so callers can push conditionally.
+ *
+ * WP-N4 — the definition now lives in modules/search/match (SRCH-06/07), shared with the
+ * Ctrl-K overlay and the portal list so all three search boxes answer the same question.
+ * That upgrade brings multi-term AND matching, phone-digit matching, and — the bug this
+ * closes — ESCAPED patterns: this predicate used to interpolate the raw `q` into `%${q}%`,
+ * so a typed `%` widened the filter to every row the caller could see and `_` was a
+ * single-character wildcard. It stays a NARROWING conjunct ANDed into the scoped where
+ * (PRN-08); the builder never touches scope.
  */
 function qTextMatch(q: string): SQL | undefined {
-  if (!q) return undefined;
-  const like = `%${q}%`;
-  return or(
-    ilike(schema.leads.sellerFirst, like), ilike(schema.leads.sellerLast, like),
-    ilike(schema.leads.address, like), ilike(schema.leads.city, like),
-    ilike(schema.leads.zip, like), ilike(schema.leads.refId, like),
-  );
+  return leadSearchMatch(q);
 }
 
 /** Currently-unmatched = kept, not pipeline-routed, not yet manually assigned.

@@ -16,6 +16,12 @@ export const SEARCH_GROUP_LIMIT = 10;
 export const SEARCH_PHONE_MIN_DIGITS = 4;
 /** Hard cap on the accepted query length (mirrors the leads list's `q`). */
 export const SEARCH_MAX_CHARS = 120;
+/**
+ * SRCH-06 — the most whitespace-separated terms a query is split into. Six is well past
+ * any real search ("first last street city state zip") while keeping the AND-of-ORs
+ * predicate a fixed, plannable size: each term costs one OR-group over seven columns.
+ */
+export const SEARCH_MAX_TERMS = 6;
 
 /**
  * The ONE normalization the query text goes through. The client applies it before it
@@ -116,6 +122,27 @@ export function containsPattern(raw: string): string {
 export function searchPhoneDigits(raw: string): string | null {
   const digits = raw.replace(/\D/g, "");
   return digits.length >= SEARCH_PHONE_MIN_DIGITS ? digits : null;
+}
+
+/**
+ * SRCH-06 — split a query into its search TERMS: runs of whitespace collapse, empties drop,
+ * and at most SEARCH_MAX_TERMS come back. "marcus  phoenix" ⇒ ["marcus", "phoenix"], which
+ * the match builder turns into an AND of per-term column ORs.
+ *
+ * DM-12: the bound is on the SPLIT, not on the result — `split(sep, limit)` stops producing
+ * segments at the limit, so a 120-character query of single letters never materialises 60
+ * terms just to have 54 of them thrown away. Terms past the cap are silently dropped rather
+ * than rejected: the query still runs, on its first six terms (the same graceful-degradation
+ * contract as the over-long paste that SEARCH_MAX_CHARS truncates).
+ *
+ * PURE. Escaping happens downstream, per term, through containsPattern — a term is raw user
+ * text here and must never be interpolated into SQL.
+ */
+export function tokenize(raw: string): string[] {
+  return raw
+    .trim()
+    .split(/\s+/, SEARCH_MAX_TERMS)
+    .filter((t) => t.length > 0);
 }
 
 /** True when the (already trimmed) query is long enough to run (SRCH-01). */
