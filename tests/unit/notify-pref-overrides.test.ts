@@ -1,12 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import type * as schema from "@/db/schema";
-import {
-  DEFAULT_NOTIFICATION_PREFS,
-  NOTIFICATION_EVENTS,
-  mergeNotificationPrefs,
-  type NotificationPrefs,
-} from "@/modules/notify/prefs";
+import { DEFAULT_NOTIFICATION_PREFS, NOTIFICATION_EVENTS } from "@/modules/notify/prefs";
 import {
   NOTIFICATION_EVENT_KEYS,
   PrefOverrideValueSchema,
@@ -48,31 +43,38 @@ const D = DEFAULT_NOTIFICATION_PREFS;
 const LINKS = { typeUrl: "https://app.test/unsubscribe?token=a.b&event=hot_leads", typeLabel: "A hot lead is found in an upload", allUrl: "https://app.test/unsubscribe?token=a.b&event=all" };
 
 describe("WP-NF2 NTF-10: per-subject preference overlay (pure resolution)", () => {
-  it("NTF-10: no overlay resolves exactly to the tenant preference, for both roles", () => {
+  it("NTF-10: no overlay resolves exactly to the SHIPPED DEFAULT, for both roles", () => {
     for (const e of NOTIFICATION_EVENTS) {
-      expect(resolveEffectiveChannel(D, null, e.role, e.key)).toEqual(
+      expect(resolveEffectiveChannel(null, e.role, e.key)).toEqual(
         (D[e.role] as Record<string, { email: boolean; inApp: boolean }>)[e.key],
       );
       // undefined and {} are the other two "never touched" shapes a loader can hand over.
-      expect(resolveEffectiveChannel(D, undefined, e.role, e.key)).toEqual(resolveEffectiveChannel(D, null, e.role, e.key));
-      expect(resolveEffectiveChannel(D, {}, e.role, e.key)).toEqual(resolveEffectiveChannel(D, null, e.role, e.key));
+      expect(resolveEffectiveChannel(undefined, e.role, e.key)).toEqual(resolveEffectiveChannel(null, e.role, e.key));
+      expect(resolveEffectiveChannel({}, e.role, e.key)).toEqual(resolveEffectiveChannel(null, e.role, e.key));
     }
   });
 
-  it("NTF-10: the overlay applies FIELD-WISE — an untouched leg still tracks the tenant default", () => {
-    // Tenant flips the in-app leg of an event the subject has only ever pinned on email.
-    const tenant: NotificationPrefs = mergeNotificationPrefs({ admin: { hot_leads: { email: true, inApp: false } } });
-    const overlay: PrefOverrideValue = { events: { hot_leads: { email: false } } };
-    expect(resolveEffectiveChannel(tenant, overlay, "admin", "hot_leads")).toEqual({ email: false, inApp: false });
+  it("NTF-10: the overlay applies FIELD-WISE — an untouched leg still tracks the shipped default", () => {
+    // WP-NF2b: the old version of this leg flipped a TENANT matrix to prove the untouched leg
+    // moved with it. There is no tenant matrix now, so it is proved the other way round: pin ONE
+    // leg and show the OTHER still reads its default — on two events whose two legs differ, so
+    // "tracks the default" and "happens to match the pin" cannot be confused.
+    const pinEmail: PrefOverrideValue = { events: { status_change: { email: true }, run_summary: { email: false } } };
+    // status_change defaults { email: false, inApp: true }: email pinned ON, inApp untouched.
+    expect(resolveEffectiveChannel(pinEmail, "admin", "status_change")).toEqual({ email: true, inApp: true });
+    // run_summary defaults { email: true, inApp: true }: email pinned OFF, inApp untouched.
+    expect(resolveEffectiveChannel(pinEmail, "admin", "run_summary")).toEqual({ email: false, inApp: true });
 
-    const tenant2: NotificationPrefs = mergeNotificationPrefs({ admin: { hot_leads: { email: true, inApp: true } } });
-    expect(resolveEffectiveChannel(tenant2, overlay, "admin", "hot_leads")).toEqual({ email: false, inApp: true });
+    // …and the mirror image: pin only the IN-APP leg, and email still reads its own default.
+    const pinInApp: PrefOverrideValue = { events: { status_change: { inApp: false }, run_summary: { inApp: false } } };
+    expect(resolveEffectiveChannel(pinInApp, "admin", "status_change")).toEqual({ email: false, inApp: false });
+    expect(resolveEffectiveChannel(pinInApp, "admin", "run_summary")).toEqual({ email: true, inApp: false });
   });
 
-  it("NTF-10: an overlay can WIDEN a leg the tenant default has off", () => {
+  it("NTF-10: an overlay can WIDEN a leg the shipped default has off", () => {
     // status_change defaults { email: false, inApp: true } — opting in is the whole point of NTF-15.
-    expect(resolveEffectiveChannel(D, null, "admin", "status_change").email).toBe(false);
-    expect(resolveEffectiveChannel(D, { events: { status_change: { email: true } } }, "admin", "status_change")).toEqual({
+    expect(resolveEffectiveChannel(null, "admin", "status_change").email).toBe(false);
+    expect(resolveEffectiveChannel({ events: { status_change: { email: true } } }, "admin", "status_change")).toEqual({
       email: true,
       inApp: true,
     });
@@ -80,7 +82,7 @@ describe("WP-NF2 NTF-10: per-subject preference overlay (pure resolution)", () =
 
   it("NTF-10: allEmailsOff kills every email leg and NEVER touches in-app", () => {
     for (const e of NOTIFICATION_EVENTS) {
-      const r = resolveEffectiveChannel(D, { allEmailsOff: true }, e.role, e.key);
+      const r = resolveEffectiveChannel({ allEmailsOff: true }, e.role, e.key);
       expect(r.email, `${e.role}/${e.key} email`).toBe(false);
       expect(r.inApp, `${e.role}/${e.key} inApp`).toBe(
         (D[e.role] as Record<string, { email: boolean; inApp: boolean }>)[e.key].inApp,
@@ -90,27 +92,41 @@ describe("WP-NF2 NTF-10: per-subject preference overlay (pure resolution)", () =
 
   it("NTF-10: allEmailsOff beats a per-event email opt-in (applied last)", () => {
     const overlay: PrefOverrideValue = { events: { status_change: { email: true } }, allEmailsOff: true };
-    expect(resolveEffectiveChannel(D, overlay, "admin", "status_change")).toEqual({ email: false, inApp: true });
+    expect(resolveEffectiveChannel(overlay, "admin", "status_change")).toEqual({ email: false, inApp: true });
   });
 
   it("NTF-10: allEmailsOff:false is inert — it never turns an off leg back on", () => {
-    expect(resolveEffectiveChannel(D, { allEmailsOff: false }, "admin", "status_change").email).toBe(false);
-    expect(resolveEffectiveChannel(D, { allEmailsOff: false }, "admin", "run_summary").email).toBe(true);
+    expect(resolveEffectiveChannel({ allEmailsOff: false }, "admin", "status_change").email).toBe(false);
+    expect(resolveEffectiveChannel({ allEmailsOff: false }, "admin", "run_summary").email).toBe(true);
   });
 
   it("NTF-10: a partner-ORG overlay answers the EMAIL leg only", () => {
-    expect(resolveOrgEmail(D, null, "new_leads")).toBe(true);
-    expect(resolveOrgEmail(D, { events: { new_leads: { email: false } } }, "new_leads")).toBe(false);
-    expect(resolveOrgEmail(D, { allEmailsOff: true }, "new_leads")).toBe(false);
+    expect(resolveOrgEmail(null, "new_leads")).toBe(true);
+    expect(resolveOrgEmail({ events: { new_leads: { email: false } } }, "new_leads")).toBe(false);
+    expect(resolveOrgEmail({ allEmailsOff: true }, "new_leads")).toBe(false);
     // An org row's in-app leg is meaningless and must not leak into the email answer.
-    expect(resolveOrgEmail(D, { events: { new_leads: { inApp: false } } }, "new_leads")).toBe(true);
+    expect(resolveOrgEmail({ events: { new_leads: { inApp: false } } }, "new_leads")).toBe(true);
   });
 
-  it("NTF-10: the same event key resolves per ROLE bucket", () => {
-    const tenant = mergeNotificationPrefs({ admin: { task_due: { email: false } }, partner: { task_due: { email: true } } });
-    const overlay: PrefOverrideValue = {};
-    expect(resolveEffectiveChannel(tenant, overlay, "admin", "task_due").email).toBe(false);
-    expect(resolveEffectiveChannel(tenant, overlay, "partner", "task_due").email).toBe(true);
+  it("NTF-10: an overlay is keyed by EVENT alone, and the base comes from the caller's own bucket", () => {
+    // `hot_leads`, `task_due` and `task_assigned` live in BOTH role buckets and share ONE overlay
+    // key (NOTIFICATION_EVENT_KEYS), because a subject only ever reads one bucket. So: one
+    // overlay, applied under both roles, must still take its BASE from the role it was asked
+    // about — never from a hardcoded bucket.
+    const shared = NOTIFICATION_EVENTS.filter((e) => e.role === "admin").filter((e) =>
+      NOTIFICATION_EVENTS.some((o) => o.role === "partner" && o.key === e.key),
+    );
+    expect(shared.map((e) => e.key).sort()).toEqual(["hot_leads", "task_assigned", "task_due"]);
+    const overlay: PrefOverrideValue = { events: { hot_leads: { email: false } } };
+    for (const role of ["admin", "partner"] as const) {
+      for (const { key } of shared) {
+        const base = (D[role] as Record<string, { email: boolean; inApp: boolean }>)[key];
+        // The in-app leg is never touched by this overlay, so it is the honest witness of which
+        // bucket the base was read from.
+        expect(resolveEffectiveChannel(overlay, role, key).inApp, `${role}/${key}`).toBe(base.inApp);
+      }
+      expect(resolveEffectiveChannel(overlay, role, "hot_leads").email).toBe(false); // the shared pin
+    }
   });
 });
 
@@ -138,15 +154,15 @@ describe("WP-NF2 NTF-10: overlay value schema", () => {
 
 describe("WP-NF2 NTF-15: self-serve preferences view (pure)", () => {
   it("NTF-15: the view lists ONLY the caller's role bucket", () => {
-    const admin = describeSubjectPrefs(D, null, "admin");
-    const partner = describeSubjectPrefs(D, null, "partner");
+    const admin = describeSubjectPrefs(null, "admin");
+    const partner = describeSubjectPrefs(null, "partner");
     expect(admin.events.map((e) => e.key)).toEqual(NOTIFICATION_EVENTS.filter((e) => e.role === "admin").map((e) => e.key));
     expect(partner.events.map((e) => e.key)).toEqual(NOTIFICATION_EVENTS.filter((e) => e.role === "partner").map((e) => e.key));
     expect(admin.events.map((e) => e.key)).not.toContain("new_leads");
   });
 
   it("NTF-15: `overridden` marks the pinned legs, and `effective` reflects the overlay", () => {
-    const view = describeSubjectPrefs(D, { events: { status_change: { email: true } }, allEmailsOff: false }, "admin");
+    const view = describeSubjectPrefs({ events: { status_change: { email: true } }, allEmailsOff: false }, "admin");
     const row = view.events.find((e) => e.key === "status_change")!;
     expect(row.overridden).toEqual({ email: true, inApp: false });
     expect(row.effective).toEqual({ email: true, inApp: true });
@@ -156,7 +172,7 @@ describe("WP-NF2 NTF-15: self-serve preferences view (pure)", () => {
   });
 
   it("NTF-15: allEmailsOff shows through both the flag and every effective email leg", () => {
-    const view = describeSubjectPrefs(D, { allEmailsOff: true }, "partner");
+    const view = describeSubjectPrefs({ allEmailsOff: true }, "partner");
     expect(view.allEmailsOff).toBe(true);
     expect(view.events.every((e) => e.effective.email === false)).toBe(true);
     expect(view.events.some((e) => e.effective.inApp === true)).toBe(true);

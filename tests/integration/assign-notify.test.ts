@@ -6,7 +6,7 @@ import { randomUUID } from "node:crypto";
 import * as schema from "@/db/schema";
 import type { ScopeContext } from "@/lib/scope";
 import { notifyLeadAssigned, notifyLeadsBulkAssigned } from "@/modules/notify/outbox";
-import { saveNotificationPrefs } from "@/modules/notify/prefs";
+import { saveSubjectOverride, type PrefOverrideValue } from "@/modules/notify/pref-overrides";
 
 // F-40 / ADR-0020: an admin manual-assign / re-route notifies the RECEIVING partner
 // (the signal that was previously missing). Self-skips without DATABASE_URL.
@@ -23,7 +23,7 @@ suite("F-40: receiving partner is notified on assign/re-route", () => {
     const t = await db.select({ id: schema.tenants.id }).from(schema.tenants).where(eq(schema.tenants.slug, SLUG));
     const tids = t.map((x) => x.id);
     if (tids.length === 0) return;
-    for (const tbl of [schema.notifications, schema.emailOutbox, schema.settings, schema.users, schema.partners]) {
+    for (const tbl of [schema.notifications, schema.emailOutbox, schema.notificationPrefOverrides, schema.settings, schema.users, schema.partners]) {
       await db.delete(tbl).where(inArray(tbl.tenantId, tids));
     }
     await db.delete(schema.tenants).where(inArray(schema.tenants.id, tids));
@@ -78,6 +78,14 @@ suite("F-40: receiving partner is notified on assign/re-route", () => {
   const reset = async () => {
     await db.delete(schema.notifications).where(eq(schema.notifications.tenantId, id.tenant));
     await db.delete(schema.emailOutbox).where(eq(schema.emailOutbox.tenantId, id.tenant));
+    await db.delete(schema.notificationPrefOverrides).where(eq(schema.notificationPrefOverrides.tenantId, id.tenant));
+  };
+
+  /** WP-NF2b: preferences are PER SEAT. These suites used to set one workspace matrix row; now
+   *  they set the same value on every seat the fan-out will reach, which is what the retired
+   *  matrix effectively meant for this org. */
+  const setSeatPrefs = async (value: PrefOverrideValue, userIds: string[] = [id.pxUser, id.pxUser2]) => {
+    for (const userId of userIds) await saveSubjectOverride(db, id.tenant, { userId }, value);
   };
 
   it("F-40: assigning to a partner with a user creates one in-app notification", async () => {
@@ -112,12 +120,12 @@ suite("F-40: receiving partner is notified on assign/re-route", () => {
     // WP-NF1 D4: the two signals used to share one preference row, so the Settings toggle
     // labelled "New leads distributed to you" silently governed manual re-routes too.
     await reset();
-    await saveNotificationPrefs(db, admin(), { partner: { new_leads: { inApp: false, email: false } } });
+    await setSeatPrefs({ events: { new_leads: { inApp: false, email: false } } });
     await notifyLeadAssigned(db, admin(), { leadRef: "LD-26-00120", partnerId: id.px });
     expect((await allNotifications()).length).toBe(2); // both seats — new_leads is irrelevant here
 
     await reset();
-    await saveNotificationPrefs(db, admin(), { partner: { assigned_lead: { inApp: false, email: false } } });
+    await setSeatPrefs({ events: { assigned_lead: { inApp: false, email: false } } });
     await notifyLeadAssigned(db, admin(), { leadRef: "LD-26-00121", partnerId: id.px });
     expect(await allNotifications()).toHaveLength(0); // suppressed by its OWN pref
     expect(await allEmails()).toHaveLength(0);
@@ -127,7 +135,7 @@ suite("F-40: receiving partner is notified on assign/re-route", () => {
     // Default is email-off (today's behavior preserved); turning it on must actually send —
     // a checkbox that does nothing is worse than no checkbox.
     await reset();
-    await saveNotificationPrefs(db, admin(), { partner: { assigned_lead: { inApp: true, email: true } } });
+    await setSeatPrefs({ events: { assigned_lead: { inApp: true, email: true } } });
     await notifyLeadAssigned(db, admin(), { leadRef: "LD-26-00130", partnerId: id.px });
 
     const emails = await allEmails();
@@ -143,7 +151,7 @@ suite("F-40: receiving partner is notified on assign/re-route", () => {
 
   it("NTF-08: email-only prefs send the mail and create NO in-app row (channels are independent)", async () => {
     await reset();
-    await saveNotificationPrefs(db, admin(), { partner: { assigned_lead: { inApp: false, email: true } } });
+    await setSeatPrefs({ events: { assigned_lead: { inApp: false, email: true } } });
     await notifyLeadAssigned(db, admin(), { leadRef: "LD-26-00131", partnerId: id.px });
     expect(await allNotifications()).toHaveLength(0);
     expect(await allEmails()).toHaveLength(2);
@@ -151,7 +159,7 @@ suite("F-40: receiving partner is notified on assign/re-route", () => {
 
   it("NTF-07/S6: a bulk assign is ONE summary per seat, not one per lead", async () => {
     await reset();
-    await saveNotificationPrefs(db, admin(), { partner: { assigned_lead: { inApp: true, email: false } } });
+    await setSeatPrefs({ events: { assigned_lead: { inApp: true, email: false } } });
     await notifyLeadsBulkAssigned(db, admin(), { partnerId: id.px, count: 40 });
     const rows = await allNotifications();
     expect(rows).toHaveLength(2); // one per active seat, not 40 and not 80

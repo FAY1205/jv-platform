@@ -5,11 +5,9 @@ import { and, eq, inArray } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import * as schema from "@/db/schema";
 import { remindDueTasks, REMINDER_ATTEMPTS_MAX } from "@/modules/notify/task-reminders";
-import { saveNotificationPrefs } from "@/modules/notify/prefs";
 import { saveSubjectOverride } from "@/modules/notify/pref-overrides";
 import { utcDateString } from "@/modules/tasks/dates";
 import { releaseTenantLeads } from "../helpers/hold";
-import type { ScopeContext } from "@/lib/scope";
 
 // WP-TSK-6 (TSK-08): the due-task reminder sweep that rides the drain-outbox cron.
 // Proves the one-nudge-ever guarantee, the BINDING recipient rule (resolved THROUGH
@@ -317,12 +315,11 @@ suite("TSK-08: notification prefs gate each channel independently", () => {
       { tenantId: t.id, leadId: lead.id, title: "Partner pref task", authorRole: "partner", authorUserId: id.pxUser, assignedToUserId: id.pxUser, dueOn: YESTERDAY },
     ]);
 
-    // Opposite halves of the matrix: admin keeps in-app only, partner keeps email only.
-    const scope: ScopeContext = { tenantId: id.tenant, role: "admin", userId: id.admin };
-    await saveNotificationPrefs(db, scope, {
-      admin: { task_due: { email: false, inApp: true } },
-      partner: { task_due: { email: true, inApp: false } },
-    });
+    // WP-NF2b: opposite halves, set PER SEAT (there is no workspace matrix any more) — the
+    // admin seat keeps in-app only, the partner seat keeps email only. Same coverage, and it
+    // now proves the sweep resolved EACH RECIPIENT rather than one tenant-wide switch.
+    await saveSubjectOverride(db, id.tenant, { userId: id.admin }, { events: { task_due: { email: false, inApp: true } } });
+    await saveSubjectOverride(db, id.tenant, { userId: id.pxUser }, { events: { task_due: { email: true, inApp: false } } });
   });
 
   afterAll(async () => {
@@ -330,7 +327,7 @@ suite("TSK-08: notification prefs gate each channel independently", () => {
     await client.end();
   });
 
-  it("TSK-08: prefs off → channel suppressed", async () => {
+  it("TSK-08: a seat's muted channel is suppressed, the other still delivers", async () => {
     expect((await remindDueTasks(db, { tenantId: id.tenant, appBaseUrl: APP_URL, today, now })).reminded).toBe(2);
 
     const emails = await db
@@ -568,10 +565,12 @@ suite("TSK-08: sweep mechanics — limit, atomicity, silent consume", () => {
     //
     // New contract: no channel ⇒ SKIP WITHOUT CLAIMING. No reminded_at, no attempt increment
     // (this is not an orphan — the recipient resolved fine — so the C-14 retirement heads-up
-    // must not fire), not counted. The cost of staying eligible is bounded by the tenant-level
-    // early-out, proven below.
-    const scope: ScopeContext = { tenantId: id.tenant, role: "admin", userId: id.admin };
-    await saveNotificationPrefs(db, scope, { admin: { task_due: { email: false, inApp: false } } });
+    // must not fire), not counted.
+    //
+    // WP-NF2b: the mute is the RECIPIENT's own overlay. The tenant-level mute this used to be
+    // written against no longer exists (nor does the early-out that bounded it — see the
+    // per-seat case below).
+    await saveSubjectOverride(db, id.tenant, { userId: id.admin }, { events: { task_due: { email: false, inApp: false } } });
     const taskId = await addTask("Silent");
     const emailsBefore = (await emails()).length;
     const notifsBefore = (await db.select().from(schema.notifications).where(eq(schema.notifications.tenantId, id.tenant))).length;
@@ -589,11 +588,10 @@ suite("TSK-08: sweep mechanics — limit, atomicity, silent consume", () => {
 
   it("NTF-09: re-enabling the channel later DELIVERS the nudge that was never spent", async () => {
     // The whole point of not burning it. The "Silent" task above is still eligible.
-    const scope: ScopeContext = { tenantId: id.tenant, role: "admin", userId: id.admin };
     const taskId = (await tasksNamed("Silent"))[0].id;
     expect((await db.select().from(schema.leadTasks).where(eq(schema.leadTasks.id, taskId)))[0].remindedAt).toBeNull();
 
-    await saveNotificationPrefs(db, scope, { admin: { task_due: { email: false, inApp: true } } });
+    await saveSubjectOverride(db, id.tenant, { userId: id.admin }, { events: { task_due: { email: false, inApp: true } } });
     expect((await sweep()).reminded).toBe(1);
     expect((await db.select().from(schema.leadTasks).where(eq(schema.leadTasks.id, taskId)))[0].remindedAt).not.toBeNull();
     const notifs = await db.select().from(schema.notifications).where(eq(schema.notifications.tenantId, id.tenant));
@@ -607,30 +605,42 @@ suite("TSK-08: sweep mechanics — limit, atomicity, silent consume", () => {
     ).toHaveLength(1);
   });
 
-  it("NTF-09: a fully-muted tenant early-outs BEFORE the due select (one prefs read, no scan)", async () => {
-    // Because a muted task is no longer consumed, the candidate set never drains itself — so
-    // without this early-out a muted tenant would pay a due select plus two visibility queries
-    // per task, every tick, forever. Proven by observation: with both streams off the sweep
-    // reports nothing AND leaves every candidate untouched, including one it would otherwise
-    // have to resolve a recipient for.
-    const scope: ScopeContext = { tenantId: id.tenant, role: "admin", userId: id.admin };
-    const taskId = await addTask("Muted tenant");
-    await saveNotificationPrefs(db, scope, {
-      admin: { task_due: { email: false, inApp: false } },
-      partner: { task_due: { email: false, inApp: false } },
-    });
-    expect(await sweep()).toEqual({ reminded: 0, retired: 0 });
-    const row = (await db.select().from(schema.leadTasks).where(eq(schema.leadTasks.id, taskId)))[0];
-    expect(row.remindedAt).toBeNull();
-    expect(row.reminderAttempts).toBe(0);
+  it("WP-NF2b: one seat's mute never mutes another's — the tenant-wide ceiling is GONE", async () => {
+    // ⚠️ REPLACES "a fully-muted tenant early-outs BEFORE the due select". That early-out read
+    // the workspace `task_due` row, decided the whole tenant was muted, and returned before the
+    // due select — which made the workspace row the ONE ceiling a user overlay could not widen
+    // (WP-NF2 deferred-for-owner item 8, flagged as a deliberate asymmetry). WP-NF2b dissolves
+    // it with the workspace layer: there is nothing tenant-wide left to read, so the sweep can
+    // no longer skip a tenant on one seat's behalf, and every recipient is resolved on its own
+    // overlay. This is the discriminating case the old design could not express.
+    const muted = id.admin; // still carries the { email:false, inApp:true } overlay from above
+    const unmuted = randomUUID();
+    await db.insert(schema.users).values({ id: unmuted, tenantId: id.tenant, email: "second@tr-mech.test", role: "admin" });
+    await saveSubjectOverride(db, id.tenant, { userId: muted }, { events: { task_due: { email: false, inApp: false } } });
 
-    // One stream back on is NOT muted — the sweep runs again and delivers.
-    await saveNotificationPrefs(db, scope, {
-      admin: { task_due: { email: false, inApp: true } },
-      partner: { task_due: { email: false, inApp: false } },
-    });
+    const mine = await addTask("Muted seat"); // assigned to the muted seat
+    const [theirs] = await db
+      .insert(schema.leadTasks)
+      .values({
+        tenantId: id.tenant, leadId: id.lead, title: "Unmuted seat", authorRole: "admin",
+        authorUserId: unmuted, assignedToUserId: unmuted, dueOn: YESTERDAY,
+      })
+      .returning({ id: schema.leadTasks.id });
+
+    // ONE tick, two recipients, two different answers.
     expect((await sweep()).reminded).toBe(1);
-    expect((await db.select().from(schema.leadTasks).where(eq(schema.leadTasks.id, taskId)))[0].remindedAt).not.toBeNull();
+    const mineRow = (await db.select().from(schema.leadTasks).where(eq(schema.leadTasks.id, mine)))[0];
+    expect(mineRow.remindedAt).toBeNull(); // skipped without claiming
+    expect(mineRow.reminderAttempts).toBe(0); // …and not treated as an orphan
+    expect((await db.select().from(schema.leadTasks).where(eq(schema.leadTasks.id, theirs.id)))[0].remindedAt).not.toBeNull();
+    const notifs = await db.select().from(schema.notifications).where(eq(schema.notifications.tenantId, id.tenant));
+    expect(notifs.filter((n) => n.title === "Task due: Unmuted seat").map((n) => n.userId)).toEqual([unmuted]);
+    expect(notifs.some((n) => n.title === "Task due: Muted seat")).toBe(false);
+
+    // The muted seat's own nudge is still unspent, and arrives on the tick after it opts back in.
+    await saveSubjectOverride(db, id.tenant, { userId: muted }, { events: { task_due: { email: false, inApp: true } } });
+    expect((await sweep()).reminded).toBe(1);
+    expect((await db.select().from(schema.leadTasks).where(eq(schema.leadTasks.id, mine)))[0].remindedAt).not.toBeNull();
   });
 
   it("NTF-06: a DEACTIVATED seat receives nothing — the task is treated as undeliverable, not delivered", async () => {
@@ -750,10 +760,9 @@ suite("WP-TSK-6a (C-14): orphan retirement + wall-clock budget", () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// WP-NF2 PR A (NTF-10/NTF-14): the per-SUBJECT overlay retrofit on this sweep. The tenant-prefs
-// suite above proves the tenant matrix still gates each channel; these legs prove the SECOND
-// layer — one seat's own row — gates it too, is tenant-pinned, and that the reminder email
-// carries that seat's unsubscribe token.
+// WP-NF2 PR A (NTF-10/NTF-14): the per-SUBJECT overlay on this sweep. Post-WP-NF2b the overlay
+// is the ONLY stored layer (defaults ⊕ overlay), so these legs prove it gates each channel, is
+// tenant-pinned, and that the reminder email carries that seat's own unsubscribe token.
 // ─────────────────────────────────────────────────────────────────────────────
 suite("NTF-10/NTF-14: the reminder sweep honours the per-subject overlay", () => {
   let client: ReturnType<typeof postgres>;
@@ -801,8 +810,8 @@ suite("NTF-10/NTF-14: the reminder sweep honours the per-subject overlay", () =>
     id.adminA = a.admin;
     id.tenantB = b.tenantId;
     id.adminB = b.admin;
-    // Tenant defaults leave task_due fully ON for both channels, so anything suppressed below is
-    // the OVERLAY doing it — never the tenant matrix.
+    // The shipped defaults leave task_due fully ON for both channels, so anything suppressed
+    // below is the OVERLAY doing it — there is no other layer left that could.
   });
 
   afterAll(async () => {

@@ -5,7 +5,7 @@ import { and, eq, inArray } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import * as schema from "@/db/schema";
 import { enqueueRunDigests, drainOutbox, releaseDueImports, activePartnerSeats, backoffMs, BACKOFF_JITTER } from "@/modules/notify/outbox";
-import { DEFAULT_NOTIFICATION_PREFS, mergeNotificationPrefs } from "@/modules/notify/prefs";
+import { saveSubjectOverride } from "@/modules/notify/pref-overrides";
 import type { EmailTransport, OutboundEmail } from "@/modules/notify/email";
 import type { ScopeContext } from "@/lib/scope";
 import type { RunSummary } from "@/modules/analytics/run-summary";
@@ -232,8 +232,7 @@ suite("SCR-12: hot-lead fan-out", () => {
   });
 
   it("SCR-12: at import (audience admin) the admin alert covers every hot kept lead incl. house + unmatched, and no partner hot alert fires", async () => {
-    // prefs must be passed for the in-app channel (email fires without it; in-app is gated on prefs).
-    await enqueueRunDigests(db, scope, { uploadRef, summary, portalBaseUrl: "https://app.test", adminEmails: ["admin@hot.test"], adminUserId: scope.userId, prefs: DEFAULT_NOTIFICATION_PREFS, audience: "admin" });
+    await enqueueRunDigests(db, scope, { uploadRef, summary, portalBaseUrl: "https://app.test", adminEmails: ["admin@hot.test"], adminUserId: scope.userId, audience: "admin" });
     const rows = await db.select().from(schema.emailOutbox).where(and(eq(schema.emailOutbox.tenantId, scope.tenantId), eq(schema.emailOutbox.kind, "hot_leads")));
     // Exactly one admin hot email (to the admin), none to the partner.
     expect(rows).toHaveLength(1);
@@ -254,7 +253,7 @@ suite("SCR-12: hot-lead fan-out", () => {
   it("SCR-12: at release (audience partner) only the non-house assigned partner is alerted, with only their own hot lead", async () => {
     // Clear the admin hot rows from the previous case so this asserts the partner path alone.
     await db.delete(schema.emailOutbox).where(and(eq(schema.emailOutbox.tenantId, scope.tenantId), eq(schema.emailOutbox.kind, "hot_leads")));
-    await enqueueRunDigests(db, scope, { uploadRef, portalBaseUrl: "https://app.test", prefs: DEFAULT_NOTIFICATION_PREFS, audience: "partner" });
+    await enqueueRunDigests(db, scope, { uploadRef, portalBaseUrl: "https://app.test", audience: "partner" });
     const rows = await db.select().from(schema.emailOutbox).where(and(eq(schema.emailOutbox.tenantId, scope.tenantId), eq(schema.emailOutbox.kind, "hot_leads")));
     // Exactly one partner hot email, to the normal partner (house has no email + is excluded).
     expect(rows).toHaveLength(1);
@@ -408,7 +407,7 @@ suite("NTF-06/NTF-07: partner seat fan-out", () => {
 
   it("NTF-07: the run digest notifies EVERY active seat in-app, while the EMAIL stays org-level", async () => {
     await clearNotifs();
-    await enqueueRunDigests(db, scope, { uploadRef, portalBaseUrl: "https://app.test", prefs: DEFAULT_NOTIFICATION_PREFS, audience: "partner" });
+    await enqueueRunDigests(db, scope, { uploadRef, portalBaseUrl: "https://app.test", audience: "partner" });
 
     const digests = await partnerNotifs();
     const newLeads = digests.filter((n) => n.type === "new_leads");
@@ -428,21 +427,29 @@ suite("NTF-06/NTF-07: partner seat fan-out", () => {
     expect(emails.some((e) => e.toAddress.endsWith("@meridian.test") && e.toAddress !== "org@meridian.test")).toBe(false);
   });
 
-  it("NTF-05: with the partner in-app channel off, no seat is notified (the gate still gates)", async () => {
+  it("NTF-05: with each SEAT's in-app channel off, no seat is notified (the gate still gates)", async () => {
+    // WP-NF2b: the in-app gate is a per-SEAT overlay now — enqueueRunDigests no longer takes a
+    // prefs argument at all. Every active seat mutes both bell legs; the org EMAIL is untouched
+    // (it is governed by the partner-ORG overlay, which nothing here writes).
     await clearNotifs();
-    await enqueueRunDigests(db, scope, {
-      uploadRef,
-      portalBaseUrl: "https://app.test",
-      prefs: mergeNotificationPrefs({ partner: { new_leads: { inApp: false }, hot_leads: { inApp: false } } }),
-      audience: "partner",
-    });
-    expect(await partnerNotifs()).toHaveLength(0);
+    for (const userId of [id.seatFirst, id.seatSecond]) {
+      await saveSubjectOverride(db, id.tenant, { userId }, {
+        events: { new_leads: { inApp: false }, hot_leads: { inApp: false } },
+      });
+    }
+    try {
+      await enqueueRunDigests(db, scope, { uploadRef, portalBaseUrl: "https://app.test", audience: "partner" });
+      expect(await partnerNotifs()).toHaveLength(0);
+    } finally {
+      await db.delete(schema.notificationPrefOverrides).where(eq(schema.notificationPrefOverrides.tenantId, id.tenant));
+    }
   });
 
-  it("NTF-05: the no-prefs fallback is SYMMETRIC — in-app notifications are no longer silently dropped", async () => {
+  it("NTF-05: resolution is SYMMETRIC — in-app notifications are no longer silently dropped", async () => {
     // WP-NF1 D8: `inAppOn` used to be hard-false whenever a caller omitted prefs, so this exact
-    // call created emails and nothing else. Both channels now resolve against the shared
-    // defaults; email behavior is byte-identical to before.
+    // call created emails and nothing else. WP-NF2b removed the prefs argument entirely: BOTH
+    // channels resolve against the shipped defaults ⊕ each seat's overlay, and with no overlay
+    // written this is the pure-defaults path. Email behavior is byte-identical to before.
     await clearNotifs();
     await enqueueRunDigests(db, scope, { uploadRef, portalBaseUrl: "https://app.test", audience: "partner" });
     const rows = await partnerNotifs();

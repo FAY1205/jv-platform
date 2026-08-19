@@ -10,21 +10,24 @@ import {
   type NotifChannel,
   type NotifEvent,
   type NotifRole,
-  type NotificationPrefs,
 } from "./prefs";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Per-SUBJECT notification preference overlay (NTF-10, WP-NF2).
 //
-// Tenant prefs (settings.notification_prefs, per ROLE bucket) remain the BASE. This
-// module adds a second, narrower layer: one `notification_pref_overrides` row per
-// SUBJECT — either a USER seat, or a PARTNER ORG (which gates the org-addressed
-// `partners.email` digests/alerts, a surface no seat owns). Exactly one of the two,
-// enforced by the migration 0057 CHECK.
+// The CODE DEFAULTS (DEFAULT_NOTIFICATION_PREFS, prefs.ts) are the BASE. This module adds
+// the only other layer there is: one `notification_pref_overrides` row per SUBJECT — either
+// a USER seat, or a PARTNER ORG (which gates the org-addressed `partners.email`
+// digests/alerts, a surface no seat owns). Exactly one of the two, enforced by the
+// migration 0057 CHECK.
+//
+// WP-NF2b (owner decision 2026-08-20): the workspace matrix that used to sit between the
+// two is retired — every user controls their own notifications, scoped to their role's
+// catalog. Resolution is therefore `defaults ⊕ overlay`, full stop.
 //
 // Two invariants the resolution below encodes and the tests pin:
 //  • The overlay is applied FIELD-WISE, so a subject who has only ever touched the email
-//    leg of one event still inherits every later tenant-level change on every other leg.
+//    leg of one event still inherits every later change to the DEFAULTS on every other leg.
 //    A whole-object overwrite would silently freeze that subject's prefs at the shape
 //    they had the day they first clicked something.
 //  • `allEmailsOff` is an EMAIL kill switch and never touches in-app (NTF-13 / §10.7):
@@ -73,7 +76,7 @@ const EventOverlaySchema = z
   .strict();
 
 /**
- * The stored `value` shape. Every key is optional — an absent leg means "inherit the tenant
+ * The stored `value` shape. Every key is optional — an absent leg means "inherit the shipped
  * default", which is what keeps the field-wise merge honest. Unknown keys are REJECTED
  * (`.strict()`), so a caller cannot smuggle arbitrary keys into the jsonb column and a
  * retired event cannot leave an unreadable entry behind.
@@ -86,8 +89,8 @@ export const PrefOverrideValueSchema = z
 export type PrefOverrideValue = z.infer<typeof PrefOverrideValueSchema>;
 
 /** Parse a stored jsonb value. An unparseable row resolves to NO overlay rather than an
- *  error: a corrupt preference must never be able to drop a notification (the PRN-11
- *  posture `loadNotificationPrefs` already takes for the tenant row). */
+ *  error: a corrupt preference must never be able to drop a notification — it falls back to
+ *  the code defaults, which is the safest thing an unreadable row can mean (PRN-11). */
 export function parseOverrideValue(raw: unknown): PrefOverrideValue | null {
   const parsed = PrefOverrideValueSchema.safeParse(raw ?? {});
   return parsed.success ? parsed.data : null;
@@ -96,18 +99,20 @@ export function parseOverrideValue(raw: unknown): PrefOverrideValue | null {
 /**
  * NTF-10 resolution. PURE.
  *
- * tenant `resolvePref` → the subject's field-wise overlay → then `email &&= !allEmailsOff`.
+ * default `resolvePref` → the subject's field-wise overlay → then `email &&= !allEmailsOff`.
  * The kill switch is applied LAST and only to email, so a subject who explicitly turned an
  * event's email back ON is still covered by a later "pause all emails", and no ordering of
  * the two switches can leave in-app off.
+ *
+ * WP-NF2b: the `prefs` parameter is gone with the workspace layer. The base is read straight
+ * from the defaults rather than threaded in as a constant — see `resolvePref`.
  */
 export function resolveEffectiveChannel(
-  prefs: NotificationPrefs,
   overlay: PrefOverrideValue | null | undefined,
   role: NotifRole,
   event: NotifEvent,
 ): NotifChannel {
-  const base = resolvePref(prefs, role, event);
+  const base = resolvePref(role, event);
   const over = overlay?.events?.[event];
   const inApp = over?.inApp ?? base.inApp;
   const email = (over?.email ?? base.email) && !overlay?.allEmailsOff;
@@ -116,7 +121,7 @@ export function resolveEffectiveChannel(
 
 /** One row of the self-serve preferences view (NTF-15). `overridden` says which legs this
  *  subject has PINNED — the UI needs it to show "you changed this" and to explain why a
- *  tenant-default change did not move it. */
+ *  change to the shipped default did not move it. */
 export interface SubjectPrefEvent {
   key: NotifEvent;
   label: string;
@@ -131,11 +136,7 @@ export interface SubjectPrefsView {
 }
 
 /** NTF-15: the caller's own resolved preferences, for their OWN role bucket only. PURE. */
-export function describeSubjectPrefs(
-  prefs: NotificationPrefs,
-  overlay: PrefOverrideValue | null,
-  role: NotifRole,
-): SubjectPrefsView {
+export function describeSubjectPrefs(overlay: PrefOverrideValue | null, role: NotifRole): SubjectPrefsView {
   return {
     role,
     allEmailsOff: overlay?.allEmailsOff === true,
@@ -144,7 +145,7 @@ export function describeSubjectPrefs(
       return {
         key: e.key,
         label: e.label,
-        effective: resolveEffectiveChannel(prefs, overlay, role, e.key),
+        effective: resolveEffectiveChannel(overlay, role, e.key),
         overridden: { email: over?.email !== undefined, inApp: over?.inApp !== undefined },
       };
     }),
@@ -154,19 +155,15 @@ export function describeSubjectPrefs(
 /** A PARTNER-ORG subject has no in-app surface (notifications are per user), so only the
  *  email leg of an org overlay is meaningful. Same resolution, named for the one leg it
  *  can answer — so a call site cannot accidentally gate an in-app row on an org row. */
-export function resolveOrgEmail(
-  prefs: NotificationPrefs,
-  overlay: PrefOverrideValue | null | undefined,
-  event: NotifEvent,
-): boolean {
-  return resolveEffectiveChannel(prefs, overlay, "partner", event).email;
+export function resolveOrgEmail(overlay: PrefOverrideValue | null | undefined, event: NotifEvent): boolean {
+  return resolveEffectiveChannel(overlay, "partner", event).email;
 }
 
 /**
  * Batch-load the overlays for a fan-out's recipients, keyed by user id. ONE query per
  * fan-out, not one per recipient (a 40-seat digest must not become 40 round trips).
  * Users with no row are simply absent from the map — the caller then resolves against the
- * tenant defaults alone, which is byte-identical to pre-NTF-10 behavior.
+ * code defaults alone.
  *
  * PRN-08: tenant-pinned through the shared builder, so a user id from another tenant
  * returns nothing even though `users.id` is globally unique.
@@ -371,7 +368,7 @@ export async function loadSubjectOverride(
 /**
  * NTF-15: upsert a subject's overlay value (whole-value replace — the API's PUT sends the
  * complete overlay it just rendered, so a field dropped from the payload means "inherit the
- * tenant default" again). Mints the token halves on first write so the row is immediately
+ * shipped default" again). Mints the token halves on first write so the row is immediately
  * unsubscribe-capable. `updated_at` is `now()` in SQL, never a client clock.
  */
 export async function saveSubjectOverride(

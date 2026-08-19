@@ -451,6 +451,67 @@ describe("NotificationsPage preferences (NTF-15)", () => {
   });
 });
 
+describe("WP-NF2b: where the preferences editor lives", () => {
+  // The owner decision retired the workspace matrix and made Settings → Notifications the
+  // PERSONAL page for admin-stream seats. So /notifications must stop being a second editor for
+  // them — one setting, one place to change it — while the portal keeps its inline card, because
+  // a partner cannot enter admin Settings at all.
+
+  const prefsCallCount = (mock: ReturnType<typeof stubFetch>) =>
+    mock.mock.calls.filter(([u]) => String(u).startsWith("/api/me/notification-prefs")).length;
+
+  it("WP-NF2b: with preferencesHref the affordance is a LINK — no card, no prefs request", async () => {
+    const fetchMock = stubFetch({
+      get: (url) =>
+        url.startsWith("/api/me/notification-prefs")
+          ? ok({ role: "admin", allEmailsOff: false, events: [] })
+          : ok({ notifications: [], unread: 0, nextCursor: null }),
+    });
+    const user = userEvent.setup();
+    wrap(<NotificationsPage preferencesHref="/settings/notifications" />);
+    await screen.findByText("You're all caught up.");
+
+    const link = screen.getByRole("link", { name: /Notification preferences/ });
+    expect(link).toHaveAttribute("href", "/settings/notifications");
+    // A real LINK, not a button that pushes — ⌘-click / new-tab must work.
+    expect(screen.queryByRole("button", { name: "Preferences" })).toBeNull();
+
+    // Clicking it navigates; it must NOT expand an inline editor or fetch the prefs.
+    await user.click(link);
+    expect(screen.queryByText("Your notification preferences")).toBeNull();
+    expect(prefsCallCount(fetchMock)).toBe(0);
+  });
+
+  it("WP-NF2b: the PORTAL mount (no href) keeps the inline card — its only self-serve surface", async () => {
+    const fetchMock = stubFetch({
+      get: (url) =>
+        url.startsWith("/api/me/notification-prefs")
+          ? ok({
+              role: "partner",
+              allEmailsOff: false,
+              events: [
+                { key: "new_leads", label: "New leads distributed to you", effective: { email: true, inApp: true }, overridden: { email: false, inApp: false } },
+              ],
+            })
+          : ok({ notifications: [], unread: 0, nextCursor: null }),
+    });
+    const user = userEvent.setup();
+    wrap(<NotificationsPage />);
+    await screen.findByText("You're all caught up.");
+
+    expect(screen.queryByRole("link", { name: /Notification preferences/ })).toBeNull();
+    await user.click(screen.getByRole("button", { name: "Preferences" }));
+    expect(await screen.findByText("Your notification preferences")).toBeInTheDocument();
+    await waitFor(() => expect(prefsCallCount(fetchMock)).toBeGreaterThan(0));
+    // The disclosure names the panel it opened.
+    expect(screen.getByRole("button", { name: "Preferences" })).toHaveAttribute(
+      "aria-controls",
+      "notification-preferences",
+    );
+    expect(document.getElementById("notification-preferences")).not.toBeNull();
+  });
+});
+
 describe("Bell and page reconciliation (NTF-12)", () => {
   // The two surfaces cache the SAME feed under two different keys in two different SHAPES (flat
   // vs. infinite). A mark-read on one must not leave the other showing a number the server no

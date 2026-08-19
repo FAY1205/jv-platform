@@ -72,7 +72,12 @@ export { MyTasksList, type MyTask, type MyTasksListProps } from "./MyTasksList";
 export { Timeline, matchesTimelineFilter, type TimelineEntry, type TimelineEntryKind } from "./Timeline";
 export { PasswordChangeForm } from "./PasswordChangeForm";
 export { NotificationBell, type NotificationBellProps } from "./NotificationBell";
-export { NotificationsPage } from "./NotificationsPage";
+export { NotificationsPage, type NotificationsPageProps } from "./NotificationsPage";
+export {
+  NotificationPreferencesCard,
+  MY_NOTIFICATION_PREFS_KEY,
+  type NotificationPreferencesCardProps,
+} from "./NotificationPreferencesCard";
 export { NotificationRowContent, type NotificationRowItem, type NotificationRowContentProps } from "./NotificationRowContent";
 export { NotificationTypeIcon, type NotificationTypeIconProps } from "./NotificationTypeIcon";
 export { HotLeadIcon, HotLeadMark, type HotLeadIconProps, type HotLeadMarkProps } from "./HotLeadMark";

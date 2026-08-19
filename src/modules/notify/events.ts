@@ -1,12 +1,12 @@
 import { and, eq, isNull } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import * as schema from "@/db/schema";
-import { tenantIdWhere, type ScopeContext } from "@/lib/scope";
+import { tenantIdWhere } from "@/lib/scope";
 import { env } from "@/lib/env";
 import { logError } from "@/lib/observability";
 import { createNotification } from "./notifications";
 import { activeAdminSeats, enqueueEmail, notificationEmailHtml } from "./outbox";
-import { loadNotificationPrefs, streamPrefRole, type NotifEvent, type NotifRole } from "./prefs";
+import { streamPrefRole, type NotifEvent, type NotifRole } from "./prefs";
 import { loadOverridesFor, resolveEffectiveChannel, type PrefOverrideValue } from "./pref-overrides";
 import { subjectUnsubscribeLinks } from "./unsubscribe";
 
@@ -33,14 +33,6 @@ import { subjectUnsubscribeLinks } from "./unsubscribe";
 // ─────────────────────────────────────────────────────────────────────────────
 
 type DB = PostgresJsDatabase<typeof schema>;
-
-/**
- * The scope `loadNotificationPrefs` needs. Prefs are ONE tenant settings row, so the read uses
- * `tenantWhere` and nothing else — the same system-scope idiom `releaseDueImports` and
- * `remindDueTasks` already build for background work. Stated once here so no emit site has to
- * invent a plausible-looking userId of its own.
- */
-const prefsScope = (tenantId: string): ScopeContext => ({ tenantId, role: "admin", userId: tenantId });
 
 /**
  * Run one emit, swallowing everything. `ids` are ids and refs ONLY (SEC-05); the error message
@@ -186,9 +178,9 @@ export async function notifyTaskAssigned(
       meta: { leadRef: input.leadRef },
     };
 
-    const prefs = await loadNotificationPrefs(db, prefsScope(tenantId));
+    // WP-NF2b: shipped default ⊕ this seat's own overlay. ONE read — the workspace layer is gone.
     const overlay = (await loadOverridesFor(db, tenantId, [seat.id])).get(seat.id) ?? null;
-    const channel = resolveEffectiveChannel(prefs, overlay, role, "task_assigned");
+    const channel = resolveEffectiveChannel(overlay, role, "task_assigned");
     if (channel.inApp) await writeBellRow(db, tenantId, seat.id, emit);
     const address = seat.email.trim().toLowerCase();
     if (channel.email && address !== "") {
@@ -208,7 +200,8 @@ export async function notifyTaskAssigned(
  * `activeAdminSeats`' deterministic order) but TWO bell rows, because a bell row belongs to a
  * seat and an inbox belongs to an address.
  *
- * NTF-10: ONE prefs read and ONE overlay read for the whole fan-out, not one per recipient.
+ * NTF-10 / WP-NF2b: ONE overlay read for the whole fan-out, not one per recipient — and no
+ * workspace-prefs read at all, since the base layer is now a constant in this process.
  */
 async function fanOutToAdmins(
   db: DB,
@@ -219,12 +212,11 @@ async function fanOutToAdmins(
   const excluded = new Set(excludeUserIds);
   const seats = (await activeAdminSeats(db, tenantId)).filter((s) => !excluded.has(s.id));
   if (seats.length === 0) return;
-  const prefs = await loadNotificationPrefs(db, prefsScope(tenantId));
   const overrides: Map<string, PrefOverrideValue> = await loadOverridesFor(db, tenantId, seats.map((s) => s.id));
 
   const sentTo = new Set<string>();
   for (const seat of seats) {
-    const channel = resolveEffectiveChannel(prefs, overrides.get(seat.id) ?? null, "admin", emit.event);
+    const channel = resolveEffectiveChannel(overrides.get(seat.id) ?? null, "admin", emit.event);
     if (channel.inApp) await writeBellRow(db, tenantId, seat.id, emit);
     if (!channel.email) continue;
     const address = seat.email.trim().toLowerCase();

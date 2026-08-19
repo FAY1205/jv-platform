@@ -11,7 +11,6 @@ import { storeExport } from "@/modules/export/storage";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { enqueueRunDigests, drainOutbox } from "@/modules/notify/outbox";
 import { notifyImportProcessed } from "@/modules/notify/events";
-import { loadNotificationPrefs } from "@/modules/notify/prefs";
 import { runListingChecks } from "@/modules/listing/run-checks";
 import { adminAllowlist } from "@/lib/env";
 import { logError } from "@/lib/observability";
@@ -78,8 +77,10 @@ export async function runUpload(scope: ScopeContext, input: RunUploadInput): Pro
     // defers them to the release cron once the 10-min window elapses, so a within-window void reaches
     // no partner (visibility is likewise held, self-releasing). Best-effort.
     try {
-      const [adminEmails, prefs] = await Promise.all([resolveAdminEmails(db, scope.userId), loadNotificationPrefs(db, scope)]);
-      await enqueueRunDigests(db, scope, { uploadRef: result.uploadRefId, summary: result.summary, portalBaseUrl: input.origin, adminEmails, adminUserId: scope.userId, prefs, audience: "admin" });
+      // WP-NF2b: no workspace-prefs read — channel gating is the shipped defaults ⊕ each
+      // recipient's own overlay, resolved inside the fan-out against the person being emailed.
+      const adminEmails = await resolveAdminEmails(db, scope.userId);
+      await enqueueRunDigests(db, scope, { uploadRef: result.uploadRefId, summary: result.summary, portalBaseUrl: input.origin, adminEmails, adminUserId: scope.userId, audience: "admin" });
     } catch (e) {
       logError("admin_summary_enqueue_failed", { message: errMsg(e) });
     }

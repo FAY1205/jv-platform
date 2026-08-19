@@ -3,7 +3,7 @@ import { getServerScope } from "@/lib/scope-context";
 import { authErrorResponse, assertCsrf } from "@/lib/auth/guard";
 import { requireTosResponse } from "@/lib/auth/tos-guard";
 import { jsonOk, jsonError, jsonServerError } from "@/lib/http";
-import { NOTIFICATION_EVENTS, loadNotificationPrefs } from "@/modules/notify/prefs";
+import { NOTIFICATION_EVENTS } from "@/modules/notify/prefs";
 import {
   describeSubjectPrefs,
   loadSubjectOverride,
@@ -15,10 +15,14 @@ import { streamOf, type ScopeContext } from "@/lib/scope";
 // GET/PUT /api/me/notification-prefs — NTF-15. A seat's OWN notification preferences, for
 // BOTH streams.
 //
-// NO capability gate, deliberately: the tenant-DEFAULTS matrix at /api/settings/notifications is
-// `settings.manage`-gated because it decides for everyone, but this route decides only for the
-// caller. Gating it would leave member/viewer/partner seats with no way to turn off their own
-// email — which is exactly the surface the tokenized unsubscribe exists to avoid needing.
+// WP-NF2b (owner decision 2026-08-20): this is now the ONLY notification-preferences endpoint.
+// The workspace-defaults matrix (`/api/settings/notifications`, `settings.manage`-gated) is
+// retired — there is no workspace-level notification control, and resolution is the shipped
+// defaults ⊕ this subject's overlay.
+//
+// NO capability gate, deliberately: the route decides only for the caller. Gating it would leave
+// member/viewer/partner seats with no way to turn off their own email — which is exactly the
+// surface the tokenized unsubscribe exists to avoid needing.
 //
 // PRN-08 / PRN-08a: the subject is `{ tenantId, userId }` from the SCOPE, never from the body.
 // There is no route shape here that could address another seat's row.
@@ -27,17 +31,13 @@ import { streamOf, type ScopeContext } from "@/lib/scope";
 
 /** The response both verbs return: the caller's resolved prefs for their own role bucket. */
 async function currentView(scope: ScopeContext) {
-  const db = getDb();
-  const [prefs, overlay] = await Promise.all([
-    loadNotificationPrefs(db, scope),
-    loadSubjectOverride(db, scope.tenantId, { userId: scope.userId }),
-  ]);
+  const overlay = await loadSubjectOverride(getDb(), scope.tenantId, { userId: scope.userId });
   // `streamOf` (lib/scope), not `streamPrefRole`: both answer "which bucket does this reader
   // use", but streamOf takes the SCOPE and is the app-wide definition of the PRN-13 stream, so a
   // route that already holds a scope should never re-derive it from the bare role string.
   // streamPrefRole stays for the DB-ROW call site in task-reminders, which has a `users` row and
   // no scope to hand.
-  return describeSubjectPrefs(prefs, overlay, streamOf(scope));
+  return describeSubjectPrefs(overlay, streamOf(scope));
 }
 
 /** NTF-15: the event keys the CALLER'S bucket actually owns. */

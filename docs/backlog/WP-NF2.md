@@ -228,3 +228,77 @@ merge: `gh run list --branch main` (C-98 habit — PR CI skips e2e).
    settings tab — relocatable.
 7. `allEmailsOff` pauses notification email only; transactional auth email always sends
    (NTF-05 clause) — displayed in the UI copy.
+
+---
+
+## 11. NF2b amendment (owner decision 2026-08-20)
+
+**THERE IS NO WORKSPACE-LEVEL NOTIFICATION CONTROL. Every user controls their own
+notifications, scoped to their role's catalog.**
+
+Verified before building: prod holds NO `settings` row for key `notification_prefs` (zero rows,
+all tenants), so removing the tenant layer changed **zero live behaviour**. No migration, and no
+deletion of stored rows — the key simply stops being read (stated in a comment where
+`DEFAULT_NOTIFICATION_PREFS` lives).
+
+**Resolution is now two layers, everywhere:**
+
+```
+DEFAULT_NOTIFICATION_PREFS  ⊕  the subject's own overlay   (then email &&= !allEmailsOff)
+```
+
+| Was | Is |
+|---|---|
+| tenant `settings.notification_prefs` ⊕ subject overlay | code defaults ⊕ subject overlay |
+| `loadNotificationPrefs` / `saveNotificationPrefs` / `mergeNotificationPrefs` / `NotificationPrefsSchema` / `NOTIFICATION_PREFS_KEY` | **removed** (no consumers left — dead code, not stranded) |
+| `resolvePref(prefs, role, event)` | `resolvePref(role, event)` |
+| `resolveEffectiveChannel(prefs, overlay, role, event)` | `resolveEffectiveChannel(overlay, role, event)` |
+| `resolveOrgEmail(prefs, overlay, event)`, `describeSubjectPrefs(prefs, overlay, role)` | one fewer argument each |
+| `EnqueueRunDigestsInput.prefs` | **removed** — the fan-out resolves per recipient |
+| `GET/PUT /api/settings/notifications` (`settings.manage`) | **retired**; `/api/me/notification-prefs` is the only prefs endpoint |
+| Settings → Notifications = the workspace matrix | Settings → Notifications = **the personal page** (the same card the portal renders) |
+| /notifications Preferences card on both streams | admin stream: a **link** to Settings → Notifications; portal: the inline card (a partner cannot enter admin Settings) |
+
+`NOTIFICATION_EVENTS`, `DEFAULT_NOTIFICATION_PREFS`, `streamPrefRole` and the whole
+`pref-overrides` module are unchanged in purpose — the catalog and the defaults are what the
+`/api/me` endpoint and the preferences card render off.
+
+**Consequences worth stating plainly:**
+
+1. **Flipping a default is now a global act.** `DEFAULT_NOTIFICATION_PREFS` moves every seat in
+   every tenant that has not pinned that leg. Still one line per leg, still the only lever.
+2. **Org-addressed partner email** (`partner_digest`, partner hot alerts → `partners.email`) is
+   governed by the shipped default ⊕ the **partner-ORG** overlay, and the only writer of that
+   org row is the tokenized unsubscribe link in the mail itself (the org is not a seat and has
+   no `/api/me`). Deliberate: whoever reads that shared mailbox holds the off switch, and no
+   admin can silently mute a partner's copy of leads they were routed. Turning it back ON is a
+   support action today, not a UI — **candidate**. Documented at the emit site in `outbox.ts`.
+3. **The task-reminder asymmetry is dissolved** (closes deferred item 8). The NTF-09
+   tenant-level early-out read the workspace row and returned before the due select, which made
+   that row the one ceiling a user overlay could not widen. It is gone with the row. Cost: a
+   tenant whose every seat has muted `task_due` pays an indexed, `limit`ed due select per tick
+   instead of one settings read; the overlay + token loads are still one query each per tick.
+4. **Reachability**: no gating change was needed for Settings → Notifications. The Settings hub
+   sits in the `(admin)` route group, which gates on the PRN-13 **stream** (partners are
+   redirected to their portal), not on tier — member and viewer seats already reached
+   `/settings/*`, and the hub's nav only hides items carrying a `requires` capability, which the
+   Notifications item never had. The only thing that had excluded members was the retired
+   route's own `settings.manage` gate.
+5. **C-108 closed as a deliberate exemption**: `GET /api/notifications` carries no ToS gate. The
+   LGL-01 acceptance boundary is page-level, and the feed carries lead refs + status words +
+   filenames + fixed sentences, never seller PII (NTF-16). Recorded in the route header, along
+   with the condition that would kill the exemption (a feed that ever carries lead CONTENT).
+6. **Unsubscribe page** gained a quiet footer link, "Manage all notification preferences" →
+   `/notifications`. Signed out, the proxy redirects to `/login?next=/notifications` and
+   `safeNextPath` returns the reader there, so the destination survives. **Known gap
+   (candidate)**: the proxy picks the login SCREEN by path prefix, so a signed-out PARTNER lands
+   on the admin password screen rather than the portal OTP one, and a signed-in partner is
+   bounced by the `(admin)` layout to `/portal/dashboard` (their bell's "View all" reaches the
+   portal page from there). Their in-mail control — the confirm button itself — is unaffected.
+
+**Tests**: assertions that pinned "tenant prefs gate X" now pin "defaults ⊕ overlay gate X", set
+on the RECIPIENT seat — which is the sharper test, since it also proves the emit resolved the
+person it addressed rather than one tenant-wide switch. The retired workspace Zod schema's drift
+guard moved onto `PrefOverrideValueSchema`, the remaining place a half-added event would fail to
+persist. The retired "fully-muted tenant early-outs" case is replaced by its opposite: one seat
+muting `task_due` while another, in the same tick, is still nudged.

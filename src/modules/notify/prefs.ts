@@ -1,18 +1,22 @@
-import { z } from "zod";
-import { and, eq, sql } from "drizzle-orm";
-import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
-import * as schema from "@/db/schema";
-import { tenantWhere, type ScopeContext } from "@/lib/scope";
-
 // ─────────────────────────────────────────────────────────────────────────────
 // Notification preferences (NTF-05 / SET-03). Per role, per event type: send email,
-// show in-app, or both. Stored as ONE tenant settings row (key `notification_prefs`)
-// and always resolved against defaults so a missing/partial value can't drop a
-// notification. Transactional auth email is separate and always on (never here).
+// show in-app, or both. Transactional auth email is separate and always on (never here).
+//
+// WP-NF2b (owner decision 2026-08-20) — THERE IS NO WORKSPACE LAYER. Resolution is
+// exactly two layers:
+//
+//     code defaults (DEFAULT_NOTIFICATION_PREFS)  ⊕  the subject's own overlay
+//
+// The tenant `settings` row keyed `notification_prefs` used to sit between them. It is
+// GONE from every read path: nothing in the codebase writes or reads that key any more,
+// and no migration deletes it because prod never had one (verified 2026-08-20 — zero
+// rows). A stored row, if one ever existed in some environment, is now simply inert data.
+//
+// So this file is the DEFAULTS source and the catalog, and nothing else: the per-subject
+// layer lives in pref-overrides.ts, and a seat edits its own via /api/me/notification-prefs.
+// Defaults stay deliberately one-line-flippable (see the comments on the constant below) —
+// changing a default now moves every seat that has not pinned that leg, in every tenant.
 // ─────────────────────────────────────────────────────────────────────────────
-
-type DB = PostgresJsDatabase<typeof schema>;
-export const NOTIFICATION_PREFS_KEY = "notification_prefs";
 
 export type NotifRole = "admin" | "partner";
 
@@ -74,6 +78,10 @@ export interface NotificationPrefs {
   };
 }
 
+// ⚠️ WP-NF2b: these are now the ONLY base layer. Flipping a leg here moves every seat in every
+// tenant that has not pinned that leg in its own overlay — which is exactly what the owner
+// decision asked for ("one place decides the default; each person decides for themselves").
+//
 // SET-03: "Digests on; alerts off" — digests email on; the status-change alert email
 // off by default (still shown in-app so the notification center stays useful). Hot-lead
 // alerts default fully on (email + in-app) for both roles: they're the highest-signal event.
@@ -107,93 +115,18 @@ export const DEFAULT_NOTIFICATION_PREFS: NotificationPrefs = {
   },
 };
 
-const ChannelSchema = z.object({ email: z.boolean(), inApp: z.boolean() }).partial();
-export const NotificationPrefsSchema = z
-  .object({
-    admin: z
-      .object({
-        run_summary: ChannelSchema,
-        hot_leads: ChannelSchema,
-        status_change: ChannelSchema,
-        task_due: ChannelSchema,
-        task_assigned: ChannelSchema,
-        partner_note: ChannelSchema,
-        import_result: ChannelSchema,
-        partner_activated: ChannelSchema,
-      })
-      .partial(),
-    partner: z
-      .object({
-        hot_leads: ChannelSchema,
-        new_leads: ChannelSchema,
-        assigned_lead: ChannelSchema,
-        task_due: ChannelSchema,
-        task_assigned: ChannelSchema,
-      })
-      .partial(),
-  })
-  .partial();
-export type NotificationPrefsInput = z.infer<typeof NotificationPrefsSchema>;
-
-/** The channel for a role+event, always falling back to the default. */
-export function resolvePref(prefs: NotificationPrefs, role: NotifRole, event: NotifEvent): NotifChannel {
-  const roleMap = prefs[role] as Record<string, NotifChannel> | undefined;
-  const fallback = (DEFAULT_NOTIFICATION_PREFS[role] as Record<string, NotifChannel>)[event];
-  return roleMap?.[event] ?? fallback;
-}
-
-/** Deep-merge a stored (possibly partial) value over the defaults. Pure. */
-export function mergeNotificationPrefs(stored: NotificationPrefsInput | null | undefined): NotificationPrefs {
-  const d = DEFAULT_NOTIFICATION_PREFS;
-  const s = stored ?? {};
-  const ch = (base: NotifChannel, over?: Partial<NotifChannel>): NotifChannel => ({
-    email: over?.email ?? base.email,
-    inApp: over?.inApp ?? base.inApp,
-  });
-  return {
-    admin: {
-      run_summary: ch(d.admin.run_summary, s.admin?.run_summary),
-      hot_leads: ch(d.admin.hot_leads, s.admin?.hot_leads),
-      status_change: ch(d.admin.status_change, s.admin?.status_change),
-      task_due: ch(d.admin.task_due, s.admin?.task_due),
-      task_assigned: ch(d.admin.task_assigned, s.admin?.task_assigned),
-      partner_note: ch(d.admin.partner_note, s.admin?.partner_note),
-      import_result: ch(d.admin.import_result, s.admin?.import_result),
-      partner_activated: ch(d.admin.partner_activated, s.admin?.partner_activated),
-    },
-    partner: {
-      hot_leads: ch(d.partner.hot_leads, s.partner?.hot_leads),
-      new_leads: ch(d.partner.new_leads, s.partner?.new_leads),
-      assigned_lead: ch(d.partner.assigned_lead, s.partner?.assigned_lead),
-      task_due: ch(d.partner.task_due, s.partner?.task_due),
-      task_assigned: ch(d.partner.task_assigned, s.partner?.task_assigned),
-    },
-  };
-}
-
-/** Load the tenant's notification prefs, merged over defaults (PRN-11). */
-export async function loadNotificationPrefs(db: DB, scope: ScopeContext): Promise<NotificationPrefs> {
-  const [row] = await db
-    .select({ value: schema.settings.value })
-    .from(schema.settings)
-    .where(and(tenantWhere(schema.settings, scope), eq(schema.settings.key, NOTIFICATION_PREFS_KEY)));
-  const parsed = NotificationPrefsSchema.safeParse(row?.value ?? null);
-  return mergeNotificationPrefs(parsed.success ? parsed.data : null);
-}
-
-/** Upsert the tenant's notification prefs (DM: one row per tenant+key). */
-export async function saveNotificationPrefs(
-  db: DB,
-  scope: ScopeContext,
-  input: NotificationPrefsInput,
-): Promise<NotificationPrefs> {
-  const merged = mergeNotificationPrefs(input);
-  await db
-    .insert(schema.settings)
-    .values({ tenantId: scope.tenantId, key: NOTIFICATION_PREFS_KEY, value: merged })
-    .onConflictDoUpdate({
-      target: [schema.settings.tenantId, schema.settings.key],
-      set: { value: merged, updatedAt: sql`now()` },
-    });
-  return merged;
+/**
+ * The DEFAULT channel for a role+event — the BASE layer of the two-layer resolution. PURE.
+ *
+ * WP-NF2b: this used to take a `NotificationPrefs` argument, because a tenant could store its
+ * own matrix over the defaults. It cannot any more, so the parameter is gone rather than being
+ * satisfied with `DEFAULT_NOTIFICATION_PREFS` at every call site — a constant threaded through
+ * a signature reads like a variable and invites someone to thread a different one.
+ *
+ * Almost every caller wants `resolveEffectiveChannel` (pref-overrides.ts), which applies the
+ * subject's overlay on top of this. The exception is an address with no subject at all — an
+ * env-allowlist ops mailbox that is not a seat (WP-NF2 §10.3).
+ */
+export function resolvePref(role: NotifRole, event: NotifEvent): NotifChannel {
+  return (DEFAULT_NOTIFICATION_PREFS[role] as Record<string, NotifChannel>)[event];
 }

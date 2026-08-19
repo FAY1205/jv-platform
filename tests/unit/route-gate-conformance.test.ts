@@ -28,10 +28,12 @@ const ALLOWED = new Set(
     "me/route.ts", // own identity; emits the capability list the client gates on
     // WP-NF2 NTF-15: own notification preferences. Subject is {tenantId, userId} from the SCOPE,
     // never the body, so there is no shape that reaches another seat's row. Deliberately
-    // UNGATED: the tenant-DEFAULTS matrix (/api/settings/notifications) is settings.manage-gated
-    // because it decides for everyone, but gating this one would leave member/viewer/partner
-    // seats unable to switch off their own email — the very gap the tokenized unsubscribe exists
-    // to avoid needing. Same personal-surface reasoning as the notifications/* bell routes below.
+    // UNGATED, and since WP-NF2b it is the ONLY notification-preferences route: the workspace
+    // matrix (/api/settings/notifications, settings.manage-gated) is retired, because there is no
+    // workspace-level notification control any more. Gating this one would leave member/viewer/
+    // partner seats unable to switch off their own email — the very gap the tokenized
+    // unsubscribe exists to avoid needing. Same personal-surface reasoning as the
+    // notifications/* bell routes below.
     "me/notification-prefs/route.ts",
     "sessions/route.ts", // own trusted devices only (ownerWhere-style personal surface)
     "sessions/[familyId]/revoke/route.ts", // own-device revoke + inline can(ops.admin) for revoke-others
