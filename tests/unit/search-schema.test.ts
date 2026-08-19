@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
+  SEARCH_MAX_TERMS,
   SEARCH_MIN_CHARS,
   SEARCH_PHONE_MIN_DIGITS,
   SearchQuerySchema,
@@ -7,6 +8,7 @@ import {
   escapeLike,
   isSearchable,
   searchPhoneDigits,
+  tokenize,
 } from "@/modules/search/schema";
 import { highlightParts, isGlobalSearchHotkey } from "@/lib/global-search";
 
@@ -28,6 +30,36 @@ describe("SRCH-01: search query contract", () => {
     expect(isSearchable("w")).toBe(false);
     expect(isSearchable(" w ")).toBe(false);
     expect(isSearchable("wh")).toBe(true);
+  });
+});
+
+describe("SRCH-06: tokenizer", () => {
+  it("SRCH-06: splits on whitespace and collapses runs of it", () => {
+    expect(tokenize("john phoenix")).toEqual(["john", "phoenix"]);
+    expect(tokenize("  john   phoenix  ")).toEqual(["john", "phoenix"]);
+    expect(tokenize("john\tphoenix\naz")).toEqual(["john", "phoenix", "az"]);
+  });
+
+  it("SRCH-06: a single-term query is one term — v1 behaviour is unchanged", () => {
+    expect(tokenize("whitf")).toEqual(["whitf"]);
+    expect(tokenize("(602) 555-0148")).toEqual(["(602)", "555-0148"]);
+  });
+
+  it("SRCH-06: a blank or whitespace-only query yields no terms (callers skip the filter)", () => {
+    expect(tokenize("")).toEqual([]);
+    expect(tokenize("   ")).toEqual([]);
+  });
+
+  it(`SRCH-06/DM-12: the split itself is bounded at ${SEARCH_MAX_TERMS} terms`, () => {
+    expect(tokenize("a b c d e f g h i j")).toEqual(["a", "b", "c", "d", "e", "f"]);
+    expect(tokenize("a b c d e f g h i j")).toHaveLength(SEARCH_MAX_TERMS);
+    // The pathological case the bound exists for: a max-length query of single characters.
+    expect(tokenize(Array.from({ length: 60 }, () => "x").join(" "))).toHaveLength(SEARCH_MAX_TERMS);
+  });
+
+  it("SRCH-06: terms are RAW — escaping composes downstream, per term", () => {
+    expect(tokenize("100% off")).toEqual(["100%", "off"]);
+    expect(tokenize("100% off").map(containsPattern)).toEqual(["%100\\%%", "%off%"]);
   });
 });
 

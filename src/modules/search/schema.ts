@@ -7,7 +7,13 @@ import { z } from "zod";
 // ─────────────────────────────────────────────────────────────────────────────
 
 /** Below this, the endpoint short-circuits to an empty result (SRCH-01): a 1-char
- *  query would scan the whole tenant for nothing useful. */
+ *  query would scan the whole tenant for nothing useful.
+ *
+ *  ⚠️ 2 sits BELOW trigram granularity: pg_trgm indexes on 3-character grams, so a 2-char
+ *  query cannot use the GIN indexes migration 0056 ships and falls back to a sequential
+ *  scan (EXPLAIN-verified). Deliberate and fine at current scale (~300 leads/tenant) — the
+ *  product wants "wh" to answer. Revisit at the N12 ~80k trigger: either raise this floor
+ *  to 3 or give short queries a prefix-index path (ADR-0051). */
 export const SEARCH_MIN_CHARS = 2;
 /** Rows returned per group. No pagination in v1 — the overlay is a jump-to, not a list. */
 export const SEARCH_GROUP_LIMIT = 10;
@@ -16,6 +22,12 @@ export const SEARCH_GROUP_LIMIT = 10;
 export const SEARCH_PHONE_MIN_DIGITS = 4;
 /** Hard cap on the accepted query length (mirrors the leads list's `q`). */
 export const SEARCH_MAX_CHARS = 120;
+/**
+ * SRCH-06 — the most whitespace-separated terms a query is split into. Six is well past
+ * any real search ("first last street city state zip") while keeping the AND-of-ORs
+ * predicate a fixed, plannable size: each term costs one OR-group over seven columns.
+ */
+export const SEARCH_MAX_TERMS = 6;
 
 /**
  * The ONE normalization the query text goes through. The client applies it before it
@@ -116,6 +128,27 @@ export function containsPattern(raw: string): string {
 export function searchPhoneDigits(raw: string): string | null {
   const digits = raw.replace(/\D/g, "");
   return digits.length >= SEARCH_PHONE_MIN_DIGITS ? digits : null;
+}
+
+/**
+ * SRCH-06 — split a query into its search TERMS: runs of whitespace collapse, empties drop,
+ * and at most SEARCH_MAX_TERMS come back. "marcus  phoenix" ⇒ ["marcus", "phoenix"], which
+ * the match builder turns into an AND of per-term column ORs.
+ *
+ * DM-12: the bound is on the SPLIT, not on the result — `split(sep, limit)` stops producing
+ * segments at the limit, so a 120-character query of single letters never materialises 60
+ * terms just to have 54 of them thrown away. Terms past the cap are silently dropped rather
+ * than rejected: the query still runs, on its first six terms (the same graceful-degradation
+ * contract as the over-long paste that SEARCH_MAX_CHARS truncates).
+ *
+ * PURE. Escaping happens downstream, per term, through containsPattern — a term is raw user
+ * text here and must never be interpolated into SQL.
+ */
+export function tokenize(raw: string): string[] {
+  return raw
+    .trim()
+    .split(/\s+/, SEARCH_MAX_TERMS)
+    .filter((t) => t.length > 0);
 }
 
 /** True when the (already trimmed) query is long enough to run (SRCH-01). */

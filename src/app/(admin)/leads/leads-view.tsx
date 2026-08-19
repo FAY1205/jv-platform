@@ -329,7 +329,7 @@ const LeadsFilterBar = React.memo(function LeadsFilterBar({ seedQ, seedHot = fal
             value={qInput}
             onChange={(e) => setQInput(e.target.value)}
             onClear={() => { setQInput(""); setQCommitted(""); }}
-            placeholder="Search seller, address, ZIP, lead ID…"
+            placeholder="Search seller, address, ZIP, phone, lead ID…"
             aria-label="Search leads"
           />
         </div>

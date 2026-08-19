@@ -75,7 +75,7 @@ export function LeadsMobile({ onOpen, enabled = true }: { onOpen: (refId: string
           value={qInput}
           onChange={(e) => setQInput(e.target.value)}
           onClear={() => setQInput("")}
-          placeholder="Search seller, address, ZIP, lead ID…"
+          placeholder="Search seller, address, ZIP, phone, lead ID…"
           aria-label="Search your leads"
         />
       </div>

@@ -1,21 +1,25 @@
-import { and, asc, desc, ilike, isNull, ne, or, sql } from "drizzle-orm";
+import { and, asc, desc, isNull, ne, sql } from "drizzle-orm";
 import { getDb } from "@/db";
 import * as schema from "@/db/schema";
 import { leadWhere, tenantWhere, type ScopeContext } from "@/lib/scope";
 import { statusExpr } from "@/modules/leads/queries";
+import { SEARCH_GROUP_LIMIT, isSearchable, type SearchResults } from "./schema";
 import {
-  SEARCH_GROUP_LIMIT,
-  containsPattern,
-  isSearchable,
-  searchPhoneDigits,
-  type SearchResults,
-} from "./schema";
+  leadIdentifierMatch,
+  leadRankExpr,
+  leadSearchMatch,
+  partnerRankExpr,
+  partnerSearchMatch,
+} from "./match";
 import { can } from "@/lib/authz";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Global search (SRCH-01). Two groups — leads and partners — behind one debounced
-// endpoint. Boring ILIKE with bound, metacharacter-escaped patterns (SRCH-03): no
-// extension, no new dependency. Everything is scoped through lib/scope (PRN-08).
+// endpoint. MATCHING is boring exact-substring ILIKE with bound, metacharacter-escaped
+// patterns, built by the shared modules/search/match builders (SRCH-06/07) — no fuzzy or
+// typo-tolerant matching. RANKING (SRCH-08) is trigram similarity from pg_trgm, adopted in
+// ADR-0051 (which supersedes SRCH-03's no-extension clause for ranking + index acceleration).
+// Everything is scoped through lib/scope (PRN-08).
 //
 // Payload discipline (SRCH-04): a result row carries no more SELLER PII than the
 // admin leads LIST row does — no seller phone, no seller email. Phone is a MATCHING
@@ -59,16 +63,19 @@ function empty(q: string): SearchResults {
 }
 
 /**
- * SRCH-01 — one page of matches per group for `q`.
+ * SRCH-01/06/07/08 — one page of matches per group for `q`.
  *
- * Leads: seller first/last, address, city, ZIP and ref id by case-insensitive
- * substring, PLUS the digits of the query against `phone_norm` when it carries ≥4.
+ * Leads: seller first/last, address, city, ZIP and ref id by case-insensitive substring,
+ * PLUS the digits of the query against `phone_norm` when it carries ≥4 — as an AND of the
+ * query's terms (SRCH-06), through the shared `leadSearchMatch` builder that the admin leads
+ * list and the portal list use too. Ordered by relevance (SRCH-08), then recency.
  * MLS-REMOVED leads are INCLUDED (with their verdict, so the overlay can badge them):
  * an admin searching an address must find the lead whatever the MLS said. RECALLED
  * (soft-deleted) leads are excluded everywhere, exactly as every sibling read does.
  *
  * Partners: name, ref id and email by substring; revoked and soft-deleted partners
- * are excluded (they are not a place to navigate to).
+ * are excluded (they are not a place to navigate to). Ordered by name similarity, then
+ * name asc.
  *
  * A query shorter than SEARCH_MIN_CHARS short-circuits to an empty result without
  * touching the database.
@@ -78,32 +85,25 @@ export async function globalSearch(scope: ScopeContext, q: string): Promise<Sear
   if (!isSearchable(q)) return empty(q);
 
   const db = getDb();
-  const like = containsPattern(q);
-  const digits = searchPhoneDigits(q);
 
-  // Every pattern is a BOUND parameter with its LIKE metacharacters escaped, so `%`
-  // matches a literal percent sign instead of every row (SRCH-01).
-  const leadMatch = or(
-    ilike(schema.leads.sellerFirst, like),
-    ilike(schema.leads.sellerLast, like),
-    ilike(schema.leads.address, like),
-    ilike(schema.leads.city, like),
-    // Parity with the leads list's own `q` filter (modules/leads/queries listLeads):
-    // an admin typing a ZIP must get the same answer from both search boxes.
-    ilike(schema.leads.zip, like),
-    ilike(schema.leads.refId, like),
-    // phone_norm is digits-only (NRM-02), so "(602) 555-0148" and "602-555" both find it.
-    ...(digits ? [ilike(schema.leads.phoneNorm, containsPattern(digits))] : []),
-  )!;
+  // Every pattern inside the builders is a BOUND parameter with its LIKE metacharacters
+  // escaped, so `%` matches a literal percent sign instead of every row (SRCH-07). The SAME
+  // builder backs the admin leads list and the portal list — one definition of what `q` means.
+  const leadMatch = leadSearchMatch(q);
+  const partnerMatch = partnerSearchMatch(q);
+  // FAIL CLOSED (ADR-0013 defence in depth). Unreachable today — isSearchable has already
+  // rejected everything that tokenizes to nothing, and tests/unit pins that implication as an
+  // invariant — but the failure mode if it ever stopped holding is SILENT and maximal: an
+  // undefined conjunct drops straight OUT of drizzle's `and()`, leaving a where-clause of
+  // scope alone, i.e. every row the caller can see returned as "matches". A one-line guard
+  // is cheaper than relying on two functions in a different module agreeing forever.
+  if (!leadMatch || !partnerMatch) return empty(q);
+
   // leadWhere (PRN-08) + the recall guard. No mls_status predicate — removed leads
   // stay findable by design (SRCH-01).
   const leadsWhere = and(leadWhere(scope), isNull(schema.leads.deletedAt), leadMatch)!;
+  const leadRank = leadRankExpr(q, leadIdentifierMatch(q));
 
-  const partnerMatch = or(
-    ilike(schema.partners.name, like),
-    ilike(schema.partners.refId, like),
-    ilike(schema.partners.email, like),
-  )!;
   const partnersWhere = and(
     tenantWhere(schema.partners, scope),
     isNull(schema.partners.deletedAt),
@@ -129,7 +129,13 @@ export async function globalSearch(scope: ScopeContext, q: string): Promise<Sear
       })
       .from(schema.leads)
       .where(leadsWhere)
-      .orderBy(desc(schema.leads.createdAt))
+      // SRCH-08: relevance first, recency next, then ref id as the DETERMINISTIC final leg.
+      // createdAt is a transaction timestamp, so every lead from one upload shares it to the
+      // microsecond — without a unique final column the order of a same-upload tie is
+      // whatever the plan happens to emit, and the capped LIMIT 10 could drop a different
+      // row between two identical requests. `rank` is ORDER-BY-only — it is never selected
+      // into the payload the overlay renders.
+      .orderBy(desc(leadRank), desc(schema.leads.createdAt), asc(schema.leads.refId))
       .limit(SEARCH_GROUP_LIMIT),
     db.select({ n: sql<number>`count(*)::int` }).from(schema.leads).where(leadsWhere),
     db
@@ -142,7 +148,10 @@ export async function globalSearch(scope: ScopeContext, q: string): Promise<Sear
       })
       .from(schema.partners)
       .where(partnersWhere)
-      .orderBy(asc(schema.partners.name))
+      // SRCH-08: closest name first, then the stable alphabetical order the group had before,
+      // then ref id — two partners CAN share a name (nothing enforces uniqueness), so name
+      // alone is not a deterministic final leg.
+      .orderBy(desc(partnerRankExpr(q)), asc(schema.partners.name), asc(schema.partners.refId))
       .limit(SEARCH_GROUP_LIMIT),
     db.select({ n: sql<number>`count(*)::int` }).from(schema.partners).where(partnersWhere),
   ]);

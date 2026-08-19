@@ -59,6 +59,119 @@ suite("WS-3: listLeads pagination (FEP-03)", () => {
   });
 });
 
+// ─────────────────────────────────────────────────────────────────────────────
+// WP-N4 / SRCH-06/07 — the admin leads list's `?q=` now runs the SHARED search-match
+// builder. Two behaviours are new here and one is a FIX: multi-term AND, phone-digit
+// matching, and escaped patterns (this surface used to interpolate the raw `q` into
+// `%${q}%`, so a typed `%` matched every lead in the tenant).
+// ─────────────────────────────────────────────────────────────────────────────
+
+const SLUG_Q = "test-leads-list-search";
+
+suite("WP-N4: listLeads ?q= search (SRCH-06/07)", () => {
+  let client: ReturnType<typeof postgres>;
+  let db: PostgresJsDatabase<typeof schema>;
+  let scope: ScopeContext;
+  let otherScope: ScopeContext;
+
+  const SLUG_Q2 = "test-leads-list-search-b";
+  const REF_MARCUS = "LD-26-90001"; // Marcus Whitfield · Phoenix AZ 85028 · (602) 555-0148
+  const REF_JANET = "LD-26-90002"; // Janet Whitfield · Norfolk VA
+  const REF_PERCENT = "LD-26-90003"; // "100% Ranch Rd" — the literal-% fixture
+  const REF_UNDERSCORE = "LD-26-90004"; // "APT_5 Real Rd" — the literal-_ fixture
+  const REF_DECOY = "LD-26-90005"; // "APTX5 Decoy Rd" — hit ONLY if `_` stays a wildcard
+  const REF_B = "LD-26-95001"; // the other tenant's identically-named lead
+
+  async function cleanup() {
+    const t = await db.select({ id: schema.tenants.id }).from(schema.tenants).where(inArray(schema.tenants.slug, [SLUG_Q, SLUG_Q2]));
+    const tids = t.map((x) => x.id);
+    if (tids.length === 0) return;
+    await db.delete(schema.leads).where(inArray(schema.leads.tenantId, tids));
+    await db.delete(schema.uploads).where(inArray(schema.uploads.tenantId, tids));
+    await db.delete(schema.tenants).where(inArray(schema.tenants.id, tids));
+  }
+
+  beforeAll(async () => {
+    client = postgres(url!, { prepare: false, max: 1 });
+    db = drizzle(client, { schema });
+    await cleanup();
+
+    const [t] = await db.insert(schema.tenants).values({ name: "LLQ", slug: SLUG_Q }).returning({ id: schema.tenants.id });
+    const [t2] = await db.insert(schema.tenants).values({ name: "LLQ B", slug: SLUG_Q2 }).returning({ id: schema.tenants.id });
+    scope = { tenantId: t.id, role: "admin", userId: randomUUID() };
+    otherScope = { tenantId: t2.id, role: "admin", userId: randomUUID() };
+    const [u] = await db.insert(schema.uploads).values({ tenantId: t.id, refId: "IM-26-901", status: "processed", filename: "q.csv" }).returning({ id: schema.uploads.id });
+    const [u2] = await db.insert(schema.uploads).values({ tenantId: t2.id, refId: "IM-26-951", status: "processed", filename: "qb.csv" }).returning({ id: schema.uploads.id });
+
+    const base = { rawJson: {}, mlsStatus: "kept" as const, matchMethod: "none" as const };
+    await db.insert(schema.leads).values([
+      { ...base, tenantId: t.id, uploadId: u.id, refId: REF_MARCUS, dedupeKey: randomUUID(), sellerFirst: "Marcus", sellerLast: "Whitfield", address: "4127 E Cactus Wren Dr", city: "Phoenix", state: "AZ", zip: "85028", phone: "(602) 555-0148", phoneNorm: "6025550148" },
+      { ...base, tenantId: t.id, uploadId: u.id, refId: REF_JANET, dedupeKey: randomUUID(), sellerFirst: "Janet", sellerLast: "Whitfield", address: "9 Elm Ct", city: "Norfolk", state: "VA" },
+      { ...base, tenantId: t.id, uploadId: u.id, refId: REF_PERCENT, dedupeKey: randomUUID(), sellerFirst: "Percy", sellerLast: "Signum", address: "100% Ranch Rd", city: "Mesa", state: "AZ" },
+      { ...base, tenantId: t.id, uploadId: u.id, refId: REF_UNDERSCORE, dedupeKey: randomUUID(), sellerFirst: "Una", sellerLast: "Score", address: "APT_5 Real Rd", city: "Sedona", state: "AZ" },
+      { ...base, tenantId: t.id, uploadId: u.id, refId: REF_DECOY, dedupeKey: randomUUID(), sellerFirst: "Dee", sellerLast: "Coy", address: "APTX5 Decoy Rd", city: "Sedona", state: "AZ" },
+      { ...base, tenantId: t2.id, uploadId: u2.id, refId: REF_B, dedupeKey: randomUUID(), sellerFirst: "Other", sellerLast: "Whitfield", address: "4127 E Cactus Wren Dr", city: "Phoenix", state: "AZ", zip: "85028", phoneNorm: "6025550148" },
+    ]);
+  });
+
+  afterAll(async () => { await cleanup(); await client.end(); });
+
+  const run = async (q: string, s: ScopeContext = scope) => {
+    const res = await listLeads(s, LeadsQuerySchema.parse({ q }));
+    return { refs: res.leads.map((l) => l.refId), total: res.total };
+  };
+
+  it("SRCH-06: the leads list matches EVERY term, across different columns", async () => {
+    expect((await run("whitfield phoenix")).refs).toEqual([REF_MARCUS]);
+    expect((await run("phoenix whitfield")).refs).toEqual([REF_MARCUS]);
+    expect((await run("whitfield norfolk")).refs).toEqual([REF_JANET]);
+    // Count-consistency: `total` is the same filtered predicate, not a JS filter-after-fetch.
+    const both = await run("whitfield");
+    expect(both.refs.sort()).toEqual([REF_MARCUS, REF_JANET].sort());
+    expect(both.total).toBe(2);
+    expect((await run("whitfield zzzznope")).total).toBe(0);
+  });
+
+  it("SRCH-07: the leads list matches phone digits — new on this surface", async () => {
+    expect((await run("(602) 555-0148")).refs).toEqual([REF_MARCUS]);
+    expect((await run("602-555")).refs).toEqual([REF_MARCUS]);
+    // Mixed: the name AND the digits must both hit.
+    expect((await run("whitfield 6025550")).refs).toEqual([REF_MARCUS]);
+    expect((await run("signum 6025550")).total).toBe(0);
+    // Below the digit floor, digits are not matched against phones at all.
+    expect((await run("602")).total).toBe(0);
+  });
+
+  it("SRCH-07: `%` is a LITERAL on the leads list — the unescaped-pattern bug (was: matched every row)", async () => {
+    // Before WP-N4 this predicate was `%${q}%`, so q="%" rendered "%%%" and returned all 5.
+    const bare = await run("%");
+    expect(bare.total).toBe(1);
+    expect(bare.refs).toEqual([REF_PERCENT]);
+    expect((await run("0% ranch")).refs).toEqual([REF_PERCENT]);
+    // A wildcard pair no lead literally contains matches nothing (unescaped: everything).
+    expect((await run("%_")).total).toBe(0);
+  });
+
+  it("SRCH-07: `_` is a LITERAL on the leads list — 't_5' finds APT_5 and never the APTX5 decoy", async () => {
+    const res = await run("t_5");
+    expect(res.refs).toEqual([REF_UNDERSCORE]);
+    expect(res.refs).not.toContain(REF_DECOY);
+    expect(res.total).toBe(1);
+    // The escape character itself must not produce a driver error.
+    expect((await run("a\\")).total).toBe(0);
+  });
+
+  it("SRCH-06/07/PRN-08: no query shape reaches another tenant's identical lead", async () => {
+    // TST-11: assert the query is non-empty for the OWNER before asserting absence here.
+    for (const q of ["whitfield phoenix", "(602) 555-0148", "%", "85028", "cactus wren"]) {
+      expect((await run(q)).total).toBeGreaterThan(0);
+      expect((await run(q)).refs).not.toContain(REF_B);
+    }
+    // …and the mirror: the other tenant sees only its own row.
+    expect((await run("whitfield phoenix", otherScope)).refs).toEqual([REF_B]);
+  });
+});
+
 // F1-03 (WP-F1 fold-in, audit-tenancy F-1): the admin `sort=status`/`sort=modified`
 // paths exercise the two admin correlated `lead_status_history` subqueries
 // (`latestStatus`/`latestAt` in modules/leads/queries.ts). F1-01 (portal) proved the

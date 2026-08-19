@@ -393,6 +393,13 @@
       "when": 1787094574008,
       "tag": "0055_notifications_bell_read_index",
       "breakpoints": true
+    },
+    {
+      "idx": 56,
+      "version": "7",
+      "when": 1787136871489,
+      "tag": "0056_search_trgm",
+      "breakpoints": true
     }
   ]
 }

@@ -383,15 +383,18 @@ into every run's rules snapshot (DM-08).
 | TAG-06 | Settings → Tags manager: list with usage counts, rename, recolor, delete. `TAG_PALETTE` is append-only by contract (rows store the key). |
 | TAG-07 | Attach/detach do NOT write timeline entries in v1 (noise). |
 
-### 6.24 Global admin search (SRCH) — CRM slice 3, shipped (WP-SRCH-1)
+### 6.24 Global admin search (SRCH) — CRM slice 3, shipped (WP-SRCH-1; SRCH-06/07/08 + ADR-0051 + migration 0056 in WP-N4)
 
 | ID | Requirement |
 | -- | ----------- |
 | SRCH-01 | Endpoint `GET /api/search?q=` admin-gated; min 2 chars; matches leads (name/address/city/zip/ref/phone_norm) + partners (name/ref/email); removed-MLS leads findable with a verdict. |
 | SRCH-02 | Ctrl/⌘-K overlay (and a topbar trigger) from anywhere in (admin); `?open=<ref>` cleared on close so the same ref reopens. |
-| SRCH-03 | Purity/perf: no new extension/dependency (boring ILIKE), server-side + debounced. |
+| SRCH-03 | Purity/perf: server-side + debounced; MATCHING stays exact-substring ILIKE with bound, escaped patterns — no fuzzy/typo tolerance. **Amended by ADR-0051 (WP-N4):** the original "no new extension/dependency" clause is superseded for RANKING and index acceleration only — `pg_trgm` (contrib, migration 0056) supplies `word_similarity` + `gin_trgm_ops`. Still zero new npm dependencies. |
 | SRCH-04 | Security: no PII beyond what the admin list already shows; uniform error envelope. |
 | SRCH-05 | Tests: tenant probe, admin gate, phone normalization, normalized-echo race guard. |
+| SRCH-06 | **Multi-term (WP-N4).** The query is whitespace-tokenized into at most `SEARCH_MAX_TERMS` (6) terms — the bound applies to the SPLIT itself (DM-12). EVERY term must match (AND); each term may match ANY searched column (OR). Single-term behaviour is unchanged. Applies to all three surfaces: global search (both groups), the admin leads list + board `?q=`, and the portal leads list `?q=`. |
+| SRCH-07 | **Phone-proof + literal patterns everywhere (WP-N4).** Every surface also matches the WHOLE query's digits (≥ `SEARCH_PHONE_MIN_DIGITS`) against `leads.phone_norm`; the digit alternative is offered only to terms that themselves contain a digit, so it can satisfy one term slot without standing in for a text term. Every pattern on every surface goes through the ONE `escapeLike` — `%` and `_` are literals (this fixed the admin leads list and portal list, which interpolated the raw query). One shared builder: `src/modules/search/match.ts`, composed as a NARROWING conjunct into each surface's existing scoped predicate (PRN-08 untouched). |
+| SRCH-08 | **Ranked Ctrl-K (WP-N4).** The global-search leads group orders by a rank computed in SQL (PRN-15): identifier hits (ref id / ZIP / phone digits) strictly above text hits, text hits by trigram `word_similarity` of the query against seller name / address / city, ties by `created_at` desc. Partners: name similarity, then name asc. The group `total` stays an exact count. Ranking is a Ctrl-K concern only — the leads LIST and portal LIST keep their explicit sort columns. |
 
 ### 6.25 Saved views (SV) — CRM slice 3, shipped (WP-SV-1, migration 0043, ADR-0045)
 

@@ -72,14 +72,19 @@ suite("WP-PW-3 Task 1: listPartnerLeads sort + status filter (PRN-08)", () => {
     // PX's own leads: distinct cities/states, distinct createdAt for a deterministic
     // "received" order (newest first = 0s offset, oldest = highest offset).
     await db.insert(schema.leads).values([
-      { tenantId: t.id, refId: "LD-26-30001", uploadId: up.id, dedupeKey: "px|1", rawJson: {}, partnerId: px.id, matchMethod: "zip", mlsStatus: "kept", sellerFirst: "A", sellerLast: "One", city: "Austin", state: "TX", createdAt: releasedAt(30) },
-      { tenantId: t.id, refId: "LD-26-30002", uploadId: up.id, dedupeKey: "px|2", rawJson: {}, partnerId: px.id, matchMethod: "zip", mlsStatus: "kept", sellerFirst: "B", sellerLast: "Two", city: "Boston", state: "MA", createdAt: releasedAt(20) },
+      // WP-N4 fixtures ride along on the existing rows (no new rows, so every count/order
+      // assertion below is untouched): a phone for the SRCH-07 digit probe and a literal `%`
+      // address for the escaping probe.
+      { tenantId: t.id, refId: "LD-26-30001", uploadId: up.id, dedupeKey: "px|1", rawJson: {}, partnerId: px.id, matchMethod: "zip", mlsStatus: "kept", sellerFirst: "A", sellerLast: "One", address: "4127 E Cactus Wren Dr", city: "Austin", state: "TX", phoneNorm: "6025550148", createdAt: releasedAt(30) },
+      { tenantId: t.id, refId: "LD-26-30002", uploadId: up.id, dedupeKey: "px|2", rawJson: {}, partnerId: px.id, matchMethod: "zip", mlsStatus: "kept", sellerFirst: "B", sellerLast: "Two", address: "100% Ranch Rd", city: "Boston", state: "MA", createdAt: releasedAt(20) },
       { tenantId: t.id, refId: "LD-26-30003", uploadId: up.id, dedupeKey: "px|3", rawJson: {}, partnerId: px.id, matchMethod: "zip", mlsStatus: "kept", sellerFirst: "C", sellerLast: "Three", city: "Chicago", state: "IL", createdAt: releasedAt(10) },
     ]);
     // PY's own leads — must NEVER show up in PX's sort/filter results, even though
     // one shares the "Closed" status and a city that would sort ahead of PX's.
     await db.insert(schema.leads).values([
-      { tenantId: t.id, refId: "LD-26-30004", uploadId: up.id, dedupeKey: "py|1", rawJson: {}, partnerId: py.id, matchMethod: "zip", mlsStatus: "kept", sellerFirst: "D", sellerLast: "Four", city: "Aardvark City", state: "CO", createdAt: releasedAt(5) },
+      // PY's row carries the SAME address and phone as PX's LD-26-30001 — so every new
+      // WP-N4 query shape (multi-term, phone digits, a bare `%`) is also a leak probe.
+      { tenantId: t.id, refId: "LD-26-30004", uploadId: up.id, dedupeKey: "py|1", rawJson: {}, partnerId: py.id, matchMethod: "zip", mlsStatus: "kept", sellerFirst: "D", sellerLast: "Four", address: "4127 E Cactus Wren Dr", city: "Aardvark City", state: "CO", phoneNorm: "6025550148", createdAt: releasedAt(5) },
       { tenantId: t.id, refId: "LD-26-30005", uploadId: up.id, dedupeKey: "py|2", rawJson: {}, partnerId: py.id, matchMethod: "zip", mlsStatus: "kept", sellerFirst: "E", sellerLast: "Five", city: "Evergreen", state: "CO", createdAt: releasedAt(1) },
     ]);
 
@@ -100,6 +105,7 @@ suite("WP-PW-3 Task 1: listPartnerLeads sort + status filter (PRN-08)", () => {
   });
 
   const partnerX = (): ScopeContext => ({ tenantId: id.tenant, role: "partner", userId: id.pxUser, partnerId: id.px });
+  const partnerY = (): ScopeContext => ({ tenantId: id.tenant, role: "partner", userId: id.pyUser, partnerId: id.py });
 
   it("PW3-01: sort=city dir=asc returns the partner's own rows in ascending city order, never the other partner's", async () => {
     const page = await listPartnerLeads(partnerX(), { sort: "city", dir: "asc" });
@@ -139,6 +145,53 @@ suite("WP-PW-3 Task 1: listPartnerLeads sort + status filter (PRN-08)", () => {
     expect((await listPartnerLeads(partnerX(), { q: "Aardvark" })).total).toBe(0);
     expect((await listPartnerLeads(partnerX(), { q: "Four" })).leads).toHaveLength(0);
     expect((await listPartnerLeads(partnerX(), { q: "LD-26-30004" })).total).toBe(0);
+  });
+
+  it("SRCH-06: the portal list matches EVERY term, across different columns", async () => {
+    expect((await listPartnerLeads(partnerX(), { q: "one austin" })).leads.map((l) => l.refId)).toEqual(["LD-26-30001"]);
+    expect((await listPartnerLeads(partnerX(), { q: "austin one" })).leads.map((l) => l.refId)).toEqual(["LD-26-30001"]);
+    expect((await listPartnerLeads(partnerX(), { q: "two boston" })).leads.map((l) => l.refId)).toEqual(["LD-26-30002"]);
+    // The AND really narrows: the right seller with the wrong city returns nothing.
+    const none = await listPartnerLeads(partnerX(), { q: "one boston" });
+    expect(none.leads).toHaveLength(0);
+    expect(none.total).toBe(0); // count-consistency
+  });
+
+  it("SRCH-07: the portal list matches phone digits — new on this surface, still partner-scoped", async () => {
+    const byPhone = await listPartnerLeads(partnerX(), { q: "(602) 555-0148" });
+    expect(byPhone.leads.map((l) => l.refId)).toEqual(["LD-26-30001"]);
+    expect(byPhone.total).toBe(1);
+    // PY's lead carries the SAME phone — a partner must never reach it (PRN-08).
+    expect(byPhone.leads.map((l) => l.refId)).not.toContain("LD-26-30004");
+    expect((await listPartnerLeads(partnerX(), { q: "602-555" })).leads.map((l) => l.refId)).toEqual(["LD-26-30001"]);
+    // Mixed query: the seller term AND the digits must hit.
+    expect((await listPartnerLeads(partnerX(), { q: "one 6025550" })).leads.map((l) => l.refId)).toEqual(["LD-26-30001"]);
+    expect((await listPartnerLeads(partnerX(), { q: "two 6025550" })).total).toBe(0);
+  });
+
+  it("SRCH-07: `%` and `_` are LITERALS on the portal list (was: `%` matched every visible row)", async () => {
+    // Before WP-N4 this predicate was `%${q}%`, so q="%" rendered "%%%" — all three of PX's rows.
+    const bare = await listPartnerLeads(partnerX(), { q: "%" });
+    expect(bare.leads.map((l) => l.refId)).toEqual(["LD-26-30002"]);
+    expect(bare.total).toBe(1);
+    expect((await listPartnerLeads(partnerX(), { q: "%_" })).total).toBe(0);
+    expect((await listPartnerLeads(partnerX(), { q: "0% ranch" })).leads.map((l) => l.refId)).toEqual(["LD-26-30002"]);
+  });
+
+  it("SRCH-06/07/PRN-08: no new query shape widens the portal's visible set", async () => {
+    // TST-11: prove the query is non-empty for its OWNER first, then assert the other
+    // partner's absence — otherwise "found nothing" would pass for the wrong reason.
+    for (const q of ["cactus wren", "(602) 555-0148", "four aardvark"]) {
+      expect((await listPartnerLeads(partnerY(), { q })).total).toBeGreaterThan(0);
+      const px = await listPartnerLeads(partnerX(), { q });
+      expect(px.leads.map((l) => l.refId)).not.toContain("LD-26-30004");
+      expect(px.leads.map((l) => l.refId)).not.toContain("LD-26-30005");
+      // Whatever the query, PX can only ever see a subset of its own three rows.
+      expect(px.total).toBeLessThanOrEqual(3);
+    }
+    // And the mirror for the escaping probe, whose only match belongs to PX.
+    expect((await listPartnerLeads(partnerX(), { q: "%" })).total).toBe(1);
+    expect((await listPartnerLeads(partnerY(), { q: "%" })).total).toBe(0);
   });
 
   it("PW3-03: an unknown sort value falls back to received/desc, no throw", async () => {

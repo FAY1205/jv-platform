@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, ilike, inArray, isNull, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import { getDb } from "@/db";
 import * as schema from "@/db/schema";
 import { leadWhere, leadChildWhere, statusHistoryWhere, ownStatusAuthorScope, tenantWhere, requirePartner, isPartnerStream, type ScopeContext } from "@/lib/scope";
@@ -10,6 +10,7 @@ import { zipToCounty } from "@/lib/geo/zip-county";
 import { deltaOf, type RangeKey } from "../analytics/ranges";
 import { toExportLead, type ExportLead, type PartnerInfo } from "../export/render";
 import { noteAndTaskActivity, sortNewestFirst, type LeadActivity } from "../leads/timeline";
+import { leadSearchMatch } from "../search/match";
 import { currentStatus, SEED_LEAD_STATUSES } from "./statuses";
 import { currentTerritoryQuery } from "../coverage/current-territory";
 import {
@@ -163,21 +164,18 @@ export async function listPartnerLeads(scope: ScopeContext, opts: ListPartnerLea
   // (`${s}`), never string-concatenated.
   const statusFilters = (opts.statuses ?? []).filter((s) => (PORTAL_STATUS_FILTERS as readonly string[]).includes(s));
 
-  // WP-PP-3: free-text search over the partner's own rows — same column set the admin
-  // leads query uses (seller/address/city/zip/ref). Bound via ilike (never concatenated),
-  // and ANDed INTO the shared scoped baseWhere, so it can only ever narrow the caller's
-  // OWN visible set — never widen scope (PRN-08).
+  // WP-PP-3 / WP-N4: free-text search over the partner's own rows — the SHARED
+  // modules/search/match builder (SRCH-06/07), identical to the admin leads list and the
+  // Ctrl-K overlay: AND of the query's terms over seller/address/city/zip/ref, plus the
+  // query's digits against phone_norm. Every pattern is bound AND escaped — this predicate
+  // used to interpolate the raw `q` into `%${q}%`, so a typed `%` matched every row the
+  // partner could see (a widening of the RESULT, though never of scope).
+  //
+  // PRN-08 unchanged: the builder is a content-only NARROWING conjunct with no scope legs,
+  // ANDed INTO the shared scoped baseWhere below — it can only ever narrow the caller's OWN
+  // visible set. The portal stays provably narrowing-only.
   const q = opts.q?.trim();
-  const textMatch = q
-    ? or(
-        ilike(schema.leads.sellerFirst, `%${q}%`),
-        ilike(schema.leads.sellerLast, `%${q}%`),
-        ilike(schema.leads.address, `%${q}%`),
-        ilike(schema.leads.city, `%${q}%`),
-        ilike(schema.leads.zip, `%${q}%`),
-        ilike(schema.leads.refId, `%${q}%`),
-      )
-    : undefined;
+  const textMatch = q ? leadSearchMatch(q) : undefined;
 
   // Visibility (scope + kept + WP-J2 soft-delete + distribution hold) comes from the
   // shared visibleLeadsWhere; the status filter and text search are pushed INTO this
