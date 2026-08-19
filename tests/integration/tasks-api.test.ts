@@ -435,8 +435,22 @@ suite("WP-TSK-2: lead tasks module (TSK-01..07)", () => {
     expect(open.items[0]).toHaveProperty("leadCity");
     expect(open.items[0]).toHaveProperty("leadState");
 
+    // N3C-03/C-60: the per-bucket totals ride along, counted over the SAME predicate as the
+    // rows (so they can never describe a different set) and across every page.
+    expect(open.groupTotals).toEqual({ overdue: 1, today: 0, upcoming: 1, none: 1 });
+    // They agree with the per-row buckets the same call computed — the SQL and groupByDue
+    // are answering "today" with the same injected clock.
+    for (const g of ["overdue", "today", "upcoming", "none"] as const) {
+      expect(open.groupTotals![g], g).toBe(open.items.filter((t) => t.group === g).length);
+    }
+    // The buckets partition the total; no task is counted twice or lost.
+    expect(Object.values(open.groupTotals!).reduce((a, b) => a + b, 0)).toBe(open.total);
+
     const done = await listMyTasks(pzScope, { status: "done", page: 1 }, new Date("2026-08-15T12:00:00Z"));
     expect(done.items.map((t) => t.title)).toEqual(["already done"]);
+    // N3C-03/C-60: the Done tab is a flat list — no due-date buckets, so no totals to report
+    // (null, not a zero-filled record that would read as "nothing is overdue").
+    expect(done.groupTotals).toBeNull();
 
     // Cross-stream: the admin's My Tasks never contains a partner task.
     const adminMine = await listMyTasks(admin(), { status: "open", page: 1 }, new Date("2026-08-15T12:00:00Z"));
@@ -453,6 +467,10 @@ suite("WP-TSK-2: lead tasks module (TSK-01..07)", () => {
     // Disjoint pages over one stable ordering.
     const overlap = p1.items.filter((a) => p2.items.some((b) => b.id === a.id));
     expect(overlap).toHaveLength(0);
+    // N3C-03/C-60 — the point of the whole change: the bucket totals describe the QUERY, not
+    // the page, so paging never moves the "N overdue" badge.
+    expect(p1.groupTotals).toEqual(p2.groupTotals);
+    expect(Object.values(p1.groupTotals!).reduce((a, b) => a + b, 0)).toBe(p1.total);
   });
 
   // ── C-11: resolved assignee / author identity ─────────────────────────────

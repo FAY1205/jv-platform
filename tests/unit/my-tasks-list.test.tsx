@@ -225,3 +225,60 @@ describe("TSK-07: lead deep link matches the house ?open=<ref> convention", () =
     vi.unstubAllGlobals();
   });
 });
+
+// ── N3C-03/C-60: totals come from the server, rows stay page-scoped ──────────────
+// The badge and the section counts used to count the rows THIS page happened to hold, so a
+// fourth overdue task on page 2 was invisible and "3 overdue" understated the backlog. The
+// payload now carries the true per-bucket totals; the rows it places are still just this
+// page's. These cases pin that split.
+describe("N3C-03/C-60: MyTasksList reads server-side group totals", () => {
+  const pageWithTotals = (items: MyTask[], totals: Record<string, number>, total: number) => ({
+    items,
+    page: 1,
+    pageSize: 20,
+    total,
+    groupTotals: totals,
+  });
+
+  it("N3C-03/C-60: the overdue badge reports the SERVER total, not this page's row count", async () => {
+    // One overdue row on screen, four overdue across the query.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => jsonRes(pageWithTotals([OVERDUE, TODAY_TASK], { overdue: 4, today: 2, upcoming: 0, none: 0 }, 6))) as unknown as typeof fetch,
+    );
+    wrap(<MyTasksList leadHrefBase="/leads?open=" today={TODAY} />);
+    expect(await screen.findByText("4 overdue")).toBeInTheDocument();
+    expect(screen.queryByText("1 overdue")).toBeNull();
+    vi.unstubAllGlobals();
+  });
+
+  it("N3C-03/C-60: section headers report the server total while the rows stay page-scoped", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => jsonRes(pageWithTotals([OVERDUE, TODAY_TASK], { overdue: 4, today: 2, upcoming: 7, none: 0 }, 13))) as unknown as typeof fetch,
+    );
+    wrap(<MyTasksList leadHrefBase="/leads?open=" today={TODAY} />);
+    await screen.findByText(OVERDUE.title);
+
+    const headings = screen.getAllByRole("heading", { level: 3 }).map((h) => h.textContent ?? "");
+    // Only the two buckets with rows on this page render — an "Upcoming · 7" header over an
+    // empty section would be a promise the page can't keep.
+    expect(headings).toHaveLength(2);
+    expect(headings[0]).toContain("Overdue");
+    expect(headings[0]).toContain("4");
+    expect(headings[1]).toContain("Today");
+    expect(headings[1]).toContain("2");
+    // …and the rows are still only the ones this page fetched.
+    expect(screen.getAllByRole("listitem")).toHaveLength(2);
+    vi.unstubAllGlobals();
+  });
+
+  it("N3C-03/C-60: without server totals the page's own counts still render (no blank counts)", async () => {
+    vi.stubGlobal("fetch", vi.fn(() => jsonRes(page([OVERDUE, TODAY_TASK]))) as unknown as typeof fetch);
+    wrap(<MyTasksList leadHrefBase="/leads?open=" today={TODAY} />);
+    expect(await screen.findByText("1 overdue")).toBeInTheDocument();
+    const headings = screen.getAllByRole("heading", { level: 3 }).map((h) => h.textContent ?? "");
+    expect(headings[0]).toContain("1");
+    vi.unstubAllGlobals();
+  });
+});

@@ -660,10 +660,27 @@ export async function getAdminLeadDetail(scope: ScopeContext, refId: string): Pr
   };
 }
 
-/** The two admin nav-badge counts. */
+/** N3C-01/Q3 — "active" = a lead the default /leads view shows, i.e. one whose derived status
+ *  is NOT "Removed MLS". `statusExpr` prints that verdict from exactly this column, and
+ *  DEFAULT_STATUS_FILTERS (modules/leads/schema) hides exactly this set, so the badge and the
+ *  default list agree by construction. `is distinct from` (not `<>`) because the semantics are
+ *  "anything that isn't removed" — the column is NOT NULL today, but a null must never be
+ *  silently dropped from a headline count if that ever changes.
+ *
+ *  A named builder rather than an inline fragment so "active" has ONE definition here the day
+ *  a second reader needs it (PRN-15) — the `unmatchedWhere` precedent one screen up. */
+function notRemoved(): SQL {
+  return sql`${schema.leads.mlsStatus} is distinct from 'removed'`;
+}
+
+/** The admin nav-badge counts. */
 export interface LeadNavCounts {
-  /** Total leads in the workspace — the Leads badge. */
+  /** Total leads in the workspace, soft-deleted excluded. */
   total: number;
+  /** N3C-01/Q3: leads the default /leads view shows (not MLS-removed) — the Leads badge and
+   *  the left half of the "N active leads · M total" header. THE server-side source: the
+   *  client never re-derives it (PRN-15). */
+  active: number;
   /** Currently-unmatched leads (the backlog) — the Unmatched badge. */
   unmatched: number;
 }
@@ -677,17 +694,27 @@ export interface LeadNavCounts {
  *  number is a FILTER over that same scan, composing the existing `unmatchedWhere` so the
  *  backlog definition lives in exactly one place. `unmatchedWhere` is a strict narrowing of
  *  the outer predicate (it repeats the tenant + soft-delete clauses), so the FILTER can only
- *  ever select a subset of the counted rows. */
+ *  ever select a subset of the counted rows.
+ *
+ *  N3C-01/Q3: `active` joins them as a THIRD filter over the same scan — no second round trip,
+ *  no second scope resolution. Like `unmatched` it is a strict narrowing of the outer predicate
+ *  (which already carries the tenant + soft-delete legs, PRN-08), so it can only ever select a
+ *  subset of `total`. */
 export async function leadNavCounts(scope: ScopeContext): Promise<LeadNavCounts> {
   const db = getDb();
   const [row] = await db
     .select({
       total: sql<number>`count(*)::int`,
+      active: sql<number>`(count(*) filter (where ${notRemoved()}))::int`,
       unmatched: sql<number>`(count(*) filter (where ${unmatchedWhere(scope)}))::int`,
     })
     .from(schema.leads)
     .where(and(tenantWhere(schema.leads, scope), isNull(schema.leads.deletedAt)));
-  return { total: Number(row?.total ?? 0), unmatched: Number(row?.unmatched ?? 0) };
+  return {
+    total: Number(row?.total ?? 0),
+    active: Number(row?.active ?? 0),
+    unmatched: Number(row?.unmatched ?? 0),
+  };
 }
 
 export interface UnmatchedStateStats {

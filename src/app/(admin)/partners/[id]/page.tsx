@@ -186,11 +186,15 @@ export default function PartnerDetailPage() {
             </div>
             <div className="flex items-center gap-3">
               <SegmentedControl<RangeKey> ariaLabel="Performance range" value={range} onValueChange={setRange} options={RANGES} />
+              {/* N3C-04/C-56: the deep link opens THIS partner's edit form on the roster.
+                  It used to land on the bare roster ("Edit on Partners →") and leave the
+                  admin to find the row and its ⋯ menu — the label now names the action it
+                  actually performs. */}
               <Link
-                href="/partners"
+                href={`/partners?edit=${partner.id}`}
                 className="shrink-0 rounded-lg border border-border bg-surface px-3.5 py-2 text-sm font-semibold text-text-2 shadow-xs transition-colors hover:border-text-3 hover:bg-surface-2"
               >
-                Edit on Partners →
+                Edit partner
               </Link>
             </div>
           </div>
@@ -268,7 +272,15 @@ export default function PartnerDetailPage() {
               {partner.adminNotes ? (
                 <p className="whitespace-pre-wrap text-sm text-text-2">{partner.adminNotes}</p>
               ) : (
-                <p className="text-sm text-text-3">No notes yet. Add private notes when editing this partner.</p>
+                // N3C-04/C-56: the empty state told the admin what to do but gave them no way
+                // to do it — the same deep link turns the instruction into the action.
+                <p className="text-sm text-text-3">
+                  No notes yet.{" "}
+                  <Link href={`/partners?edit=${partner.id}`} className="text-step-1 font-semibold text-brand-ink hover:underline">
+                    Add notes
+                  </Link>{" "}
+                  when editing this partner.
+                </p>
               )}
             </aside>
           </div>
@@ -277,7 +289,15 @@ export default function PartnerDetailPage() {
           <section className={panel}>
             <div className="mb-3 flex items-center justify-between">
               <h2 className="font-display text-step-3 font-semibold tracking-tight">Recent leads</h2>
-              <span className="num text-xs text-text-3">last {leadsQ.data?.leads.length ?? 0}</span>
+              <div className="flex items-center gap-3">
+                <span className="num text-xs text-text-3">last {leadsQ.data?.leads.length ?? 0}</span>
+                {/* N3C-05/C-69: "last N" was a dead end — the truncated list named a bigger
+                    set with no way to reach it. `?partnerId=` opens /leads pre-filtered to
+                    this partner (styling: the coverage panel's "Open →" precedent). */}
+                <Link href={`/leads?partnerId=${partner.id}`} className="text-step-1 font-semibold text-brand-ink hover:underline">
+                  View all in Leads →
+                </Link>
+              </div>
             </div>
             {leadsQ.isPending ? (
               <div className="flex flex-col gap-2">{Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-9 w-full" />)}</div>

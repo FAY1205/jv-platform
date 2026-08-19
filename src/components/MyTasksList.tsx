@@ -57,6 +57,10 @@ interface MyTasksPage {
   page: number;
   pageSize: number;
   total: number;
+  /** N3C-03/C-60: the true per-bucket totals across every page, computed server-side in the
+   *  same round trip as the rows. `null` on the Done tab (completed tasks aren't bucketed by
+   *  due date). Never re-derived here — PRN-15. */
+  groupTotals: Record<DueGroup, number> | null;
 }
 
 export interface MyTasksListProps {
@@ -132,21 +136,30 @@ export function MyTasksList({ leadHrefBase, today, title = "My Tasks" }: MyTasks
     },
   });
 
-  // TSK-07/TSK-10: grouping happens HERE, client-side, from the raw `dueOn` + the injected
-  // `today` — never the server's `group` field — so the pure groupByDue predicate stays the
-  // single source of truth for the bucket a task lands in. Scoped to the CURRENTLY FETCHED
-  // PAGE only: a task on page 2 isn't counted here. A server-side grouping that spans every
-  // page (so "3 overdue" is always the true total, not just this page's) is a future WP —
-  // noted as a WP candidate in the WP-TSK-5 summary, not built here.
+  // TSK-07/TSK-10: which ROWS land in which section is decided HERE, client-side, from the
+  // raw `dueOn` + the injected `today` — never the server's `group` field — so the pure
+  // groupByDue predicate stays the single source of truth for a task's bucket. This is
+  // page-scoped by nature: it can only place the rows this page fetched.
+  //
+  // N3C-03/C-60: the NUMBERS are no longer page-scoped. The counts beside the badge and the
+  // section headers now come from `groupTotals`, computed server-side over every page of the
+  // same query (PRN-15) — the WP-TSK-5 note that deferred this is now discharged. Before,
+  // a fourth overdue task sitting on page 2 was invisible and the badge read "3 overdue"
+  // while four were overdue. A section still appears only when this page HAS rows for it.
   //
   // Done tasks are never re-grouped by due date (a completed task isn't "overdue" just
   // because its due date has passed) — the Done tab renders a flat list; its due chip
-  // already reads "Done · Aug 12" regardless of `dueOn`.
+  // already reads "Done · Aug 12" regardless of `dueOn`. That is also why the server sends
+  // `groupTotals: null` there.
+  const groupTotals = q.data?.groupTotals ?? null;
   const groups: { key: DueGroup; tasks: MyTask[] }[] =
     status === "open"
       ? DUE_GROUPS.map((g) => ({ key: g, tasks: items.filter((t) => groupByDue(t.dueOn, todayStr) === g) })).filter((g) => g.tasks.length > 0)
       : [];
-  const overdueOnPage = status === "open" ? (groups.find((g) => g.key === "overdue")?.tasks.length ?? 0) : 0;
+  // The server total when it is there; the page's own count until the first payload lands
+  // (an optimistic cache write from a toggle carries no totals of its own).
+  const groupTotal = (g: { key: DueGroup; tasks: MyTask[] }) => groupTotals?.[g.key] ?? g.tasks.length;
+  const overdueTotal = status === "open" ? (groupTotals?.overdue ?? groups.find((g) => g.key === "overdue")?.tasks.length ?? 0) : 0;
 
   const totalPages = q.data ? Math.max(1, Math.ceil(q.data.total / q.data.pageSize)) : 1;
 
@@ -154,9 +167,9 @@ export function MyTasksList({ leadHrefBase, today, title = "My Tasks" }: MyTasks
     <Card>
       <CardHeader>
         {title !== null && <CardTitle as="h2">{title}</CardTitle>}
-        {overdueOnPage > 0 && (
+        {overdueTotal > 0 && (
           // PRN-14: color never carries the meaning alone — the text "N overdue" says it too.
-          <Badge variant="removed">{overdueOnPage} overdue</Badge>
+          <Badge variant="removed">{overdueTotal} overdue</Badge>
         )}
         <span className="ml-auto" />
         <SegmentedControl
@@ -198,7 +211,7 @@ export function MyTasksList({ leadHrefBase, today, title = "My Tasks" }: MyTasks
               <h3 className={cn("flex items-center gap-2 pt-3 pb-1 text-xs font-bold uppercase tracking-wide first:pt-1", GROUP_TEXT_CLASS[g.key])}>
                 <span className={cn("h-1.5 w-1.5 rounded-full", GROUP_DOT_CLASS[g.key])} aria-hidden="true" />
                 <span>{GROUP_LABEL[g.key]}</span>
-                <span className="num font-semibold text-text-3">· {g.tasks.length}</span>
+                <span className="num font-semibold text-text-3">· {groupTotal(g)}</span>
               </h3>
               <ul className="flex flex-col">
                 {g.tasks.map((t) => (

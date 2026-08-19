@@ -3,11 +3,7 @@
 import * as React from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useQuery } from "@tanstack/react-query";
-import { apiGet } from "@/lib/api";
-// TYPE-ONLY (erased at compile): a VALUE import from queries would pull its
-// @/db → postgres → node:fs chain into this client bundle.
-import type { LeadNavCounts } from "@/modules/leads/queries";
+import { useLeadNavCounts } from "@/lib/lead-counts";
 import { APP_NAME } from "@/lib/app";
 import { NotificationBell } from "./NotificationBell";
 import { ProfileMenu } from "./ProfileMenu";
@@ -104,13 +100,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   // the scope and scanning the same table; the server now answers both in one round trip.
   // The key stays under the ["leads"] prefix so the existing lead-write invalidations
   // (qc.invalidateQueries({ queryKey: ["leads"] })) keep refreshing the badges.
-  const counts = useQuery({
-    queryKey: ["leads", "counts"],
-    queryFn: () => apiGet<LeadNavCounts>("/api/leads/counts"),
-    staleTime: 30_000,
-  });
+  // N3C-01/Q3: the query itself now lives in lib/lead-counts so the leads header can read
+  // the SAME cache entry rather than fetching the endpoint a second time.
+  const counts = useLeadNavCounts();
   const unmatchedCount = counts.data?.unmatched ?? 0;
-  const leadsTotal = counts.data?.total ?? 0;
+  // N3C-01/Q3: the Leads badge counts ACTIVE leads (not MLS-removed) — the set the page it
+  // links to actually opens with. Before this, clicking a badge reading "412" landed on a
+  // list whose own header said "389 leads", and nothing on screen explained the gap.
+  const leadsActive = counts.data?.active ?? 0;
 
   // Rail contents, shared by the desktop column and the mobile drawer.
   const rail = (onNavigate?: () => void) => (
@@ -139,7 +136,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               // ("Leads, 412"), not the badge's — a badge-level aria-label composed the
               // redundant "Leads 412 leads". The badge is aria-hidden (its number is
               // carried by the link name).
-              const badgeCount = item.badge === "unmatched" ? unmatchedCount : item.badge === "leads" ? leadsTotal : 0;
+              const badgeCount = item.badge === "unmatched" ? unmatchedCount : item.badge === "leads" ? leadsActive : 0;
               return (
                 <Link
                   key={item.href}
@@ -168,9 +165,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                       {unmatchedCount}
                     </span>
                   )}
-                  {item.badge === "leads" && leadsTotal > 0 && (
+                  {item.badge === "leads" && leadsActive > 0 && (
                     <span className="num ml-auto rounded-full bg-surface-3 px-1.5 py-0.5 text-step-1 font-semibold text-text-2" aria-hidden="true">
-                      {leadsTotal.toLocaleString()}
+                      {leadsActive.toLocaleString()}
                     </span>
                   )}
                 </Link>

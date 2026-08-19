@@ -17,7 +17,7 @@ class ResizeObserverStub {
 }
 (globalThis as unknown as { ResizeObserver: unknown }).ResizeObserver = ResizeObserverStub;
 
-import { PartnerForm } from "@/app/(admin)/partners/page";
+import { PartnerForm } from "@/app/(admin)/partners/partners-view";
 
 function wrap(ui: React.ReactNode) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });

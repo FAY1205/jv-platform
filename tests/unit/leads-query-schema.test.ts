@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { LeadsQuerySchema, DEFAULT_STATUS_FILTERS, LEAD_STATUS_FILTERS, isDefaultStatuses } from "@/modules/leads/schema";
+import { LeadsQuerySchema, BoardQuerySchema, partnerIdParam, DEFAULT_STATUS_FILTERS, LEAD_STATUS_FILTERS, isDefaultStatuses } from "@/modules/leads/schema";
 
 // ADM/FEP-03: the global leads list — every query param is Zod-validated and
 // normalized so the query layer only ever sees safe, canonical values.
@@ -106,5 +106,25 @@ describe("SCR: default leads status filter (all workflow statuses, no Removed ML
     expect(isDefaultStatuses([])).toBe(false); // cleared = show all, not the default
     expect(isDefaultStatuses([...DEFAULT_STATUS_FILTERS, "Removed MLS"])).toBe(false);
     expect(isDefaultStatuses(["New"])).toBe(false);
+  });
+
+  // N3C-05/C-69: the /leads server shell now reads `?partnerId=` too (the partner-detail
+  // "View all in Leads →" deep link). It must validate through the SAME parser the two leads
+  // endpoints use, or a crafted URL could mean one thing to the page and another to its API.
+  it("N3C-05/C-69: partnerIdParam is the ONE definition, shared by the list, the board and the page shell", () => {
+    const uuid = "11111111-2222-3333-4444-555555555555";
+    const p = partnerIdParam();
+    expect(p.parse(uuid)).toBe(uuid);
+    expect(p.parse("unmatched")).toBe("unmatched");
+    expect(p.parse("not-a-uuid")).toBeNull();
+    expect(p.parse(undefined)).toBeNull();
+    expect(p.parse(["a", "b"])).toBeNull(); // a repeated ?partnerId= degrades, never throws
+    expect(p.parse("'; drop table leads;--")).toBeNull();
+
+    // The two endpoints resolve the same values through it — no private copy left behind.
+    for (const v of [uuid, "unmatched", "not-a-uuid", undefined]) {
+      expect(LeadsQuerySchema.parse({ partnerId: v }).partnerId).toBe(p.parse(v));
+      expect(BoardQuerySchema.parse({ partnerId: v }).partnerId).toBe(p.parse(v));
+    }
   });
 });
