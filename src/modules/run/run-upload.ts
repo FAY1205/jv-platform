@@ -10,6 +10,7 @@ import { withDbIdempotency } from "@/lib/idempotency-db";
 import { storeExport } from "@/modules/export/storage";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { enqueueRunDigests, drainOutbox } from "@/modules/notify/outbox";
+import { notifyImportProcessed } from "@/modules/notify/events";
 import { loadNotificationPrefs } from "@/modules/notify/prefs";
 import { runListingChecks } from "@/modules/listing/run-checks";
 import { adminAllowlist } from "@/lib/env";
@@ -82,6 +83,13 @@ export async function runUpload(scope: ScopeContext, input: RunUploadInput): Pro
     } catch (e) {
       logError("admin_summary_enqueue_failed", { message: errMsg(e) });
     }
+
+    // WP-NF2 NTF-11 `import_result` (success). Inside the idempotency block ON PURPOSE: a
+    // replayed upload key returns the stored response without re-running this, so a retried
+    // request cannot double-notify. The acting admin is excluded — the run-summary above is
+    // already their signal, and two rows about one upload in one bell is noise (§10.2).
+    // Best-effort, like every sibling step in this block.
+    await notifyImportProcessed(db, scope.tenantId, { uploadRef: result.uploadRefId, actorUserId: scope.userId });
 
     // LST-01: run the listing check (LinkOnly) after the pipeline. Best-effort; it
     // never removes leads and never blocks the export (already stored above).

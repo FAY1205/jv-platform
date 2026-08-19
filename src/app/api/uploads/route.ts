@@ -4,6 +4,7 @@ import { getServerScope } from "@/lib/scope-context";
 import { detectProfile } from "@/modules/sources";
 import { loadProfilesForDetection } from "@/modules/sources/profile-store";
 import { runUpload } from "@/modules/run/run-upload";
+import { notifyImportFailed } from "@/modules/notify/events";
 import { findDuplicateUpload } from "@/modules/run/queries";
 import { RequestInProgressError } from "@/lib/idempotency-db";
 import { assertCsrf, authErrorResponse } from "@/lib/auth/guard";
@@ -81,6 +82,11 @@ export async function POST(req: Request) {
 
     // ING-08: a genuinely-missing required column with nothing to remap → hard block.
     if (detected.status === "missing_required" && detected.missingRequired?.length) {
+      // WP-NF2 NTF-11 `import_result` (failure). ING-08's loud-failure pairing: a refused
+      // import is a toast that dies with the tab today, so it also gets a durable admin row.
+      // Recipients INCLUDE the acting admin (§10.2) — no run_summary covers a run that never
+      // happened. Best-effort (the emit swallows), so it can never turn a 422 into a 500.
+      await notifyImportFailed(db, scope.tenantId, { filename: body.filename, failure: "missing_required" });
       return NextResponse.json(
         {
           code: "missing_required",
@@ -95,6 +101,9 @@ export async function POST(req: Request) {
     // ING-02/08 (ADR-0039): drift or unknown → report it back with the specific columns that
     // are off. No in-app remap/confirm — but never a silent re-guess either.
     const base = detected.profile ?? null;
+    // NTF-11: an unrecognized file is a FAILED import even though it answers 200 — nothing was
+    // ingested and the admin has to act. Same durable record as the 422 above.
+    await notifyImportFailed(db, scope.tenantId, { filename: body.filename, failure: "unrecognized" });
     return jsonOk({
       result: "unrecognized",
       profileName: base?.name ?? null,
@@ -104,6 +113,25 @@ export async function POST(req: Request) {
     const authResp = authErrorResponse(e);
     if (authResp) return authResp;
     if (e instanceof RequestInProgressError) return jsonError("in_progress", "This upload is already being processed.", 409);
+    // NTF-11: the unexpected-failure leg. Deliberately NOT emitted for the auth and
+    // in-progress branches above — an unauthenticated caller has no tenant to notify, and a
+    // 409 replay is not a failure, it is the idempotency guard doing its job.
+    //
+    // `scope` is re-resolved rather than hoisted out of the try: the throw may have come FROM
+    // getServerScope, in which case there is no tenant and nothing to notify. Its own failure
+    // is swallowed for the same reason — a broken notification must not replace the real 500.
+    await notifyUploadCrash(body.filename);
     return jsonServerError("process_failed", "Processing failed.", { message: e instanceof Error ? e.message : String(e) });
+  }
+}
+
+/** The `process_failed` catch's emit, isolated so a second failure while REPORTING the first
+ *  cannot escape into the response path. */
+async function notifyUploadCrash(filename: string): Promise<void> {
+  try {
+    const scope = await getServerScope();
+    await notifyImportFailed(getDb(), scope.tenantId, { filename, failure: "process_failed" });
+  } catch {
+    // No session, no tenant, or the notify path itself is down — the 500 below is the signal.
   }
 }

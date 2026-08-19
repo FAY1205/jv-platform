@@ -99,6 +99,60 @@ describe("notification prefs", () => {
     }
   });
 
+  it("NTF-11: the four new WP-NF2 types are catalog rows in the right buckets", () => {
+    const keys = NOTIFICATION_EVENTS.map((e) => `${e.role}.${e.key}`);
+    // task_assigned is the only new type with BOTH buckets — a task can land with a staff seat
+    // or a partner seat, and each stream reads its own row.
+    expect(keys).toContain("admin.task_assigned");
+    expect(keys).toContain("partner.task_assigned");
+    // The other three are OPS events: admin bucket only (WP-NF2 §10.4).
+    expect(keys).toContain("admin.partner_note");
+    expect(keys).toContain("admin.import_result");
+    expect(keys).toContain("admin.partner_activated");
+    expect(keys).not.toContain("partner.partner_note");
+    expect(keys).not.toContain("partner.import_result");
+    expect(keys).not.toContain("partner.partner_activated");
+  });
+
+  it("NTF-11: every new type defaults email OFF, in-app ON (§10.1)", () => {
+    // The assigned_lead precedent. Flipping any of these is an owner one-liner — this test is
+    // what makes such a flip a deliberate, reviewed edit rather than a silent drift.
+    for (const key of ["task_assigned", "partner_note", "import_result", "partner_activated"] as const) {
+      expect(resolvePref(DEFAULT_NOTIFICATION_PREFS, "admin", key)).toEqual({ email: false, inApp: true });
+    }
+    expect(resolvePref(DEFAULT_NOTIFICATION_PREFS, "partner", "task_assigned")).toEqual({ email: false, inApp: true });
+  });
+
+  it("NTF-11: catalog, defaults and Zod schema stay in sync (drift guard)", () => {
+    // The three places a new event has to be declared. A row present in one and missing from
+    // another is the exact failure this guards: the settings matrix renders off the catalog,
+    // resolution reads the defaults, and the PUT validates against the schema — so a half-added
+    // event renders a checkbox that either can't be saved or resolves to `undefined`.
+    for (const { role, key } of NOTIFICATION_EVENTS) {
+      const fromDefaults = (DEFAULT_NOTIFICATION_PREFS[role] as Record<string, unknown>)[key];
+      expect(fromDefaults, `${role}.${key} missing from DEFAULT_NOTIFICATION_PREFS`).toBeDefined();
+      expect(
+        NotificationPrefsSchema.safeParse({ [role]: { [key]: { email: true, inApp: false } } }).success,
+        `${role}.${key} rejected by NotificationPrefsSchema`,
+      ).toBe(true);
+      // …and the merge covers it, so a stored row that predates the event still resolves.
+      expect(resolvePref(mergeNotificationPrefs({}), role, key)).toEqual(fromDefaults);
+    }
+  });
+
+  it("NTF-11: a stored value that predates the new types still resolves them", () => {
+    // Every tenant that has ever saved prefs has a row without these four keys.
+    const merged = mergeNotificationPrefs({ admin: { status_change: { email: true } } });
+    expect(resolvePref(merged, "admin", "import_result")).toEqual({ email: false, inApp: true });
+    expect(resolvePref(merged, "partner", "task_assigned")).toEqual({ email: false, inApp: true });
+    // …and a partial value keeps the untouched channel at its default.
+    expect(resolvePref(mergeNotificationPrefs({ admin: { partner_note: { email: true } } }), "admin", "partner_note")).toEqual({
+      email: true,
+      inApp: true,
+    });
+    expect(NotificationPrefsSchema.safeParse({ admin: { import_result: { email: "yes" } } }).success).toBe(false);
+  });
+
   it("SCR-12: hot-lead alerts default fully on (email + in-app) for both roles", () => {
     expect(resolvePref(DEFAULT_NOTIFICATION_PREFS, "admin", "hot_leads")).toEqual({ email: true, inApp: true });
     expect(resolvePref(DEFAULT_NOTIFICATION_PREFS, "partner", "hot_leads")).toEqual({ email: true, inApp: true });

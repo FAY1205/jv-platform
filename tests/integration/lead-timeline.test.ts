@@ -51,6 +51,11 @@ suite("TSK-06: unified lead timeline", () => {
     await db.delete(schema.leadStatusHistory).where(inArray(schema.leadStatusHistory.tenantId, tids));
     await db.delete(schema.leads).where(inArray(schema.leads.tenantId, tids));
     await db.delete(schema.uploads).where(inArray(schema.uploads.tenantId, tids));
+    // WP-NF2 NTF-11: task assignment and partner notes now write notifications, which FK
+    // `users`. Must go before the users delete.
+    await db.delete(schema.notifications).where(inArray(schema.notifications.tenantId, tids));
+    await db.delete(schema.emailOutbox).where(inArray(schema.emailOutbox.tenantId, tids));
+    await db.delete(schema.notificationPrefOverrides).where(inArray(schema.notificationPrefOverrides.tenantId, tids));
     await db.delete(schema.users).where(inArray(schema.users.tenantId, tids));
     await db.delete(schema.partners).where(inArray(schema.partners.tenantId, tids));
     await db.delete(schema.tenants).where(inArray(schema.tenants.id, tids));

@@ -62,6 +62,12 @@ const EventOverlaySchema = z
     task_due: OverlayChannelSchema,
     new_leads: OverlayChannelSchema,
     assigned_lead: OverlayChannelSchema,
+    // WP-NF2 NTF-11. `task_assigned` exists in BOTH role buckets and still needs exactly one
+    // key here: an overlay is keyed by event alone (see NOTIFICATION_EVENT_KEYS above).
+    task_assigned: OverlayChannelSchema,
+    partner_note: OverlayChannelSchema,
+    import_result: OverlayChannelSchema,
+    partner_activated: OverlayChannelSchema,
   })
   .partial()
   .strict();

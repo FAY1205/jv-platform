@@ -5,6 +5,7 @@ import * as schema from "@/db/schema";
 import { leadWhere, noteWhere, streamOf, isPartnerStream, type ScopeContext } from "@/lib/scope";
 import { releasedLeads } from "../run/hold-filter";
 import { maskAuditValue } from "@/modules/audit/redact";
+import { notifyPartnerNote } from "@/modules/notify/events";
 
 // WP-J2: a partner can't note/read a recalled (soft-deleted) lead; admin keeps access — voided
 // leads stay visible to admin in the import history. Distribution hold: nor a still-held lead.
@@ -82,6 +83,21 @@ export async function addLeadNote(scope: ScopeContext, leadRefId: string, body: 
     // admin-stream tier (admin/member/viewer) writes the 'admin' stream (Phase C).
     .values({ tenantId: lead.tenantId, leadId: lead.id, authorUserId: scope.userId, authorRole: streamOf(scope), body })
     .returning({ id: schema.leadNotes.id });
+
+  // WP-NF2 NTF-11 `partner_note` — ONE direction only, and the direction is the point.
+  //
+  // A PARTNER note tells the admins something they need to act on, so it notifies. An ADMIN
+  // note emits NOTHING: the two streams are mutually invisible (PRN-13), so a partner must
+  // never learn that an admin note exists, let alone that one was just written on their lead.
+  // The gate is `streamOf(scope)` — the same function that decided `author_role` two lines up,
+  // so the notification and the row it describes can never disagree about which stream this is.
+  //
+  // NTF-16: `body` is NOT passed. The note text never leaves the stream wall — not in a title,
+  // a body, an email, or a log line. The emit is best-effort (it swallows internally) and runs
+  // after the insert, so a notification failure can never cost a partner their note.
+  if (streamOf(scope) === "partner") {
+    await notifyPartnerNote(db, lead.tenantId, { leadRef: leadRefId });
+  }
   return { id: note.id };
 }
 
