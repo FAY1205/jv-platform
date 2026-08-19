@@ -3,8 +3,7 @@
 import * as React from "react";
 import Link from "next/link";
 import Script from "next/script";
-import { Card, CardBody, Input, Button, Checkbox } from "@/components";
-import { APP_NAME } from "@/lib/app";
+import { Card, CardBody, Input, Button, Checkbox, AuthCardHeader } from "@/components";
 
 // SCP-02/ADR-0033/ADR-0034: public self-serve signup. POSTs to /api/auth/signup
 // (Task 6), which is enumeration-safe (AUT-05) — the response is uniform whether
@@ -173,10 +172,7 @@ export default function SignupPage() {
       <Script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer onLoad={renderWidget} />
       <Card className="w-full max-w-sm">
         <CardBody>
-          <div className="mb-6 flex flex-col gap-1">
-            <span className="font-display text-lg font-semibold text-text">{APP_NAME}</span>
-            <span className="text-sm text-text-3">Create your workspace</span>
-          </div>
+          <AuthCardHeader title="Create your workspace" />
           {sent ? (
             <div className="flex flex-col gap-4">
               <p className="text-sm font-medium text-text">Verify your email to activate your account.</p>
@@ -235,8 +231,14 @@ export default function SignupPage() {
                 hint="Enter the code you were given to create a workspace."
               />
               <div ref={widgetRef} />
+              {/* C-70 (N3C-15): no site key is a DEPLOYMENT state, not a blip — "please try
+                  again later" invited a refresh loop that could never succeed. The copy is
+                  honest about it and is wired to the (permanently) disabled Sign up button
+                  via aria-describedby, so the reason travels with the control. */}
               {!siteKey && (
-                <p className="text-xs text-danger">Verification is unavailable right now. Please try again later.</p>
+                <p id="signup-unavailable" className="text-xs text-danger">
+                  Signups are temporarily unavailable.
+                </p>
               )}
               {captchaError && (
                 <div className="flex flex-col items-start gap-1.5">
@@ -273,6 +275,7 @@ export default function SignupPage() {
                 variant="primary"
                 loading={loading}
                 disabled={!captchaToken || !tosAccepted || !inviteCode.trim() || loading}
+                aria-describedby={!siteKey ? "signup-unavailable" : undefined}
                 className="mt-1 w-full"
               >
                 Sign up

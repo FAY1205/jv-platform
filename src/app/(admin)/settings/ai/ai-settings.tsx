@@ -60,8 +60,12 @@ export function AiSettings() {
   }
 
   // The switch auto-saves on toggle; onSettled re-syncs from the server (reverts on error).
+  // C-61: it now confirms like the Data page's identical auto-saving Switch does — the two
+  // toggles behaved differently for no reason, and a silent success on an auto-save leaves
+  // the admin unsure anything was written (an error toasted, a success said nothing).
   const save = useMutation({
     mutationFn: (next: boolean) => apiMutate("/api/settings/ai", "PUT", { enabled: next }),
+    onSuccess: () => toast("Saved.", "success"),
     onError: (e: Error) => toast(e.message, "danger"),
     onSettled: () => qc.invalidateQueries({ queryKey: ["settings", "ai"] }),
   });
@@ -121,8 +125,12 @@ export function AiSettings() {
 
   return (
     <Card>
+      {/* C-61: this section holds exactly ONE card, and the card's title repeated the
+          section heading directly above it ("AI assistant" twice, 20px apart). The sibling
+          convention (Data & Export) is that a card names its own topic — here that topic is
+          the provider connection; the enable switch below is labelled in place. */}
       <CardHeader className="flex items-center justify-between gap-3">
-        <CardTitle>AI assistant</CardTitle>
+        <CardTitle>Provider connection</CardTitle>
         {enabled && cred.configured && cred.provider && (
           <Badge variant="success">{PROVIDER_LABEL[cred.provider] ?? cred.provider} · connected</Badge>
         )}

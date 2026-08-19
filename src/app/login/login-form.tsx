@@ -3,8 +3,7 @@
 import * as React from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Card, CardBody, Input, Button } from "@/components";
-import { APP_NAME } from "@/lib/app";
+import { Card, CardBody, Input, Button, AuthCardHeader } from "@/components";
 import { safeNextPath } from "@/lib/safe-next";
 
 // Admin sign-in (AUT-05). The failure message is uniform and comes from the server;
@@ -49,10 +48,8 @@ export function LoginForm({ signupEnabled = false }: { signupEnabled?: boolean }
     <main className="flex min-h-full flex-1 items-center justify-center p-6">
       <Card className="w-full max-w-sm">
         <CardBody>
-          <div className="mb-6 flex flex-col gap-1">
-            <h1 className="font-display text-lg font-semibold text-text">{APP_NAME}</h1>
-            <span className="text-sm text-text-3">Admin portal sign-in</span>
-          </div>
+          {/* C-63: the h1 is this screen's PURPOSE; APP_NAME is the muted sibling. */}
+          <AuthCardHeader title="Admin portal sign-in" />
           <form onSubmit={onSubmit} className="flex flex-col gap-4" noValidate>
             <Input
               label="Email"

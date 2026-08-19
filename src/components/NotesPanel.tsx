@@ -29,16 +29,23 @@ interface Note {
 // portal dialog. The ToS-recovery link must point at the CALLER's own ToS page — sending
 // a partner to the admin /tos (then its admin-only /dashboard redirect) bounces them out
 // of the portal into an app they can't use. Portal callers pass "/portal/tos".
+// C-58 (N3C-10): `variant` picks the chrome, not the behavior. "card" is the standalone
+// look every existing call site keeps (the portal lead dialog renders it as its own Card).
+// "section" is the admin lead dialog's sibling treatment — the same surface-2 panel shell
+// and uppercase 13px header that ScorePanel / TasksPanel / Timeline use, so Admin notes
+// stops being the one section in that dialog wearing a different skin.
 export function NotesPanel({
   leadRef,
   title,
   headingLevel = "h3",
   tosHref = "/tos",
+  variant = "card",
 }: {
   leadRef: string;
   title: string;
   headingLevel?: "h2" | "h3";
   tosHref?: string;
+  variant?: "card" | "section";
 }) {
   const qc = useQueryClient();
   const key = ["lead-notes", leadRef];
@@ -99,12 +106,9 @@ export function NotesPanel({
   const notes = data?.notes ?? [];
   const [editingId, setEditingId] = React.useState<string | null>(null);
 
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle as={headingLevel}>{title}</CardTitle>
-      </CardHeader>
-      <CardBody className="flex flex-col gap-4">
+  const Heading = headingLevel;
+  const body = (
+      <>
         {isLoading ? (
           <div className="flex flex-col gap-2">
             <Skeleton className="h-4 w-3/4" />
@@ -195,7 +199,27 @@ export function NotesPanel({
             Add note
           </Button>
         </div>
-      </CardBody>
+      </>
+  );
+
+  if (variant === "section") {
+    return (
+      <div className="rounded-xl border border-border-soft bg-surface-2 p-4">
+        <div className="mb-3 flex items-center justify-between gap-2">
+          {/* Matches ScorePanel/TasksPanel/Timeline exactly (WP-UX-7 audit 3.1). */}
+          <Heading className="text-step-1 font-semibold uppercase tracking-wide text-text-2">{title}</Heading>
+        </div>
+        <div className="flex flex-col gap-4">{body}</div>
+      </div>
+    );
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle as={headingLevel}>{title}</CardTitle>
+      </CardHeader>
+      <CardBody className="flex flex-col gap-4">{body}</CardBody>
     </Card>
   );
 }

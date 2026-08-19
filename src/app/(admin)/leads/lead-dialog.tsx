@@ -348,17 +348,36 @@ function ViewMode({ d, partial = false, onEdit }: { d: LeadDetail; partial?: boo
       </div>
 
       {/* The row carries the headline score but never the per-criterion breakdown. */}
-      {partial ? <Skeleton className="h-28 w-full rounded-xl" /> : <ScorePanel score={d.score} kept={d.mlsStatus === "kept"} />}
+      {partial ? <PanelSkeleton title="Lead score" lines={5} /> : <ScorePanel score={d.score} kept={d.mlsStatus === "kept"} />}
 
       {/* Tasks panel sits ABOVE the Timeline per the approved mockup. Tasks and Notes hold
           their OWN queries keyed on the ref (which the row gave us), so they are not held
           back by the partial — they load in parallel with the detail rather than after it. */}
       <TasksPanel leadRef={d.refId} onTaskChanged={onTaskChanged} />
 
-      {partial ? <Skeleton className="h-24 w-full rounded-xl" /> : <Timeline activity={d.activity} />}
+      {partial ? <PanelSkeleton title="Timeline" lines={3} /> : <Timeline activity={d.activity} />}
 
-      <div className="border-t border-border-soft pt-4">
-        <NotesPanel leadRef={d.refId} title="Admin notes" />
+      {/* C-58: Admin notes is a SIBLING panel of Lead score / Tasks / Timeline, so it wears
+          the same chrome — the old border-t + Card wrapper made it read as a different,
+          heavier thing bolted to the bottom of the dialog. */}
+      <NotesPanel leadRef={d.refId} title="Admin notes" variant="section" />
+    </div>
+  );
+}
+
+/** C-65: a partial record's pending sections keep their PANEL shape (surface-2 shell + the
+ *  real section heading + skeleton lines), like TasksPanel's loading state — a flat grey bar
+ *  told the reader nothing about what was arriving and made the dialog reflow on resolve. */
+function PanelSkeleton({ title, lines }: { title: string; lines: number }) {
+  return (
+    <div className="rounded-xl border border-border-soft bg-surface-2 p-4">
+      <div className="mb-3 flex items-center justify-between gap-2">
+        <h3 className="text-step-1 font-semibold uppercase tracking-wide text-text-2">{title}</h3>
+      </div>
+      <div className="flex flex-col gap-2" aria-hidden="true">
+        {Array.from({ length: lines }).map((_, i) => (
+          <Skeleton key={i} className="h-4 w-full" />
+        ))}
       </div>
     </div>
   );

@@ -4,8 +4,7 @@ import * as React from "react";
 import { Suspense } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { Card, CardBody, Input, Button } from "@/components";
-import { APP_NAME } from "@/lib/app";
+import { Card, CardBody, Input, Button, AuthCardHeader } from "@/components";
 
 // AUT-06: set a new password from a reset link. The token comes from the emailed
 // URL; strength is guided client-side and enforced authoritatively server-side.
@@ -26,10 +25,19 @@ function ResetForm() {
   const [error, setError] = React.useState<string | null>(null);
   const [done, setDone] = React.useState(false);
   const [loading, setLoading] = React.useState(false);
+  // C-70 (N3C-15): the mismatch is a FACT the whole time (it blocks submit), but it is only
+  // SHOWN once the field has been left or a submit was attempted — GOV.UK's rule. Telling
+  // someone "Passwords do not match." on their first keystroke of a field they are still
+  // filling in is noise, and the error then flickers away character by character.
+  const [confirmTouched, setConfirmTouched] = React.useState(false);
   const mismatch = confirm.length > 0 && confirm !== next;
+  const showMismatch = mismatch && confirmTouched;
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
+    // A submit attempt counts as "touched" — otherwise a mismatch typed and submitted
+    // without ever blurring would block the button with no visible reason.
+    if (mismatch) setConfirmTouched(true);
     if (mismatch || !token) return;
     setLoading(true);
     setError(null);
@@ -56,10 +64,7 @@ function ResetForm() {
     <main className="flex min-h-full flex-1 items-center justify-center p-6">
       <Card className="w-full max-w-sm">
         <CardBody>
-          <div className="mb-6 flex flex-col gap-1">
-            <span className="font-display text-lg font-semibold text-text">{APP_NAME}</span>
-            <span className="text-sm text-text-3">Choose a new password</span>
-          </div>
+          <AuthCardHeader title="Choose a new password" />
           {done ? (
             <div className="flex flex-col gap-4">
               <p className="text-sm text-success">Your password was updated and all sessions were signed out.</p>
@@ -91,11 +96,19 @@ function ResetForm() {
                 type="password"
                 autoComplete="new-password"
                 value={confirm}
+                // Typing after a shown error clears it as soon as the values agree (the
+                // standard "validate on blur, re-validate on input once touched" pattern).
                 onChange={(e) => setConfirm(e.target.value)}
+                onBlur={() => setConfirmTouched(true)}
                 required
-                error={mismatch ? "Passwords do not match." : undefined}
+                error={showMismatch ? "Passwords do not match." : undefined}
               />
-              <Button type="submit" variant="primary" loading={loading} disabled={mismatch || next.length === 0} className="mt-1 w-full">
+              {/* The submit stays REACHABLE on a mismatch — that is what makes "validate on
+                  submit" possible. A button disabled by an error the user has not been shown
+                  yet is a dead end with no stated reason; onSubmit blocks the request and
+                  reveals the message instead. Empty fields still disable it (nothing to
+                  validate yet). */}
+              <Button type="submit" variant="primary" loading={loading} disabled={next.length === 0 || confirm.length === 0} className="mt-1 w-full">
                 Set new password
               </Button>
             </form>

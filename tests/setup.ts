@@ -12,6 +12,19 @@ import { beforeAll, expect } from "vitest";
 import { configure } from "@testing-library/react";
 configure({ asyncUtilTimeout: 5000 });
 
+// jsdom implements no ResizeObserver, and several shipped primitives use one (Radix
+// Popover, useScrollHint — which N3C-11 wired into every Dialog). Individual suites used to
+// hand-roll this stub; one no-op class here covers them all. Guarded so a real
+// implementation (a browser-backed runner) always wins.
+if (typeof (globalThis as { ResizeObserver?: unknown }).ResizeObserver === "undefined") {
+  class ResizeObserverStub {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  }
+  (globalThis as { ResizeObserver?: unknown }).ResizeObserver = ResizeObserverStub;
+}
+
 // Integration tests read DATABASE_URL from .env.local (Node 22 loadEnvFile).
 // Guarded so the unit suite (no DB) and CI (env already set) are unaffected —
 // without this the integration suites self-skip instead of running (audit F-02/F-50).

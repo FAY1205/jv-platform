@@ -3,7 +3,7 @@
 import * as React from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Card, CardBody, Button } from "@/components";
+import { Card, CardBody, Button, AuthCardHeader, SignOutLink } from "@/components";
 import { csrfHeaders } from "@/lib/csrf-client";
 import { TOS_TITLE, TOS_SUMMARY } from "@/lib/legal/tos";
 
@@ -42,28 +42,38 @@ export default function AdminTosPage() {
   }
 
   return (
-    <main className="mx-auto w-full max-w-lg flex-1 p-6">
-      <h1 className="mb-4 font-display text-xl font-semibold tracking-tight text-text">{TOS_TITLE}</h1>
-      <Card>
-        <CardBody>
-          <p className="mb-3 text-sm leading-relaxed text-text-2">{TOS_SUMMARY}</p>
-          {/* C-55: the same one-source text on the PUBLIC page, so this gate can point at a
-              stable, linkable address. New tab — leaving the gate would just re-gate. */}
-          <p className="mb-5">
-            <Link href="/terms" target="_blank" rel="noopener" className="text-sm font-semibold text-brand-ink hover:underline">
-              Read the full terms
-            </Link>
-          </p>
-          {error && (
-            <p role="alert" className="mb-3 text-sm text-danger">
-              {error}
+    // C-63: the gate rejoins the centered auth-card identity — same layout, same shared
+    // header as /login and /terms. It is the first (and possibly only) screen a gated user
+    // can see, so it must carry the product identity like every other signed-out card.
+    <main className="flex min-h-full flex-1 items-center justify-center p-6">
+      <div className="w-full max-w-lg">
+        <Card>
+          <CardBody>
+            <AuthCardHeader title={TOS_TITLE} />
+            <p className="mb-3 text-sm leading-relaxed text-text-2">{TOS_SUMMARY}</p>
+            {/* C-55: the same one-source text on the PUBLIC page, so this gate can point at a
+                stable, linkable address. New tab — leaving the gate would just re-gate. */}
+            <p className="mb-5">
+              <Link href="/terms" target="_blank" rel="noopener" className="text-sm font-semibold text-brand-ink hover:underline">
+                Read the full terms
+              </Link>
             </p>
-          )}
-          <Button variant="primary" size="lg" loading={loading} onClick={accept} className="w-full">
-            I agree — continue
-          </Button>
-        </CardBody>
-      </Card>
+            {error && (
+              <p role="alert" className="mb-3 text-sm text-danger">
+                {error}
+              </p>
+            )}
+            <Button variant="primary" size="lg" loading={loading} onClick={accept} className="w-full">
+              I agree — continue
+            </Button>
+          </CardBody>
+        </Card>
+        {/* Q9 (N3C-06): declining used to be a dead end — the gate hides the whole app and
+            the session cookie put you straight back on it. This is the way out. */}
+        <p className="mt-2 text-center">
+          <SignOutLink redirectTo="/login" />
+        </p>
+      </div>
     </main>
   );
 }

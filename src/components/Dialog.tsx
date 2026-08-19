@@ -4,6 +4,7 @@ import * as React from "react";
 import * as RadixDialog from "@radix-ui/react-dialog";
 import { cn } from "@/lib/cn";
 import { Button } from "./Button";
+import { ScrollHintFade, useScrollHint } from "./ScrollHint";
 
 // Dialog — the Radix-backed replacement for Modal (ADR-0016, F-15). Focus trap and
 // return-focus-to-opener are provided by Radix, not hand-rolled. The prop shape mirrors
@@ -61,6 +62,10 @@ export function Dialog({ open, onClose, title, children, footer, ariaLabel, size
     setConfirming((c) => (c ? false : true));
   };
 
+  // C-65: bottom edge-fade on the BODY while content is still cut off below — the same
+  // ScrollHint recipe the Table uses horizontally, on the vertical axis (one implementation).
+  const { ref: bodyRef, more: moreBelow } = useScrollHint<HTMLDivElement>(true, "y");
+
   return (
     <RadixDialog.Root open={open} onOpenChange={(next) => { if (!next) requestClose(); }}>
       <RadixDialog.Portal>
@@ -76,40 +81,49 @@ export function Dialog({ open, onClose, title, children, footer, ariaLabel, size
             SIZES[size],
           )}
         >
-          {/* The scroll lives on this inner region, NOT on Content — so the discard overlay
-              (absolute inset-0 on Content) reliably covers the whole panel even when a tall
-              form is scrolled (FRM-02a). */}
-          <div className="flex flex-col overflow-auto">
-            {title ? (
-              <div className="flex items-center gap-3 border-b border-border-soft px-5 py-4">
-                <RadixDialog.Title className="font-display text-base font-semibold text-text">{title}</RadixDialog.Title>
-                <RadixDialog.Close
-                  aria-label="Close"
-                  // C-52 (WCAG 2.5.8): the ✕ glyph stays 18px and `ml-auto` keeps owning the
-                  // alignment — the reach is an invisible pseudo-element, so nothing in the
-                  // title row moves. 18 + 2×6 = 30px, and 18 + 2×14 = 46px on coarse pointers
-                  // (the header's own px-5/py-4 padding absorbs the reach; the only neighbor is
-                  // the non-interactive title). A `-m-2 p-2` box would have fought `ml-auto`
-                  // for the margin, which is why this one is a pseudo-element too.
-                  className={cn(
-                    "relative ml-auto rounded text-text-3 outline-none transition-colors hover:text-text focus-visible:ring-1 focus-visible:ring-brand-ink",
-                    "before:absolute before:-inset-1.5 before:content-[''] pointer-coarse:before:-inset-3.5",
-                  )}
-                >
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
-                    <path d="M18 6 6 18M6 6l12 12" />
-                  </svg>
-                </RadixDialog.Close>
-              </div>
-            ) : (
-              // Radix requires a Title for a11y; hide it visually when none is provided.
-              <RadixDialog.Title className="sr-only">{ariaLabel ?? "Dialog"}</RadixDialog.Title>
-            )}
-            <div className={bare ? undefined : "p-5"}>{children}</div>
-            {footer && (
-              <div className="flex items-center justify-end gap-2 border-t border-border-soft px-5 py-4">{footer}</div>
-            )}
+          {/* C-65: the title bar and the footer sit OUTSIDE the scrolling region — a tall
+              form used to scroll its own heading and its Save button off the screen, so the
+              reader lost both the dialog's identity and its primary action. Only the middle
+              region scrolls now; header/footer are pinned by the Content's flex column.
+              The scroll still lives on an INNER region, never on Content, so the discard
+              overlay (absolute inset-0 on Content) keeps covering the whole panel even when
+              a tall form is scrolled (FRM-02a). */}
+          {title ? (
+            <div className="flex shrink-0 items-center gap-3 border-b border-border-soft px-5 py-4">
+              <RadixDialog.Title className="font-display text-base font-semibold text-text">{title}</RadixDialog.Title>
+              <RadixDialog.Close
+                aria-label="Close"
+                // C-52 (WCAG 2.5.8): the ✕ glyph stays 18px and `ml-auto` keeps owning the
+                // alignment — the reach is an invisible pseudo-element, so nothing in the
+                // title row moves. 18 + 2×6 = 30px, and 18 + 2×14 = 46px on coarse pointers
+                // (the header's own px-5/py-4 padding absorbs the reach; the only neighbor is
+                // the non-interactive title). A `-m-2 p-2` box would have fought `ml-auto`
+                // for the margin, which is why this one is a pseudo-element too.
+                className={cn(
+                  "relative ml-auto rounded text-text-3 outline-none transition-colors hover:text-text focus-visible:ring-1 focus-visible:ring-brand-ink",
+                  "before:absolute before:-inset-1.5 before:content-[''] pointer-coarse:before:-inset-3.5",
+                )}
+              >
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
+                  <path d="M18 6 6 18M6 6l12 12" />
+                </svg>
+              </RadixDialog.Close>
+            </div>
+          ) : (
+            // Radix requires a Title for a11y; hide it visually when none is provided.
+            <RadixDialog.Title className="sr-only">{ariaLabel ?? "Dialog"}</RadixDialog.Title>
+          )}
+          {/* min-h-0 is what lets a flex child actually shrink below its content height —
+              without it the body would push the footer past the panel's max-h. */}
+          <div className="relative flex min-h-0 flex-1 flex-col">
+            <div ref={bodyRef} className="min-h-0 flex-1 overflow-auto">
+              <div className={bare ? undefined : "p-5"}>{children}</div>
+            </div>
+            {moreBelow && <ScrollHintFade edge="bottom" />}
           </div>
+          {footer && (
+            <div className="flex shrink-0 items-center justify-end gap-2 border-t border-border-soft px-5 py-4">{footer}</div>
+          )}
           {confirming && (
             // Covers the panel (z above the title-bar ✕) so the only paths are Keep/Discard.
             <div

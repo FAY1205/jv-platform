@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Card, CardBody } from "@/components";
+import { Card, CardBody, AuthCardHeader } from "@/components";
 import { APP_NAME } from "@/lib/app";
 import { CURRENT_TOS_VERSION, TOS_TITLE, TOS_SUMMARY } from "@/lib/legal/tos";
 
@@ -32,19 +32,16 @@ export default function TermsPage() {
         <CardBody>
           {/* F-1: the identity block every other public auth-card page carries (login,
               signup, forgot, reset) — a signed-out visitor arriving from an email or a
-              search result needs to know WHOSE terms these are. TOS_TITLE stays the single
-              <h1> (it is this page's actual subject), so APP_NAME is a <span>, exactly as
-              forgot/reset render it. N3C-07 (C-63) will replace this hand-rolled block on
-              all five pages with a shared AuthCardHeader primitive. */}
-          <div className="mb-6 flex flex-col gap-1">
-            <span className="font-display text-lg font-semibold text-text">{APP_NAME}</span>
-            <h1 className="font-display text-xl font-semibold tracking-tight text-text">{TOS_TITLE}</h1>
+              search result needs to know WHOSE terms these are. N3C-07 (C-63) replaced the
+              hand-rolled block here and on all five auth pages with the shared primitive,
+              so the <h1>/brand relationship can no longer drift per page. */}
+          <AuthCardHeader title={TOS_TITLE}>
             {/* The effective version — the same string recorded per user+version in
                 tos_acceptances, so a reader can tell WHICH revision this is. */}
             <span className="text-step-1 text-text-3">
               Version <span className="num">{CURRENT_TOS_VERSION}</span>
             </span>
-          </div>
+          </AuthCardHeader>
           <p className="text-sm leading-relaxed text-text-2">{TOS_SUMMARY}</p>
         </CardBody>
       </Card>

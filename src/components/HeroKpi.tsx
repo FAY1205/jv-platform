@@ -54,6 +54,7 @@ export function HeroKpi({
   tip,
   dense,
   href,
+  className,
 }: {
   label: string;
   value: number;
@@ -68,6 +69,9 @@ export function HeroKpi({
   /** UXF-1.1 (Scope-E audit §1.1): make the tile the drill-down to the list it counts.
    *  Optional — a tile with no list to open stays a plain, non-focusable cell. */
   href?: string;
+  /** N3C-09 (C-48 §1.2): grid placement for the cell — the odd tile of a 3-up row spans
+   *  both columns at 2-up widths so no phantom empty cell is left. Layout only. */
+  className?: string;
 }) {
   const color = tone === "brand" ? "text-brand-ink" : tone === "warn" ? "text-warn" : "text-text";
   // A LINKED tile has exactly ONE focusable element: the link itself is the tooltip
@@ -84,7 +88,7 @@ export function HeroKpi({
       {delta !== undefined && <div className="mt-0.5"><Delta delta={delta} good={good} /></div>}
     </>
   );
-  const box = cn("bg-surface py-3", dense ? "px-3" : "px-4");
+  const box = cn("bg-surface py-3", dense ? "px-3" : "px-4", className);
 
   if (!linked) return <div className={box}>{body}</div>;
 

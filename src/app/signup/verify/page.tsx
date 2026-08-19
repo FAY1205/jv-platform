@@ -4,8 +4,7 @@ import * as React from "react";
 import { Suspense } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { Card, CardBody, Button } from "@/components";
-import { APP_NAME } from "@/lib/app";
+import { Card, CardBody, Button, AuthCardHeader } from "@/components";
 
 // SCP-02: the new-signup verification landing page. The confirm click (not an
 // auto-POST on mount) matters — email scanners issue automatic GETs against
@@ -50,10 +49,7 @@ function VerifyForm() {
     <main className="flex min-h-full flex-1 items-center justify-center p-6">
       <Card className="w-full max-w-sm">
         <CardBody>
-          <div className="mb-6 flex flex-col gap-1">
-            <span className="font-display text-lg font-semibold text-text">{APP_NAME}</span>
-            <span className="text-sm text-text-3">Verify your email</span>
-          </div>
+          <AuthCardHeader title="Verify your email" />
           {done ? (
             <div className="flex flex-col gap-4">
               <p className="text-sm text-success">{doneMsg}</p>
