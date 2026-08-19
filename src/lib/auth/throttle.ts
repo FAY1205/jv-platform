@@ -114,6 +114,24 @@ export const TEAM_ACCEPT_THROTTLE: ThrottleConfig = {
   perIp: { limit: 20, windowMs: 900_000 }, // 20 / 15min per IP
 };
 
+// WP-NF2 (NTF-13, audit-security): the tokenized unsubscribe endpoint. Same key shape as
+// VERIFY/RESET_CONFIRM/TEAM_ACCEPT — a truncated hash of the PRESENTED token, never the token
+// (SEC-05) — so it bounds replays of ONE link, while the per-IP limit bounds guessing across
+// links. Each un-throttled call buys an indexed token lookup plus a jsonb write.
+//
+// Deliberately the LOOSEST of the token-keyed family, and sliding-window ONLY at the call site
+// (never evaluateThrottle, so AUT-04's progressive lockout is never composed in). The reason is
+// specific to this endpoint's threat model: the person holding the link is frequently NOT the
+// account owner (a forwarded email, a shared mailbox), and the action is one a user is entitled
+// to repeat. A lockout — or a tight limit — would let a stranger who has seen the link WEDGE the
+// subject's own ability to stop email, converting an anti-abuse control into a denial of the
+// very remedy the control exists to provide. Bounding load is the whole goal; bouncing a human
+// who clicks twice is not.
+export const UNSUBSCRIBE_THROTTLE: ThrottleConfig = {
+  perIdentifier: { limit: 20, windowMs: 900_000 }, // 20 / 15min per token
+  perIp: { limit: 60, windowMs: 900_000 }, // 60 / 15min per IP
+};
+
 export const CHANGE_PASSWORD_THROTTLE: ThrottleConfig = {
   perIdentifier: { limit: 5, windowMs: 900_000 }, // 5 / 15min per email
   perIp: { limit: 20, windowMs: 900_000 }, // 20 / 15min per IP

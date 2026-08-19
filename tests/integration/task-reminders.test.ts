@@ -6,6 +6,7 @@ import { randomUUID } from "node:crypto";
 import * as schema from "@/db/schema";
 import { remindDueTasks, REMINDER_ATTEMPTS_MAX } from "@/modules/notify/task-reminders";
 import { saveNotificationPrefs } from "@/modules/notify/prefs";
+import { saveSubjectOverride } from "@/modules/notify/pref-overrides";
 import { utcDateString } from "@/modules/tasks/dates";
 import { releaseTenantLeads } from "../helpers/hold";
 import type { ScopeContext } from "@/lib/scope";
@@ -23,6 +24,9 @@ const SLUG_PREFS = "test-task-reminders-prefs";
 const SLUG_SCOPE = "test-task-reminders-scope";
 const SLUG_SCOPE_B = "test-task-reminders-scope-b";
 const SLUG_MECH = "test-task-reminders-mech";
+// WP-NF2: two tenants with identical data, so an overlay on one proves it does not reach the other.
+const SLUG_OVERLAY_A = "test-task-reminders-overlay-a";
+const SLUG_OVERLAY_B = "test-task-reminders-overlay-b";
 
 // The transactionality case (audit-tenancy F-6.5) needs one notification insert to fail INSIDE
 // the claim transaction. The flag is inert (straight passthrough) for every other case in this
@@ -53,6 +57,7 @@ async function dropTenants(db: PostgresJsDatabase<typeof schema>, slugs: string[
   const rows = await db.select({ id: schema.tenants.id }).from(schema.tenants).where(inArray(schema.tenants.slug, slugs));
   const tids = rows.map((t) => t.id);
   if (tids.length === 0) return;
+  await db.delete(schema.notificationPrefOverrides).where(inArray(schema.notificationPrefOverrides.tenantId, tids));
   await db.delete(schema.notifications).where(inArray(schema.notifications.tenantId, tids));
   await db.delete(schema.emailOutbox).where(inArray(schema.emailOutbox.tenantId, tids));
   await db.delete(schema.settings).where(inArray(schema.settings.tenantId, tids));
@@ -741,5 +746,107 @@ suite("WP-TSK-6a (C-14): orphan retirement + wall-clock budget", () => {
     expect((await taskRow(id.deliverable)).remindedAt).toBeNull(); // not processed
     // Sanity: with no budget the same task IS nudged, so the 0 above was the budget, not an empty set.
     expect((await sweepC14()).reminded).toBeGreaterThanOrEqual(1);
+  }, 45_000);
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// WP-NF2 PR A (NTF-10/NTF-14): the per-SUBJECT overlay retrofit on this sweep. The tenant-prefs
+// suite above proves the tenant matrix still gates each channel; these legs prove the SECOND
+// layer — one seat's own row — gates it too, is tenant-pinned, and that the reminder email
+// carries that seat's unsubscribe token.
+// ─────────────────────────────────────────────────────────────────────────────
+suite("NTF-10/NTF-14: the reminder sweep honours the per-subject overlay", () => {
+  let client: ReturnType<typeof postgres>;
+  let db: PostgresJsDatabase<typeof schema>;
+  const id: Record<string, string> = {};
+
+  /** Seed one tenant with an admin who owns exactly one overdue task. */
+  async function seedTenant(slug: string, ref: string) {
+    const [t] = await db.insert(schema.tenants).values({ name: slug, slug }).returning({ id: schema.tenants.id });
+    const [px] = await db
+      .insert(schema.partners)
+      .values({ tenantId: t.id, refId: "JV-001", name: "PX", color: "#111111", status: "active" })
+      .returning({ id: schema.partners.id });
+    const admin = randomUUID();
+    await db.insert(schema.users).values({ id: admin, tenantId: t.id, email: `admin@${slug}.test`, role: "admin" as const });
+    const [up] = await db
+      .insert(schema.uploads)
+      .values({ tenantId: t.id, refId: ref, filename: "o.xlsx", status: "processed" })
+      .returning({ id: schema.uploads.id });
+    const [lead] = await db
+      .insert(schema.leads)
+      .values({ tenantId: t.id, refId: `LD-26-${ref.slice(-5)}`, uploadId: up.id, dedupeKey: `ov|${slug}`, rawJson: {}, partnerId: px.id, city: "Tulsa", state: "OK", matchMethod: "zip", mlsStatus: "kept" })
+      .returning({ id: schema.leads.id });
+    await releaseTenantLeads(db, t.id);
+    await db.insert(schema.leadTasks).values({
+      tenantId: t.id, leadId: lead.id, title: "Overlay task", authorRole: "admin",
+      authorUserId: admin, assignedToUserId: admin, dueOn: YESTERDAY,
+    });
+    return { tenantId: t.id, admin };
+  }
+
+  const sweep = (tenantId: string) => remindDueTasks(db, { tenantId, appBaseUrl: APP_URL, today, now });
+  const emails = (tenantId: string) =>
+    db.select().from(schema.emailOutbox).where(and(eq(schema.emailOutbox.tenantId, tenantId), eq(schema.emailOutbox.kind, "task_due")));
+  const bells = (userId: string) =>
+    db.select().from(schema.notifications).where(and(eq(schema.notifications.userId, userId), eq(schema.notifications.type, "task_due")));
+
+  beforeAll(async () => {
+    client = postgres(url!, { prepare: false, max: 1 });
+    db = drizzle(client, { schema });
+    await dropTenants(db, [SLUG_OVERLAY_A, SLUG_OVERLAY_B]);
+    const a = await seedTenant(SLUG_OVERLAY_A, "IM-26-90401");
+    const b = await seedTenant(SLUG_OVERLAY_B, "IM-26-90402");
+    id.tenantA = a.tenantId;
+    id.adminA = a.admin;
+    id.tenantB = b.tenantId;
+    id.adminB = b.admin;
+    // Tenant defaults leave task_due fully ON for both channels, so anything suppressed below is
+    // the OVERLAY doing it — never the tenant matrix.
+  });
+
+  afterAll(async () => {
+    await dropTenants(db, [SLUG_OVERLAY_A, SLUG_OVERLAY_B]);
+    await client.end();
+  });
+
+  it("NTF-10: a recipient's overlay email-off suppresses the reminder EMAIL but keeps the bell row", async () => {
+    await saveSubjectOverride(db, id.tenantA, { userId: id.adminA }, { events: { task_due: { email: false } } });
+    expect((await sweep(id.tenantA)).reminded).toBe(1); // still nudged — the one-shot is spent
+    expect(await emails(id.tenantA)).toHaveLength(0);
+    expect(await bells(id.adminA)).toHaveLength(1);
+  }, 45_000);
+
+  it("NTF-10: the overlay load is TENANT-PINNED — another tenant's row never gates this sweep", async () => {
+    // `users.id` is the primary key, so the SAME id cannot exist under two tenants; the honest
+    // cross-tenant probe is therefore "tenant A holds an email-off overlay, tenant B must be
+    // untouched by it". Tenant B's sweep runs against identical data and MUST still email.
+    expect((await sweep(id.tenantB)).reminded).toBe(1);
+    const sent = await emails(id.tenantB);
+    expect(sent).toHaveLength(1);
+    expect(sent[0].toAddress).toBe(`admin@${SLUG_OVERLAY_B}.test`);
+    expect(await bells(id.adminB)).toHaveLength(1);
+    // And tenant A's suppression still stands — neither leaked into the other.
+    expect(await emails(id.tenantA)).toHaveLength(0);
+  }, 45_000);
+
+  it("NTF-14: the reminder email carries the RECIPIENT seat's unsubscribe token", async () => {
+    const [row] = await db
+      .select({ tokenId: schema.notificationPrefOverrides.tokenId })
+      .from(schema.notificationPrefOverrides)
+      .where(and(
+        eq(schema.notificationPrefOverrides.tenantId, id.tenantB),
+        eq(schema.notificationPrefOverrides.userId, id.adminB),
+      ));
+    expect(row, "the sweep should have minted a token for the emailed seat").toBeDefined();
+    const [sent] = await emails(id.tenantB);
+    expect(sent.html).toContain(row.tokenId);
+    expect(sent.html).toContain("Stop all notification emails");
+    // Tenant A's token (a different subject) must not appear in tenant B's mail.
+    const aRows = await db
+      .select({ tokenId: schema.notificationPrefOverrides.tokenId })
+      .from(schema.notificationPrefOverrides)
+      .where(eq(schema.notificationPrefOverrides.tenantId, id.tenantA));
+    for (const a of aRows) expect(sent.html).not.toContain(a.tokenId);
   }, 45_000);
 });
