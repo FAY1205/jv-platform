@@ -38,6 +38,13 @@ const REF_ASSIGNED = "LD-26-70006"; // owned by a partner (the search path must 
 const REF_ASSIGNED_GONE = "LD-26-70007"; // owned AND recalled — excluded like any other recall
 const REF_UNDERSCORE = "LD-26-70008"; // "APT_5" — the literal-underscore fixture
 const REF_UNDERSCORE_DECOY = "LD-26-70009"; // "APTX5" — matches ONLY if `_` stays a wildcard
+// SRCH-08 ranking fixtures. Each PAIR is seeded so RECENCY alone would invert the expected
+// order — the newer row is the one that must rank LOWER — so a passing assertion can only
+// come from the rank expression, not from the createdAt tie-break.
+const REF_RANK_ID = "LD-26-70020"; // zip 86001 (an IDENTIFIER hit) · OLDER
+const REF_RANK_TEXT = "LD-26-70021"; // "86001 Old Mill Rd" (a TEXT hit on the same query) · NEWER
+const REF_SIM_HIGH = "LD-26-70022"; // city "Cottonwood" — word_similarity 1.0 · OLDER
+const REF_SIM_LOW = "LD-26-70023"; // "Cottonwoodland Estates" — word_similarity ~0.91 · NEWER
 const REF_B_LEAK = "LD-26-80001"; // Tenant B's Whitfield — the cross-tenant probe
 
 const ids: Record<string, string> = {};
@@ -68,6 +75,12 @@ async function seed(db: PostgresJsDatabase<typeof schema>) {
     .values({ tenantId: tA.id, refId: "PR-009", name: "Sunline Legacy", email: "old@sunline.test", color: "#B23A48", status: "active", deletedAt: new Date() })
     .returning({ id: schema.partners.id });
   ids.partnerDeleted = pDeleted.id;
+  // SRCH-08 partner-ranking pair: the CLOSER name sorts LAST alphabetically, so only the
+  // similarity ordering can put it first.
+  await db.insert(schema.partners).values([
+    { tenantId: tA.id, refId: "PR-011", name: "Alpha Stonebridgeway Group", email: "a@stonebridgeway.test", color: "#4C6B54", status: "active" },
+    { tenantId: tA.id, refId: "PR-012", name: "Zephyr Stonebridge Trust", email: "z@stonebridge.test", color: "#6B4C54", status: "active" },
+  ]);
   const [pB] = await db
     .insert(schema.partners)
     .values({ tenantId: tB.id, refId: "PR-004", name: "Cedar Ridge Capital", email: "ops@cedarridge-b.test", color: "#2F6DB0", status: "active" })
@@ -138,6 +151,28 @@ async function seed(db: PostgresJsDatabase<typeof schema>) {
     lead(tA.id, upA.id, {
       refId: REF_UNDERSCORE_DECOY, sellerFirst: "Dee", sellerLast: "Coy",
       address: "APTX5 Decoy Rd", city: "Sedona", state: "AZ", createdAt: new Date(Date.now() - 54_000),
+    }),
+    // SRCH-08 ranking pairs. Deliberately disjoint from every other fixture's tokens so the
+    // suite's existing exact-array assertions are untouched.
+    lead(tA.id, upA.id, {
+      refId: REF_RANK_ID, sellerFirst: "Ida", sellerLast: "Rankwell",
+      address: "4 Pine Rd", city: "Flagstaff", state: "AZ", zip: "86001",
+      createdAt: new Date(Date.now() - 200_000), // OLDER — recency would rank it second
+    }),
+    lead(tA.id, upA.id, {
+      refId: REF_RANK_TEXT, sellerFirst: "Tex", sellerLast: "Rankwell",
+      address: "86001 Old Mill Rd", city: "Payson", state: "AZ",
+      createdAt: new Date(Date.now() - 5_000), // NEWER
+    }),
+    lead(tA.id, upA.id, {
+      refId: REF_SIM_HIGH, sellerFirst: "Simone", sellerLast: "Highbank",
+      address: "3 Bell Rd", city: "Cottonwood", state: "AZ",
+      createdAt: new Date(Date.now() - 210_000), // OLDER
+    }),
+    lead(tA.id, upA.id, {
+      refId: REF_SIM_LOW, sellerFirst: "Lowell", sellerLast: "Simms",
+      address: "51 Cottonwoodland Estates Blvd", city: "Winslow", state: "AZ",
+      createdAt: new Date(Date.now() - 6_000), // NEWER
     }),
     // 11 matches for the per-group cap (SRCH-01: limit 10, true total reported).
     ...Array.from({ length: 11 }, (_, i) =>
@@ -333,6 +368,84 @@ suite("SRCH: globalSearch (SRCH-01)", () => {
     });
     expect(Object.keys(row)).not.toContain("phone");
     expect(Object.keys(row)).not.toContain("email");
+  });
+
+  it("SRCH-06: EVERY term must match, and a term may match ANY column", async () => {
+    // Both terms in the same column…
+    expect(refs(await globalSearch(scopeA(), "marcus whitfield"))).toEqual([REF_MARCUS]);
+    // …and across DIFFERENT columns: seller last name + city. This is the case v1 could not
+    // answer — "%whitfield phoenix%" is not a substring of anything.
+    expect(refs(await globalSearch(scopeA(), "whitfield phoenix"))).toEqual([REF_MARCUS]);
+    // Term order is irrelevant (AND, not a phrase).
+    expect(refs(await globalSearch(scopeA(), "phoenix whitfield"))).toEqual([REF_MARCUS]);
+    // The same surname with the OTHER city picks the other sibling — the AND really narrows.
+    expect(refs(await globalSearch(scopeA(), "whitfield norfolk"))).toEqual([REF_JANET]);
+    // One unmatched term is enough to return nothing.
+    expect((await globalSearch(scopeA(), "whitfield zzzznope")).leads.total).toBe(0);
+  });
+
+  it("SRCH-06: a single-term query behaves exactly as it did in v1", async () => {
+    const res = await globalSearch(scopeA(), "whitf");
+    expect(refs(res)).toEqual([REF_MARCUS, REF_JANET]);
+    expect(res.leads.total).toBe(2);
+  });
+
+  it("SRCH-06/DM-12: the split is bounded — terms past the 6th are dropped, not rejected", async () => {
+    // Six real terms + a 7th that matches nothing: the query still answers, on the first six.
+    const capped = await globalSearch(scopeA(), "marcus whitfield phoenix 85028 cactus wren zzzznope");
+    expect(refs(capped)).toEqual([REF_MARCUS]);
+    // The same nonsense term INSIDE the bound does filter it out — proof the 7th was dropped
+    // rather than silently ignored everywhere.
+    expect((await globalSearch(scopeA(), "marcus zzzznope")).leads.total).toBe(0);
+  });
+
+  it("SRCH-07: a phone fragment satisfies a term slot, but never a TEXT term's slot", async () => {
+    // Mixed query: the name term and the digits must BOTH hit.
+    expect(refs(await globalSearch(scopeA(), "whitfield 6025550"))).toEqual([REF_MARCUS]);
+    // Marcus owns the phone but is not a Kim — the phone leg must not stand in for "kim".
+    expect((await globalSearch(scopeA(), "kim 6025550148")).leads.total).toBe(0);
+    // …and the reverse: the right name with the wrong number matches nothing.
+    expect((await globalSearch(scopeA(), "whitfield 9999999999")).leads.total).toBe(0);
+  });
+
+  it("SRCH-06/07: partners match multi-term too", async () => {
+    const res = await globalSearch(scopeA(), "cedar capital");
+    expect(res.partners.rows.map((p) => p.id)).toEqual([ids.partnerA]);
+    expect(res.partners.total).toBe(1);
+    // Name term + email term across two columns.
+    expect((await globalSearch(scopeA(), "ridge cedarridge.test")).partners.total).toBe(1);
+    expect((await globalSearch(scopeA(), "cedar zzzznope")).partners.total).toBe(0);
+  });
+
+  it("SRCH-08: an IDENTIFIER hit outranks a text hit on the same query", async () => {
+    const res = await globalSearch(scopeA(), "86001");
+    // REF_RANK_TEXT is the NEWER row, so recency alone would have listed it first.
+    expect(refs(res)).toEqual([REF_RANK_ID, REF_RANK_TEXT]);
+  });
+
+  it("SRCH-08: among text hits, higher trigram similarity ranks first", async () => {
+    const res = await globalSearch(scopeA(), "cottonwood");
+    // REF_SIM_LOW is the NEWER row; only similarity can put the exact-word city above it.
+    expect(refs(res)).toEqual([REF_SIM_HIGH, REF_SIM_LOW]);
+  });
+
+  it("SRCH-08: equal relevance falls back to createdAt desc, and the total stays exact", async () => {
+    const res = await globalSearch(scopeA(), "Limitville");
+    // All 11 rows carry the same city and the same address shape ⇒ identical rank, so the
+    // order is pure recency (Row0 is the newest).
+    expect(refs(res)).toEqual(Array.from({ length: 10 }, (_, i) => `LD-26-71${String(i).padStart(3, "0")}`));
+    expect(res.leads.total).toBe(11); // ranking must not disturb the true count
+  });
+
+  it("SRCH-08: partners rank by name similarity, then name asc", async () => {
+    const res = await globalSearch(scopeA(), "stonebridge");
+    // "Zephyr Stonebridge Trust" contains the exact word (similarity 1.0); the "Alpha …way"
+    // row is alphabetically first, so name-asc alone would invert this.
+    expect(res.partners.rows.map((p) => p.name)).toEqual([
+      "Zephyr Stonebridge Trust",
+      "Alpha Stonebridgeway Group",
+    ]);
+    expect(res.partners.total).toBe(2);
   });
 
   it("SRCH-01: partners match on name/ref/email; revoked and deleted partners are excluded", async () => {
