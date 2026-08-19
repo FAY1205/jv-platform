@@ -27,7 +27,9 @@ import { logError } from "@/lib/observability";
 // self-guard (getServerScope) but pages don't. "/portal/tasks" needs no separate entry: it
 // already falls under the "/portal" prefix below (prefix match, not exact), same as every
 // other /portal/* page.
-const PROTECTED_PAGE_PREFIXES = ["/dashboard", "/tos", "/imports", "/runs", "/upload", "/account", "/portal", "/leads", "/unmatched", "/dev", "/partners", "/coverage", "/settings", "/rules", "/activity", "/tasks"];
+// WP-NF2 (NTF-12): "/notifications" (admin) follows the same rule — a new admin page prefix
+// that pages cannot self-guard. "/portal/notifications" rides the "/portal" prefix.
+const PROTECTED_PAGE_PREFIXES = ["/dashboard", "/tos", "/imports", "/runs", "/upload", "/account", "/portal", "/leads", "/unmatched", "/dev", "/partners", "/coverage", "/settings", "/rules", "/activity", "/tasks", "/notifications"];
 const PUBLIC_EXCEPTIONS = ["/portal/login"];
 
 function isProtectedPage(pathname: string): boolean {

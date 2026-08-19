@@ -71,7 +71,9 @@ export { TasksPanel, type LeadTask, type TaskIdentity, type TasksPanelProps } fr
 export { MyTasksList, type MyTask, type MyTasksListProps } from "./MyTasksList";
 export { Timeline, matchesTimelineFilter, type TimelineEntry, type TimelineEntryKind } from "./Timeline";
 export { PasswordChangeForm } from "./PasswordChangeForm";
-export { NotificationBell } from "./NotificationBell";
+export { NotificationBell, type NotificationBellProps } from "./NotificationBell";
+export { NotificationsPage } from "./NotificationsPage";
+export { NotificationRowContent, type NotificationRowItem, type NotificationRowContentProps } from "./NotificationRowContent";
 export { NotificationTypeIcon, type NotificationTypeIconProps } from "./NotificationTypeIcon";
 export { HotLeadIcon, HotLeadMark, type HotLeadIconProps, type HotLeadMarkProps } from "./HotLeadMark";
 export { TagChip, HotTagChip, TagOverflowChip, type TagChipProps, type HotTagChipProps } from "./TagChip";

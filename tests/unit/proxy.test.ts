@@ -164,6 +164,21 @@ describe("proxy: getUser() failure handling (ADR-0032 — keep benign session-en
     expect(res.headers.get("location")).toContain("/portal/login");
   });
 
+  // WP-NF2 (NTF-12): the /notifications page for both roles. The admin one is a NEW prefix —
+  // without it the page renders its shell to a signed-out visitor and only the API calls fail,
+  // which is the confusing half-loaded state the allowlist exists to prevent.
+  it("NTF-12: an unauthenticated request to /notifications (new admin prefix) redirects to /login", async () => {
+    const res = await proxy(req("/notifications"));
+    expect(res.status).toBe(307);
+    expect(res.headers.get("location")).toContain("/login");
+  });
+
+  it("NTF-12: an unauthenticated request to /portal/notifications redirects to /portal/login", async () => {
+    const res = await proxy(req("/portal/notifications"));
+    expect(res.status).toBe(307);
+    expect(res.headers.get("location")).toContain("/portal/login");
+  });
+
   // N3A/C-55: /signup's Terms consent link used to point at /tos — a PROTECTED page — so a
   // prospect reading the terms before creating an account was bounced to /login. The public
   // /terms page fixes that dead end, and it is public by ABSENCE from the allowlist above.

@@ -236,7 +236,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             {/* SRCH-02: the topbar affordance for the Ctrl-K overlay. The overlay itself is
                 mounted by the (admin) layout — this only asks it to open. */}
             <GlobalSearchTrigger />
-            <NotificationBell />
+            <NotificationBell viewAllHref="/notifications" />
             <ThemeToggle />
           </div>
         </header>

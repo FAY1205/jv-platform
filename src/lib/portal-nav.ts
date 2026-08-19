@@ -12,6 +12,8 @@ export function portalTitleForPath(pathname: string): string | null {
   if (p === "/portal/leads") return "Leads";
   if (p.startsWith("/portal/activity")) return "Activity";
   if (p.startsWith("/portal/tasks")) return "Tasks";
+  // NTF-12: reached from the bell's "View all notifications" footer, not from a nav tab.
+  if (p.startsWith("/portal/notifications")) return "Notifications";
   if (p.startsWith("/portal/devices")) return "Devices";
   if (p === "/portal") return "Account";
   return null;
