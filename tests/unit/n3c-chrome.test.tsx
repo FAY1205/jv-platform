@@ -1,5 +1,7 @@
 // @vitest-environment jsdom
 import { describe, expect, it, vi, beforeEach } from "vitest";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { render, screen, waitFor, fireEvent } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -8,6 +10,11 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 // matching the N3A/N3B precedent; every case name carries its requirement ID.
 
 vi.mock("@/lib/csrf-client", () => ({ csrfHeaders: () => ({}) }));
+// Only the Workspace settings page below consumes this; every other import in this file
+// resolves the real module.
+vi.mock("@/lib/use-current-user", () => ({
+  useCurrentUser: () => ({ data: { workspace: { name: "Acme" } }, isPending: false, error: null, refetch: vi.fn(), canDo: () => true }),
+}));
 const push = vi.fn();
 const refresh = vi.fn();
 let search = "";
@@ -25,9 +32,15 @@ import { Dialog } from "@/components/Dialog";
 import { ScrollHintFade } from "@/components/ScrollHint";
 import { Table, THead, TBody, Th, Tr } from "@/components/Table";
 import { NotesPanel } from "@/components/NotesPanel";
+import { HeroKpi } from "@/components/HeroKpi";
+import { ToastProvider } from "@/components";
 import ResetPage from "@/app/reset/page";
 import SignupPage from "@/app/signup/page";
+import WorkspaceSettingsPage from "@/app/(admin)/settings/workspace/page";
 import { APP_NAME } from "@/lib/app";
+
+const SRC = join(__dirname, "..", "..", "src");
+const readSrc = (rel: string) => readFileSync(join(SRC, ...rel.split("/")), "utf8");
 
 const assign = vi.fn();
 
@@ -187,6 +200,81 @@ describe("N3C-11/C-65: Dialog title/footer sit outside the scroll region", () =>
     expect(fade.className).toContain("bg-gradient-to-t");
     expect(fade.className).toContain("from-surface");
     expect(fade.className).not.toMatch(/#[0-9a-f]{3,6}/i);
+  });
+});
+
+// ── N3C-09 / C-48 §1.2 — no phantom tile in the 3-in-2 KPI grids ────────────
+describe("N3C-09/C-48: last KPI tile spans the mobile row", () => {
+  it("N3C-09/C-48: HeroKpi forwards a layout className onto the cell, linked and unlinked", () => {
+    const { container, rerender } = render(<HeroKpi className="max-sm:col-span-2" label="Closed" value={7} />);
+    expect((container.firstElementChild as HTMLElement).className).toContain("max-sm:col-span-2");
+    // The LINKED variant is a different element (an <a>) — the class must land there too,
+    // or the "New unmatched" drill-down tile would keep its phantom cell.
+    rerender(<HeroKpi className="max-sm:col-span-2" label="New unmatched" value={3} href="/unmatched" />);
+    const link = screen.getByRole("link", { name: /new unmatched/i });
+    expect(link.className).toContain("max-sm:col-span-2");
+  });
+
+  it("N3C-09/C-48: both dashboard 3-tile grids give the span to their LAST tile only", () => {
+    const src = readSrc("app/(admin)/dashboard/page.tsx");
+    // Each hero grid is a single <div> of self-closing <HeroKpi /> cells (plus comments) —
+    // no nested elements, so the non-greedy close is exact.
+    const grids = [...src.matchAll(/<div className="[^"]*grid-cols-2[^"]*sm:grid-cols-3[^"]*">([\s\S]*?)<\/div>/g)].map((m) => m[1]);
+    expect(grids).toHaveLength(2);
+    for (const grid of grids) {
+      const tiles = grid.split("<HeroKpi").slice(1);
+      expect(tiles).toHaveLength(3);
+      // Only the odd tile spans — giving it to two would break the 2-up row it fixes.
+      expect(tiles[2]).toContain("max-sm:col-span-2");
+      expect(tiles[0]).not.toContain("max-sm:col-span-2");
+      expect(tiles[1]).not.toContain("max-sm:col-span-2");
+    }
+  });
+});
+
+// ── N3C-13 / C-67 — the upload dead end offers its own recovery ─────────────
+describe("N3C-13/C-67: unrecognized-format card offers the template download", () => {
+  // The unrecognized state is reachable only after a real workbook parse in a worker, so
+  // these pin the markup at the source — the same approach role-literal-ban.test.ts takes.
+  const src = readSrc("app/(admin)/upload/page.tsx");
+  const card = src.slice(src.indexOf("This file isn&apos;t the expected format"), src.indexOf("phase === \"parsing\""));
+
+  it("N3C-13/C-67: the error card carries its own <a download> to TEMPLATE_HREF", () => {
+    expect(card).toContain("href={TEMPLATE_HREF}");
+    expect(card).toContain("download");
+    expect(card).toContain("Download template");
+    // The sentence must point at THIS button, not at the page header it used to.
+    expect(card).toContain("Download the template below");
+    expect(card).not.toContain("Download template</span> above");
+  });
+
+  it("N3C-13/C-67: the dropzone names both formats `accept` actually allows", () => {
+    expect(src).toContain('accept=".xlsx,.csv"');
+    expect(src).toContain("Drop a weekly .xlsx or .csv here");
+  });
+});
+
+// ── C-61 — settings consistency ──────────────────────────────────────────────
+describe("C-61: settings + roster consistency", () => {
+  it("C-61: the Workspace page's section title matches its nav label", () => {
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={qc}>
+        <ToastProvider>
+          <WorkspaceSettingsPage />
+        </ToastProvider>
+      </QueryClientProvider>,
+    );
+    expect(screen.getByRole("heading", { name: "Workspace" })).toBeTruthy();
+    expect(screen.queryByRole("heading", { name: "General" })).toBeNull();
+  });
+
+  it("C-61: the AI card no longer repeats its own section heading", () => {
+    // The section title lives in the page shell; the card must not duplicate it.
+    expect(readSrc("app/(admin)/settings/ai/page.tsx")).toContain('title="AI assistant"');
+    const card = readSrc("app/(admin)/settings/ai/ai-settings.tsx");
+    expect(card).toContain("<CardTitle>Provider connection</CardTitle>");
+    expect(card).not.toContain("<CardTitle>AI assistant</CardTitle>");
   });
 });
 

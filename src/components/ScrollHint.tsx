@@ -36,11 +36,16 @@ export function useScrollHint<T extends HTMLElement = HTMLDivElement>(enabled = 
     el.addEventListener("scroll", check, { passive: true });
     const ro = new ResizeObserver(check);
     ro.observe(el);
-    // On the vertical axis the scroller's own box often keeps its size while the CONTENT
-    // grows (a query resolves, a panel expands), so observe the content wrapper too —
-    // otherwise a dialog that becomes scrollable after its data lands shows no cue.
-    const content = el.firstElementChild;
-    if (content) ro.observe(content);
+    // VERTICAL ONLY (deliberate): a dialog body keeps its own box size while the CONTENT
+    // grows underneath it (a query resolves, a panel expands), so the scroller alone never
+    // fires and a dialog that becomes scrollable after its data lands would show no cue.
+    // The x-axis path is left exactly as C-53 shipped it — the horizontal users (Table, the
+    // portal chip strip) resize with their content, and "behavior-identical" is the bar for
+    // an existing primitive being extended.
+    if (axis === "y") {
+      const content = el.firstElementChild;
+      if (content) ro.observe(content);
+    }
     return () => {
       el.removeEventListener("scroll", check);
       ro.disconnect();

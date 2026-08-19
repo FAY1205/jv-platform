@@ -60,6 +60,7 @@ import {
   EmptyState,
   ClearFiltersButton,
   ScrollHintFade,
+  SignOutLink,
   useScrollHint,
   QueryErrorState,
   Skeleton,
@@ -868,6 +869,41 @@ function Gallery() {
               </CardBody>
             </Card>
           </div>
+        </Section>
+
+        <Section title="SignOutLink (Q9) — the quiet way off a card with no app chrome">
+          <p className="mb-3 text-step-1 text-text-3">
+            Sits under the two ToS gates, which otherwise hide the whole app behind an accept button with no exit.
+            Wraps <code className="num">useSignOut</code>, so the AUT-14 server revoke and the query-cache clear are
+            the same ones the account menus use — <code className="num">redirectTo</code> is the caller&apos;s own login
+            screen (<code className="num">/login</code> for admin, <code className="num">/portal/login</code> for the
+            portal). DSN-03: default / hover / focus-visible / active / disabled-while-pending
+            (&ldquo;Signing out…&rdquo;), on a <code className="num">min-h-11</code> target even though it reads as a
+            text link.
+          </p>
+          <Card>
+            <CardHeader><CardTitle>Live component, stubbed effect</CardTitle></CardHeader>
+            <CardBody className="flex flex-col gap-2">
+              {/* Gallery precedent (the Deactivate menu item above only toasts): the CHROME is
+                  the real component so its states can be inspected, while the destructive
+                  effect is stubbed. A capture-phase handler swallows the click before it
+                  reaches the button — without it, browsing the gallery would sign you out. */}
+              <div
+                className="w-fit"
+                onClickCapture={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  toast("Sign-out is stubbed in the gallery.", "success");
+                }}
+              >
+                <SignOutLink redirectTo="/login" />
+              </div>
+              <span className="text-step-1 text-text-3">
+                Hover, tab to it, and hold the click to see all four resting states. Clicking does NOT sign you out
+                here — on the real gates it does.
+              </span>
+            </CardBody>
+          </Card>
         </Section>
 
         <Section title="Query error state — one failed-fetch surface (UXQ-01a)">

@@ -12,6 +12,11 @@ import { APP_NAME } from "@/lib/app";
 //   • APP_NAME = a muted eyebrow sibling above it (PRN-12 — read from lib/app, never a
 //     literal), matching the uppercase 13px chrome eyebrow used across the app.
 // `children` carries an optional supplementary line (the terms page's version stamp).
+//
+// DSN-03 n/a: a static heading block with no interactive element — no hover/focus-visible/
+// active/disabled/loading state applies (LinkCard's inverse precedent: it is interactive and
+// therefore carries all five). The sign-out link that sits under the same cards is a separate
+// primitive (SignOutLink) precisely so the interactive states live where they belong.
 export function AuthCardHeader({ title, children }: { title: string; children?: React.ReactNode }) {
   return (
     <div className="mb-6 flex flex-col gap-1">
