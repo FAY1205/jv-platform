@@ -1,5 +1,5 @@
 import type { RunSummary } from "../analytics/run-summary";
-import { escapeHtml, emailButton, renderEmailDocument, EMAIL_COLORS, EMAIL_FONTS } from "./email-template";
+import { escapeHtml, emailButton, renderEmailDocument, EMAIL_COLORS, EMAIL_FONTS, type UnsubscribeLinks } from "./email-template";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Digest content (NTF-01/02). PURE builders: given a run's per-partner new leads
@@ -23,6 +23,9 @@ export interface PartnerDigestInput {
   uploadRef: string;
   leads: PartnerDigestLead[];
   partnerColor: string; // locked partner color (PRN-06); rendered as the intro swatch (PRN-14)
+  /** NTF-14: the recipient's unsubscribe footer links. Optional so a caller that has not
+   *  resolved a subject (an env-allowlist ops address) still renders — with no links. */
+  unsubscribe?: UnsubscribeLinks;
 }
 
 export interface DigestContent {
@@ -72,6 +75,7 @@ function partnerDigestHtml(input: PartnerDigestInput): string {
     title: `${n} ${noun} — ${input.appName}`,
     preheader: `${n} ${noun} routed to ${input.partnerName}`,
     contentHtml: content,
+    unsubscribe: input.unsubscribe,
   });
 }
 
@@ -94,6 +98,9 @@ export interface AdminSummaryInput {
   uploadRef: string;
   summary: RunSummary;
   importUrl?: string; // deep link to the import (optional CTA)
+  /** NTF-14: the recipient's unsubscribe footer links. Optional so a caller that has not
+   *  resolved a subject (an env-allowlist ops address) still renders — with no links. */
+  unsubscribe?: UnsubscribeLinks;
 }
 
 /** WP-G: the branded HTML body of the admin run-summary email. */
@@ -123,6 +130,7 @@ function adminSummaryHtml(input: AdminSummaryInput): string {
     preheader: `Run ${input.uploadRef} processed`,
     heading: "Run summary",
     contentHtml: content,
+    unsubscribe: input.unsubscribe,
   });
 }
 
@@ -160,6 +168,9 @@ export interface PartnerHotAlertInput {
   partnerColor: string;
   portalUrl: string;
   leads: HotAlertLead[];
+  /** NTF-14: the recipient's unsubscribe footer links. Optional so a caller that has not
+   *  resolved a subject (an env-allowlist ops address) still renders — with no links. */
+  unsubscribe?: UnsubscribeLinks;
 }
 
 /** A partner's hot-lead alert for a run (only their own assigned hot leads). */
@@ -186,7 +197,7 @@ export function buildPartnerHotAlert(input: PartnerHotAlertInput): DigestContent
   return {
     subject: `${n} hot ${n === 1 ? "lead" : "leads"} in your territory — ${input.appName}`,
     body,
-    html: renderEmailDocument({ title: `${n} ${noun} — ${input.appName}`, preheader: `${n} high-priority ${noun}`, heading: "Hot leads", contentHtml: content }),
+    html: renderEmailDocument({ title: `${n} ${noun} — ${input.appName}`, preheader: `${n} high-priority ${noun}`, heading: "Hot leads", contentHtml: content, unsubscribe: input.unsubscribe }),
   };
 }
 
@@ -196,6 +207,9 @@ export interface AdminHotAlertInput {
   leads: HotAlertLead[];
   /** Deep link to the hot-filtered leads list. */
   hotUrl?: string;
+  /** NTF-14: the recipient's unsubscribe footer links. Optional so a caller that has not
+   *  resolved a subject (an env-allowlist ops address) still renders — with no links. */
+  unsubscribe?: UnsubscribeLinks;
 }
 
 /** The admin's hot-lead alert for a run (every hot kept lead, incl. house + unmatched). */
@@ -215,7 +229,7 @@ export function buildAdminHotAlert(input: AdminHotAlertInput): DigestContent {
   return {
     subject: `${n} hot ${n === 1 ? "lead" : "leads"} — ${input.appName}`,
     body,
-    html: renderEmailDocument({ title: `${n} ${noun} — ${input.appName}`, preheader: `${n} high-priority ${noun} in ${input.uploadRef}`, heading: "Hot leads", contentHtml: content }),
+    html: renderEmailDocument({ title: `${n} ${noun} — ${input.appName}`, preheader: `${n} high-priority ${noun} in ${input.uploadRef}`, heading: "Hot leads", contentHtml: content, unsubscribe: input.unsubscribe }),
   };
 }
 
@@ -238,6 +252,9 @@ export interface TaskDueReminderInput {
   state: string | null;
   /** Deep link to the lead, per role (admin `/leads?open=…`, partner `/portal/leads/…`). */
   leadUrl: string;
+  /** NTF-14: the recipient's unsubscribe footer links. Optional so a caller that has not
+   *  resolved a subject (an env-allowlist ops address) still renders — with no links. */
+  unsubscribe?: UnsubscribeLinks;
 }
 
 /** TSK-08: the one-shot due/overdue nudge for a task's recipient. */
@@ -271,6 +288,7 @@ export function buildTaskDueReminder(input: TaskDueReminderInput): DigestContent
       preheader: `Task ${when} on ${input.leadRef}`,
       heading,
       contentHtml: content,
+      unsubscribe: input.unsubscribe,
     }),
   };
 }

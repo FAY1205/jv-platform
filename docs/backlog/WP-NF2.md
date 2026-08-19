@@ -1,0 +1,230 @@
+# WP-NF2 — Notifications v2
+
+Owner-decided scope (Slice 8 row "NF2 kickoff decisions 2026-08-19"): four new configurable
+notification types · /notifications full page for BOTH roles · per-user prefs + partner portal
+surface · per-type + global email unsubscribe. Q8 standing deferral: the assistant / C-62 is
+NOT touched. NF3 rollups and C-75 fan-out volume redesign are OUT.
+
+Requirement IDs: **NTF-10 … NTF-17** (extends spec §NTF-01..05). Mockup-light: page layout is
+described in §NTF-12/§NTF-15 below; no separate mockup gate.
+
+---
+
+## 0. Verified reality (due-diligence 2026-08-19 — code wins)
+
+- Prefs today are **tenant-level**: one `settings` row (`notification_prefs` key), role buckets
+  `admin|partner`, resolved by `resolvePref`/`loadNotificationPrefs`
+  ([src/modules/notify/prefs.ts](../../src/modules/notify/prefs.ts)). There is NO per-user layer.
+- Emit sites: `enqueueRunDigests` / `notifyStatusChange` / `notifyLeadAssigned` /
+  `notifyLeadsBulkAssigned` ([outbox.ts](../../src/modules/notify/outbox.ts)),
+  `remindDueTasks` ([task-reminders.ts](../../src/modules/notify/task-reminders.ts)).
+- `notifications.type` is plain `text` (schema.ts:646) — **no enum migration** for new types.
+- Feed API `GET /api/notifications` returns a fixed 30 rows, no pagination; `[id]/read` +
+  `read-all` exist and are `ownerWhere`-scoped.
+- Bell (`src/components/NotificationBell.tsx`) is mounted in AppShell:239 and
+  PortalShell:160/:173; no "View all" link exists.
+- Imports are SYNCHRONOUS in the request (`runUpload`); `upload_status` enum has NO `failed`
+  value. Failure modes: `missing_required` 422, `unrecognized` result (both pre-row, ING-08
+  detection), and the route's `process_failed` 500 catch. "Completed" = `runUpload` success
+  (inside `withDbIdempotency` — replay-safe).
+- Partner invite/ToS acceptance: `POST /api/auth/tos/accept` promotes partner
+  `invited → active` (route currently does NOT observe whether the promotion happened —
+  needs `.returning()`).
+- Task assignment: `resolveAssignee` inside `addLeadTask`/`editLeadTask`
+  ([tasks.ts](../../src/modules/tasks/tasks.ts):317/440/483) — server-resolved id (PRN-08a shape).
+- Partner note: `addLeadNote` via `POST /api/leads/[ref]/notes`; `author_role = streamOf(scope)`.
+- Email shell: single footer in `renderEmailDocument`
+  ([email-template.ts](../../src/modules/notify/email-template.ts):84-85); all builders compose it.
+- `env.APP_URL` is the canonical absolute origin (used by release cron / reminders).
+- There is NO general-purpose app HMAC secret in `lib/env.ts` → unsubscribe tokens must be
+  DB-stored (split-token), not HMAC-derived.
+- Admin tenant matrix UI: `(admin)/settings/notifications/page.tsx`, API
+  `/api/settings/notifications` gated `settings.manage`.
+- Drizzle journal max `when` = **1787136871489** (0056). Migration 0057 must exceed it.
+
+## 1. NTF-10 — Per-subject preference overlay (migration 0057)
+
+**Table `notification_pref_overrides`** — one row per subject (a user, or a partner ORG for
+org-addressed digest emails):
+
+| column | type | notes |
+|---|---|---|
+| id | uuid pk default gen_random_uuid() | |
+| tenant_id | uuid not null FK tenants | |
+| user_id | uuid null FK users | subject = a seat (admin-stream or partner) |
+| partner_id | uuid null FK partners | subject = a partner org (gates `partners.email` sends) |
+| value | jsonb not null default '{}' | see shape below |
+| token_id | text not null | public half of the unsubscribe token, unique |
+| token_secret | text not null | random 32-byte base64url; compared via `timingSafeEqual` (see NTF-13 accepted-risk note) |
+| created_at / updated_at | timestamptz | house pattern |
+
+Constraints/indexes: `CHECK (num_nonnulls(user_id, partner_id) = 1)`; unique partial
+`(tenant_id, user_id) WHERE user_id IS NOT NULL`; unique partial `(tenant_id, partner_id)
+WHERE partner_id IS NOT NULL`; unique `(token_id)`; FK-cover index on `tenant_id`.
+RLS: enable + **deny-by-default, server-managed** (the `email_outbox` 0008 pattern — no
+policies). Same PR: migration + RLS + indexes (no seed data applies; state that in the PR body).
+Journal `when` > 1787136871489.
+
+**`value` jsonb shape** (Zod-validated, all keys optional):
+```
+{ events?: { [eventKey]: { email?: boolean, inApp?: boolean } }, allEmailsOff?: boolean }
+```
+
+**Resolution (pure, unit-tested):**
+`resolveEffectiveChannel(tenantPrefs, overlayValue, role, event)` =
+tenant `resolvePref` → apply `overlay.events[event]` field-wise → then
+`email &&= !overlay.allEmailsOff`. `allEmailsOff` NEVER touches in-app. Partner-ORG overlay
+rows apply ONLY the email leg (org rows have no in-app surface).
+
+**Gating retrofit:** every per-user email/in-app emit resolves through the recipient's overlay
+(batch loader `loadOverridesFor(db, tenantId, userIds) → Map`); org-addressed emails
+(`partner_digest`, partner `hot_leads` to `partners.email`) resolve through the partner-org
+overlay. Emails to env `adminAllowlist` extras that resolve to no user keep tenant-level
+behavior and get NO unsubscribe link (owner-configured ops addresses — deferred note).
+
+## 2. NTF-11 — Four new types (all configurable rows; email defaults OFF)
+
+Add to `NOTIFICATION_EVENTS` + `DEFAULT_NOTIFICATION_PREFS` + Zod schema + `NotificationPrefs`
+type (the tenant matrix UI picks them up automatically). All four default
+`{ email: false, inApp: true }` (the `assigned_lead` precedent; flipping any default is an
+owner one-liner). Add icons to `NotificationTypeIcon` for each new `type` string.
+
+| key | bucket(s) | label | emit site | recipients | payload rules |
+|---|---|---|---|---|---|
+| `task_assigned` | admin + partner | "A task is assigned to you" | after `addLeadTask` / `editLeadTask` commits, when the (server-resolved) assignee ≠ actor and ≠ previous assignee | the assignee seat only | title "You were assigned a task on lead {ref}"; body = generic sentence — **NEVER the task title** (it can carry seller PII, SEC-05; the C-13 lesson); deepLink = role-appropriate lead URL (admin `/leads?open={ref}`, partner `/portal/leads/{ref}`); `leadRef` set. Pref bucket = `streamPrefRole(assignee.role)`. |
+| `partner_note` | admin | "A partner adds a note to a lead" | `addLeadNote` (or its route) when `streamOf(scope) === "partner"` — PRN-13-safe DIRECTION ONLY (partner → admins); never the reverse | all ACTIVE admin-TIER seats (the `notifyStatusChange` F-8 precedent) | title "New partner note on lead {ref}"; body generic — **the note body NEVER appears in title, body, email, or log** (PRN-13/C-13); deepLink `/leads?open={ref}`; `leadRef` set. |
+| `import_result` | admin | "An import completes or fails" | success: inside `runUpload`'s idempotency block (replay-safe). Failure: uploads route on `missing_required`, `unrecognized`, and the `process_failed` catch (best-effort, swallow errors) | success → all ACTIVE admin-tier seats EXCEPT the acting admin (their signal is `run_summary` — no double bell); failure → all ACTIVE admin-tier seats INCLUDING the actor (durable record of what is a transient toast today, ING-08 loud-failure pairing) | success title "Import {uploadRef} processed"; failure title "Import failed: {filename}" + the failure class; filename is operator data, not seller PII — allowed. deepLink: success `/imports/{ref}`, failure `/upload`. No `leadRef`. Repeated failed attempts each notify (loud by design — noted for owner). |
+| `partner_activated` | admin | "A partner accepts their invite" | `tos/accept` — add `.returning()` to the promotion UPDATE; emit ONLY when a row actually transitioned `invited → active` (once, ever) | all ACTIVE admin-tier seats | title "{partner name} ({refId}) accepted their invite" (PRN-14 name+ref pairing); deepLink to the partner profile/list. No `leadRef`. |
+
+All emit sites: best-effort (swallow + `logError`, ids only), server-resolved recipient ids —
+never from request bodies (PRN-08a). Email legs (when a user turns them on) email `users.email`
+seats, composed with `renderEmailDocument` + NTF-14 footer, enqueued via the outbox.
+
+## 3. NTF-12 — /notifications full page, BOTH roles (FEP-03)
+
+**API:** extend `GET /api/notifications` with optional `?cursor=<base64(createdAt|id)>&limit=`
+(max 50, default 30). Response gains `nextCursor: string | null`. Keyset pagination on
+`(created_at DESC, id DESC)` under `ownerWhere` (the 0055 index already serves it; add `id`
+as the tie-break leg in ORDER BY — C-97 discipline). Bell keeps calling it bare (unchanged
+shape, additive field).
+
+**Pages:** `(admin)/notifications/page.tsx` → shared client `src/components/NotificationsPage.tsx`
+← also mounted at `portal/notifications/page.tsx` (PortalShell). Layout (mockup-light):
+- PageContainer + header: title "Notifications", unread count line, "Mark all read" button
+  (reuses the bell's optimistic mutation shape), and a **"Preferences"** section anchor/toggle
+  (NTF-15).
+- Feed: day-grouped (`groupByDay` reuse), each row = `NotificationTypeIcon` + title + body +
+  `<time>` + unread dot (PRN-14: dot shape, never tint alone); row click = deep link + optimistic
+  mark-read; rows without deepLink mark read in place. States: loading skeletons, honest
+  error (`QueryErrorState`), empty ("You're all caught up.").
+- Footer: "Load more" button driven by `nextCursor` (`useInfiniteQuery`); disabled/loading states.
+- Bell: add a persistent footer row "View all notifications" — href via new
+  `viewAllHref` prop (`/notifications` from AppShell, `/portal/notifications` from PortalShell).
+
+## 4. NTF-13 — Tokenized unsubscribe (Tier A-adjacent surface)
+
+**Token** = `{token_id}.{token_secret}` (both random: 16B / 32B base64url, minted lazily by
+`ensureSubjectToken` get-or-create on first email enqueue for a subject). Link:
+`{APP_URL}/unsubscribe?token=…&event=<key|all>`.
+
+**Endpoint:** public page `src/app/unsubscribe/page.tsx` (no session — email clients):
+GET renders a confirm card (APP_NAME identity block, DSN-12; no auto-apply — mail scanners
+prefetch GETs) with one button; button POSTs `/api/unsubscribe` `{token, event}` (Zod;
+tokenized ⇒ CSRF-exempt by design — document why).
+- Verify: parse `token_id`.`secret`; SELECT by `token_id`; compare secret via
+  `crypto.timingSafeEqual` (AUT-09). Row missing → compare against a constant dummy of equal
+  length anyway (uniform timing), then return the SAME generic success envelope/copy as the
+  valid path (AUT-05 posture: the response NEVER reveals whether a token/subject/address
+  exists, and never echoes an email).
+- Apply (idempotent): `event=all` → `value.allEmailsOff = true`; `event=<key>` →
+  `value.events[key].email = false` (key validated against the catalog; unknown key → same
+  generic success, no write). USER subject rows gate that seat's emails; PARTNER subject rows
+  gate that org's `partners.email` sends. In-app is never touched.
+- Accepted risk (state in PR body for audit-security): `token_secret` is stored plaintext so
+  links remain mintable per-email; the capability is strictly email-reduction, comparison is
+  still constant-time, and a DB-read adversary already holds the addresses themselves.
+  No new env var (no suitable app secret exists; HMAC-off-service-role couples to key rotation).
+
+## 5. NTF-14 — Per-recipient footer links in EVERY notification email
+
+`renderEmailDocument` gains optional `unsubscribe?: { typeUrl: string; typeLabel: string;
+allUrl: string }` → footer renders
+"Unsubscribe from {typeLabel} · Stop all notification emails" links (13px, text3, escaped,
+https-only via `safeHref`). Transactional/auth email is NOT touched (NTF-05 clause stands).
+
+Retrofit every notification-email emit to pass per-recipient URLs (base `env.APP_URL`):
+`enqueueRunDigests` (partner digest + partner hot → partner-ORG token; admin run-summary +
+admin hot → per-user token where the address resolves to a tenant user, else no link),
+`notifyStatusChange` (loop per admin user, not per deduped address, so each footer is that
+user's token), `notifyLeadAssigned` / `notifyLeadsBulkAssigned` (seat token), `remindDueTasks`
+(recipient token), and all NTF-11 email legs. Every retrofit site ALSO applies the NTF-10
+overlay gate before enqueueing.
+
+## 6. NTF-15 — Self-serve prefs, both roles
+
+**API `GET/PUT /api/me/notification-prefs`** — any authenticated role, NO capability gate
+(own row only): GET returns the caller's role-bucket event catalog + effective channels
+(tenant default ⊕ overlay) + `allEmailsOff` + which fields are overridden; PUT accepts the
+overlay `value` shape (Zod), upserts the caller's OWN overlay row (`ownerWhere` semantics —
+tenant + userId from scope, never from the body). ToS gate consistent with sibling
+authenticated routes.
+
+**UI:** a "Preferences" card on the NTF-12 page (BOTH roles — this is the partner-facing
+portal surface, and it gives member/viewer seats a surface without touching the
+`settings.manage`-gated hub): per-event Email/In-app checkboxes (the settings-matrix visual
+language: Checkbox primitive, header row, save button with loading state) + a "Pause all
+notification emails" master switch bound to `allEmailsOff`. Copy notes email defaults are
+off for new types. The admin tenant-defaults matrix page is UNCHANGED apart from the four new
+rows appearing from the catalog + a one-line hint that users can override per-seat.
+
+## 7. NTF-16 — Payload hygiene (binding)
+
+- PRN-13: note bodies never leave the stream wall — not in titles, bodies, emails, or logs.
+- SEC-05: no seller PII in any notification payload or log (task titles are PII-bearing —
+  generic sentences only, as today's task_due rows already discovered via C-13/redaction).
+- New notification rows about a single lead set `leadRef` (C-13 void/purge redaction).
+- PRN-14: partner identity is always name + refId, never color alone.
+
+## 8. NTF-17 — Tests (requirement-ID-named)
+
+- Overlay resolution matrix (pure): tenant default × overlay × kill switch, both roles.
+- TST-01c recipient-set legs for EVERY new/changed emit: cross-tenant, cross-stream,
+  deactivated-seat, admin-tier-only (member/viewer excluded from ops types), self-assign
+  no-op, previous-assignee-unchanged no-op, invited→active fires exactly once (re-accept
+  no-op), partner-note direction (admin note emits NOTHING).
+- Unsubscribe: valid/invalid/malformed token uniform envelope; timing-safe compare wiring
+  (mock `timingSafeEqual` call-shape or dummy-compare branch test); idempotent re-apply;
+  unknown event key; partner-org vs user subject routing; in-app untouched.
+- Feed pagination: cursor walks the full set without gaps/dupes across a created_at tie
+  (id tie-break pinned); `ownerWhere` isolation on the paginated path.
+- Footer: every notification-email builder passes unsubscribe links; auth email does not.
+- Email gating: overlay email-off suppresses enqueue but in-app row still created (and
+  vice versa); `allEmailsOff` suppresses every kind incl. digests via partner-org row.
+- Bell regression: existing bell suite green unmodified.
+
+## 9. PR plan
+
+| PR | Content | Reviews |
+|---|---|---|
+| **A — foundation** (branch `claude/nf2-prefs-unsubscribe`) | migration 0057 + overlay module in prefs.ts (or `prefs-overrides.ts`) + token mint/verify + `/api/unsubscribe` + `/unsubscribe` page + `/api/me/notification-prefs` + email-template footer param + retrofit of existing emit sites (outbox.ts, task-reminders.ts) to overlay gating + footers | pr-reviewer + audit-security (token surface) + audit-tenancy (overlay loads/feed) + audit-data (migration) |
+| **B — new types** (after A merges; `claude/nf2-new-types`) | catalog rows + 4 emit sites (tasks.ts, notes path, uploads route/run-upload.ts, tos/accept) + icons + tests | pr-reviewer + audit-tenancy (new emit recipient sets) |
+| **C — pages** (after A merges, parallel with B; `claude/nf2-pages`) | feed cursor pagination + NotificationsPage component + both role pages + bell View-all + Preferences card UI | pr-reviewer (+ audit-tenancy on the feed diff) |
+
+Full integration suite before merging A and B (notify/outbox/scope touched). Windows:
+`vitest --maxWorkers=4`. `sql\`now()\`` never `new Date()` in SQL defaults. After every
+merge: `gh run list --branch main` (C-98 habit — PR CI skips e2e).
+
+## 10. Deferred for owner (safe reversible defaults applied)
+
+1. Email legs of all four new types default OFF (flip = one line each).
+2. `import_result` success skips the acting admin (run_summary covers them); failures notify
+   everyone incl. actor, and repeated failed attempts each notify (loud per ING-08).
+3. Env `adminAllowlist` extra addresses get no unsubscribe link + tenant-level gating only.
+4. Ops types (import_result, partner_note, partner_activated) go to admin-TIER only
+   (the Phase C F-8 default) — say if member seats should see partner notes.
+5. Unsubscribe tokens stored server-side (split, plaintext secret half) — no new env var;
+   swap to HMAC + env secret later if you prefer (invalidates old links).
+6. My-preferences surface lives ON the /notifications page (both roles) rather than a new
+   settings tab — relocatable.
+7. `allEmailsOff` pauses notification email only; transactional auth email always sends
+   (NTF-05 clause) — displayed in the UI copy.

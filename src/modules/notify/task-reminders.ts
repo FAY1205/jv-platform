@@ -9,6 +9,9 @@ import { enqueueEmail } from "./outbox";
 import { createNotification } from "./notifications";
 import { buildTaskDueReminder } from "./digests";
 import { loadNotificationPrefs, resolvePref, streamPrefRole } from "./prefs";
+import { loadOverridesFor, resolveEffectiveChannel } from "./pref-overrides";
+import { subjectUnsubscribeLinks } from "./unsubscribe";
+import { env } from "@/lib/env";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Due-task reminders (TSK-08). A sibling duty of the drain-outbox cron, exactly like
@@ -157,6 +160,9 @@ export async function remindDueTasks(db: DB, opts: RemindDueTasksOptions): Promi
     // (resolveScope) and must likewise not be nudged — the staff twin of PTL-01 revocation.
     .where(and(tenantIdWhere(schema.users, opts.tenantId), inArray(schema.users.id, candidateIds), isNull(schema.users.deactivatedAt)));
   const usersById = new Map<string, Candidate>(userRows.map((u) => [u.id, u]));
+  // NTF-10: ONE overlay load for the whole sweep's candidate set — the per-task gate below then
+  // resolves in memory, so a 200-task tick still costs a single overrides read.
+  const overrides = await loadOverridesFor(db, opts.tenantId, candidateIds);
 
   let reminded = 0;
   let retired = 0;
@@ -177,7 +183,13 @@ export async function remindDueTasks(db: DB, opts: RemindDueTasksOptions): Promi
         logError("task_reminder_no_visible_recipient", { tenantId: opts.tenantId, taskId: task.id });
         continue;
       }
-      const channel = resolvePref(prefs, streamPrefRole(recipient.role), "task_due");
+      // NTF-10: the recipient's own overlay, over the tenant default. The tenant-level early-out
+      // above stays (NTF-09): a tenant that muted task_due on BOTH legs for BOTH streams mutes
+      // the sweep entirely — a cron that pays per tenant per tick cannot afford to load a whole
+      // candidate set just to discover a seat has opted back in. That ceiling is the ONE place
+      // an overlay cannot widen a leg, and it is deliberate.
+      const recipientRole = streamPrefRole(recipient.role);
+      const channel = resolveEffectiveChannel(prefs, overrides.get(recipient.id) ?? null, recipientRole, "task_due");
       // NTF-09 (WP-NF1 D5) — owner-directed 2026-08-19, INVERTING the earlier pr-reviewer F-2
       // decision recorded here ("consume it anyway; the nudge decision was made and spent").
       // With every channel off there is no nudge to spend: burning the one-shot means that a
@@ -273,6 +285,11 @@ export async function remindDueTasks(db: DB, opts: RemindDueTasksOptions): Promi
             city: fresh.city,
             state: fresh.state,
             leadUrl: `${opts.appBaseUrl}${leadPath}`,
+            // NTF-14: the recipient SEAT's token. Minted on `tx` so the row commits (or rolls
+            // back) with the claim — a nudge and its unsubscribe capability appear together.
+            // Base is env.APP_URL, not `appBaseUrl`: a capability link must resolve to the
+            // canonical origin regardless of what a caller passed for deep links.
+            unsubscribe: await subjectUnsubscribeLinks(tx, opts.tenantId, { userId: recipient.id }, { baseUrl: env.APP_URL, role: recipientRole, event: "task_due" }),
           });
           await enqueueEmail(tx, {
             tenantId: opts.tenantId,

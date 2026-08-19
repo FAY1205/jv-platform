@@ -1,17 +1,25 @@
 import { and, asc, desc, eq, inArray, isNull, lt, lte, or, sql } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import * as schema from "@/db/schema";
-import { tenantWhere, tenantIdWhere, type ScopeContext } from "@/lib/scope";
+import { tenantWhere, tenantIdWhere, streamUsersWhere, type ScopeContext } from "@/lib/scope";
 import { env, isProduction } from "@/lib/env";
 import { releaseCutoff } from "../run/hold-window";
 import { APP_NAME } from "@/lib/app";
 import { logError } from "@/lib/observability";
 import { sendEmail, type EmailTransport } from "./email";
 import { resolveEmailTransport } from "./transport";
-import { renderEmailDocument, escapeHtml, EMAIL_COLORS, EMAIL_FONTS } from "./email-template";
+import { renderEmailDocument, escapeHtml, EMAIL_COLORS, EMAIL_FONTS, type UnsubscribeLinks } from "./email-template";
 import { buildPartnerDigest, buildAdminRunSummary, buildPartnerHotAlert, buildAdminHotAlert, type PartnerDigestLead, type HotAlertLead } from "./digests";
 import { createNotification } from "./notifications";
 import { resolvePref, loadNotificationPrefs, DEFAULT_NOTIFICATION_PREFS, type NotificationPrefs, type NotifEvent } from "./prefs";
+import {
+  loadOverridesFor,
+  loadPartnerOverridesFor,
+  resolveEffectiveChannel,
+  resolveOrgEmail,
+  type PrefOverrideValue,
+} from "./pref-overrides";
+import { subjectUnsubscribeLinks } from "./unsubscribe";
 import type { RunSummary } from "../analytics/run-summary";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -193,8 +201,14 @@ export async function enqueueRunDigests(
   // channel is no longer hard-false when a caller omits prefs. Belt-and-braces: every live call
   // site (enqueueRunDigests from run-upload / releaseDueImports) passes prefs today.
   const prefs = input.prefs ?? DEFAULT_NOTIFICATION_PREFS;
+  // The tenant-only email gate. It survives NTF-10 for exactly one case: an env-allowlist
+  // address that resolves to no seat, and therefore has no overlay to consult (§10.3). Every
+  // other leg in this function now resolves through `resolveEffectiveChannel`.
   const emailOn = (role: "admin" | "partner", ev: NotifEvent) => resolvePref(prefs, role, ev).email;
-  const inAppOn = (role: "admin" | "partner", ev: NotifEvent) => resolvePref(prefs, role, ev).inApp;
+  // NTF-14: unsubscribe footers are minted against the CANONICAL app origin, never against
+  // `portalBaseUrl` — run-upload passes the request origin there, and a capability link must
+  // not be mintable against a host an attacker controls.
+  const unsubBase = env.APP_URL;
 
   let enqueued = 0;
 
@@ -250,9 +264,23 @@ export async function enqueueRunDigests(
       // last. The email side stays ORG-level (partners.email) — unchanged surface.
       const partnerIds = [...byPartner.keys()];
       const seatsByPartner = await activePartnerSeatsByPartner(db, scope, partnerIds);
+      // NTF-10: TWO overlay loads for the whole run's partner fan-out, not one per recipient.
+      // Seat overlays gate the per-user in-app rows; ORG overlays gate the org-addressed
+      // `partners.email` sends, which no seat owns.
+      const seatOverrides = await loadOverridesFor(
+        db,
+        scope.tenantId,
+        [...seatsByPartner.values()].flat().map((s) => s.id),
+      );
+      const orgOverrides = await loadPartnerOverridesFor(db, scope.tenantId, partnerIds);
 
       for (const g of byPartner.values()) {
         if (g.leads.length === 0) continue;
+        // NTF-01/NTF-10: email a partner with an address, when the digest email survives BOTH
+        // the tenant default and the org overlay. Resolved before the content is built so the
+        // token is minted only for a digest that is actually going out (lazy, NTF-13).
+        const orgOverlay = orgOverrides.get(g.partnerId) ?? null;
+        const orgEmailOn = Boolean(g.email) && resolveOrgEmail(prefs, orgOverlay, "new_leads");
         const c = buildPartnerDigest({
           appName: APP_NAME,
           partnerName: g.name,
@@ -261,9 +289,11 @@ export async function enqueueRunDigests(
           uploadRef: input.uploadRef,
           leads: g.leads,
           partnerColor: g.color,
+          unsubscribe: orgEmailOn
+            ? await subjectUnsubscribeLinks(db, scope.tenantId, { partnerId: g.partnerId }, { baseUrl: unsubBase, role: "partner", event: "new_leads" })
+            : undefined,
         });
-        // NTF-01: email a partner with an address, when their digest email is on.
-        if (g.email && emailOn("partner", "new_leads")) {
+        if (orgEmailOn && g.email) {
           await enqueueEmail(db, {
             tenantId: scope.tenantId,
             to: g.email,
@@ -276,18 +306,18 @@ export async function enqueueRunDigests(
           enqueued++;
         }
         // NTF-04/NTF-07: in-app notification for EVERY active seat of an onboarded partner,
-        // when the in-app channel is on.
-        if (inAppOn("partner", "new_leads")) {
-          for (const seat of seatsByPartner.get(g.partnerId) ?? []) {
-            await createNotification(db, {
-              tenantId: scope.tenantId,
-              userId: seat.id,
-              type: "new_leads",
-              title: c.subject,
-              body: `${g.leads.length} new lead${g.leads.length === 1 ? "" : "s"} from ${input.uploadRef}.`,
-              deepLink: "/portal/leads",
-            });
-          }
+        // when the in-app channel is on. NTF-10: each seat's own overlay decides — one seat
+        // muting the bell never mutes their colleague's.
+        for (const seat of seatsByPartner.get(g.partnerId) ?? []) {
+          if (!resolveEffectiveChannel(prefs, seatOverrides.get(seat.id) ?? null, "partner", "new_leads").inApp) continue;
+          await createNotification(db, {
+            tenantId: scope.tenantId,
+            userId: seat.id,
+            type: "new_leads",
+            title: c.subject,
+            body: `${g.leads.length} new lead${g.leads.length === 1 ? "" : "s"} from ${input.uploadRef}.`,
+            deepLink: "/portal/leads",
+          });
         }
       }
 
@@ -303,51 +333,88 @@ export async function enqueueRunDigests(
         hotByPartner.set(r.partnerId, g);
       }
       for (const [partnerId, g] of hotByPartner) {
-        const c = buildPartnerHotAlert({ appName: APP_NAME, partnerName: g.name, partnerRef: g.ref, partnerColor: g.color, portalUrl: `${input.portalBaseUrl}/portal/leads`, leads: g.leads });
-        if (g.email && emailOn("partner", "hot_leads")) {
+        // NTF-10: same two-layer gate as the digest above — ORG overlay for the org address,
+        // per-SEAT overlay for each bell row.
+        const orgEmailOn = Boolean(g.email) && resolveOrgEmail(prefs, orgOverrides.get(partnerId) ?? null, "hot_leads");
+        const c = buildPartnerHotAlert({
+          appName: APP_NAME,
+          partnerName: g.name,
+          partnerRef: g.ref,
+          partnerColor: g.color,
+          portalUrl: `${input.portalBaseUrl}/portal/leads`,
+          leads: g.leads,
+          unsubscribe: orgEmailOn
+            ? await subjectUnsubscribeLinks(db, scope.tenantId, { partnerId }, { baseUrl: unsubBase, role: "partner", event: "hot_leads" })
+            : undefined,
+        });
+        if (orgEmailOn && g.email) {
           await enqueueEmail(db, { tenantId: scope.tenantId, to: g.email, subject: c.subject, body: c.body, html: c.html, kind: "hot_leads", meta: { uploadRef: input.uploadRef, partnerRef: g.ref } });
           enqueued++;
         }
-        if (inAppOn("partner", "hot_leads")) {
-          for (const seat of seatsByPartner.get(partnerId) ?? []) {
-            await createNotification(db, {
-              tenantId: scope.tenantId,
-              userId: seat.id,
-              type: "hot_leads",
-              title: `${g.leads.length} hot lead${g.leads.length === 1 ? "" : "s"} in your territory`,
-              body: "High-priority leads routed to you — call them first.",
-              deepLink: "/portal/leads",
-            });
-          }
+        for (const seat of seatsByPartner.get(partnerId) ?? []) {
+          if (!resolveEffectiveChannel(prefs, seatOverrides.get(seat.id) ?? null, "partner", "hot_leads").inApp) continue;
+          await createNotification(db, {
+            tenantId: scope.tenantId,
+            userId: seat.id,
+            type: "hot_leads",
+            title: `${g.leads.length} hot lead${g.leads.length === 1 ? "" : "s"} in your territory`,
+            body: "High-priority leads routed to you — call them first.",
+            deepLink: "/portal/leads",
+          });
         }
       }
     }
   }
 
+  // Admin-side recipients, resolved ONCE for both the run summary and the hot alert below
+  // (NTF-10/NTF-14). An allowlist address that maps to a real admin-stream seat is gated by
+  // that seat's overlay and gets a per-user unsubscribe footer; an address that maps to no
+  // seat (an env-configured ops mailbox) keeps tenant-level gating and gets NO links —
+  // there is no subject to unsubscribe (WP-NF2 §10.3).
+  const adminRecipients = audience !== "partner" ? await resolveAdminEmailRecipients(db, scope, dedupe(input.adminEmails ?? [])) : [];
+  const adminOverrides =
+    audience !== "partner"
+      ? await loadOverridesFor(db, scope.tenantId, [
+          ...adminRecipients.flatMap((r) => (r.userId ? [r.userId] : [])),
+          ...(input.adminUserId ? [input.adminUserId] : []),
+        ])
+      : new Map<string, PrefOverrideValue>();
+  /** The email leg for one resolved-or-unresolved admin address. */
+  const adminEmailOn = (r: AdminEmailRecipient, ev: NotifEvent) =>
+    r.userId ? resolveEffectiveChannel(prefs, adminOverrides.get(r.userId) ?? null, "admin", ev).email : emailOn("admin", ev);
+
   // Admin run summary (NTF-02/04) — sent at IMPORT with the acting admin + the true full-run summary
   // (NOT deferred: the admin isn't a partner, and a recompute at release undercounts repeat leads).
   if (audience !== "partner" && input.summary) {
-    const s = buildAdminRunSummary({
+    const summaryInput = {
       appName: APP_NAME,
       uploadRef: input.uploadRef,
       summary: input.summary,
       importUrl: `${input.portalBaseUrl}/imports/${input.uploadRef}`,
-    });
-    if (emailOn("admin", "run_summary")) {
-      for (const email of dedupe(input.adminEmails ?? [])) {
-        await enqueueEmail(db, {
-          tenantId: scope.tenantId,
-          to: email,
-          subject: s.subject,
-          body: s.body,
-          html: s.html,
-          kind: "admin_run_summary",
-          meta: { uploadRef: input.uploadRef },
-        });
-        enqueued++;
-      }
+    };
+    // The in-app row's title comes from the link-free build; the emails are built PER RECIPIENT
+    // because each footer carries that recipient's own token (NTF-14).
+    const s = buildAdminRunSummary(summaryInput);
+    for (const r of adminRecipients) {
+      if (!adminEmailOn(r, "run_summary")) continue;
+      const withLinks = r.userId
+        ? buildAdminRunSummary({
+            ...summaryInput,
+            unsubscribe: await subjectUnsubscribeLinks(db, scope.tenantId, { userId: r.userId }, { baseUrl: unsubBase, role: "admin", event: "run_summary" }),
+          })
+        : s;
+      await enqueueEmail(db, {
+        tenantId: scope.tenantId,
+        to: r.email,
+        subject: withLinks.subject,
+        body: withLinks.body,
+        html: withLinks.html,
+        kind: "admin_run_summary",
+        meta: { uploadRef: input.uploadRef },
+      });
+      enqueued++;
     }
-    if (input.adminUserId && inAppOn("admin", "run_summary")) {
+    if (input.adminUserId && resolveEffectiveChannel(prefs, adminOverrides.get(input.adminUserId) ?? null, "admin", "run_summary").inApp) {
       await createNotification(db, {
         tenantId: scope.tenantId,
         userId: input.adminUserId,
@@ -379,14 +446,20 @@ export async function enqueueRunDigests(
       .orderBy(desc(schema.leads.scoreTotal), asc(schema.leads.refId));
     if (hotRows.length > 0) {
       const leads: HotAlertLead[] = hotRows.map((r) => ({ refId: r.refId, city: r.city, state: r.state, score: r.scoreTotal ?? 0 }));
-      const c = buildAdminHotAlert({ appName: APP_NAME, uploadRef: input.uploadRef, leads, hotUrl: `${input.portalBaseUrl}/leads?hot=1` });
-      if (emailOn("admin", "hot_leads")) {
-        for (const email of dedupe(input.adminEmails ?? [])) {
-          await enqueueEmail(db, { tenantId: scope.tenantId, to: email, subject: c.subject, body: c.body, html: c.html, kind: "hot_leads", meta: { uploadRef: input.uploadRef } });
-          enqueued++;
-        }
+      const hotInput = { appName: APP_NAME, uploadRef: input.uploadRef, leads, hotUrl: `${input.portalBaseUrl}/leads?hot=1` };
+      const c = buildAdminHotAlert(hotInput);
+      for (const r of adminRecipients) {
+        if (!adminEmailOn(r, "hot_leads")) continue;
+        const withLinks = r.userId
+          ? buildAdminHotAlert({
+              ...hotInput,
+              unsubscribe: await subjectUnsubscribeLinks(db, scope.tenantId, { userId: r.userId }, { baseUrl: unsubBase, role: "admin", event: "hot_leads" }),
+            })
+          : c;
+        await enqueueEmail(db, { tenantId: scope.tenantId, to: r.email, subject: withLinks.subject, body: withLinks.body, html: withLinks.html, kind: "hot_leads", meta: { uploadRef: input.uploadRef } });
+        enqueued++;
       }
-      if (input.adminUserId && inAppOn("admin", "hot_leads")) {
+      if (input.adminUserId && resolveEffectiveChannel(prefs, adminOverrides.get(input.adminUserId) ?? null, "admin", "hot_leads").inApp) {
         await createNotification(db, {
           tenantId: scope.tenantId,
           userId: input.adminUserId,
@@ -406,6 +479,52 @@ function dedupe(emails: string[]): string[] {
   return [...new Set(emails.map((e) => e.trim().toLowerCase()).filter(Boolean))];
 }
 
+/** One admin-side email address, with the seat it belongs to when there is one. */
+interface AdminEmailRecipient {
+  email: string;
+  /** null for an env-allowlist ops mailbox that is not a seat in this tenant (§10.3). */
+  userId: string | null;
+}
+
+/**
+ * NTF-10/NTF-14: map the admin digest addresses onto the tenant's admin-STREAM seats, so each
+ * one can be gated by its own overlay and given its own unsubscribe token.
+ *
+ * Reads the (small, bounded) staff seat set and matches in memory rather than pushing a
+ * `lower(email) IN (…)` predicate down: staff seats number in the tens, the read is the same
+ * index either way, and the comparison rule then lives beside `dedupe`, which produced the
+ * lower-cased addresses in the first place.
+ *
+ * PRN-08: tenant-pinned. `streamUsersWhere(…, "admin")` (role <> 'partner') keeps an ops address
+ * that happens to collide with a PARTNER seat's login from gating an admin digest on that
+ * partner's preferences — the C-47 stream builder, not a role literal. Deactivated seats are
+ * excluded (Phase C / audit-tenancy F-7): they are refused a session, so they are not a subject.
+ */
+async function resolveAdminEmailRecipients(
+  db: DB,
+  scope: ScopeContext,
+  addresses: string[],
+): Promise<AdminEmailRecipient[]> {
+  if (addresses.length === 0) return [];
+  const rows = await db
+    .select({ id: schema.users.id, email: schema.users.email })
+    .from(schema.users)
+    .where(
+      and(
+        tenantWhere(schema.users, scope),
+        streamUsersWhere(schema.users, "admin"),
+        isNull(schema.users.deactivatedAt),
+      ),
+    )
+    .orderBy(asc(schema.users.createdAt), asc(schema.users.id));
+  const byEmail = new Map<string, string>();
+  for (const r of rows) {
+    const key = r.email.trim().toLowerCase();
+    if (!byEmail.has(key)) byEmail.set(key, r.id); // two seats sharing a mailbox: the oldest wins
+  }
+  return addresses.map((email) => ({ email, userId: byEmail.get(email) ?? null }));
+}
+
 /**
  * Notify admins that a partner changed a lead's status (NTF-02 alert / SET-03).
  * In-app for every admin user (default on); email only if the admin alert email is
@@ -416,8 +535,12 @@ export async function notifyStatusChange(
   scope: ScopeContext,
   input: { leadRef: string; status: string },
 ): Promise<void> {
-  const ch = resolvePref(await loadNotificationPrefs(db, scope), "admin", "status_change");
-  if (!ch.inApp && !ch.email) return;
+  // NTF-10: the tenant-level early-out is GONE from this path. An overlay can widen a leg
+  // (a seat opting IN to an email the tenant default has off is exactly what NTF-15 offers),
+  // so short-circuiting on the tenant row alone would silently ignore that opt-in. The cost is
+  // two small indexed reads on a fully-muted tenant; the cron sweep, which pays this per tick
+  // across every tenant, keeps its early-out (NTF-09, task-reminders.ts).
+  const prefs = await loadNotificationPrefs(db, scope);
 
   const admins = await db
     .select({ id: schema.users.id, email: schema.users.email })
@@ -429,9 +552,16 @@ export async function notifyStatusChange(
     .where(and(tenantWhere(schema.users, scope), eq(schema.users.role, "admin"), isNull(schema.users.deactivatedAt)));
   if (admins.length === 0) return;
 
+  const overrides = await loadOverridesFor(db, scope.tenantId, admins.map((a) => a.id));
   const title = `Lead ${input.leadRef} → ${input.status}`;
-  if (ch.inApp) {
-    for (const a of admins) {
+  // NTF-14: the loop is now per USER rather than per deduped ADDRESS, because each footer has
+  // to carry the token of the seat it is addressed to. Address dedupe semantics are unchanged —
+  // two seats sharing one mailbox still receive ONE email — and the surviving copy is the
+  // first seat's (the query's deterministic order), so the footer belongs to a real recipient.
+  const sentTo = new Set<string>();
+  for (const a of admins) {
+    const ch = resolveEffectiveChannel(prefs, overrides.get(a.id) ?? null, "admin", "status_change");
+    if (ch.inApp) {
       await createNotification(db, {
         tenantId: scope.tenantId,
         userId: a.id,
@@ -445,33 +575,34 @@ export async function notifyStatusChange(
         deepLink: `/leads?open=${encodeURIComponent(input.leadRef)}`,
       });
     }
-  }
-  if (ch.email) {
-    for (const email of dedupe(admins.map((a) => a.email))) {
-      await enqueueEmail(db, {
-        tenantId: scope.tenantId,
-        to: email,
-        subject: title,
-        body: `A partner updated lead ${input.leadRef} to "${input.status}".`,
-        html: renderEmailDocument({
-          title,
-          preheader: title,
-          heading: title,
-          contentHtml:
-            `<p style="font-family:${EMAIL_FONTS.body};color:${EMAIL_COLORS.text2};font-size:15px">` +
-            `A partner updated lead <strong style="color:${EMAIL_COLORS.text}">${escapeHtml(input.leadRef)}</strong> ` +
-            `to "${escapeHtml(input.status)}".</p>`,
-        }),
-        kind: "status_change",
-        meta: { leadRef: input.leadRef },
-      });
-    }
+    if (!ch.email) continue;
+    const address = a.email.trim().toLowerCase();
+    if (address === "" || sentTo.has(address)) continue;
+    sentTo.add(address);
+    await enqueueEmail(db, {
+      tenantId: scope.tenantId,
+      to: address,
+      subject: title,
+      body: `A partner updated lead ${input.leadRef} to "${input.status}".`,
+      html: renderEmailDocument({
+        title,
+        preheader: title,
+        heading: title,
+        contentHtml:
+          `<p style="font-family:${EMAIL_FONTS.body};color:${EMAIL_COLORS.text2};font-size:15px">` +
+          `A partner updated lead <strong style="color:${EMAIL_COLORS.text}">${escapeHtml(input.leadRef)}</strong> ` +
+          `to "${escapeHtml(input.status)}".</p>`,
+        unsubscribe: await subjectUnsubscribeLinks(db, scope.tenantId, { userId: a.id }, { baseUrl: env.APP_URL, role: "admin", event: "status_change" }),
+      }),
+      kind: "status_change",
+      meta: { leadRef: input.leadRef },
+    });
   }
 }
 
 /** The assignment notification's email body, in the notifyStatusChange shape (SEC-05: the lead
  *  REF only — never seller PII). Pure. */
-function assignedEmailHtml(title: string, sentence: string): string {
+function assignedEmailHtml(title: string, sentence: string, unsubscribe?: UnsubscribeLinks): string {
   return renderEmailDocument({
     title,
     preheader: title,
@@ -479,6 +610,7 @@ function assignedEmailHtml(title: string, sentence: string): string {
     contentHtml:
       `<p style="font-family:${EMAIL_FONTS.body};color:${EMAIL_COLORS.text2};font-size:15px">` +
       `${escapeHtml(sentence)}</p>`,
+    unsubscribe,
   });
 }
 
@@ -500,14 +632,17 @@ export async function notifyLeadAssigned(
   scope: ScopeContext,
   input: { leadRef: string; partnerId: string },
 ): Promise<void> {
-  const ch = resolvePref(await loadNotificationPrefs(db, scope), "partner", "assigned_lead");
-  if (!ch.inApp && !ch.email) return;
+  // NTF-10: no tenant-level early-out (same reasoning as notifyStatusChange) — a seat may have
+  // opted IN to the assignment email, which defaults off.
+  const prefs = await loadNotificationPrefs(db, scope);
   const seats = await activePartnerSeats(db, scope, [input.partnerId]);
   if (seats.length === 0) return;
+  const overrides = await loadOverridesFor(db, scope.tenantId, seats.map((s) => s.id));
 
   const title = `Lead ${input.leadRef} was assigned to you`;
   const sentence = "An admin routed this lead to you.";
   for (const seat of seats) {
+    const ch = resolveEffectiveChannel(prefs, overrides.get(seat.id) ?? null, "partner", "assigned_lead");
     if (ch.inApp) {
       await createNotification(db, {
         tenantId: scope.tenantId,
@@ -529,7 +664,13 @@ export async function notifyLeadAssigned(
         to: seat.email,
         subject: title,
         body: `${sentence} Lead ${input.leadRef}.`,
-        html: assignedEmailHtml(title, `${sentence} Lead ${input.leadRef}.`),
+        html: assignedEmailHtml(
+          title,
+          `${sentence} Lead ${input.leadRef}.`,
+          // A per-USER notification carries the SEAT's token — the org token belongs to the
+          // digests addressed to partners.email, not to a seat's own mail.
+          await subjectUnsubscribeLinks(db, scope.tenantId, { userId: seat.id }, { baseUrl: env.APP_URL, role: "partner", event: "assigned_lead" }),
+        ),
         kind: "assigned_lead",
         meta: { leadRef: input.leadRef },
       });
@@ -549,14 +690,15 @@ export async function notifyLeadsBulkAssigned(
 ): Promise<void> {
   if (input.count === 0) return;
   if (input.count === 1) return; // single assign keeps the per-lead deep link path
-  const ch = resolvePref(await loadNotificationPrefs(db, scope), "partner", "assigned_lead");
-  if (!ch.inApp && !ch.email) return;
+  const prefs = await loadNotificationPrefs(db, scope);
   const seats = await activePartnerSeats(db, scope, [input.partnerId]);
   if (seats.length === 0) return;
+  const overrides = await loadOverridesFor(db, scope.tenantId, seats.map((s) => s.id));
 
   const title = `${input.count} leads were assigned to you`;
   const sentence = "An admin routed these leads to you.";
   for (const seat of seats) {
+    const ch = resolveEffectiveChannel(prefs, overrides.get(seat.id) ?? null, "partner", "assigned_lead");
     if (ch.inApp) {
       await createNotification(db, {
         tenantId: scope.tenantId,
@@ -575,7 +717,11 @@ export async function notifyLeadsBulkAssigned(
         to: seat.email,
         subject: title,
         body: sentence,
-        html: assignedEmailHtml(title, sentence),
+        html: assignedEmailHtml(
+          title,
+          sentence,
+          await subjectUnsubscribeLinks(db, scope.tenantId, { userId: seat.id }, { baseUrl: env.APP_URL, role: "partner", event: "assigned_lead" }),
+        ),
         kind: "assigned_lead",
       });
     }

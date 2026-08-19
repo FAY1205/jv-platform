@@ -30,6 +30,19 @@ function safeHref(href: string): string {
   return /^(https?:|mailto:)/i.test(href.trim()) ? href : "#";
 }
 
+/**
+ * NTF-14: the per-recipient unsubscribe pair carried in a notification email's footer.
+ * `typeUrl` switches off this ONE event for this recipient; `allUrl` is the global email
+ * kill switch. Both are tokenized capability links (NTF-13) built by
+ * modules/notify/unsubscribe. Optional everywhere: transactional/auth email has no
+ * unsubscribe (NTF-05), so those builders simply never supply it.
+ */
+export interface UnsubscribeLinks {
+  typeUrl: string;
+  typeLabel: string;
+  allUrl: string;
+}
+
 /** A padded <a> CTA (marigold fill, brand-contrast ink). Degrades to a plain link in Outlook. */
 export function emailButton(input: { href: string; label: string }): string {
   const C = EMAIL_COLORS;
@@ -52,10 +65,27 @@ export function renderEmailDocument(input: {
   preheader: string;
   contentHtml: string;
   heading?: string;
+  /** NTF-14: per-recipient unsubscribe links, rendered in the footer. Present on every
+   *  NOTIFICATION email; absent on transactional/auth email, which is not opt-out-able
+   *  (NTF-05) — the caller decides, so a builder can never accidentally offer to switch off
+   *  a password reset. `typeUrl`/`allUrl` are per-recipient capability links (NTF-13). */
+  unsubscribe?: UnsubscribeLinks;
 }): string {
   const C = EMAIL_COLORS;
   const F = EMAIL_FONTS;
   const brand = escapeHtml(APP_NAME);
+  const u = input.unsubscribe;
+  // Same 13px/text3 scale as the footer line above it: an unsubscribe control is legally and
+  // ethically required to be findable, not prominent. https-only via safeHref, escaped label.
+  const unsubscribeHtml = u
+    ? `<div style="margin-top:6px">` +
+      `<a href="${escapeHtml(safeHref(u.typeUrl))}" style="color:${C.text3};font-size:13px">` +
+      `Unsubscribe from ${escapeHtml(u.typeLabel)}</a>` +
+      ` · ` +
+      `<a href="${escapeHtml(safeHref(u.allUrl))}" style="color:${C.text3};font-size:13px">` +
+      `Stop all notification emails</a>` +
+      `</div>`
+    : "";
   const heading = input.heading
     ? `<h1 style="margin:0 0 14px;font-family:${F.display};font-weight:400;font-size:21px;color:${C.text}">${escapeHtml(input.heading)}</h1>`
     : "";
@@ -82,7 +112,7 @@ export function renderEmailDocument(input: {
     `<tr><td style="padding:6px 24px 26px">${heading}${input.contentHtml}</td></tr>` +
     // footer
     `<tr><td style="padding:18px 24px;border-top:1px solid ${C.border};background:${C.surface2};` +
-    `font-family:${F.body};font-size:13px;color:${C.text3}">${brand} · Lead routing</td></tr>` +
+    `font-family:${F.body};font-size:13px;color:${C.text3}">${brand} · Lead routing${unsubscribeHtml}</td></tr>` +
     `</table></td></tr></table></body></html>`
   );
 }

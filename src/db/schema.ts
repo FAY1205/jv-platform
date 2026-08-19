@@ -739,6 +739,48 @@ export const emailOutbox = pgTable(
   ],
 );
 
+// Per-SUBJECT notification preference overlay (NTF-10, WP-NF2). Exactly one subject per
+// row — a USER seat (user_id) or a PARTNER ORG (partner_id, which gates the org-addressed
+// partners.email digests/alerts) — enforced by the migration 0057 CHECK
+// num_nonnulls(user_id, partner_id) = 1 plus the two partial unique indexes there.
+// `value` is the NTF-10 overlay applied FIELD-WISE over the tenant-level
+// settings.notification_prefs row; `allEmailsOff` is the email kill switch and never
+// touches in-app. `token_id`/`token_secret` are the split unsubscribe capability
+// (NTF-13) — the secret half is compared with timingSafeEqual, never `===`.
+// Server-managed (service role); deny-by-default RLS, the email_outbox 0008 pattern.
+export const notificationPrefOverrides = pgTable(
+  "notification_pref_overrides",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenants.id),
+    // ON DELETE CASCADE on the SUBJECT legs (not on tenant_id, which follows the house
+    // no-action pattern): an overlay row is a pure child of its subject with no independent
+    // meaning and no audit value — unlike `notifications`, which is a RECORD of something
+    // that happened and therefore outlives nothing. When a seat or a partner row is hard
+    // deleted (pre-activation deprovisioning, the signup sweep, test teardown), its
+    // preferences and its unsubscribe token should go with it rather than pin the parent.
+    userId: uuid("user_id").references(() => users.id, { onDelete: "cascade" }),
+    partnerId: uuid("partner_id").references(() => partners.id, { onDelete: "cascade" }),
+    value: jsonb("value").notNull().default({}),
+    tokenId: text("token_id").notNull(),
+    tokenSecret: text("token_secret").notNull(),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [
+    // FK-covering index (db-linter 0001) — also the loader's tenant pin.
+    index("notif_pref_overrides_tenant_idx").on(t.tenantId),
+    // The unsubscribe lookup is by token_id ALONE (an email link carries no tenant), so the
+    // public half must be globally unique.
+    uniqueIndex("notif_pref_overrides_token_idx").on(t.tokenId),
+    // The two per-subject partial unique indexes ((tenant_id,user_id) / (tenant_id,partner_id))
+    // live as raw SQL in migration 0057 — drizzle's schema tracking does not own partial
+    // uniques (the partners_one_house_per_tenant_idx precedent in 0031).
+  ],
+);
+
 // ── Settings, flags, AI ──
 export const settings = pgTable(
   "settings",
