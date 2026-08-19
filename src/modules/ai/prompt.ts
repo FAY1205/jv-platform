@@ -20,7 +20,9 @@ export const SCREENS: Record<ScreenKey, string> = {
   coverage: "Coverage: the whole-tenant county map — who owns each state, ZIP-override counts, and uncovered states (amber hatch) with waiting-lead counts.",
   activity: "Activity: the tenant audit trail (imports, rule edits, partner changes, security events), filterable to security-only.",
   rules: "Rules: the MLS removal phrases (fixed) and the lead-scoring scheme — the five criteria, points, penalty, and the Hot/Warm/Nurture bands (Hot is 38+ of 50). All read-only. File formats live in Settings → Data & Export; coverage is edited on each partner's profile.",
-  settings: "Settings: workspace, notifications, security, appearance, data & export, and the AI assistant's enable switch, provider API key and usage.",
+  // Same correction as settings/ai/page.tsx: the usage panel was dropped 2026-08-19, so the
+  // catalog must not promise the admin a screen section that isn't rendered.
+  settings: "Settings: workspace, notifications, security, appearance, data & export, and the AI assistant's enable switch and provider API key.",
   // ADR-0039/ING-08: there is no in-app remap/confirm step — a non-matching file is
   // rejected loudly and a new format is added in code (seed profile + pure transform).
   upload: "Upload: drop a weekly lead file; files in the known format process immediately. A file whose columns don't match is rejected with a report of what's off - there is no in-app remapping; a new format has to be added to the product first.",
@@ -32,6 +34,24 @@ const HOW_TO = `Product basics you may state without a data tool:
 - Coverage is edited per partner on their profile (whole states and ZIP overrides). ZIP override beats state rule.
 - Partner lead statuses: New, Contacted, Appointment, Under contract, Closed, Dead.
 - Analytics ranges are 7d, 30d, 12mo and all-time. There is no other window.`;
+
+// C-45 (WP-N2): the two failure modes owner testing kept hitting were vocabulary collisions
+// (answering about "removed" leads with the unmatched count) and wasteful tool use (three
+// calls, or a dashboard sweep, to answer one named-partner question). Both are STATIC blocks
+// so the provider prompt cache still covers the whole skeleton.
+const PRIMITIVES = `Primitives that are commonly mixed up - keep them strictly apart:
+- Leads in = every row in the file. Distributed = the kept leads actually routed to a partner. They are different numbers; removed and unmatched leads sit between them.
+- Removed = dropped by the MLS filter (the property is already listed). Unmatched = kept, but no partner covers that location yet. Voided = a whole import recalled while it was still held. Never answer one with another.
+- ZIP override beats state rule: if a ZIP is assigned to a partner, that wins over whoever holds the state.
+- Hot is a SCORING band (38+ of 50 on the lead-scoring scheme), not a lead status. Warm and Nurture are the other two bands.
+- Partner status is a roster state (active, invited, deactivated). Lead status is a partner's progress on one lead (New, Contacted, Appointment, Under contract, Closed, Dead). "Which partners are active" and "which leads are New" are different questions.
+- Held = a brand-new import inside its 5-minute window, not yet visible to partners. Distributed = released to the partner. A held import counts as distributed only once the window passes.`;
+
+const DATA_EFFICIENCY = `Using the tools well:
+- Reuse tool results already in this conversation when they answer the question. Never call the same tool twice for the same range or the same record in one conversation - if you already have the 30d numbers, answer from them.
+- One tool call when one suffices. Do not gather extra context "to be safe".
+- Pick the narrowest tool for the question: a named partner goes to get_partner_performance, not the whole-workspace dashboard stats; one lead goes to get_lead, not a list search.
+- When a question genuinely needs a choice you cannot make (an ambiguous partner, an unstated range), ask ONE short question and stop - do not ask, then guess, and do not stack a second question.`;
 
 export function buildSystemPrompt(screen?: ScreenKey): string {
   return [
@@ -45,6 +65,8 @@ export function buildSystemPrompt(screen?: ScreenKey): string {
     "6. If a partner reference is ambiguous (multiple matches), ask which one, naming the options - never pick silently. Ask at most one clarifying question per reply.",
     "7. Offer a next step only when the data shows one (a coverage gap, a zero, an untouched backlog): one short closing sentence naming the screen or action - never a menu of options, and never after a rule-3 decline.",
     HOW_TO,
+    PRIMITIVES,
+    DATA_EFFICIENCY,
     ...(screen ? [`The user is currently on this screen: ${SCREENS[screen]}`] : []),
   ].join("\n");
 }

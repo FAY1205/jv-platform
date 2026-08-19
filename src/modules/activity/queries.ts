@@ -73,7 +73,11 @@ export async function listAdminActivity(scope: ScopeContext, query: ActivityQuer
         after: schema.auditLog.after,
       })
       .from(schema.auditLog)
-      .leftJoin(schema.users, eq(schema.users.id, schema.auditLog.actorUserId))
+      // ADR-0013 defence-in-depth: `actor_user_id` is a bare uuid column — no FK, no tenant
+      // correlation — and audit_log is APPEND-ONLY, so a row written with a foreign actor id
+      // (a bug, a bad backfill) can never be corrected in place. Pinning the join to this
+      // tenant means the worst case is a null actor, never another workspace's staff email.
+      .leftJoin(schema.users, and(eq(schema.users.id, schema.auditLog.actorUserId), tenantWhere(schema.users, scope)))
       .where(where)
       .orderBy(dirFn(schema.auditLog.createdAt))
       .limit(query.pageSize)
@@ -104,7 +108,9 @@ export async function listActivityActors(scope: ScopeContext): Promise<{ id: str
   return getDb()
     .selectDistinct({ id: schema.users.id, email: schema.users.email })
     .from(schema.auditLog)
-    .innerJoin(schema.users, eq(schema.users.id, schema.auditLog.actorUserId))
+    // Same ADR-0013 pin as listAdminActivity: the actor filter dropdown must never offer, or
+    // resolve, a user from another tenant.
+    .innerJoin(schema.users, and(eq(schema.users.id, schema.auditLog.actorUserId), tenantWhere(schema.users, scope)))
     .where(tenantWhere(schema.auditLog, scope))
     .orderBy(schema.users.email);
 }

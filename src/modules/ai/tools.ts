@@ -9,7 +9,9 @@ import { coverageMapData } from "@/modules/coverage/queries";
 import { listLeads, getAdminLeadDetail, unmatchedStateStats } from "@/modules/leads/queries";
 import { LeadsQuerySchema, LEAD_STATUS_FILTERS } from "@/modules/leads/schema";
 import { listRuns, getRunDetail } from "@/modules/run/queries";
-import { maskLeadDetail, maskLeadRow, maskRunDetail, maskRunListItem } from "./mask";
+import { listAdminActivity } from "@/modules/activity/queries";
+import { ACTIVITY_CATEGORY_FILTERS, ActivityQuerySchema, type ActivityQuery } from "@/modules/activity/schema";
+import { maskActivityItem, maskLeadDetail, maskLeadRow, maskRunDetail, maskRunListItem } from "./mask";
 import { can } from "@/lib/authz";
 
 // SEAM-07 / AIA-02: the assistant's ONLY data access. Every tool wraps an existing
@@ -18,6 +20,18 @@ import { can } from "@/lib/authz";
 // Outputs pass through mask.ts (SEC-05) and carry `source` + `path` for the UI.
 
 const RangeSchema = z.enum(RANGE_KEYS).default("30d");
+
+/** AIS-11: how much of the audit trail one call hands the model. The WP asked for 15, but
+ *  `pageSize` is the shared `pageSizeParam()` whitelist {10,20,50} (lib/query-params) — 15 is
+ *  not a representable page size anywhere in the product, and widening that union for one
+ *  tool would be a schema change for a token-budget preference. 20 is the same first page the
+ *  Activity SCREEN shows, which is the more useful invariant: "what the assistant sees" and
+ *  "what the admin sees when they open Activity" are the same rows. Built through
+ *  ActivityQuerySchema per house convention, so category normalization + every unset filter's
+ *  default come from the one definition ("all" = no filter, queries.ts:51-52). */
+const ACTIVITY_PAGE_SIZE = 20;
+const activityQuery = (category: ActivityQuery["category"]): ActivityQuery =>
+  ActivityQuerySchema.parse({ page: 1, pageSize: ACTIVITY_PAGE_SIZE, category });
 
 /** Resolve "Meridian" / "PR-003" → the roster match(es). All matches are returned
  *  so ambiguity is structural — the model must ask, never guess (owner test F-3). */
@@ -127,5 +141,29 @@ export function buildAiTools(scope: ScopeContext): ToolSet {
         return d ? { source: `Import ${d.upload.refId}`, ...maskRunDetail(d) } : { source: "Imports", notFound: ref };
       },
     }),
+    // AIS-11 (C-45b): the audit trail is gated on `ops.admin`, NOT on `ai.use`. The human
+    // surface for this data (/api/activity) requires ops.admin, which is ADMIN_LOCKED
+    // (ADR-0049 §11.3) — while ai.use is in the DEFAULT member set. Gating the tool on ai.use
+    // alone would have let a member read through the assistant what the Activity screen
+    // refuses them: the assistant must never be a capability bypass. The tool is ABSENT rather
+    // than throwing, so a member's assistant simply has no audit-trail door to knock on (the
+    // model can't call, or apologise for, a tool it was never handed) — the same posture as
+    // the rest of the surface, where refusal is structural rather than an error string.
+    ...(can(scope, "ops.admin")
+      ? {
+          get_recent_activity: tool({
+            description: "The workspace audit trail — the 20 most recent entries (when, who, what action, which record): imports and voids, rule and coverage edits, partner and team changes, and security events. `category` narrows to security events or routine data changes. Call this for 'what changed recently / who changed X / has anything happened' questions. Actor emails are masked and the entry's before/after detail is not available.",
+            inputSchema: z.object({ category: z.enum(ACTIVITY_CATEGORY_FILTERS).default("all") }),
+            execute: async ({ category }) => {
+              const page = await listAdminActivity(scope, activityQuery(category));
+              return {
+                source: "Activity", path: "/activity",
+                category, total: page.total,
+                entries: page.items.map(maskActivityItem),
+              };
+            },
+          }),
+        }
+      : {}),
   };
 }

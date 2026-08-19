@@ -7,7 +7,7 @@ import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport, isToolUIPart, type UIMessage } from "ai";
 import { csrfHeaders } from "@/lib/csrf-client";
 import { apiMutate } from "@/lib/api";
-import { suggestionsFor } from "@/modules/ai/suggestions";
+import { followUpSuggestions, suggestionsFor } from "@/modules/ai/suggestions";
 import { screenForPath } from "@/modules/ai/screen";
 import { gateStateFromCode, type AssistantGate } from "@/modules/ai/gate-error";
 import { Orb } from "./Orb";
@@ -23,6 +23,14 @@ const EMPTY_SUBLINE = "Partners, leads, coverage, imports — or what any screen
 // The chat route caps history at 24 messages (ChatBodySchema); nudge toward "New chat" before
 // the user hits the resulting error band.
 const CAP_NUDGE_AT = 20;
+// AIS-12 (C-45c): how long the RATE gate holds the composer shut before clearing itself.
+// It matches the band's own promise ("give it a minute") — a 429 is a passing condition, not
+// a configuration one, so leaving the composer permanently disabled until "New chat" was a
+// dead end. no_key/disabled are configuration and never auto-clear. The server re-gates the
+// next turn if the limit still holds, so an early clear costs one 429, not a wrong answer.
+const RATE_GATE_CLEAR_MS = 60_000;
+// AIS-10 (C-45a): a follow-up row is a nudge, not a menu — three rows at most.
+const FOLLOW_UP_MAX = 3;
 
 /** Exhaustive gate-band copy (E): a future AssistantGate value fails to compile here
  *  instead of silently rendering a blank band. */
@@ -137,6 +145,16 @@ export default function AssistantWidget() {
     }
   }, [blocked, busy]);
 
+  // AIS-12: the rate gate is the only SELF-CLEARING one. The effect keys off `gate`, so the
+  // timer starts when the state is entered and the cleanup covers unmount, "New chat"
+  // (setGate(null)) and a gate that changed underneath it. The functional update means a gate
+  // that turned into no_key/disabled meanwhile is never cleared by this timer.
+  React.useEffect(() => {
+    if (gate !== "rate") return;
+    const t = setTimeout(() => setGate((g) => (g === "rate" ? null : g)), RATE_GATE_CLEAR_MS);
+    return () => clearTimeout(t);
+  }, [gate]);
+
   const send = (text: string) => {
     const t = text.trim();
     if (!t || blocked || busy) return;
@@ -190,6 +208,28 @@ export default function AssistantWidget() {
       const out = p.output as { source?: string; path?: string; notFound?: string } | undefined;
       return out?.source ? [{ label: out.source, path: out.path, notFound: out.notFound }] : [];
     });
+
+  // ── AIS-10: the post-answer follow-up row ────────────────────────────────────────────
+  // Shown ONLY under the last message when that message is an answer and the widget is idle:
+  // never mid-stream (`busy`), never under a gate or error band (`blocked`/`error` — the band
+  // owns the user's next move there), never on an empty transcript (the empty state has its
+  // own chip set), and not while the user is already composing. `messages` is the only input,
+  // so a chip the user has already asked — or typed by hand — cannot come back.
+  // The cheap conditions gate the transcript walk, so a keystroke costs a boolean, not a
+  // filter+map over the session.
+  const canFollowUp = !busy && !blocked && !error && draft.trim() === "" && messages[messages.length - 1]?.role === "assistant";
+  const followUps = canFollowUp
+    ? followUpSuggestions(screen, messages.filter((m) => m.role === "user").map(textOf), FOLLOW_UP_MAX)
+    : [];
+  const showFollowUps = followUps.length > 0;
+
+  // Keep the smart pinning honest when the row appears/disappears: the height change is a
+  // dependency like a new message, and the same `atBottom` guard applies — a user who scrolled
+  // up to re-read is never yanked to the bottom just because chips rendered.
+  React.useEffect(() => {
+    const el = scrollRef.current;
+    if (el && atBottom) el.scrollTop = el.scrollHeight;
+  }, [showFollowUps, atBottom]);
 
   return (
     <>
@@ -280,6 +320,14 @@ export default function AssistantWidget() {
                       <span>{THINKING_COPY}</span>
                       <ThinkingDots />
                     </div>
+                  </div>
+                )}
+                {/* AIS-10: follow-ups under the last ANSWER — the same chip rows as the empty
+                    state (one component, one interaction contract), re-headed so it reads as
+                    "where next", and always trailing the answer it belongs to. */}
+                {showFollowUps && (
+                  <div className="mt-1.5">
+                    <SuggestionChips items={followUps} onSelect={send} heading="Ask next" label="Follow-up questions" />
                   </div>
                 )}
                 {/* Cap nudge — steer to a new chat BEFORE the 24-message route cap 400s. */}

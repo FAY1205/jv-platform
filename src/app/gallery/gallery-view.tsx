@@ -1109,6 +1109,17 @@ function Gallery() {
                   onSelect={() => {}}
                 />
                 <div>
+                  {/* AIS-10: the same component re-headed as the post-answer follow-up row —
+                      bounded to 3, shown under the last answer while the widget is idle. */}
+                  <p className="mb-2 text-step-1 text-text-3">Follow-up variant — under the last answer:</p>
+                  <SuggestionChips
+                    items={["Which states have no coverage?", "Explain this screen"]}
+                    onSelect={() => {}}
+                    heading="Ask next"
+                    label="Follow-up questions"
+                  />
+                </div>
+                <div>
                   <p className="mb-2 text-step-1 text-text-3">Disabled — while the assistant is capped or off:</p>
                   <SuggestionChips items={["Show top partners", "Where are my gaps?"]} onSelect={() => {}} disabled />
                 </div>

@@ -2,17 +2,29 @@
 
 import * as React from "react";
 
-export function SuggestionChips({ items, onSelect, disabled }: { items: string[]; onSelect: (q: string) => void; disabled?: boolean }) {
+export interface SuggestionChipsProps {
+  items: string[];
+  onSelect: (q: string) => void;
+  disabled?: boolean;
+  /** Section heading above the rows. Defaults to the empty-state's "Try asking"; the AIS-10
+   *  follow-up row overrides it so a mid-conversation row doesn't read like a fresh start. */
+  heading?: string;
+  /** Accessible name of the button group — distinct per call site so screen-reader users (and
+   *  tests) can tell the empty-state set from a follow-up row. */
+  label?: string;
+}
+
+export function SuggestionChips({ items, onSelect, disabled, heading = "Try asking", label = "Suggested questions" }: SuggestionChipsProps) {
   if (items.length === 0) return null;
   return (
     <div className="self-stretch">
       <div className="mb-1.5 text-step-0 font-semibold uppercase tracking-[.08em] text-text-3">
-        Try asking
+        {heading}
       </div>
       {/* WP-AI-STYLE-PERSIST / redesign A5: full-width stacked ROWS, not a wrapping pill
           cloud — clearer "things you can ask", ≥40px touch targets that don't ragged-wrap at
           375px, and a leading arrow glyph so each reads as an action. */}
-      <div role="group" aria-label="Suggested questions" className="flex flex-col gap-1.5">
+      <div role="group" aria-label={label} className="flex flex-col gap-1.5">
         {items.map((q) => (
           <button
             key={q}
