@@ -8,6 +8,7 @@ import { assertCsrf, authErrorResponse } from "@/lib/auth/guard";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { provisionPartnerUser } from "@/lib/auth/provision";
 import { notifyInvite } from "@/lib/auth/notify";
+import { env } from "@/lib/env";
 import { jsonOk, jsonError } from "@/lib/http";
 import { requireCapabilityResponse } from "@/lib/authz";
 
@@ -71,8 +72,10 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     traceId: globalThis.crypto.randomUUID(),
   });
 
-  const origin = new URL(request.url).origin;
-  await notifyInvite(partner.email, `${origin}/portal/login`);
+  // C-101 (CWE-644): links that leave the system travel on env.APP_URL (the canonical origin,
+  // prod-guarded in lib/env), never the request Host. This one carries no token, but a forged
+  // Host would still mail a partner a branded "sign in here" link to an attacker's login page.
+  await notifyInvite(partner.email, `${env.APP_URL}/portal/login`);
 
   return jsonOk({ code: "ok", message: "Invitation sent." });
 }

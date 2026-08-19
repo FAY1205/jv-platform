@@ -27,8 +27,11 @@ const DEFAULT_EMAIL_FROM = `${APP_NAME} <noreply@example.test>`;
 const EnvSchema = z.object({
   APP_ENV: AppEnvSchema.default("development"),
   APP_NAME: z.string().min(1).default(APP_NAME),
-  // Canonical app base URL for links built OUTSIDE a web request (the release cron's digest emails).
-  // Request-served paths still use the request origin; set this to the production URL at go-live.
+  // Canonical app base URL. EVERY link that leaves the system in an email is built from this —
+  // reset/verify/invite links and digest CTAs alike, whether the sender is the release cron or a
+  // live request (C-101, CWE-644: the request Host is attacker-controlled input, and an emailed
+  // link is not a response the forger receives, so no same-request check would defend it).
+  // Set this to the production URL at go-live; the refine below refuses to boot production without it.
   APP_URL: z.url().default("http://localhost:3000"),
   DATABASE_URL: optionalString,
   SUPABASE_URL: optionalString.pipe(z.url().optional()),
@@ -87,10 +90,11 @@ const EnvSchema = z.object({
   // feature is disabled with a clear message rather than crashing boot.
   AI_KEY_ENCRYPTION_KEY: optionalString,
 }).refine(
-  // Fail fast in production if APP_URL is still the localhost default — otherwise the release cron
-  // would email real partners digest links pointing at localhost (audit-api-contract F-2).
+  // Fail fast in production if APP_URL is still the localhost default — otherwise every emailed
+  // link (digests, and since C-101 the reset/verify/invite links too) would point at localhost
+  // (audit-api-contract F-2). This guard is what makes APP_URL safe to prefer over the Host header.
   (v) => v.APP_ENV !== "production" || v.APP_URL !== "http://localhost:3000",
-  { message: "APP_URL must be set to the production origin (release-cron digest links).", path: ["APP_URL"] },
+  { message: "APP_URL must be set to the production origin (every emailed link is built from it).", path: ["APP_URL"] },
 ).refine(
   // NTF-03: production sends transactional email (OTP/invite/reset) for real via Resend. Without a
   // key the transport falls back to the dev mailbox, which is 404'd in production — so every code

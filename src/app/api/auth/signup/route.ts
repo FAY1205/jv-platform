@@ -64,7 +64,6 @@ export async function POST(request: Request) {
   const email = parsed.data.email.toLowerCase();
   const ip = clientIp(request);
   const now = Date.now();
-  const origin = new URL(request.url).origin;
   const db = getDb();
   const attempts = new AuthAttemptsStore(db);
 
@@ -186,7 +185,10 @@ export async function POST(request: Request) {
           });
           const { token, record } = issueSignupToken(userId, Date.now());
           await new SignupStore(db).persist(record);
-          await notifySignupVerify(email, `${origin}/signup/verify?token=${token}`);
+          // C-101 (CWE-644): links that leave the system travel on env.APP_URL (the canonical
+          // origin, prod-guarded in lib/env), never on the request Host — a forged Host would
+          // mail this account's single-use verification token to an attacker origin.
+          await notifySignupVerify(email, `${env.APP_URL}/signup/verify?token=${token}`);
         } catch (e) {
           if (e instanceof SignupEmailExistsError) {
             // WP-SU-8: the SAME per-recipient cap as the pre-check branch. This is the second

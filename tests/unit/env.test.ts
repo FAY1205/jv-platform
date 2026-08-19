@@ -28,7 +28,7 @@ describe("SEC-07: environment config", () => {
     expect(env.RESEND_API_KEY).toBe("re_live_key");
   });
 
-  it("refuses to boot in production if APP_URL is left at the localhost default (release-cron links)", () => {
+  it("refuses to boot in production if APP_URL is left at the localhost default (every emailed link is built from it — C-101)", () => {
     expect(() => readEnv({ ...PROD, APP_URL: undefined })).toThrow();
   });
 
