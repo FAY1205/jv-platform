@@ -5,6 +5,7 @@ import { assertCsrf, authErrorResponse } from "@/lib/auth/guard";
 import { requireCapabilityResponse } from "@/lib/authz";
 import { jsonOk, jsonError, jsonServerError } from "@/lib/http";
 import { notifyTeamInvite } from "@/lib/auth/notify";
+import { env } from "@/lib/env";
 import { resendInvite, revokeInvite } from "@/modules/team/team";
 import { mapSeatError } from "@/modules/team/http";
 import { eq } from "drizzle-orm";
@@ -31,8 +32,10 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       .select({ name: schema.tenants.name })
       .from(schema.tenants)
       .where(eq(schema.tenants.id, scope.tenantId));
-    const origin = new URL(request.url).origin;
-    await notifyTeamInvite(email, tenant?.name ?? "your workspace", ROLE_LABELS[role] ?? role, `${origin}/team-invite/${token}`);
+    // C-101 (CWE-644): links that leave the system travel on env.APP_URL (the canonical origin,
+    // prod-guarded in lib/env), never the request Host — the re-issued one-time seat token lives
+    // ONLY in this link, so a forged Host would hand it to an attacker origin along with the seat.
+    await notifyTeamInvite(email, tenant?.name ?? "your workspace", ROLE_LABELS[role] ?? role, `${env.APP_URL}/team-invite/${token}`);
     return jsonOk({ code: "ok" });
   } catch (e) {
     return (

@@ -221,7 +221,9 @@ export interface EnqueueRunDigestsInput {
   uploadRef: string;
   /** Required for the admin run-summary (audience "admin"/"all"); unused for "partner". */
   summary?: RunSummary;
-  /** Absolute origin for building the partner portal link. */
+  /** Absolute origin for building the partner portal link. MUST be `env.APP_URL` (C-101): these
+   *  links leave the system by email, so they can never be built from a request-derived origin —
+   *  the Host header is caller-controlled. Enforced by tests/unit/email-origin-conformance. */
   portalBaseUrl: string;
   /** Admin recipients for the run-summary email (NTF-02). Unused for audience "partner". */
   adminEmails?: string[];
@@ -250,8 +252,10 @@ export async function enqueueRunDigests(
   // other leg in this function resolves through `resolveEffectiveChannel`.
   const emailOn = (role: "admin" | "partner", ev: NotifEvent) => resolvePref(role, ev).email;
   // NTF-14: unsubscribe footers are minted against the CANONICAL app origin, never against
-  // `portalBaseUrl` — run-upload passes the request origin there, and a capability link must
-  // not be mintable against a host an attacker controls.
+  // `portalBaseUrl`. Since C-101 every caller passes env.APP_URL for portalBaseUrl too, so today
+  // these are the same value — this stays belt-and-braces on purpose: a capability link must
+  // never be COUPLED to a base the caller can supply, however well-behaved every caller is now.
+  // The coupling, not the current value, is what would make a future caller's mistake exploitable.
   const unsubBase = env.APP_URL;
 
   let enqueued = 0;

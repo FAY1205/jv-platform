@@ -3,6 +3,7 @@ import { sql } from "drizzle-orm";
 import { z } from "zod";
 import { getDb } from "@/db";
 import * as schema from "@/db/schema";
+import { env } from "@/lib/env";
 import { jsonError } from "@/lib/http";
 import { assertCsrf } from "@/lib/auth/guard";
 import { withUniformTiming } from "@/lib/auth/enumeration";
@@ -34,7 +35,6 @@ export async function POST(request: Request) {
   const email = parsed.data.email.toLowerCase();
   const ip = clientIp(request);
   const now = Date.now();
-  const origin = new URL(request.url).origin;
   const db = getDb();
   const attempts = new AuthAttemptsStore(db);
 
@@ -68,7 +68,12 @@ export async function POST(request: Request) {
         if (!user) return; // no account — respond uniformly, send nothing
         const { token, record } = issueResetToken(user.id, now);
         await new ResetStore(db).persist(record);
-        await notifyReset(user.email, `${origin}/reset?token=${token}`);
+        // C-101 (CWE-644): a link that LEAVES the system travels on env.APP_URL — the canonical
+        // origin, prod-guarded in lib/env — never on the request Host. The Host header is
+        // attacker-controlled input; deriving this link from it would mail the victim their own
+        // single-use RESET TOKEN pointed at the attacker's origin (account takeover). The email
+        // is not a response to the forger's request, so no same-request check defends it.
+        await notifyReset(user.email, `${env.APP_URL}/reset?token=${token}`);
       } catch (e) {
         // WP-SU-19 (SEC-05/ADR-0032): withUniformTiming swallows a throw into the timing floor, so an
         // infra fault here (a DB fault, or the email transport rejecting) would otherwise vanish with

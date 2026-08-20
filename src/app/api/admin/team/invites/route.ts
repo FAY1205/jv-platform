@@ -4,6 +4,7 @@ import { assertCsrf, authErrorResponse } from "@/lib/auth/guard";
 import { requireCapabilityResponse } from "@/lib/authz";
 import { jsonOk, jsonError, jsonServerError } from "@/lib/http";
 import { notifyTeamInvite } from "@/lib/auth/notify";
+import { env } from "@/lib/env";
 import { InviteInputSchema } from "@/modules/team/schema";
 import { createInvite, DuplicateSeatError, OwnerOnlyError } from "@/modules/team/team";
 import { eq } from "drizzle-orm";
@@ -31,14 +32,16 @@ export async function POST(request: Request) {
       .select({ name: schema.tenants.name })
       .from(schema.tenants)
       .where(eq(schema.tenants.id, scope.tenantId));
-    const origin = new URL(request.url).origin;
     // Best-effort delivery (SEC-07 sink in non-prod); the invite row is the source of
     // truth and Resend can be retried from the roster.
+    // C-101 (CWE-644): links that leave the system travel on env.APP_URL (the canonical origin,
+    // prod-guarded in lib/env), never the request Host — the one-time seat token lives ONLY in
+    // this link, so a forged Host would hand it to an attacker origin along with the seat.
     await notifyTeamInvite(
       parsed.data.email,
       tenant?.name ?? "your workspace",
       ROLE_LABELS[parsed.data.role] ?? parsed.data.role,
-      `${origin}/team-invite/${token}`,
+      `${env.APP_URL}/team-invite/${token}`,
     );
     return jsonOk({ inviteId });
   } catch (e) {

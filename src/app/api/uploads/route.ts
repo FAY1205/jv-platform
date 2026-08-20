@@ -58,7 +58,6 @@ export async function POST(req: Request) {
     const db = getDb();
     const profiles = await loadProfilesForDetection(db, scope);
     const detected = detectProfile(body.headers, profiles);
-    const origin = new URL(req.url).origin;
 
     if (detected.status === "exact" && detected.profile) {
       // ADR-0038: with dedup retired, re-importing the same file would duplicate and
@@ -70,11 +69,14 @@ export async function POST(req: Request) {
           return jsonOk({ result: "duplicate_file", priorRef: prior.refId, priorDate: prior.createdAt });
         }
       }
+      // C-101 (CWE-644): runUpload's digest/hot-alert CTA links are built inside it from
+      // env.APP_URL — the canonical origin, prod-guarded in lib/env — and no longer from this
+      // request's Host. Links that leave the system never ride the Host header, and upload-time
+      // emails now match the release cron, which already passed env.APP_URL.
       const res = await runUpload(scope, {
         profile: detected.profile,
         filename: body.filename,
         rows: body.rows,
-        origin,
         idempotencyKey: body.idempotencyKey,
         contentHash: body.contentHash ?? null,
       });

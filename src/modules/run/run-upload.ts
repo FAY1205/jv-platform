@@ -12,7 +12,7 @@ import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { enqueueRunDigests, drainOutbox } from "@/modules/notify/outbox";
 import { notifyImportProcessed } from "@/modules/notify/events";
 import { runListingChecks } from "@/modules/listing/run-checks";
-import { adminAllowlist } from "@/lib/env";
+import { adminAllowlist, env } from "@/lib/env";
 import { logError } from "@/lib/observability";
 import { loadColorCoding } from "@/modules/settings/export-settings";
 import { newTraceId } from "@/lib/http";
@@ -56,7 +56,6 @@ export interface RunUploadInput {
   profile: SourceProfile;
   filename: string;
   rows: readonly Record<string, unknown>[];
-  origin: string;
   idempotencyKey?: string;
   /** SHA-256 of the raw uploaded file (ADR-0038 duplicate-file warn); omitted = unknown. */
   contentHash?: string | null;
@@ -102,7 +101,11 @@ export async function runUpload(scope: ScopeContext, input: RunUploadInput): Pro
       // WP-NF2b: no workspace-prefs read — channel gating is the shipped defaults ⊕ each
       // recipient's own overlay, resolved inside the fan-out against the person being emailed.
       const adminEmails = await resolveAdminEmails(db, scope);
-      await enqueueRunDigests(db, scope, { uploadRef: result.uploadRefId, summary: result.summary, portalBaseUrl: input.origin, adminEmails, adminUserId: scope.userId, audience: "admin" });
+      // C-101 (CWE-644): portalBaseUrl is env.APP_URL — the canonical origin, prod-guarded in
+      // lib/env — never the uploading request's Host. These CTA links leave the system by email,
+      // and the Host header is attacker-controlled input; the release cron already passed
+      // env.APP_URL here, so upload-time and cron-time digests now carry identical links.
+      await enqueueRunDigests(db, scope, { uploadRef: result.uploadRefId, summary: result.summary, portalBaseUrl: env.APP_URL, adminEmails, adminUserId: scope.userId, audience: "admin" });
     } catch (e) {
       logError("admin_summary_enqueue_failed", { message: errMsg(e) });
     }

@@ -28,8 +28,28 @@ describe("SEC-07: environment config", () => {
     expect(env.RESEND_API_KEY).toBe("re_live_key");
   });
 
-  it("refuses to boot in production if APP_URL is left at the localhost default (release-cron links)", () => {
+  it("refuses to boot in production if APP_URL is left at the localhost default (every emailed link is built from it — C-101)", () => {
     expect(() => readEnv({ ...PROD, APP_URL: undefined })).toThrow();
+  });
+
+  it("C-101: APP_URL normalizes away trailing slashes (every consumer concatenates `${APP_URL}/path`)", () => {
+    // Unnormalized, "https://app.example.com/" + "/reset" mints "//reset" — a protocol-relative
+    // URL pointing at the host "reset", which is a broken (and phishable) reset link.
+    expect(readEnv({ ...PROD, APP_URL: "https://app.example.com/" }).APP_URL).toBe("https://app.example.com");
+    expect(readEnv({ ...PROD, APP_URL: "https://app.example.com///" }).APP_URL).toBe("https://app.example.com");
+    expect(readEnv({ ...PROD, APP_URL: "https://app.example.com" }).APP_URL).toBe("https://app.example.com");
+  });
+
+  it("C-101: normalization runs BEFORE the production localhost guard, so a trailing slash cannot slip past it", () => {
+    // The guard is an exact string comparison. Were the transform ordered after it,
+    // "http://localhost:3000/" would boot production and mail localhost links to real users.
+    expect(() => readEnv({ ...PROD, APP_URL: "http://localhost:3000/" })).toThrow();
+  });
+
+  it("C-101: APP_URL must be a BARE ORIGIN — a path, query, or fragment is refused at boot", () => {
+    for (const bad of ["https://app.example.com/app", "https://app.example.com/?x=1", "https://app.example.com/#f"]) {
+      expect(() => readEnv({ ...PROD, APP_URL: bad }), `${bad} should be refused`).toThrow();
+    }
   });
 
   it("NTF-03: refuses to boot in production without RESEND_API_KEY (else OTPs silently vanish)", () => {

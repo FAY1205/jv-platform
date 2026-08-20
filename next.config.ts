@@ -25,6 +25,28 @@ const nextConfig: NextConfig = {
         source: "/unsubscribe",
         headers: [{ key: "Referrer-Policy", value: "no-referrer" }],
       },
+      // C-101 (audit-security F-6): the same reasoning, applied to the HIGHER-value one-time
+      // tokens. Each of these pages is reached by clicking a link in an email, and each carries a
+      // single-use credential in its URL — a password-reset token, a signup-verification token, a
+      // team-seat token. Whatever the page then fetches (a font, an image, an analytics beacon,
+      // an API call) would otherwise carry that URL in the Referer header; same-origin requests
+      // get the FULL url under the site-wide strict-origin-when-cross-origin, so the token would
+      // land in the app's own access logs. no-referrer withholds it everywhere.
+      //
+      // Listed after the catch-all for the same last-valid-token reason as /unsubscribe above.
+      // `/team-invite/:token` needs the param segment — the token is in the PATH here, not a query.
+      {
+        source: "/reset",
+        headers: [{ key: "Referrer-Policy", value: "no-referrer" }],
+      },
+      {
+        source: "/signup/verify",
+        headers: [{ key: "Referrer-Policy", value: "no-referrer" }],
+      },
+      {
+        source: "/team-invite/:token",
+        headers: [{ key: "Referrer-Policy", value: "no-referrer" }],
+      },
     ];
   },
   async redirects() {
