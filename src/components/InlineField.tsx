@@ -49,6 +49,12 @@ export interface InlineFieldProps {
   /** Per-keystroke mask, e.g. State's two uppercase letters (N5-12). */
   mask?: (raw: string) => string;
   /**
+   * DSN-02 ledger identity: the value is a NUMBER-shaped string (phone, ZIP) and wears the
+   * tabular monospace treatment — in the rest state AND in the editor, so the digits do not
+   * shift under the caret the moment the field opens.
+   */
+  numeric?: boolean;
+  /**
    * N5-11 retry: a NEW `nonce` re-opens the field seeded with `text`. A nonce rather than a
    * bare string because retrying the same text twice has to reopen the field twice.
    */
@@ -70,6 +76,7 @@ export function InlineField({
   saving = false,
   hint = false,
   mask,
+  numeric = false,
   reopen = null,
   trailing,
   onEditingChange,
@@ -91,13 +98,30 @@ export function InlineField({
     setSession((s) => ({ seed: reopen.text, n: (s?.n ?? 0) + 1 }));
   }
 
+  // The control the session was opened FROM, so focus can go back to it (N5-30). One ref for
+  // both rest shapes: only one of them is ever mounted.
+  const restRef = React.useRef<HTMLButtonElement>(null);
+  /** Ties the hint to the input (A11Y / FRM-04) instead of leaving it as loose nearby text. */
+  const hintId = React.useId();
+
   // Report the transition, never the mount: every field would otherwise announce "not
   // editing" on first paint, and a field mounting beside an open one would clear its gate.
   const reported = React.useRef(editing);
   React.useEffect(() => {
     if (reported.current === editing) return;
+    const closed = reported.current && !editing;
     reported.current = editing;
     onEditingChange?.(editing);
+    if (!closed) return;
+    // N5-30 (WCAG 2.4.3 / 3.2.1): closing a session UNMOUNTS the focused input, and focus
+    // falls to <body> — a keyboard user is dropped at the top of the document with the record
+    // they were editing nowhere near the caret. Put focus back on the control they opened.
+    //
+    // Only when it actually fell, though: committing by CLICKING another control leaves focus
+    // on that control, and yanking it back would be a worse bug than the one being fixed.
+    // `document.activeElement` is already settled here — effects run after the DOM mutation.
+    const active = typeof document === "undefined" ? null : document.activeElement;
+    if (!active || active === document.body) restRef.current?.focus();
   }, [editing, onEditingChange]);
 
   const open = () => {
@@ -109,7 +133,10 @@ export function InlineField({
     return (
       <div
         className={cn(
-          "-mx-1.5 -my-1 flex flex-col gap-1 rounded-lg px-1.5 py-1 outline outline-2 outline-brand",
+          // brand-INK, not raw brand: --brand is the marigold FILL and lands under 3:1 against
+          // surface, which WCAG 1.4.11 requires of a focus/state indicator. Every sibling ring
+          // in this codebase (`focus-visible:ring-brand-ink`) already uses the ink tone.
+          "-mx-1.5 -my-1 flex flex-col gap-1 rounded-lg px-1.5 py-1 outline outline-2 outline-brand-ink",
           className,
         )}
       >
@@ -120,6 +147,8 @@ export function InlineField({
           label={label}
           seed={session.seed}
           mask={mask}
+          numeric={numeric}
+          describedBy={hint ? hintId : undefined}
           onCancel={() => setSession(null)}
           onCommit={(next) => {
             setSession(null);
@@ -127,13 +156,20 @@ export function InlineField({
             if (next !== value) onCommit(next);
           }}
         />
-        {hint && <span className="text-step-0 text-text-3">{INLINE_HINT}</span>}
+        {hint && (
+          <span id={hintId} className="text-step-0 text-text-3">
+            {INLINE_HINT}
+          </span>
+        )}
       </div>
     );
   }
 
   const shown = value || EMPTY;
-  const text = <span className={cn("text-sm", value ? "text-text" : "italic text-text-3")}>{shown}</span>;
+  // DSN-02: `num` only ever rides a real value — "Not provided" is prose, not a figure.
+  const text = (
+    <span className={cn("text-sm", numeric && value && "num", value ? "text-text" : "italic text-text-3")}>{shown}</span>
+  );
 
   // Never editable: the same shape with no affordance at all, so the grid stays even.
   if (!editable) {
@@ -160,7 +196,7 @@ export function InlineField({
           {value ? <ClampedText>{value}</ClampedText> : text}
           <span className="absolute right-2 top-2 flex items-center gap-1.5">
             {saving && <Spinner size={12} />}
-            <EditButton label={label} disabled={disabled} onClick={open} floating />
+            <EditButton buttonRef={restRef} label={label} disabled={disabled} onClick={open} floating />
           </span>
         </div>
       </div>
@@ -171,13 +207,18 @@ export function InlineField({
     <div
       className={cn(
         "group -mx-1.5 -my-1 flex min-w-0 flex-col gap-0.5 rounded-lg px-1.5 py-1 transition-colors",
-        !disabled && "hover:bg-surface-2 focus-within:bg-surface-2",
+        // §6.17 state matrix: the row is the hover/focus target, so it carries the PRESSED
+        // step too (NotificationsPage's row recipe: hover surface-2 → active surface-3).
+        // `active:` on the ROW works even though the press lands on the button inside it —
+        // CSS :active applies to the pressed element and every ancestor of it.
+        !disabled && "hover:bg-surface-2 focus-within:bg-surface-2 active:bg-surface-3",
         className,
       )}
     >
       <Label>{label}</Label>
       <span className="flex min-w-0 items-center gap-2">
         <button
+          ref={restRef}
           type="button"
           disabled={disabled}
           onClick={open}
@@ -206,7 +247,7 @@ export function InlineField({
 /**
  * One editing session: the draft, the commit/revert keys, and the focus. Its own component
  * so all three share the session's lifetime — the draft cannot outlive the open field, focus
- * + pre-select run exactly once on mount, and the "was this exit a revert?" flag starts
+ * + pre-select run exactly once on mount, and the "has this session exited?" latch starts
  * clean every time without anyone having to remember to reset it.
  */
 function Editor({
@@ -214,6 +255,8 @@ function Editor({
   label,
   seed,
   mask,
+  numeric,
+  describedBy,
   onCommit,
   onCancel,
 }: {
@@ -221,13 +264,40 @@ function Editor({
   label: string;
   seed: string;
   mask?: (raw: string) => string;
+  numeric?: boolean;
+  describedBy?: string;
   onCommit: (next: string) => void;
   onCancel: () => void;
 }) {
   const [draft, setDraft] = React.useState(seed);
-  // Esc must beat the blur it causes: leaving the field fires both, and only the keystroke
-  // knows the exit was a revert. A ref, not state — it is read in the same tick.
-  const cancelled = React.useRef(false);
+  // ONE exit per session, whichever gesture gets there first — a STRUCTURAL guarantee, not a
+  // per-path guard, because a second exit is a second `onCommit`: a duplicate PATCH, and under
+  // READ COMMITTED a second `lead.edited` audit row, hence a duplicate "Details updated"
+  // timeline entry (N5-14). Three gestures reach the exit and they overlap:
+  //
+  //  1. Esc reverts — and fires the blur it causes. Only the keystroke knows it was a revert.
+  //  2. Enter commits — and unmounts the focused input, which browsers may answer with a
+  //     phantom blur that would commit the same draft again.
+  //  3. Blur commits.
+  //
+  // ⚠️ NOT OBSERVABLE FROM jsdom — mutation-verified, not assumed: replacing this latch with a
+  // bare `run()` leaves every test in tests/unit/components/inline-field.test.tsx green. The
+  // reason is the same for all three paths: closing the session unmounts the input, and jsdom
+  // fires no blur on removal, so the competing second gesture never happens there. Whether a
+  // real browser fires it is browser-dependent (Firefox historically does, Chrome does not)
+  // and it may or may not reach React's delegated listener — which is exactly why this is a
+  // latch and not a bet. `tests/e2e/admin-inline-edit.spec.ts` counts the PATCHes in a real
+  // browser; ENGINEERING_STANDARDS §8 carries the rule for the class. Do not delete this on
+  // the strength of a green unit run — the unit suite cannot see it either way.
+  //
+  // A ref, not state: it is written and read within the same tick, before any re-render.
+  const settled = React.useRef(false);
+  /** Run the session's exit exactly once. Every path out goes through here. */
+  const exit = (run: () => void) => {
+    if (settled.current) return;
+    settled.current = true;
+    run();
+  };
   const ref = React.useRef<HTMLInputElement | HTMLTextAreaElement>(null);
   React.useEffect(() => {
     // The value arrives pre-selected so typing replaces it (N5-10) — the common correction
@@ -241,39 +311,38 @@ function Editor({
       // N5-13: the first Esc belongs to the edit, the next one closes the panel. The panel
       // is told to hold its own Esc (SidePanel `escapeHeld`) because Radix listens in the
       // CAPTURE phase, ahead of this handler — preventDefault here would arrive too late.
-      cancelled.current = true;
       e.stopPropagation();
-      onCancel();
+      exit(onCancel);
       return;
     }
     if (e.key !== "Enter") return;
     // A textarea's Enter is a newline; ⌘/Ctrl+Enter commits, and so does clicking away.
     if (multiline && !(e.metaKey || e.ctrlKey)) return;
     e.preventDefault();
-    onCommit(draft);
+    exit(() => onCommit(draft));
   };
-  const onBlur = () => {
-    if (!cancelled.current) onCommit(draft);
-  };
+  const onBlur = () => exit(() => onCommit(draft));
   const onChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) =>
     setDraft(mask ? mask(e.target.value) : e.target.value);
-  const cls = "w-full border-0 bg-transparent p-0 text-sm text-text outline-none";
+  const cls = cn("w-full border-0 bg-transparent p-0 text-sm text-text outline-none", numeric && "num");
 
   return multiline ? (
     <textarea
       ref={ref as React.RefObject<HTMLTextAreaElement>}
       aria-label={label}
+      aria-describedby={describedBy}
       rows={3}
       value={draft}
       onChange={onChange}
       onKeyDown={onKeyDown}
       onBlur={onBlur}
-      className={`${cls} resize-y`}
+      className={cn(cls, "resize-y")}
     />
   ) : (
     <input
       ref={ref as React.RefObject<HTMLInputElement>}
       aria-label={label}
+      aria-describedby={describedBy}
       value={draft}
       onChange={onChange}
       onKeyDown={onKeyDown}
@@ -283,16 +352,35 @@ function Editor({
   );
 }
 
-function EditButton({ label, disabled, onClick, floating }: { label: string; disabled: boolean; onClick: () => void; floating?: boolean }) {
+function EditButton({
+  label,
+  disabled,
+  onClick,
+  floating,
+  buttonRef,
+}: {
+  label: string;
+  disabled: boolean;
+  onClick: () => void;
+  floating?: boolean;
+  buttonRef?: React.RefObject<HTMLButtonElement | null>;
+}) {
   return (
     <button
+      ref={buttonRef}
       type="button"
       disabled={disabled}
       onClick={onClick}
       aria-label={`Edit ${label}`}
       className={cn(
-        "grid h-6 w-6 place-items-center rounded text-text-3 outline-none transition-[opacity,color]",
+        "relative grid h-6 w-6 place-items-center rounded text-text-3 outline-none transition-[opacity,color,transform]",
         "hover:text-text focus-visible:ring-1 focus-visible:ring-brand-ink",
+        // C-52 (WCAG 2.5.8), the SidePanel ✕ recipe: this 24px square is the ONLY way into
+        // editing Source notes, so the REACH grows past the glyph rather than the glyph
+        // growing past its layout. 24 + 2×6 = 36px, and 24 + 2×10 = 44px on coarse pointers.
+        "before:absolute before:-inset-1.5 before:content-[''] pointer-coarse:before:-inset-2.5",
+        // §6.17: the pressed step every other icon button in this codebase carries.
+        !disabled && "active:scale-95",
         disabled ? "cursor-default opacity-40" : "opacity-0 group-hover:opacity-100 focus-visible:opacity-100",
         floating && "bg-surface-2",
       )}

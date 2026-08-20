@@ -8,6 +8,22 @@ import { InlineField, INLINE_HINT } from "@/components";
 // N5-10/N5-11 — the InlineField state machine, isolated from any request: open, pre-select,
 // commit on Enter, commit on blur, revert on Esc, the no-op for an unchanged value, the mask,
 // the saving/disabled states, and the retry reopen.
+//
+// ⚠️ WHAT THIS FILE PROVABLY CANNOT COVER — measured, not guessed. The Editor's `settled`
+// latch guarantees ONE exit per session (Esc / Enter / blur all race for it, and a second exit
+// is a second PATCH, a second `lead.edited` audit row, and a duplicate "Details updated"
+// timeline entry). Replacing that latch with a bare `run()` leaves EVERY test below green.
+//
+// The reason is structural: closing a session unmounts the input, and jsdom fires no blur when
+// a focused element is removed — so the competing second gesture the latch absorbs never
+// occurs here. That holds for the Escape path too, not just Enter: "Esc beats the blur it
+// causes" passes because the input is already gone by the time the click lands, which is a
+// weaker fact than the name suggests.
+//
+// So do not read a green run here as evidence about double-commit. The real-browser check is
+// `tests/e2e/admin-inline-edit.spec.ts`, which counts PATCHes; ENGINEERING_STANDARDS §8 carries
+// the rule for the class. Anyone tempted to simplify the latch should re-run that mutation and
+// watch this file fail to object.
 
 /** A host that owns `value` the way the lead record does — commits land, so the tests can
  *  tell a real commit from a repaint. */
@@ -65,6 +81,73 @@ describe("N5-10: opening an inline field", () => {
     render(<Host hint={false} />);
     await user.click(openField());
     expect(screen.queryByText(INLINE_HINT)).toBeNull();
+  });
+
+  it("N5-30: the hint is ASSOCIATED with the input, not just sitting near it", async () => {
+    const user = userEvent.setup();
+    render(<Host hint />);
+    await user.click(openField());
+
+    const input = screen.getByRole("textbox", { name: "Phone" });
+    const describedBy = input.getAttribute("aria-describedby");
+    expect(describedBy).toBeTruthy();
+    // The id resolves to the hint's own text — the commit-on-blur rule is announced WITH the
+    // field, which is the only moment it is useful ("Esc cancels" after the fact is no help).
+    expect(document.getElementById(describedBy!)).toHaveTextContent(INLINE_HINT);
+  });
+});
+
+describe("N5-30: focus does not fall on the floor when a session closes", () => {
+  // WCAG 2.4.3 / 3.2.1: Enter and Esc both close by UNMOUNTING the focused input. Without a
+  // deliberate hand-back, focus lands on <body> and a keyboard user is dropped at the top of
+  // the document — mid-record, with no way back but Tab from the beginning.
+  it("N5-30: after committing with Enter, focus returns to the field's rest control", async () => {
+    const user = userEvent.setup();
+    render(<Host />);
+
+    await user.click(openField());
+    await user.keyboard("(918) 555-0170{Enter}");
+
+    expect(document.body).not.toHaveFocus();
+    expect(openField()).toHaveFocus();
+  });
+
+  it("N5-30: after reverting with Esc, focus returns to the field's rest control", async () => {
+    const user = userEvent.setup();
+    render(<Host />);
+
+    await user.click(openField());
+    await user.keyboard("typed over{Escape}");
+
+    expect(openField()).toHaveFocus();
+  });
+
+  it("N5-30: the multiline variant hands focus back to its pencil too", async () => {
+    const user = userEvent.setup();
+    render(<Host label="Source notes" initial="one" multiline />);
+
+    await user.click(screen.getByRole("button", { name: /^Edit Source notes$/i }));
+    await user.keyboard("{Escape}");
+
+    expect(screen.getByRole("button", { name: /^Edit Source notes$/i })).toHaveFocus();
+  });
+
+  it("N5-30: committing by CLICKING another control leaves focus there — it is not yanked back", async () => {
+    const user = userEvent.setup();
+    render(
+      <>
+        <Host />
+        <button type="button">elsewhere</button>
+      </>,
+    );
+
+    await user.click(openField());
+    await user.keyboard("moved");
+    const elsewhere = screen.getByRole("button", { name: "elsewhere" });
+    await user.click(elsewhere);
+
+    // The hand-back is for focus that FELL, never for focus the user aimed somewhere.
+    expect(elsewhere).toHaveFocus();
   });
 });
 

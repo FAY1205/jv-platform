@@ -177,6 +177,67 @@ describe("N5-11: optimistic paint, rollback, and the retry toast", () => {
     expect(screen.getByRole("textbox", { name: "Phone" })).toHaveValue("(918) 555-0170");
   });
 
+  it("N5-11: the record's Retry toast leaves WITH the record — no dead button after a switch", async () => {
+    const user = userEvent.setup();
+    stubFetch(() => ({ ok: false, status: 500, body: { message: "Edit failed." } }));
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+    const ui = (ref: string) => (
+      <QueryClientProvider client={qc}>
+        <ToastProvider>
+          <LeadDialog refId={ref} onClose={vi.fn()} nav={null} />
+        </ToastProvider>
+      </QueryClientProvider>
+    );
+    const { rerender } = render(ui(REF));
+
+    await editField(user, "Phone", "(918) 555-0170");
+    await user.keyboard("{Enter}");
+    // The toast is up, with a Retry that reopens Phone ON THIS RECORD.
+    expect(await screen.findByRole("button", { name: "Retry" })).toBeInTheDocument();
+
+    // A row click behind the open panel switches the record; the old LeadRecord unmounts and
+    // its Retry becomes a live-looking button wired to a dead setState — silent in React 19,
+    // and TOAST_ACTION_DURATION_MS leaves it on screen for 9 seconds.
+    rerender(ui(REF2));
+
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Retry" })).toBeNull());
+    // Its message goes with it — including out of the sr-only live region.
+    expect(screen.queryByText(/Couldn't save Phone/)).toBeNull();
+  });
+
+  it("N5-11: closing the panel takes the record's Retry toast with it", async () => {
+    const user = userEvent.setup();
+    stubFetch(() => ({ ok: false, status: 500, body: { message: "Edit failed." } }));
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+    /** The leads page's real shape: the ToastProvider OUTLIVES the panel (it is mounted near
+     *  the app root). Unmounting the whole tree instead would prove nothing — the toast would
+     *  go with the provider that renders it. */
+    function Host() {
+      const [open, setOpen] = React.useState(true);
+      return (
+        <QueryClientProvider client={qc}>
+          <ToastProvider>
+            <button type="button" onClick={() => setOpen(false)}>
+              close the panel
+            </button>
+            {open && <LeadDialog refId={REF} onClose={() => setOpen(false)} nav={null} />}
+          </ToastProvider>
+        </QueryClientProvider>
+      );
+    }
+    render(<Host />);
+
+    await editField(user, "Phone", "(918) 555-0170");
+    await user.keyboard("{Enter}");
+    expect(await screen.findByRole("button", { name: "Retry" })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "close the panel" }));
+
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Retry" })).toBeNull());
+    // The provider is still there and still working — the toast left, not the stack.
+    expect(screen.getByTestId("toast-stack")).toBeInTheDocument();
+  });
+
   it("N5-12: a 4xx (an address/ZIP dedupe collision) surfaces the SERVER's message in the toast", async () => {
     const user = userEvent.setup();
     stubFetch(() => ({ ok: false, status: 409, body: { code: "duplicate", message: "Another lead already has this address." } }));
@@ -319,6 +380,59 @@ describe("N5-02: a record switch drops every per-record draft", () => {
     expect(screen.getByPlaceholderText(/note/i)).toHaveValue("");
     expect(screen.queryByRole("textbox", { name: "City" })).toBeNull();
     await waitFor(() => expect(screen.getByText("Dana")).toBeInTheDocument());
+  });
+});
+
+describe("N5-30: the record speaks to a screen reader", () => {
+  it("N5-30/A11Y-03: a save announces 'Saving <Field>…' and then '<Field> saved.'", async () => {
+    const user = userEvent.setup();
+    // Held open so the "Saving…" phase is observable rather than a frame long.
+    let release!: () => void;
+    const fetchSpy = vi.fn(
+      () => new Promise((resolve) => { release = () => resolve({ ok: true, status: 200, json: () => Promise.resolve({ refId: REF }) }); }),
+    );
+    vi.stubGlobal("fetch", fetchSpy as unknown as typeof fetch);
+    renderPanel();
+
+    // A11Y-03: the region is mounted EMPTY (a live region that mounts with its text already
+    // in it announces nothing in several screen readers) and only its TEXT changes after.
+    await screen.findByRole("button", { name: /^Phone:/i });
+    expect(screen.queryByText(/^Saving /)).toBeNull();
+
+    await editField(user, "Phone", "(918) 555-0170");
+    await user.keyboard("{Enter}");
+
+    await waitFor(() => expect(screen.getByText("Saving Phone…")).toBeInTheDocument());
+    release();
+    await waitFor(() => expect(screen.getByText("Phone saved.")).toBeInTheDocument());
+  });
+
+  it("N5-30: a FAILED save does not leave 'Saving…' standing behind the failure toast", async () => {
+    const user = userEvent.setup();
+    stubFetch(() => ({ ok: false, status: 500, body: { message: "Edit failed." } }));
+    renderPanel();
+
+    await editField(user, "Phone", "(918) 555-0170");
+    await user.keyboard("{Enter}");
+
+    expect(await toastText("Couldn't save Phone")).toBeInTheDocument();
+    expect(screen.queryByText("Saving Phone…")).toBeNull();
+  });
+
+  it("N5-06/PRN-14: the partner control's accessible name carries the CURRENT owner, not just its purpose", async () => {
+    stubFetch();
+    renderPanel();
+    // `renderValue` paints the swatch; an aria-label REPLACES the name Radix would build from
+    // the selection, so the owner has to be composed in or a listener never learns it.
+    expect(await screen.findByRole("combobox", { name: "Assigned partner: Meridian Buyers (JV-001)" })).toBeInTheDocument();
+    expect(screen.queryByRole("combobox", { name: "Assigned partner" })).toBeNull();
+  });
+
+  it("N5-06/PRN-14: an unmatched lead's partner control says so by NAME", async () => {
+    stubFetch();
+    detail = { ...baseDetail(), partner: null };
+    renderPanel();
+    expect(await screen.findByRole("combobox", { name: "Assigned partner: Unmatched" })).toBeInTheDocument();
   });
 });
 

@@ -749,6 +749,9 @@ function Gallery() {
                 Toasts auto-dismiss after {"~"}2.6s, but the countdown pauses while you hover or keyboard-focus
                 the stack and each carries a ✕ to dismiss on demand (WCAG 2.2.1 Timing Adjustable). A toast
                 carrying an action (N5-11) gets a longer window and dismisses itself when the action is taken.
+                An action is only ever as alive as the thing that raised it, so a raiser that can go away
+                first tags its toasts with a <code>scope</code> and calls <code>dismissScope</code> on unmount —
+                a live-looking button wired to an unmounted component is worse than no button.
               </p>
             </CardBody>
           </Card>
@@ -1055,6 +1058,7 @@ function Gallery() {
                 <div className="max-w-xs">
                   <Select label="Disabled" value="new" onValueChange={() => {}} disabled options={[{ value: "new", label: "New" }]} />
                 </div>
+                <PartnerSelectDemo />
               </CardBody>
             </Card>
 
@@ -1643,6 +1647,39 @@ function Gallery() {
           territory to Unmatched until reassigned. High-impact deletes require typing the reference ID (FRM-03).
         </p>
       </Modal>
+    </div>
+  );
+}
+
+/** `renderValue` (N5-06): the trigger paints the SELECTED value as something richer than the
+ *  option's text — here the partner swatch + name + JV ref (PRN-14: the color never travels
+ *  alone). The option LIST stays plain text, which is what Radix's typeahead reads.
+ *
+ *  ⚠️ `ariaLabel` REPLACES the accessible name Radix builds from the selected item, so a
+ *  control using `renderValue` composes the current value INTO its label — otherwise the
+ *  trigger announces its purpose and never its value (WCAG 4.1.2). */
+function PartnerSelectDemo() {
+  const PARTNERS = [
+    { id: "p1", name: "Bluebird Home Buyers", refId: "PR-26-014" },
+    { id: "p2", name: "Josh Ax", refId: "PR-003" },
+  ];
+  const [partnerId, setPartnerId] = React.useState("p1");
+  const current = PARTNERS.find((p) => p.id === partnerId)!;
+  return (
+    <div className="flex max-w-xs flex-col gap-1.5">
+      <p className="text-step-1 text-text-3">
+        <code>renderValue</code> — the trigger paints the partner swatch; the accessible name
+        carries the same name + ref.
+      </p>
+      <Select
+        // No visible `label` here on purpose: this is the lead record's control (N5-06),
+        // where the swatch IS the label and the name has to be composed by hand.
+        ariaLabel={`Assigned partner: ${current.name} (${current.refId})`}
+        value={partnerId}
+        onValueChange={setPartnerId}
+        renderValue={() => <PartnerTag size="sm" name={current.name} color={colorOf(current.name)} refId={current.refId} />}
+        options={PARTNERS.map((p) => ({ value: p.id, label: `${p.name} (${p.refId})` }))}
+      />
     </div>
   );
 }

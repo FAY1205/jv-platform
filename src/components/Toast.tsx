@@ -17,10 +17,24 @@ interface ToastItem {
   message: string;
   tone: ToastTone;
   action?: ToastAction;
+  scope?: string;
 }
 
 interface ToastApi {
-  toast: (message: string, tone?: ToastTone, action?: ToastAction) => void;
+  /**
+   * `scope` tags the toast with the thing that raised it, so that thing can take it away
+   * again — see `dismissScope`. Optional and unused by most callers: a plain message outlives
+   * its raiser perfectly well.
+   */
+  toast: (message: string, tone?: ToastTone, action?: ToastAction, scope?: string) => void;
+  /**
+   * Drop every toast raised under `scope`. For an ACTIONABLE toast whose action only means
+   * something while its raiser is on screen: a "Retry" that reopens a field on lead X is a
+   * live-looking button wired to a dead setState once that record is gone (React 19 makes
+   * such a call a silent no-op), and TOAST_ACTION_DURATION_MS leaves it there for 9 seconds.
+   * The raiser calls this from its unmount cleanup, so the toast leaves with it.
+   */
+  dismissScope: (scope: string) => void;
 }
 
 const ToastContext = React.createContext<ToastApi | null>(null);
@@ -55,15 +69,18 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
   const [focused, setFocused] = React.useState(false);
   const paused = hovered || focused;
 
-  const toast = React.useCallback((message: string, tone: ToastTone = "default", action?: ToastAction) => {
+  const toast = React.useCallback((message: string, tone: ToastTone = "default", action?: ToastAction, scope?: string) => {
     const id = nextId.current++;
-    setItems((prev) => [...prev, { id, message, tone, action }]);
+    setItems((prev) => [...prev, { id, message, tone, action, scope }]);
   }, []);
   const dismiss = React.useCallback((id: number) => {
     setItems((prev) => prev.filter((t) => t.id !== id));
   }, []);
+  const dismissScope = React.useCallback((scope: string) => {
+    setItems((prev) => (prev.some((t) => t.scope === scope) ? prev.filter((t) => t.scope !== scope) : prev));
+  }, []);
 
-  const api = React.useMemo(() => ({ toast }), [toast]);
+  const api = React.useMemo(() => ({ toast, dismissScope }), [toast, dismissScope]);
 
   return (
     <ToastContext.Provider value={api}>
@@ -91,7 +108,10 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
           toast is announced without the dismiss control's label being read out alongside it. */}
       <div className="sr-only" role="status" aria-live="polite">
         {items.map((t) => (
-          <div key={t.id}>{t.message}</div>
+          // The action's LABEL rides along (never the ✕'s): a toast that offers a recovery is
+          // only useful if the listener learns the recovery exists — "Couldn't save Phone"
+          // alone announces a dead end. The label is short by contract (one word, "Retry").
+          <div key={t.id}>{t.action ? `${t.message}. ${t.action.label}` : t.message}</div>
         ))}
       </div>
     </ToastContext.Provider>
@@ -125,7 +145,12 @@ function ToastRow({ item, paused, onDismiss }: { item: ToastItem; paused: boolea
             onDismiss(item.id);
             item.action?.onClick();
           }}
-          className="shrink-0 rounded-full px-2.5 py-1 text-sm font-semibold text-current underline decoration-current/50 underline-offset-2 outline-none transition-colors hover:decoration-current focus-visible:ring-1 focus-visible:ring-current active:scale-95"
+          // C-52 (WCAG 2.5.8) reach, the SidePanel ✕ recipe: an invisible pseudo-element
+          // rather than padding, which would push the pill's own geometry around. Held to
+          // -inset-2 on coarse pointers so the reach stops AT the `gap-2` and never overlaps
+          // the ✕ beside it — a mis-tap that dismisses the recovery would be worse than a
+          // small target.
+          className="relative shrink-0 rounded-full px-2.5 py-1 text-sm font-semibold text-current underline decoration-current/50 underline-offset-2 outline-none transition-colors hover:decoration-current focus-visible:ring-1 focus-visible:ring-current active:scale-95 before:absolute before:-inset-1 before:content-[''] pointer-coarse:before:-inset-2"
         >
           {item.action.label}
         </button>

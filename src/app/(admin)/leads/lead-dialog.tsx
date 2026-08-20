@@ -359,6 +359,27 @@ function LeadRecord({
   // N5-10: the commit-on-blur hint rides the first edit of this record and then retires —
   // deliberately per-record UI state, not a stored preference (no new store, §6.17).
   const [hintSpent, setHintSpent] = React.useState(false);
+  // N5-30 / A11Y-03: a save is otherwise SILENT to a screen reader — the optimistic value is
+  // already painted (so nothing changes on success) and the spinner is decorative. Mounted for
+  // this record's life below, with only its text changing (never mounted with content in it).
+  const [saveStatus, setSaveStatus] = React.useState("");
+
+  // Every toast this record raises is tagged with the record, and the tag is what lets them
+  // leave WITH it (see the cleanup below). `refId` is stable for this component's lifetime —
+  // LeadRecord is keyed on it in LeadDialog, so a switch remounts rather than re-props.
+  const toastScope = `lead:${d.refId}`;
+  React.useEffect(
+    () => () => {
+      // N5-11: the failure toast's Retry reopens a field on THIS record. Close the panel or
+      // click another row and this component unmounts, leaving a live-looking "Retry" wired to
+      // a dead setState for the rest of TOAST_ACTION_DURATION_MS (9s) — pressing it does
+      // nothing at all, silently. The dead button must not outlive the record it belongs to.
+      // Deliberately NOT re-aimed at the newly-open lead: a retry means "put back the text I
+      // typed, where I typed it", and there is no honest way to do that on a different record.
+      toast.dismissScope(toastScope);
+    },
+    [toast, toastScope],
+  );
 
   const save = useMutation({
     // Single-key `fields` (N5-11): the server patches only the keys it is sent, so one
@@ -366,28 +387,42 @@ function LeadRecord({
     // two rapid edits to different fields both persist (N5-15).
     mutationFn: ({ field, value }: { field: EditableField; value: string }) =>
       apiMutate(`/api/leads/${d.refId}`, "PATCH", { fields: { [field]: value } }),
-    onMutate: ({ field, value }) => setInFlight((m) => ({ ...m, [field]: value })),
-    onSuccess: () =>
-      Promise.all([
+    onMutate: ({ field, value }) => {
+      setSaveStatus(`Saving ${FIELD_LABELS[field]}…`);
+      setInFlight((m) => ({ ...m, [field]: value }));
+    },
+    onSuccess: (_res, { field }) => {
+      setSaveStatus(`${FIELD_LABELS[field]} saved.`);
+      return Promise.all([
         // The lead detail carries the new "Details updated" timeline entry (N5-14), so it is
         // refetched here rather than left to the next open. No ["coverage"]: only a partner
         // move changes coverage, and that lives in the partner control below.
         qc.invalidateQueries({ queryKey: ["lead", d.refId] }),
         qc.invalidateQueries({ queryKey: ["leads"] }),
         qc.invalidateQueries({ queryKey: ["dashboard"] }),
-      ]),
+      ]);
+    },
     onError: (e, { field, value }) => {
+      // The toast's own live region announces the failure; a second voice saying "Saving
+      // Phone…" is left standing behind it would contradict it. Clearing to "" announces
+      // nothing of its own.
+      setSaveStatus("");
       // A 4xx carries a message the admin can act on — a dedupe collision on address/zip
       // names the clash (N5-12). A 5xx message is deliberately static (C-17), so appending
       // it would only say "it failed" twice.
       const detail = e instanceof ApiError && e.status < 500 ? ` — ${e.message}` : "";
-      toast.toast(`Couldn't save ${FIELD_LABELS[field]}${detail}`, "danger", {
-        label: "Retry",
-        onClick: () => {
-          nonce.current += 1;
-          setReopen({ field, text: value, nonce: nonce.current });
+      toast.toast(
+        `Couldn't save ${FIELD_LABELS[field]}${detail}`,
+        "danger",
+        {
+          label: "Retry",
+          onClick: () => {
+            nonce.current += 1;
+            setReopen({ field, text: value, nonce: nonce.current });
+          },
         },
-      });
+        toastScope,
+      );
     },
     onSettled: (_res, _err, { field }) =>
       setInFlight((m) => {
@@ -421,6 +456,13 @@ function LeadRecord({
 
   return (
     <div className="flex flex-col gap-5">
+      {/* A11Y-03: mounted for this record's whole life, text-only changes — the panel's own
+          region (SidePanel `statusMessage`) belongs to the record SWITCH, and one region
+          cannot carry two independent stories without them overwriting each other. */}
+      <span className="sr-only" role="status" aria-live="polite">
+        {saveStatus}
+      </span>
+
       {/* N5-06: status and partner are dedicated, always-visible controls — one click, no
           edit mode, and each writes through the endpoint that owns it. */}
       <div className="flex flex-wrap items-center gap-2.5">
@@ -445,7 +487,9 @@ function LeadRecord({
             they paint at once; the rest wait as labelled skeletons. */}
         <InlineField {...field("sellerFirst", d.seller.first)} />
         <InlineField {...field("sellerLast", d.seller.last)} />
-        {partial ? <PendingField label="Phone" /> : <InlineField {...field("phone", d.seller.phone)} />}
+        {/* DSN-02: phone and ZIP are figures, so they wear the ledger's tabular monospace —
+            the same treatment the ref, the score and every table number already carry. */}
+        {partial ? <PendingField label="Phone" /> : <InlineField {...field("phone", d.seller.phone)} numeric />}
         {partial ? <PendingField label="Email" /> : <InlineField {...field("email", d.seller.email)} />}
         {/* Q4: the property's Google search survives as the trailing icon — the address TEXT
             is now the edit target, so the two affordances no longer collide (mockup note 4). */}
@@ -472,7 +516,7 @@ function LeadRecord({
         />
         <InlineField {...field("city", d.city)} />
         <InlineField {...field("state", d.state)} mask={stateMask} />
-        <InlineField {...field("zip", d.zip)} />
+        <InlineField {...field("zip", d.zip)} numeric />
         <InlineField {...field("campaign", d.campaign)} />
         {partial ? (
           <PendingField label="Routed by" />
@@ -487,7 +531,9 @@ function LeadRecord({
             )}
           </Field>
         )}
-        <Field label="Received">{fmtDateTime(d.receivedAt)}</Field>
+        {/* DSN-02: a timestamp is a figure too — it reads beside the editable numeric fields
+            above, so it wears the same tabular monospace they do. */}
+        <Field label="Received"><span className="num">{fmtDateTime(d.receivedAt)}</span></Field>
         {d.assignment.manual && d.assignment.original && (
           <Field label="Original routing">
             <PartnerTag size="sm" name={d.assignment.original.name} color={d.assignment.original.color} refId={d.assignment.original.refId} />
@@ -644,10 +690,22 @@ function PartnerControl({ d, partners, disabled = false }: { d: LeadDetail; part
 
   const transfer = pendingSel === null ? null : transferCopy(partnerActionFor(pendingSel, d), d, partners);
 
+  // PRN-14 / WCAG 4.1.2: `renderValue` paints the trigger, but an `aria-label` REPLACES the
+  // accessible name Radix would otherwise build from the selected item — so a bare "Assigned
+  // partner" tells a screen-reader user the control exists and nothing about who owns the
+  // lead. The current owner is composed in, in the same words the visible tag carries (name +
+  // JV ref). (Teaching the Select primitive to mirror `renderValue` into the name is the
+  // general fix and a logged candidate; this is the one control that needs it today.)
+  const ownerName = d.partner
+    ? `${d.partner.name} (${d.partner.refId})`
+    : d.mlsStatus === "kept"
+      ? "Unmatched"
+      : "Unassigned";
+
   return (
     <>
       <Select
-        ariaLabel="Assigned partner"
+        ariaLabel={`Assigned partner: ${ownerName}`}
         className="w-auto"
         disabled={disabled || move.isPending}
         value={d.partner?.id ?? UNASSIGNED}

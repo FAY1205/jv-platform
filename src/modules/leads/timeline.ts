@@ -1,7 +1,7 @@
 import { and, desc, eq, sql } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import * as schema from "@/db/schema";
-import { noteWhere, taskWhere, tenantWhere, type ScopeContext } from "@/lib/scope";
+import { isPartnerStream, noteWhere, taskWhere, tenantWhere, type ScopeContext } from "@/lib/scope";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // TSK-06: the unified per-lead timeline read-model, shared by the admin lead detail
@@ -124,6 +124,16 @@ export function detailsUpdatedLabel(after: unknown): string | null {
  * what the audit trail records) under the tenant predicate, exactly as the trail is written.
  */
 export async function detailsUpdatedActivity(db: DB, scope: ScopeContext, leadRefId: string): Promise<LeadActivity[]> {
+  // REFUSE rather than widen (the `requirePartner` / `streamUsersWhere` posture): there is no
+  // partner predicate to add here, because `audit_log` has no partner column. A partner scope
+  // arriving would therefore run the TENANT predicate and hand a partner the whole tenant's
+  // edit history for the lead — including edits made while the PREVIOUS owner held it (R-22 /
+  // PRN-13). A future portal feed needs a scope builder that does not exist yet, and an owner
+  // decision; until both, this call site is a programming error, not a data question.
+  if (isPartnerStream(scope)) {
+    throw new Error("detailsUpdatedActivity is admin-stream only — audit_log carries no partner predicate.");
+  }
+
   const rows = await db
     .select({ at: schema.auditLog.createdAt, after: schema.auditLog.after, actor: schema.users.email })
     .from(schema.auditLog)

@@ -569,8 +569,19 @@ export async function getAdminLeadDetail(scope: ScopeContext, refId: string): Pr
           .where(and(tenantWhere(schema.users, scope), eq(schema.users.id, lead.manualAssignedBy)))
       : Promise.resolve([] as { email: string }[]),
     noteAndTaskActivity(db, scope, lead.id),
-    // N5-14: keyed on the REF, which is what the audit trail records as `entity_ref`.
-    detailsUpdatedActivity(db, scope, lead.refId),
+    // N5-14, keyed on the REF (what the audit trail records as `entity_ref`) — and gated on
+    // `ops.admin`, the band the audit trail sits in everywhere else.
+    //
+    // AIS-11/C-45b precedent (modules/ai/tools.ts): the human surface for audit_log content
+    // is /api/activity, which requires ops.admin — an ADMIN_LOCKED capability (ADR-0049
+    // §11.3) — while this detail route rides `leads.read`, which member AND viewer hold by
+    // default. Deriving a timeline entry from audit rows for a viewer would let the record
+    // panel serve, in summary, what the Activity screen refuses them outright.
+    //
+    // Names-only is a genuinely thinner slice than the Activity screen's, so this is the
+    // CONSERVATIVE default rather than a settled verdict: it is reversible in one line if the
+    // owner decides the whole admin stream should see who corrected a field (AUTHZ-08).
+    can(scope, "ops.admin") ? detailsUpdatedActivity(db, scope, lead.refId) : Promise.resolve([] as LeadActivity[]),
   ]);
 
   const pMap = new Map(partnerRows.map((p) => [p.id, p]));
