@@ -49,8 +49,12 @@ export function useLeadNav({
   onOpen: (refId: string) => void;
   onPageChange: (page: number) => void;
 }): LeadNav | null {
-  // The page we asked for, and which end of it to open when it arrives.
-  const [jump, setJump] = React.useState<{ page: number; edge: "first" | "last" } | null>(null);
+  // The page we asked for, which end of it to open when it arrives, and the ref the jump was
+  // launched FROM. `fromRef` is what makes the jump cancellable: the panel is non-modal, so the
+  // table stays clickable while a neighbor page is in flight, and a row click during that window
+  // is a later, more explicit instruction than the arrow press. Without it the landing jump
+  // would overwrite the user's choice with a stale neighbor.
+  const [jump, setJump] = React.useState<{ page: number; edge: "first" | "last"; fromRef: string | null } | null>(null);
 
   // Resolving the jump DURING RENDER, not in an effect: both setters here belong to the caller
   // (the leads page owns `openRef` and calls this hook), so this is the "adjust state while
@@ -66,7 +70,10 @@ export function useLeadNav({
       // so the payload's own `page` is what says the neighbor has actually landed.
       const row = jump.edge === "first" ? data.leads[0] : data.leads[data.leads.length - 1];
       setJump(null);
-      if (row) onOpen(row.refId);
+      // Only if the open record is still the one the jump was launched from. If the user
+      // clicked a different row while the page was in flight, THAT is the record they want —
+      // the neighbor is stale and is dropped (the page change itself already landed).
+      if (row && openRef === jump.fromRef) onOpen(row.refId);
     }
   }
 
@@ -82,7 +89,7 @@ export function useLeadNav({
     // Off the end of this table page but still inside the working set: advance the LIST and
     // open the adjacent row once its page lands.
     const page = data.page + dir;
-    setJump({ page, edge: dir === 1 ? "first" : "last" });
+    setJump({ page, edge: dir === 1 ? "first" : "last", fromRef: openRef });
     onPageChange(page);
   };
 
@@ -120,7 +127,9 @@ export function LeadPager({ nav }: { nav: LeadNav }) {
       <span className="grid w-3.5 place-items-center text-text-3" aria-hidden="true">
         {nav.pending && <Spinner size={12} />}
       </span>
-      {nav.pending && <span className="sr-only" role="status">Loading the next lead…</span>}
+      {/* A11Y-03: mounted for the pager's whole life, only the TEXT changes — a live region
+          that appears with its content already in it is missed by some AT. */}
+      <span className="sr-only" role="status">{nav.pending ? "Loading the next lead…" : ""}</span>
       <button
         type="button"
         className={ARROW_BUTTON_CLASS}

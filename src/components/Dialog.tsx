@@ -3,7 +3,7 @@
 import * as React from "react";
 import * as RadixDialog from "@radix-ui/react-dialog";
 import { cn } from "@/lib/cn";
-import { Button } from "./Button";
+import { DiscardGuard } from "./DiscardGuard";
 import { ScrollHintFade, useScrollHint } from "./ScrollHint";
 
 // Dialog — the Radix-backed replacement for Modal (ADR-0016, F-15). Focus trap and
@@ -89,7 +89,7 @@ export function Dialog({ open, onClose, title, children, footer, ariaLabel, size
               overlay (absolute inset-0 on Content) keeps covering the whole panel even when
               a tall form is scrolled (FRM-02a). */}
           {title ? (
-            <div className="flex shrink-0 items-center gap-3 border-b border-border-soft px-5 py-4">
+            <div className="flex shrink-0 items-center gap-3 border-b border-border-soft px-5 py-4" inert={confirming}>
               <RadixDialog.Title className="font-display text-base font-semibold text-text">{title}</RadixDialog.Title>
               <RadixDialog.Close
                 aria-label="Close"
@@ -115,36 +115,23 @@ export function Dialog({ open, onClose, title, children, footer, ariaLabel, size
           )}
           {/* min-h-0 is what lets a flex child actually shrink below its content height —
               without it the body would push the footer past the panel's max-h. */}
-          <div className="relative flex min-h-0 flex-1 flex-col">
+          <div className="relative flex min-h-0 flex-1 flex-col" inert={confirming}>
             <div ref={bodyRef} className="min-h-0 flex-1 overflow-auto">
               <div className={bare ? undefined : "p-5"}>{children}</div>
             </div>
             {moreBelow && <ScrollHintFade edge="bottom" />}
           </div>
           {footer && (
-            <div className="flex shrink-0 items-center justify-end gap-2 border-t border-border-soft px-5 py-4">{footer}</div>
+            <div className="flex shrink-0 items-center justify-end gap-2 border-t border-border-soft px-5 py-4" inert={confirming}>{footer}</div>
           )}
+          {/* Covers the panel (z above the title-bar ✕) so the only paths are Keep/Discard.
+              Shared with SidePanel — see DiscardGuard for the focus-containment contract. */}
           {confirming && (
-            // Covers the panel (z above the title-bar ✕) so the only paths are Keep/Discard.
-            <div
-              role="alertdialog"
-              aria-label="Discard unsaved changes?"
-              className="absolute inset-0 z-10 grid place-items-center rounded-2xl p-5"
-              style={{ background: "var(--scrim)" }}
-            >
-              <div className="w-full max-w-xs rounded-xl border border-border bg-surface p-4 text-center shadow-lg">
-                <p className="font-display text-base font-semibold text-text">Discard unsaved changes?</p>
-                <p className="mt-1 text-sm text-text-2">Your edits haven&apos;t been saved. This can&apos;t be undone.</p>
-                <div className="mt-4 flex justify-center gap-2">
-                  <Button variant="secondary" onClick={() => setConfirming(false)} autoFocus>
-                    Keep editing
-                  </Button>
-                  <Button variant="danger" onClick={() => { setConfirming(false); onClose(); }}>
-                    Discard
-                  </Button>
-                </div>
-              </div>
-            </div>
+            <DiscardGuard
+              className="rounded-2xl"
+              onKeep={() => setConfirming(false)}
+              onDiscard={() => { setConfirming(false); onClose(); }}
+            />
           )}
         </RadixDialog.Content>
       </RadixDialog.Portal>

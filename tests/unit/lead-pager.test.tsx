@@ -39,6 +39,9 @@ function Harness({ start, data, isError = false }: { start: string | null; data?
     <div>
       <span data-testid="open">{openRef ?? "none"}</span>
       <span data-testid="requested">{requested === null ? "-" : String(requested)}</span>
+      {/* Stands in for the leads table behind the non-modal panel: still there, still
+          clickable, while a neighbour page is in flight. */}
+      <button type="button" onClick={() => setOpenRef("LD-E")}>Row LD-E</button>
       {nav ? <LeadPager nav={nav} /> : <span data-testid="no-pager" />}
     </div>
   );
@@ -114,6 +117,22 @@ describe("N5-04: lead pager position + navigation", () => {
     rerender(<Harness start="LD-C" data={pageOf(1)} />);
     expect(openRef()).toBe("LD-B");
     expect(figure()).toContain("2 of 5");
+  });
+
+  it("N5-04: a manual row click during a pending page jump wins — the stale neighbor is dropped when data lands", async () => {
+    const user = userEvent.setup();
+    const { rerender } = render(<Harness start="LD-B" data={pageOf(1)} />);
+    // Arrow off the end of page 1: page 2 is requested, LD-C is the pending target.
+    await user.click(nextBtn());
+    expect(requested()).toBe("2");
+
+    // The table is still clickable behind the non-modal panel — the user picks a different lead.
+    await user.click(screen.getByRole("button", { name: "Row LD-E" }));
+    expect(openRef()).toBe("LD-E");
+
+    // Page 2 now lands. The jump's target (LD-C) is stale: the later, explicit choice stands.
+    rerender(<Harness start="LD-B" data={pageOf(2)} />);
+    expect(openRef()).toBe("LD-E");
   });
 
   it("N5-04: a failed neighbour fetch releases the arrows instead of holding them forever", async () => {

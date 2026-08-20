@@ -26,10 +26,14 @@ function Harness({
   confirmClose = false,
   onOutside = () => {},
   onClosed = () => {},
+  resetKey,
+  statusMessage,
 }: {
   confirmClose?: boolean;
   onOutside?: () => void;
   onClosed?: () => void;
+  resetKey?: string;
+  statusMessage?: string;
 }) {
   const [open, setOpen] = React.useState(false);
   return (
@@ -47,7 +51,9 @@ function Harness({
         open={open}
         confirmClose={confirmClose}
         onClose={() => { setOpen(false); onClosed(); }}
-        title="LD-26-00001"
+        title={resetKey ?? "LD-26-00001"}
+        resetKey={resetKey}
+        statusMessage={statusMessage}
       >
         <input aria-label="Note" defaultValue="draft" />
       </SidePanel>
@@ -126,5 +132,105 @@ describe("N5-01: SidePanel (non-modal)", () => {
     await user.click(screen.getByRole("button", { name: "Close" }));
     await user.click(screen.getByRole("button", { name: /^discard$/i }));
     expect(onClosed).toHaveBeenCalledOnce();
+  });
+
+  it("N5-02: a row-click switch while the discard-confirm overlay is showing drops the overlay instead of closing the panel", async () => {
+    const user = userEvent.setup();
+    const onClosed = vi.fn();
+    const { rerender } = render(<Harness confirmClose resetKey="LD-26-00001" onClosed={onClosed} />);
+    await user.click(screen.getByRole("button", { name: "Open lead" }));
+
+    // Dirty record, dismiss gesture → the guard is up.
+    await user.click(screen.getByRole("button", { name: "Close" }));
+    expect(screen.getByRole("alertdialog", { name: /discard unsaved changes/i })).toBeInTheDocument();
+
+    // What a row click behind the non-modal panel looks like: same panel, new record.
+    rerender(<Harness confirmClose resetKey="LD-26-00002" onClosed={onClosed} />);
+
+    // The prompt belonged to the PREVIOUS record — it must not survive to close this one.
+    expect(screen.queryByRole("alertdialog")).toBeNull();
+    expect(screen.getByRole("dialog", { name: "LD-26-00002" })).toBeInTheDocument();
+    expect(onClosed).not.toHaveBeenCalled();
+  });
+
+  it("A11Y-03: the panel's live region is mounted from the start and only its text changes", async () => {
+    const user = userEvent.setup();
+    const { rerender } = render(<Harness statusMessage="" />);
+    await user.click(screen.getByRole("button", { name: "Open lead" }));
+
+    const region = screen.getByRole("status");
+    expect(region).toHaveTextContent("");
+    expect(region).toHaveAttribute("aria-live", "polite");
+
+    rerender(<Harness statusMessage="Now showing lead LD-26-00002" />);
+    // The SAME node carries the new text — never a freshly mounted region with content in it.
+    expect(screen.getByRole("status")).toBe(region);
+    expect(region).toHaveTextContent("Now showing lead LD-26-00002");
+  });
+
+  it("N5-30: the discard guard contains Tab — the non-modal panel has no outer trap to fall back on", async () => {
+    const user = userEvent.setup();
+    render(<Harness confirmClose />);
+    await user.click(screen.getByRole("button", { name: "Open lead" }));
+    await user.click(screen.getByRole("button", { name: "Close" }));
+
+    const keep = screen.getByRole("button", { name: /keep editing/i });
+    const discard = screen.getByRole("button", { name: /^discard$/i });
+    await waitFor(() => expect(document.activeElement).toBe(keep));
+
+    await user.tab();
+    expect(document.activeElement).toBe(discard);
+    // …and off the last control it wraps back rather than escaping into the covered fields.
+    await user.tab();
+    expect(document.activeElement).toBe(keep);
+  });
+});
+
+describe("N5-01: modality follows the 768px sheet breakpoint", () => {
+  /** Replaces the setup-file default (a 1280px desktop) for one test. */
+  function stubViewport(width: number) {
+    const prior = window.matchMedia;
+    Object.defineProperty(window, "matchMedia", {
+      writable: true,
+      configurable: true,
+      value: (query: string) => {
+        const min = /\(min-width:\s*([\d.]+)px\)/.exec(query);
+        const max = /\(max-width:\s*([\d.]+)px\)/.exec(query);
+        return {
+          matches: min ? width >= Number(min[1]) : max ? width <= Number(max[1]) : false,
+          media: query, onchange: null,
+          addListener() {}, removeListener() {}, addEventListener() {}, removeEventListener() {},
+          dispatchEvent: () => false,
+        };
+      },
+    });
+    return () => Object.defineProperty(window, "matchMedia", { writable: true, configurable: true, value: prior });
+  }
+
+  it("N5-01: at ≥768px the panel is NON-modal — the page behind stays in the a11y tree", async () => {
+    const user = userEvent.setup();
+    const restore = stubViewport(1280);
+    try {
+      render(<Harness />);
+      await user.click(screen.getByRole("button", { name: "Open lead" }));
+      expect(screen.getByRole("dialog", { name: "LD-26-00001" })).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Open lead" })).not.toBeNull();
+    } finally {
+      restore();
+    }
+  });
+
+  it("N5-01: below 768px the full-bleed sheet IS modal — the covered page leaves the a11y tree", async () => {
+    const user = userEvent.setup();
+    const restore = stubViewport(375);
+    try {
+      render(<Harness />);
+      await user.click(screen.getByRole("button", { name: "Open lead" }));
+      expect(screen.getByRole("dialog", { name: "LD-26-00001" })).toBeInTheDocument();
+      // A page that is completely obscured must not stay reachable behind the sheet.
+      await waitFor(() => expect(screen.queryByRole("button", { name: "Open lead" })).toBeNull());
+    } finally {
+      restore();
+    }
   });
 });

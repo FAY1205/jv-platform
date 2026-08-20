@@ -22,15 +22,22 @@ export interface PaginationProps {
 
 /**
  * The square arrow-button recipe: 32px (comfortably past the WCAG 2.5.8 24px floor on every
- * pointer), hairline border, brand-ink focus ring, and a real `disabled` treatment for the
- * data boundaries at the ends of a range. Exported because the N5-04 lead pager is the second
- * user (FRONTEND_STANDARDS §2 — the second copy becomes the shared recipe); both consumers
- * render a plain `<button>`, so this is a class string rather than a component.
+ * pointer), hairline border, brand-ink focus ring, the Button press feedback, and a real
+ * `disabled` treatment for the data boundaries at the ends of a range. Exported because the
+ * N5-04 lead pager is the second user (FRONTEND_STANDARDS §2 — the second copy becomes the
+ * shared recipe); both consumers render a plain `<button>`, so this is a class string rather
+ * than a component.
+ *
+ * C-52 (WCAG 2.5.8): 32px clears the 24px floor everywhere, but a thumb wants ~44px, so the
+ * coarse-pointer reach is an invisible pseudo-element — 32 + 2×6 = 44px — exactly the Dialog ✕
+ * recipe. Nothing about the layout moves: the pseudo-element is absolutely positioned, and both
+ * hosts space their arrows with a wider figure between them.
  */
 export const ARROW_BUTTON_CLASS = cn(
-  "grid h-8 w-8 place-items-center rounded-md border border-border bg-surface text-text-2 outline-none transition-colors",
+  "relative grid h-8 w-8 place-items-center rounded-md border border-border bg-surface text-text-2 outline-none transition-colors",
   "hover:bg-surface-2 focus-visible:ring-1 focus-visible:ring-brand-ink",
-  "disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-surface",
+  "active:scale-[.98] disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-surface disabled:active:scale-100",
+  "before:absolute before:inset-0 before:content-[''] pointer-coarse:before:-inset-1.5",
 );
 
 export function Pagination({ page, pageSize, total, onPageChange, onPageSizeChange, className }: PaginationProps) {

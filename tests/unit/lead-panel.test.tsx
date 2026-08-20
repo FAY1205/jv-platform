@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import * as React from "react";
 import { beforeAll, describe, expect, it, vi } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
@@ -136,6 +136,42 @@ describe("N5-04: ↑/↓ move between leads", () => {
     await user.keyboard("{ArrowDown}{ArrowUp}");
     expect(nav.next).not.toHaveBeenCalled();
     expect(nav.prev).not.toHaveBeenCalled();
+  });
+
+  it("A11Y-04/N5-04: an open Radix listbox owns the arrows — ArrowDown does not switch records", async () => {
+    const user = userEvent.setup();
+    const nav = renderPanel()!;
+    // NOT edit mode — the ↑/↓ binding is live, which is what makes this test non-vacuous.
+    await user.click(await screen.findByRole("button", { name: /add a task/i }));
+    // The composer's Assignee field is a Radix Select; opening it puts a listbox over the panel.
+    await user.click(await screen.findByRole("combobox", { name: /assignee/i }));
+    expect(await screen.findByRole("listbox")).toBeInTheDocument();
+
+    await user.keyboard("{ArrowDown}");
+    expect(nav.next).not.toHaveBeenCalled();
+    expect(nav.prev).not.toHaveBeenCalled();
+  });
+
+  it("A11Y-04: a popup surface that does NOT preventDefault still stands the arrows down", async () => {
+    const nav = renderPanel()!;
+    await screen.findByText("Robert Thompson");
+
+    // The test above passes on Radix's own preventDefault, so it cannot prove the handler
+    // would survive a layer that forgets to consume the key. This one removes that crutch:
+    // an open listbox whose event reaches the document untouched, and whose target is a
+    // plain div (so the input/textarea/select check does not catch it either).
+    const listbox = document.createElement("div");
+    listbox.setAttribute("role", "listbox");
+    const option = document.createElement("div");
+    option.setAttribute("role", "option");
+    listbox.appendChild(option);
+    document.body.appendChild(listbox);
+    try {
+      fireEvent.keyDown(option, { key: "ArrowDown", bubbles: true });
+      expect(nav.next).not.toHaveBeenCalled();
+    } finally {
+      listbox.remove();
+    }
   });
 
   it("N5-04: arrows are off entirely while the edit form is open", async () => {

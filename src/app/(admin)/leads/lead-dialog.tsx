@@ -161,11 +161,20 @@ export function LeadDialog({ refId, onClose, nav = null }: { refId: string; onCl
   // the ref change — EditForm seeds its baseline from `d` on mount, and leaving it open across a
   // switch would show one lead's draft over another's record. (Adjusting state during render,
   // the `seeded` idiom used across this page.)
+  //
+  // N5-30 / A11Y-03: the switch also has to be ANNOUNCED. It deliberately does not move focus
+  // (that is what keeps the pager and row-clicking usable), so without this a screen-reader
+  // user presses ↓ and hears nothing at all. It starts EMPTY and is only filled on a switch:
+  // the panel's live region is mounted for the panel's whole life, and a region that mounts
+  // with its text already in it announces nothing — on the first open the dialog role and its
+  // title already say which lead this is.
   const [prevRef, setPrevRef] = React.useState(refId);
+  const [announcement, setAnnouncement] = React.useState("");
   if (prevRef !== refId) {
     setPrevRef(refId);
     if (editing) setEditing(false);
     if (editDirty) setEditDirty(false);
+    setAnnouncement(`Now showing lead ${refId}`);
   }
 
   const detailQ = useQuery({
@@ -200,6 +209,10 @@ export function LeadDialog({ refId, onClose, nav = null }: { refId: string; onCl
       if (e.defaultPrevented || e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
       const t = e.target as HTMLElement | null;
       if (t && (t.isContentEditable || /^(input|textarea|select)$/i.test(t.tagName))) return;
+      // A11Y-04, belt-and-braces: an open Radix Select/DropdownMenu owns the arrow keys and
+      // preventDefaults them, so the check above already holds — but that is one library's
+      // behavior standing between a listbox and a record switch. Name the surfaces too.
+      if (t?.closest?.('[role="listbox"],[role="menu"],[data-radix-popper-content-wrapper]')) return;
       const n = navRef.current;
       if (!n || n.pending) return;
       if (e.key === "ArrowUp" ? n.canPrev : n.canNext) {
@@ -217,6 +230,10 @@ export function LeadDialog({ refId, onClose, nav = null }: { refId: string; onCl
       onClose={onClose}
       confirmClose={editing && editDirty}
       ariaLabel={`Lead ${refId}`}
+      // N5-02: the panel switches records in place, so its per-open state (the discard prompt,
+      // the captured opener) has to reset on the REF, not on `open` — which never flips here.
+      resetKey={refId}
+      statusMessage={announcement}
       // N5-05: no pager at all when the open ref isn't in the current working set — a
       // deep-linked lead the filters exclude would otherwise be given a lying position.
       leading={nav ? <LeadPager nav={nav} /> : null}
