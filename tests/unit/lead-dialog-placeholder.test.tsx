@@ -106,20 +106,21 @@ describe("C-41b: the admin lead dialog renders from the list cache while the det
     renderDialog({ seedList: true });
 
     // Straight from the cached row — no detail round trip has completed.
-    expect(await screen.findByText("Robert Thompson")).toBeTruthy();
+    expect(await screen.findByText("Robert")).toBeTruthy();
+    expect(screen.getByText("Thompson")).toBeTruthy();
     expect(screen.getByText(/8193 Maple St/)).toBeTruthy();
     expect(screen.getByText("Direct mail")).toBeTruthy();
     // Detail-only — skeletons, not stale-looking blanks or a wrong "Not provided".
     expect(screen.queryByText("(859) 938-9128")).toBeNull();
     expect(screen.queryByText("Relocation / moving")).toBeNull();
-    // Editing is held: EditForm seeds its baseline from `d`, and a partial baseline would
-    // save blanks over real values.
-    expect(screen.getByRole("button", { name: "Edit" })).toBeDisabled();
+    // N5-10/C-41b: inline editing is HELD on the partial — a draft seeded from a
+    // placeholder would write the placeholder back over the real value.
+    expect(screen.getByRole("button", { name: /^Source:/i })).toBeDisabled();
 
     releaseDetail();
     expect(await screen.findByText("Relocation / moving")).toBeTruthy();
     expect(screen.getByText("(859) 938-9128")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Edit" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: /^Source:/i })).toBeEnabled();
   });
 
   it("C-41b: with no list cached (a ?open= deep link) it falls back to the full skeleton", async () => {
@@ -127,8 +128,8 @@ describe("C-41b: the admin lead dialog renders from the list cache while the det
     renderDialog({ seedList: false });
 
     // Nothing to seed from: no row identity on screen while the detail is in flight.
-    expect(screen.queryByText("Robert Thompson")).toBeNull();
+    expect(screen.queryByText("Thompson")).toBeNull();
     releaseDetail();
-    expect(await screen.findByText("Robert Thompson")).toBeTruthy();
+    expect(await screen.findByText("Thompson")).toBeTruthy();
   });
 });

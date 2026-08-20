@@ -4,20 +4,46 @@ import * as React from "react";
 import { cn } from "@/lib/cn";
 
 type ToastTone = "default" | "success" | "danger";
+
+/** N5-11: an optional single recovery action inside the toast ("Couldn't save Phone — Retry").
+ *  One action only — a toast is a notification, not a dialog. */
+export interface ToastAction {
+  label: string;
+  onClick: () => void;
+}
+
 interface ToastItem {
   id: number;
   message: string;
   tone: ToastTone;
+  action?: ToastAction;
+  scope?: string;
 }
 
 interface ToastApi {
-  toast: (message: string, tone?: ToastTone) => void;
+  /**
+   * `scope` tags the toast with the thing that raised it, so that thing can take it away
+   * again — see `dismissScope`. Optional and unused by most callers: a plain message outlives
+   * its raiser perfectly well.
+   */
+  toast: (message: string, tone?: ToastTone, action?: ToastAction, scope?: string) => void;
+  /**
+   * Drop every toast raised under `scope`. For an ACTIONABLE toast whose action only means
+   * something while its raiser is on screen: a "Retry" that reopens a field on lead X is a
+   * live-looking button wired to a dead setState once that record is gone (React 19 makes
+   * such a call a silent no-op), and TOAST_ACTION_DURATION_MS leaves it there for 9 seconds.
+   * The raiser calls this from its unmount cleanup, so the toast leaves with it.
+   */
+  dismissScope: (scope: string) => void;
 }
 
 const ToastContext = React.createContext<ToastApi | null>(null);
 
 // Long enough to read a short line; the countdown pauses on hover/focus (WCAG 2.2.1).
 const TOAST_DURATION_MS = 2600;
+/** An actionable toast has to outlive the reading of it — the user must still be able to
+ *  reach the control after deciding to use it. Hover/focus still pause the countdown. */
+const TOAST_ACTION_DURATION_MS = 9000;
 
 /** useToast — surfaces the toast() function (UXQ-03: optimistic UI + toast on failure). */
 export function useToast(): ToastApi {
@@ -43,15 +69,18 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
   const [focused, setFocused] = React.useState(false);
   const paused = hovered || focused;
 
-  const toast = React.useCallback((message: string, tone: ToastTone = "default") => {
+  const toast = React.useCallback((message: string, tone: ToastTone = "default", action?: ToastAction, scope?: string) => {
     const id = nextId.current++;
-    setItems((prev) => [...prev, { id, message, tone }]);
+    setItems((prev) => [...prev, { id, message, tone, action, scope }]);
   }, []);
   const dismiss = React.useCallback((id: number) => {
     setItems((prev) => prev.filter((t) => t.id !== id));
   }, []);
+  const dismissScope = React.useCallback((scope: string) => {
+    setItems((prev) => (prev.some((t) => t.scope === scope) ? prev.filter((t) => t.scope !== scope) : prev));
+  }, []);
 
-  const api = React.useMemo(() => ({ toast }), [toast]);
+  const api = React.useMemo(() => ({ toast, dismissScope }), [toast, dismissScope]);
 
   return (
     <ToastContext.Provider value={api}>
@@ -79,7 +108,10 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
           toast is announced without the dismiss control's label being read out alongside it. */}
       <div className="sr-only" role="status" aria-live="polite">
         {items.map((t) => (
-          <div key={t.id}>{t.message}</div>
+          // The action's LABEL rides along (never the ✕'s): a toast that offers a recovery is
+          // only useful if the listener learns the recovery exists — "Couldn't save Phone"
+          // alone announces a dead end. The label is short by contract (one word, "Retry").
+          <div key={t.id}>{t.action ? `${t.message}. ${t.action.label}` : t.message}</div>
         ))}
       </div>
     </ToastContext.Provider>
@@ -89,11 +121,12 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
 /** One toast + its own auto-dismiss timer. The timer is cleared while `paused` and a fresh
  *  full-duration countdown starts on resume — the user always gets ample read time. */
 function ToastRow({ item, paused, onDismiss }: { item: ToastItem; paused: boolean; onDismiss: (id: number) => void }) {
+  const duration = item.action ? TOAST_ACTION_DURATION_MS : TOAST_DURATION_MS;
   React.useEffect(() => {
     if (paused) return;
-    const t = setTimeout(() => onDismiss(item.id), TOAST_DURATION_MS);
+    const t = setTimeout(() => onDismiss(item.id), duration);
     return () => clearTimeout(t);
-  }, [paused, item.id, onDismiss]);
+  }, [paused, duration, item.id, onDismiss]);
 
   return (
     <div
@@ -103,6 +136,25 @@ function ToastRow({ item, paused, onDismiss }: { item: ToastItem; paused: boolea
       )}
     >
       <span>{item.message}</span>
+      {item.action && (
+        <button
+          type="button"
+          onClick={() => {
+            // The action dismisses its own toast: the recovery it offers is now on screen
+            // (a reopened field), and a stale "retry" hanging over it invites a double-send.
+            onDismiss(item.id);
+            item.action?.onClick();
+          }}
+          // C-52 (WCAG 2.5.8) reach, the SidePanel ✕ recipe: an invisible pseudo-element
+          // rather than padding, which would push the pill's own geometry around. Held to
+          // -inset-2 on coarse pointers so the reach stops AT the `gap-2` and never overlaps
+          // the ✕ beside it — a mis-tap that dismisses the recovery would be worse than a
+          // small target.
+          className="relative shrink-0 rounded-full px-2.5 py-1 text-sm font-semibold text-current underline decoration-current/50 underline-offset-2 outline-none transition-colors hover:decoration-current focus-visible:ring-1 focus-visible:ring-current active:scale-95 before:absolute before:-inset-1 before:content-[''] pointer-coarse:before:-inset-2"
+        >
+          {item.action.label}
+        </button>
+      )}
       <button
         type="button"
         aria-label="Dismiss notification"

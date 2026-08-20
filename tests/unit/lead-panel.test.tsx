@@ -76,15 +76,19 @@ describe("N5-02/N5-03: the lead record in the side panel", () => {
     expect(document.querySelector(".anim-scrim")).toBeNull();
   });
 
-  it("N5-03: the ViewMode content ports intact — fields, score, the Google property link", async () => {
+  it("N5-03: the record content ports intact — fields, score, the Google property link", async () => {
     renderPanel();
-    expect(await screen.findByText("Robert Thompson")).toBeInTheDocument();
+    // N5-12: the seller is two editable fields now (sellerFirst/sellerLast), not one string.
+    expect(await screen.findByText("Robert")).toBeInTheDocument();
+    expect(screen.getByText("Thompson")).toBeInTheDocument();
     expect(screen.getByText("(859) 938-9128")).toBeInTheDocument();
     expect(screen.getByText("Relocation / moving")).toBeInTheDocument();
     expect(screen.getByText("Lead score")).toBeInTheDocument();
-    const link = screen.getByRole("link", { name: /8193 Maple St/ });
+    // Q4: the Google search survives as the address field's trailing affordance (N5-10).
+    const link = screen.getByRole("link", { name: /search this property on google/i });
     expect(link).toHaveAttribute("href", expect.stringContaining("google.com/search"));
-    expect(screen.getByRole("button", { name: "Edit" })).toBeEnabled();
+    // N5-13: there is no whole-view Edit toggle any more — every field edits where it sits.
+    expect(screen.queryByRole("button", { name: /^edit$/i })).toBeNull();
   });
 
   it("N5-04: the pager renders in the panel header when the lead is in the working set", async () => {
@@ -94,7 +98,7 @@ describe("N5-02/N5-03: the lead record in the side panel", () => {
 
   it("N5-05: no nav means no pager — a deep link outside the filters gets no lying position", async () => {
     renderPanel({ nav: null });
-    await screen.findByText("Robert Thompson");
+    await screen.findByText("Thompson");
     expect(screen.queryByRole("group", { name: "Lead navigation" })).toBeNull();
   });
 });
@@ -103,7 +107,7 @@ describe("N5-04: ↑/↓ move between leads", () => {
   it("N5-04: ↑/↓ step to the previous/next lead", async () => {
     const user = userEvent.setup();
     const nav = renderPanel()!;
-    await screen.findByText("Robert Thompson");
+    await screen.findByText("Thompson");
 
     await user.keyboard("{ArrowDown}");
     expect(nav.next).toHaveBeenCalledOnce();
@@ -114,7 +118,7 @@ describe("N5-04: ↑/↓ move between leads", () => {
   it("N5-04: an end of the list does not fire — the arrow is a real boundary", async () => {
     const user = userEvent.setup();
     const nav = renderPanel({ nav: navStub({ canNext: false }) })!;
-    await screen.findByText("Robert Thompson");
+    await screen.findByText("Thompson");
     await user.keyboard("{ArrowDown}");
     expect(nav.next).not.toHaveBeenCalled();
   });
@@ -122,7 +126,7 @@ describe("N5-04: ↑/↓ move between leads", () => {
   it("N5-04: a page jump in flight does not fire again", async () => {
     const user = userEvent.setup();
     const nav = renderPanel({ nav: navStub({ pending: true }) })!;
-    await screen.findByText("Robert Thompson");
+    await screen.findByText("Thompson");
     await user.keyboard("{ArrowDown}");
     expect(nav.next).not.toHaveBeenCalled();
   });
@@ -154,7 +158,7 @@ describe("N5-04: ↑/↓ move between leads", () => {
 
   it("A11Y-04: a popup surface that does NOT preventDefault still stands the arrows down", async () => {
     const nav = renderPanel()!;
-    await screen.findByText("Robert Thompson");
+    await screen.findByText("Thompson");
 
     // The test above passes on Radix's own preventDefault, so it cannot prove the handler
     // would survive a layer that forgets to consume the key. This one removes that crutch:
@@ -174,17 +178,21 @@ describe("N5-04: ↑/↓ move between leads", () => {
     }
   });
 
-  it("N5-04: arrows are off entirely while the edit form is open", async () => {
+  it("N5-04/N5-30: arrows are off entirely while an inline field is open", async () => {
     const user = userEvent.setup();
     const nav = renderPanel()!;
-    await user.click(await screen.findByRole("button", { name: "Edit" }));
-    await screen.findByLabelText("Seller first name");
+    await user.click(await screen.findByRole("button", { name: /^Phone:/i }));
+    const input = await screen.findByRole("textbox", { name: "Phone" });
 
-    // Focus something that is not a text control, then press the keys.
-    await user.click(screen.getByRole("button", { name: "Cancel" }).parentElement!);
     await user.keyboard("{ArrowDown}{ArrowUp}");
     expect(nav.next).not.toHaveBeenCalled();
     expect(nav.prev).not.toHaveBeenCalled();
+
+    // Not the input/textarea exclusion doing the work: the handler is torn down entirely
+    // while a field is open, so a press landing anywhere else is inert too.
+    fireEvent.keyDown(document.body, { key: "ArrowDown", bubbles: true });
+    expect(nav.next).not.toHaveBeenCalled();
+    expect(input).toBeInTheDocument();
   });
 });
 
@@ -201,16 +209,16 @@ describe("N5-02: switching records in place", () => {
     );
     const { rerender } = render(ui("LD-26-00929"));
 
-    await user.click(await screen.findByRole("button", { name: "Edit" }));
-    expect(await screen.findByLabelText("Seller first name")).toBeInTheDocument();
+    await user.click(await screen.findByRole("button", { name: /^Phone:/i }));
+    expect(await screen.findByRole("textbox", { name: "Phone" })).toBeInTheDocument();
     const panel = screen.getByRole("dialog");
 
     // What a row click behind the open panel looks like to this component.
     rerender(ui("LD-26-00930"));
     // Same panel element — no close/reopen flicker.
     expect(screen.getByRole("dialog")).toBe(panel);
-    // …and the previous record's edit form is gone rather than showing over the new lead.
-    await waitFor(() => expect(screen.queryByLabelText("Seller first name")).toBeNull());
+    // …and the previous record's open field is gone rather than editing over the new lead.
+    await waitFor(() => expect(screen.queryByRole("textbox", { name: "Phone" })).toBeNull());
     expect(screen.getByText("LD-26-00930")).toBeInTheDocument();
   });
 });

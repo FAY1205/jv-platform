@@ -2,23 +2,20 @@
 
 import * as React from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { apiGet } from "@/lib/api";
-import { csrfHeaders } from "@/lib/csrf-client";
-import { useDirty } from "@/lib/use-dirty";
+import { ApiError, apiGet, apiMutate } from "@/lib/api";
 import { fmtDateTime } from "@/lib/dates";
 import {
   Dialog,
   SidePanel,
   Button,
   Badge,
-  Input,
-  Textarea,
+  InlineField,
   Select,
+  StatusSelect,
   PartnerTag,
   NotesPanel,
   TasksPanel,
   Timeline,
-  ClampedText,
   Skeleton,
   QueryErrorState,
   useToast,
@@ -34,16 +31,22 @@ import { offersUnassign } from "@/lib/unassign";
 import { adminLeadPlaceholder } from "./lead-placeholder";
 import { LeadPager, type LeadNav } from "./lead-pager";
 
-// ADM: the lead record — opened from the global Leads table (no page navigation).
-// Read-only by default; the Edit button unlocks every field (owner decision). The
+// ADM: the lead record — opened from the global Leads table (no page navigation). The
 // activity timeline + admin notes live here too. Data shapes mirror the server
 // (getAdminLeadDetail) — re-declared client-side per the leads-view convention.
 //
-// N5-02: the shell is now the non-modal SidePanel, not the centered Dialog — the table stays
+// N5-02: the shell is the non-modal SidePanel, not the centered Dialog — the table stays
 // visible and clickable behind it and a row click switches the record IN PLACE (this component
-// stays mounted; only `refId` changes). The file/export keep their names: N5 PR B retires the
-// whole-view EditForm below in favor of inline per-field editing, and renaming twice would
+// stays mounted; only `refId` changes). The file/export keep their names: renaming them would
 // churn every call site for nothing.
+//
+// N5-10..15: editing is INLINE and per field. There is no Edit toggle, no whole-record form,
+// and therefore no draft that can outlive the field it belongs to — which is why the R-54
+// dirty/discard plumbing that used to guard a dismiss is gone with it. Each field commits on
+// Enter/blur, reverts on Esc, and rolls back with a retry toast when the server refuses.
+// Status and partner are NOT inline fields: they are dedicated controls in the record's
+// control row (N5-06), because a status change writes to a different endpoint and a partner
+// change moves ownership and must be confirmed (ASN-03/FRM-03).
 
 interface DetailPartner {
   id: string;
@@ -147,20 +150,13 @@ function transferCopy(action: PartnerAction, d: LeadDetail, partners: Partner[])
 
 export function LeadDialog({ refId, onClose, nav = null }: { refId: string; onClose: () => void; /** N5-04: prev/next over the list's working set, or null when the open ref isn't in it. */ nav?: LeadNav | null }) {
   const qc = useQueryClient();
-  const toast = useToast();
-  const [editing, setEditing] = React.useState(false);
-  // R-54 (FRM-02a): while editing, EditForm reports whether its fields are dirty so a dismiss
-  // gesture (Esc/✕) on unsaved edits asks before discarding. Reset when leaving edit mode.
-  const [editDirty, setEditDirty] = React.useState(false);
-  const leaveEdit = () => {
-    setEditing(false);
-    setEditDirty(false);
-  };
+  // N5-13/N5-30: which field is open for editing, or null. Two jobs: the document-level ↑/↓
+  // handler stands down while a field is open (the same gate the old `editing` flag held), and
+  // the panel hands that field the first Esc before closing itself.
+  const [editingField, setEditingField] = React.useState<string | null>(null);
 
-  // N5-02: the panel now SWITCHES records without unmounting, so edit state has to be reset on
-  // the ref change — EditForm seeds its baseline from `d` on mount, and leaving it open across a
-  // switch would show one lead's draft over another's record. (Adjusting state during render,
-  // the `seeded` idiom used across this page.)
+  // N5-02: the panel SWITCHES records without unmounting, so per-record state has to be reset
+  // on the ref change. (Adjusting state during render, the `seeded` idiom used across this page.)
   //
   // N5-30 / A11Y-03: the switch also has to be ANNOUNCED. It deliberately does not move focus
   // (that is what keeps the pager and row-clicking usable), so without this a screen-reader
@@ -172,8 +168,7 @@ export function LeadDialog({ refId, onClose, nav = null }: { refId: string; onCl
   const [announcement, setAnnouncement] = React.useState("");
   if (prevRef !== refId) {
     setPrevRef(refId);
-    if (editing) setEditing(false);
-    if (editDirty) setEditDirty(false);
+    if (editingField) setEditingField(null);
     setAnnouncement(`Now showing lead ${refId}`);
   }
 
@@ -191,7 +186,8 @@ export function LeadDialog({ refId, onClose, nav = null }: { refId: string; onCl
   });
   const d = detailQ.data;
   // True while `d` is the row-derived partial: the sections it cannot supply stay skeletons
-  // and editing is held (an edit form must never seed from a partial record).
+  // and editing is held (a field must never seed its draft from a partial record — committing
+  // it would write the placeholder over the real value).
   const partial = detailQ.isPlaceholderData;
 
   // N5-04: ↑/↓ move to the previous/next lead. The binding lives HERE, not on the pager, for
@@ -203,7 +199,7 @@ export function LeadDialog({ refId, onClose, nav = null }: { refId: string; onCl
   const navRef = React.useRef(nav);
   React.useEffect(() => { navRef.current = nav; });
   React.useEffect(() => {
-    if (editing) return;
+    if (editingField) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "ArrowUp" && e.key !== "ArrowDown") return;
       if (e.defaultPrevented || e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
@@ -222,13 +218,16 @@ export function LeadDialog({ refId, onClose, nav = null }: { refId: string; onCl
     };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, [editing]);
+  }, [editingField]);
 
   return (
     <SidePanel
       open
       onClose={onClose}
-      confirmClose={editing && editDirty}
+      // N5-13: nothing here can be dirty any more — a field commits or reverts on its way
+      // out, so there is no unsaved state for a discard prompt to guard. (SidePanel keeps
+      // `confirmClose` as primitive API; the Dialog forms elsewhere still use it.)
+      escapeHeld={editingField !== null}
       ariaLabel={`Lead ${refId}`}
       // N5-02: the panel switches records in place, so its per-open state (the discard prompt,
       // the captured opener) has to reset on the REF, not on `open` — which never flips here.
@@ -256,29 +255,20 @@ export function LeadDialog({ refId, onClose, nav = null }: { refId: string; onCl
         </div>
       ) : detailQ.error || !d ? (
         <QueryErrorState title="Couldn't load lead" error={detailQ.error} description={(detailQ.error as Error)?.message ?? "Not found."} onRetry={() => detailQ.refetch()} />
-      ) : editing ? (
-        <EditForm
-          // Belt-and-braces with the ref reset above: the form's baseline is seeded on mount,
-          // so it must never outlive the record it was seeded from.
+      ) : (
+        <LeadRecord
+          // N5-02: EVERY per-record draft hangs off this key. A row click switches the record
+          // without the panel unmounting — and with C-41b's placeholder resolving the new ref
+          // from the list cache, the body does not unmount on its own either. Unkeyed, the
+          // NotesPanel composer's half-typed note, its open task/note edit form, an open
+          // InlineField's draft and the in-flight save map would all follow the switch onto
+          // the NEXT lead. Re-keying is the whole fix; nothing here re-seeds on a prop change.
           key={refId}
           d={d}
+          partial={partial}
           partners={roster.data?.partners ?? []}
-          onDirtyChange={setEditDirty}
-          onCancel={leaveEdit}
-          onSaved={() => {
-            leaveEdit();
-            qc.invalidateQueries({ queryKey: ["lead", refId] });
-            qc.invalidateQueries({ queryKey: ["leads"] });
-            qc.invalidateQueries({ queryKey: ["dashboard"] });
-            // A partner reassign/unassign/revert changes the coverage payload
-            // (unmatchedLeadCount, coveredVolumePct) that the dashboard hero map
-            // and the attention banner consume.
-            qc.invalidateQueries({ queryKey: ["coverage"] });
-            toast.toast("Lead updated.", "success");
-          }}
+          onEditingFieldChange={setEditingField}
         />
-      ) : (
-        <ViewMode d={d} partial={partial} onEdit={() => setEditing(true)} />
       )}
     </SidePanel>
   );
@@ -315,70 +305,219 @@ function PendingField({ label }: { label: string }) {
   );
 }
 
-function ViewMode({ d, partial = false, onEdit }: { d: LeadDetail; partial?: boolean; onEdit: () => void }) {
+/**
+ * N5-12 — the inline-editable roster and its labels. Exactly the retired EditForm's set,
+ * which is `EDITABLE_COLUMNS` (modules/leads/commands) minus `motivation` (VP-4c: never
+ * populated for Lead Source 1). Nothing else on this record edits — not here, not anywhere.
+ * The labels are what the failure toast names, so they read as the field the admin clicked.
+ */
+const FIELD_LABELS = {
+  sellerFirst: "First name",
+  sellerLast: "Last name",
+  phone: "Phone",
+  email: "Email",
+  address: "Address",
+  city: "City",
+  state: "State",
+  zip: "ZIP",
+  campaign: "Source",
+  reasonForSelling: "Reason for selling",
+  timeToSell: "Time to sell",
+  notes: "Source notes",
+} as const;
+type EditableField = keyof typeof FIELD_LABELS;
+
+/** N5-12: State stays a two-letter uppercase code, the mask the EditForm carried. */
+const stateMask = (raw: string) => raw.toUpperCase().replace(/[^A-Z]/g, "").slice(0, 2);
+
+function LeadRecord({
+  d,
+  partial = false,
+  partners,
+  onEditingFieldChange,
+}: {
+  d: LeadDetail;
+  partial?: boolean;
+  partners: Partner[];
+  /** N5-13/N5-30: the panel gates ↑/↓ and Esc on whether a field is open. */
+  onEditingFieldChange: (field: string | null) => void;
+}) {
   const qc = useQueryClient();
-  const property = [d.address, d.city, d.state, d.zip].filter(Boolean).join(", ");
+  const toast = useToast();
   // A task add/complete/reopen/delete changes the Timeline's activity[] too (task_created /
   // task_completed entries) — both live in the same lead-detail payload, so a task change
   // refreshes it alongside the panel's own ["lead-tasks", refId] query.
   const onTaskChanged = () => qc.invalidateQueries({ queryKey: ["lead", d.refId] });
+
+  // N5-11 optimistic paint: the value a save is carrying, per field. It holds until the
+  // invalidated detail has LANDED (onSettled runs after onSuccess' promise), so the field
+  // never blinks back to the stale value between the response and the refetch.
+  const [inFlight, setInFlight] = React.useState<Partial<Record<EditableField, string>>>({});
+  // N5-11 retry: bumping the nonce reopens the named field with the text that failed.
+  const [reopen, setReopen] = React.useState<{ field: EditableField; text: string; nonce: number } | null>(null);
+  const nonce = React.useRef(0);
+  // N5-10: the commit-on-blur hint rides the first edit of this record and then retires —
+  // deliberately per-record UI state, not a stored preference (no new store, §6.17).
+  const [hintSpent, setHintSpent] = React.useState(false);
+  // N5-30 / A11Y-03: a save is otherwise SILENT to a screen reader — the optimistic value is
+  // already painted (so nothing changes on success) and the spinner is decorative. Mounted for
+  // this record's life below, with only its text changing (never mounted with content in it).
+  const [saveStatus, setSaveStatus] = React.useState("");
+
+  // Every toast this record raises is tagged with the record, and the tag is what lets them
+  // leave WITH it (see the cleanup below). `refId` is stable for this component's lifetime —
+  // LeadRecord is keyed on it in LeadDialog, so a switch remounts rather than re-props.
+  const toastScope = `lead:${d.refId}`;
+  React.useEffect(
+    () => () => {
+      // N5-11: the failure toast's Retry reopens a field on THIS record. Close the panel or
+      // click another row and this component unmounts, leaving a live-looking "Retry" wired to
+      // a dead setState for the rest of TOAST_ACTION_DURATION_MS (9s) — pressing it does
+      // nothing at all, silently. The dead button must not outlive the record it belongs to.
+      // Deliberately NOT re-aimed at the newly-open lead: a retry means "put back the text I
+      // typed, where I typed it", and there is no honest way to do that on a different record.
+      toast.dismissScope(toastScope);
+    },
+    [toast, toastScope],
+  );
+
+  const save = useMutation({
+    // Single-key `fields` (N5-11): the server patches only the keys it is sent, so one
+    // field's save can never carry another field's stale value — which is exactly what lets
+    // two rapid edits to different fields both persist (N5-15).
+    mutationFn: ({ field, value }: { field: EditableField; value: string }) =>
+      apiMutate(`/api/leads/${d.refId}`, "PATCH", { fields: { [field]: value } }),
+    onMutate: ({ field, value }) => {
+      setSaveStatus(`Saving ${FIELD_LABELS[field]}…`);
+      setInFlight((m) => ({ ...m, [field]: value }));
+    },
+    onSuccess: (_res, { field }) => {
+      setSaveStatus(`${FIELD_LABELS[field]} saved.`);
+      return Promise.all([
+        // The lead detail carries the new "Details updated" timeline entry (N5-14), so it is
+        // refetched here rather than left to the next open. No ["coverage"]: only a partner
+        // move changes coverage, and that lives in the partner control below.
+        qc.invalidateQueries({ queryKey: ["lead", d.refId] }),
+        qc.invalidateQueries({ queryKey: ["leads"] }),
+        qc.invalidateQueries({ queryKey: ["dashboard"] }),
+      ]);
+    },
+    onError: (e, { field, value }) => {
+      // The toast's own live region announces the failure; a second voice saying "Saving
+      // Phone…" is left standing behind it would contradict it. Clearing to "" announces
+      // nothing of its own.
+      setSaveStatus("");
+      // A 4xx carries a message the admin can act on — a dedupe collision on address/zip
+      // names the clash (N5-12). A 5xx message is deliberately static (C-17), so appending
+      // it would only say "it failed" twice.
+      const detail = e instanceof ApiError && e.status < 500 ? ` — ${e.message}` : "";
+      toast.toast(
+        `Couldn't save ${FIELD_LABELS[field]}${detail}`,
+        "danger",
+        {
+          label: "Retry",
+          onClick: () => {
+            nonce.current += 1;
+            setReopen({ field, text: value, nonce: nonce.current });
+          },
+        },
+        toastScope,
+      );
+    },
+    onSettled: (_res, _err, { field }) =>
+      setInFlight((m) => {
+        const next = { ...m };
+        delete next[field];
+        return next;
+      }),
+  });
+
+  /** The value on screen: the optimistic one while a save is in flight, else the record's. */
+  const val = (field: EditableField, committed: string) => inFlight[field] ?? committed;
+
+  /** Everything an InlineField needs that this record, not the primitive, decides. */
+  const field = (key: EditableField, committed: string) => ({
+    label: FIELD_LABELS[key],
+    value: val(key, committed),
+    saving: key in inFlight,
+    // C-41b: held while the detail is the row-derived partial — a draft seeded from a
+    // placeholder would write the placeholder back over the real value.
+    disabled: partial,
+    hint: !hintSpent,
+    reopen: reopen && reopen.field === key ? reopen : null,
+    onEditingChange: (editing: boolean) => onEditingFieldChange(editing ? key : null),
+    onCommit: (next: string) => {
+      setHintSpent(true);
+      save.mutate({ field: key, value: next });
+    },
+  });
+
+  const property = [val("address", d.address), val("city", d.city), val("state", d.state), val("zip", d.zip)];
+
   return (
     <div className="flex flex-col gap-5">
-      <div className="flex items-start justify-between gap-3">
-        <div className="flex flex-wrap items-center gap-2">
-          {d.mlsStatus === "removed" ? (
-            <Badge variant="removed">Removed · MLS</Badge>
-          ) : (
-            <Badge variant="neutral" dot>
-              {d.status}
-            </Badge>
-          )}
-          {d.partner ? (
-            <PartnerTag size="sm" name={d.partner.name} color={d.partner.color} refId={d.partner.refId} />
-          ) : d.mlsStatus === "kept" ? (
-            <span className="text-xs font-semibold text-warn">Unmatched</span>
-          ) : null}
-        </div>
-        {/* Held while the detail is still the row-derived partial: EditForm seeds its
-            baseline from `d`, and a save from a partial baseline would blank real fields. */}
-        <Button size="sm" variant="primary" onClick={onEdit} disabled={partial}>
-          Edit
-        </Button>
+      {/* A11Y-03: mounted for this record's whole life, text-only changes — the panel's own
+          region (SidePanel `statusMessage`) belongs to the record SWITCH, and one region
+          cannot carry two independent stories without them overwriting each other. */}
+      <span className="sr-only" role="status" aria-live="polite">
+        {saveStatus}
+      </span>
+
+      {/* N5-06: status and partner are dedicated, always-visible controls — one click, no
+          edit mode, and each writes through the endpoint that owns it. */}
+      <div className="flex flex-wrap items-center gap-2.5">
+        <StatusSelect
+          refId={d.refId}
+          status={d.status}
+          // `editable: false` is exactly `mlsStatus === "removed"`: StatusSelect renders the
+          // read-only verdict badge instead of a control for those (PRN-04).
+          mlsStatus={d.mlsStatus}
+          statuses={d.availableStatuses.length ? d.availableStatuses : undefined}
+        />
+        <PartnerControl d={d} partners={partners} disabled={partial} />
       </div>
 
       {/* The why-routed sentence was removed (owner testing note #3, 2026-07-14) — the
-          partner tag + the Assignment fields below already carry how the lead routed. */}
+          partner control + the Assignment fields below already carry how the lead routed. */}
       {/* N5-01: the grid's breakpoint is the PANEL's width change, not a generic `sm:` — the
           panel is 560px between 768 and 1100 (two columns read; three do not) and 600px above
           it. Tailwind breakpoints are viewport-based, so 1100 is the honest switch here. */}
       <div className="grid grid-cols-2 gap-x-5 gap-y-4 min-[1100px]:grid-cols-3">
-        {/* C-41b: Seller / Property / Source / Received / partner / status all come straight
-            from the clicked row, so they paint at once; the rest wait as labelled skeletons. */}
-        <Field label="Seller">{`${d.seller.first} ${d.seller.last}`.trim() || "—"}</Field>
-        {partial ? <PendingField label="Phone" /> : <Field label="Phone">{d.seller.phone || "—"}</Field>}
-        {partial ? <PendingField label="Email" /> : <Field label="Email">{d.seller.email || "—"}</Field>}
-        <div className="col-span-2 min-[1100px]:col-span-3">
-          <Field label="Property">
-            {property ? (
+        {/* C-41b: the name, address parts and source come straight from the clicked row, so
+            they paint at once; the rest wait as labelled skeletons. */}
+        <InlineField {...field("sellerFirst", d.seller.first)} />
+        <InlineField {...field("sellerLast", d.seller.last)} />
+        {/* DSN-02: phone and ZIP are figures, so they wear the ledger's tabular monospace —
+            the same treatment the ref, the score and every table number already carry. */}
+        {partial ? <PendingField label="Phone" /> : <InlineField {...field("phone", d.seller.phone)} numeric />}
+        {partial ? <PendingField label="Email" /> : <InlineField {...field("email", d.seller.email)} />}
+        {/* Q4: the property's Google search survives as the trailing icon — the address TEXT
+            is now the edit target, so the two affordances no longer collide (mockup note 4). */}
+        <InlineField
+          {...field("address", d.address)}
+          className="col-span-2 min-[1100px]:col-span-3"
+          trailing={
+            property.some(Boolean) ? (
               <Tooltip content="Search this property on Google">
                 <a
-                  href={googleSearchUrl([d.address, d.city, d.state, d.zip])}
+                  href={googleSearchUrl(property)}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1 text-brand-ink hover:underline"
+                  aria-label="Search this property on Google"
+                  className="shrink-0 rounded p-0.5 text-brand-ink outline-none hover:text-brand-strong focus-visible:ring-1 focus-visible:ring-brand-ink"
                 >
-                  {property}
                   <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                     <path d="M15 3h6v6M10 14 21 3M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
                   </svg>
                 </a>
               </Tooltip>
-            ) : (
-              "—"
-            )}
-          </Field>
-        </div>
-        <Field label="Source">{d.campaign || "—"}</Field>
+            ) : null
+          }
+        />
+        <InlineField {...field("city", d.city)} />
+        <InlineField {...field("state", d.state)} mask={stateMask} />
+        <InlineField {...field("zip", d.zip)} numeric />
+        <InlineField {...field("campaign", d.campaign)} />
         {partial ? (
           <PendingField label="Routed by" />
         ) : (
@@ -392,7 +531,9 @@ function ViewMode({ d, partial = false, onEdit }: { d: LeadDetail; partial?: boo
             )}
           </Field>
         )}
-        <Field label="Received">{fmtDateTime(d.receivedAt)}</Field>
+        {/* DSN-02: a timestamp is a figure too — it reads beside the editable numeric fields
+            above, so it wears the same tabular monospace they do. */}
+        <Field label="Received"><span className="num">{fmtDateTime(d.receivedAt)}</span></Field>
         {d.assignment.manual && d.assignment.original && (
           <Field label="Original routing">
             <PartnerTag size="sm" name={d.assignment.original.name} color={d.assignment.original.color} refId={d.assignment.original.refId} />
@@ -400,21 +541,20 @@ function ViewMode({ d, partial = false, onEdit }: { d: LeadDetail; partial?: boo
         )}
         {/* "Motivation" dropped (VP-4c): for Lead Source 1 it is never populated —
             reason-for-selling carries the seller's motivation, and the scorer uses it as such. */}
-        {partial ? <PendingField label="Reason for selling" /> : <Field label="Reason for selling">{d.reasonForSelling || "—"}</Field>}
-        {partial ? <PendingField label="Time to sell" /> : <Field label="Time to sell">{d.timeToSell || "—"}</Field>}
+        {partial ? <PendingField label="Reason for selling" /> : <InlineField {...field("reasonForSelling", d.reasonForSelling)} />}
+        {partial ? <PendingField label="Time to sell" /> : <InlineField {...field("timeToSell", d.timeToSell)} />}
         {d.mlsStatus === "removed" && (
           <div className="col-span-2 min-[1100px]:col-span-3">
+            {/* Not editable at all: the MLS verdict is the pipeline's, not an admin's (PRN-04). */}
             {partial ? <PendingField label="MLS removal reason" /> : <Field label="MLS removal reason">{d.mlsReason || "—"}</Field>}
           </div>
         )}
-        {d.notes && (
-          <div className="col-span-2 flex flex-col gap-1 min-[1100px]:col-span-3">
-            <span className="text-step-1 font-semibold uppercase tracking-wide text-text-3">Source notes</span>
-            {/* VP-4c: boxed so the long note reads as its own block, not another field. */}
-            <div className="rounded-lg border border-border-soft bg-surface-2 px-3.5 py-3">
-              <ClampedText>{d.notes}</ClampedText>
-            </div>
-          </div>
+        {/* VP-4c: boxed so the long note reads as its own block, not another field. Always
+            rendered now — an empty Source notes has to be reachable to be filled in. */}
+        {partial ? (
+          <PendingField label="Source notes" />
+        ) : (
+          <InlineField {...field("notes", d.notes)} multiline className="col-span-2 min-[1100px]:col-span-3" />
         )}
       </div>
 
@@ -516,183 +656,106 @@ function missingReason(breakdown: ScoreBreakdown | null): string {
   return `Not enough data to score — missing ${missing.join(", ")}.`;
 }
 
-// ── Edit mode ─────────────────────────────────────────────────────────────────
+// ── Partner control (N5-06) ───────────────────────────────────────────────────
 
-export function EditForm({
-  d,
-  partners,
-  onCancel,
-  onSaved,
-  onDirtyChange,
-}: {
-  d: LeadDetail;
-  partners: Partner[];
-  onCancel: () => void;
-  onSaved: () => void;
-  /** R-54: reports whether any field has changed, so the host Dialog can guard a dismiss. */
-  onDirtyChange?: (dirty: boolean) => void;
-}) {
-  const [f, setF] = React.useState({
-    sellerFirst: d.seller.first,
-    sellerLast: d.seller.last,
-    phone: d.seller.phone,
-    email: d.seller.email,
-    address: d.address,
-    city: d.city,
-    state: d.state,
-    zip: d.zip,
-    campaign: d.campaign,
-    reasonForSelling: d.reasonForSelling,
-    timeToSell: d.timeToSell,
-    notes: d.notes,
-  });
-  const set = (k: keyof typeof f) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) =>
-    setF((prev) => ({ ...prev, [k]: e.target.value }));
+/**
+ * The dedicated "assigned partner" control: always visible, one click, no edit mode — and
+ * every ownership-moving selection still passes the ASN-03/FRM-03 confirmation, through the
+ * same `partnerActionFor` / `transferCopy` pair and with the copy unchanged. The consequence
+ * has not changed either: a re-route hands the lead to a new owner who starts with a clean
+ * status timeline and cannot see the previous owner's history or notes (R-01/R-22).
+ *
+ * The trigger's value is DERIVED from the record rather than held in state: the record is the
+ * server's answer, and a local copy would need re-seeding on every refetch to stay honest.
+ * The one piece of state here is the selection awaiting confirmation.
+ */
+function PartnerControl({ d, partners, disabled = false }: { d: LeadDetail; partners: Partner[]; disabled?: boolean }) {
+  const qc = useQueryClient();
+  const toast = useToast();
+  const [pendingSel, setPendingSel] = React.useState<string | null>(null);
 
-  const [status, setStatus] = React.useState(d.status);
-  // Partner select: current effective owner, a partner id, "unassigned" sentinel, or
-  // "revert to original". Radix Select forbids an empty-string value, hence the sentinel.
-  const [partnerSel, setPartnerSel] = React.useState(d.partner?.id ?? UNASSIGNED);
-
-  // R-54 (FRM-02a): the fields seed synchronously from `d`, so the baseline is the loaded record;
-  // report any divergence up so the host Dialog can raise a discard-confirmation on dismiss.
-  const dirty = useDirty({ ...f, status, partnerSel });
-  React.useEffect(() => {
-    onDirtyChange?.(dirty);
-  }, [dirty, onDirtyChange]);
-
-  const save = useMutation({
-    mutationFn: async () => {
-      // 1) Status (kept leads only) — its own endpoint appends history + event.
-      if (d.editable && status !== d.status) {
-        const res = await fetch(`/api/leads/${d.refId}/status`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json", ...csrfHeaders() },
-          body: JSON.stringify({ status }),
-        });
-        const b = await res.json();
-        if (!res.ok) throw new Error(b?.message ?? "Status update failed.");
-      }
-      // 2) Fields + partner overlay (the action was decided — and, for a transfer, confirmed — pre-submit).
-      const partner = partnerActionFor(partnerSel, d);
-      const res = await fetch(`/api/leads/${d.refId}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json", ...csrfHeaders() },
-        body: JSON.stringify({ fields: f, partner }),
-      });
-      const b = await res.json();
-      if (!res.ok) throw new Error(b?.message ?? "Save failed.");
-      return b;
+  const move = useMutation({
+    mutationFn: (action: PartnerAction) => apiMutate(`/api/leads/${d.refId}`, "PATCH", { partner: action }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["lead", d.refId] });
+      qc.invalidateQueries({ queryKey: ["leads"] });
+      qc.invalidateQueries({ queryKey: ["dashboard"] });
+      // A reassign/unassign/revert changes the coverage payload (unmatchedLeadCount,
+      // coveredVolumePct) that the dashboard hero map and the attention banner consume.
+      qc.invalidateQueries({ queryKey: ["coverage"] });
+      toast.toast("Lead updated.", "success");
     },
-    onSuccess: onSaved,
+    onError: (e: Error) => toast.toast(e.message, "danger"),
   });
 
-  // ASN-03/FRM-03: reassigning a lead moves ownership and hides the prior owner's notes + status
-  // timeline (R-01/R-22) — a consequential, easy-to-misclick change. Any ownership-moving action is
-  // gated behind a confirmation naming the lead + destination; a plain field edit saves directly.
-  const [confirmTransfer, setConfirmTransfer] = React.useState(false);
-  const transfer = transferCopy(partnerActionFor(partnerSel, d), d, partners);
-  const submit = () => {
-    if (transfer) setConfirmTransfer(true);
-    else save.mutate();
-  };
+  const transfer = pendingSel === null ? null : transferCopy(partnerActionFor(pendingSel, d), d, partners);
+
+  // PRN-14 / WCAG 4.1.2: `renderValue` paints the trigger, but an `aria-label` REPLACES the
+  // accessible name Radix would otherwise build from the selected item — so a bare "Assigned
+  // partner" tells a screen-reader user the control exists and nothing about who owns the
+  // lead. The current owner is composed in, in the same words the visible tag carries (name +
+  // JV ref). (Teaching the Select primitive to mirror `renderValue` into the name is the
+  // general fix and a logged candidate; this is the one control that needs it today.)
+  const ownerName = d.partner
+    ? `${d.partner.name} (${d.partner.refId})`
+    : d.mlsStatus === "kept"
+      ? "Unmatched"
+      : "Unassigned";
 
   return (
     <>
-    <form
-      className="flex flex-col gap-5"
-      onSubmit={(e) => {
-        e.preventDefault();
-        submit();
-      }}
-    >
-      <div className="grid grid-cols-2 gap-3">
-        <Input label="Seller first name" value={f.sellerFirst} onChange={set("sellerFirst")} />
-        <Input label="Seller last name" value={f.sellerLast} onChange={set("sellerLast")} />
-        <Input label="Phone" value={f.phone} onChange={set("phone")} />
-        <Input label="Email" value={f.email} onChange={set("email")} />
-      </div>
-
-      <div className="grid grid-cols-2 gap-3 min-[1100px]:grid-cols-4">
-        <div className="col-span-2 min-[1100px]:col-span-4">
-          <Input label="Address" value={f.address} onChange={set("address")} />
-        </div>
-        <Input label="City" value={f.city} onChange={set("city")} />
-        <Input label="State" value={f.state} onChange={(e) => setF((p) => ({ ...p, state: e.target.value.toUpperCase().slice(0, 2) }))} />
-        <Input label="ZIP" value={f.zip} onChange={set("zip")} />
-        <Input label="Source" value={f.campaign} onChange={set("campaign")} />
-      </div>
-
-      <div className="grid grid-cols-2 gap-3">
-        {d.editable ? (
-          <Select
-            label="Status"
-            value={status}
-            onValueChange={setStatus}
-            options={d.availableStatuses.map((s) => ({ value: s, label: s }))}
-          />
-        ) : (
-          <div className="flex flex-col gap-1.5">
-            <span className="text-xs font-semibold text-text-2">Status</span>
-            <Badge variant="removed">Removed · MLS (read-only)</Badge>
-          </div>
-        )}
-        <Select
-          label="Assigned partner"
-          value={partnerSel}
-          onValueChange={setPartnerSel}
-          options={[
-            // Offer "Unassigned" only when clearing the overlay would actually succeed —
-            // a pipeline-routed lead can't be made owner-less (PRN-05); see offersUnassign.
-            ...(offersUnassign({ hasEffectiveOwner: Boolean(d.partner), manual: d.assignment.manual, hasOriginal: Boolean(d.assignment.original) })
-              ? [{ value: UNASSIGNED, label: "Unassigned" }]
-              : []),
-            ...partners.map((p) => ({ value: p.id, label: `${p.name} (${p.refId})` })),
-            ...(d.assignment.manual && d.assignment.original
-              ? [{ value: REVERT, label: `↩ Revert to original routing (${d.assignment.original.name})` }]
-              : []),
-          ]}
-        />
-      </div>
-
-      {/* Motivation dropped (VP-4c/FU-2): never populated for Lead Source 1. */}
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-        <Input label="Reason for selling" value={f.reasonForSelling} onChange={set("reasonForSelling")} />
-        <Input label="Time to sell" value={f.timeToSell} onChange={set("timeToSell")} />
-      </div>
-
-      <Textarea label="Source notes" value={f.notes} onChange={set("notes")} rows={3} />
-
-      {save.error && <p className="text-sm text-danger">{(save.error as Error).message}</p>}
-
-      <div className="flex items-center justify-end gap-2 border-t border-border-soft pt-4">
-        <Button type="button" variant="ghost" onClick={onCancel} disabled={save.isPending}>
-          Cancel
-        </Button>
-        <Button type="submit" variant="primary" loading={save.isPending}>
-          Save changes
-        </Button>
-      </div>
-    </form>
+      <Select
+        ariaLabel={`Assigned partner: ${ownerName}`}
+        className="w-auto"
+        disabled={disabled || move.isPending}
+        value={d.partner?.id ?? UNASSIGNED}
+        onValueChange={(sel) => {
+          // Selecting the current owner is a no-op — it writes nothing and asks nothing.
+          if (partnerActionFor(sel, d).action === "keep") return;
+          setPendingSel(sel);
+        }}
+        // PRN-14: the swatch never travels alone — the owner's name and JV ref ride with it.
+        renderValue={() =>
+          d.partner ? (
+            <PartnerTag size="sm" name={d.partner.name} color={d.partner.color} refId={d.partner.refId} />
+          ) : d.mlsStatus === "kept" ? (
+            <span className="text-sm font-semibold text-warn">Unmatched</span>
+          ) : (
+            <span className="text-sm text-text-3">Unassigned</span>
+          )
+        }
+        options={[
+          // Offer "Unassigned" only when clearing the overlay would actually succeed —
+          // a pipeline-routed lead can't be made owner-less (PRN-05); see offersUnassign.
+          ...(offersUnassign({ hasEffectiveOwner: Boolean(d.partner), manual: d.assignment.manual, hasOriginal: Boolean(d.assignment.original) })
+            ? [{ value: UNASSIGNED, label: "Unassigned" }]
+            : []),
+          ...partners.map((p) => ({ value: p.id, label: `${p.name} (${p.refId})` })),
+          ...(d.assignment.manual && d.assignment.original
+            ? [{ value: REVERT, label: `↩ Revert to original routing (${d.assignment.original.name})` }]
+            : []),
+        ]}
+      />
 
       {transfer && (
         <Dialog
-          open={confirmTransfer}
-          onClose={() => setConfirmTransfer(false)}
+          open
+          onClose={() => setPendingSel(null)}
           size="sm"
           title={transfer.title}
           footer={
             <>
-              <Button type="button" variant="ghost" onClick={() => setConfirmTransfer(false)} disabled={save.isPending}>
+              <Button type="button" variant="ghost" onClick={() => setPendingSel(null)} disabled={move.isPending}>
                 Cancel
               </Button>
               <Button
                 type="button"
                 variant="danger"
-                loading={save.isPending}
+                loading={move.isPending}
                 onClick={() => {
-                  setConfirmTransfer(false);
-                  save.mutate();
+                  const action = partnerActionFor(pendingSel as string, d);
+                  setPendingSel(null);
+                  move.mutate(action);
                 }}
               >
                 {transfer.confirmLabel}
@@ -709,3 +772,4 @@ export function EditForm({
     </>
   );
 }
+

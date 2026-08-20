@@ -130,6 +130,15 @@ Canonicalizes the frontend patterns this codebase follows. Authority order:
 
 - Portal must be usable at 375 px (partners check leads on phones); admin at ≥ 768 px;
   no horizontal body scroll anywhere.
+- **Below its documented floor a component DEGRADES, it does not TRAP.** Rendering an
+  admin surface under 768 px is out of contract, but out-of-contract must still mean
+  "cramped", never "stuck": no control anywhere in the DOM may become keyboard-
+  unreachable because a floor-only modal path took over. The specific hazard is a
+  breakpoint-dependent modality (`SidePanel` goes modal as a full-bleed sheet below
+  768 px): a modal focus scope covers the app, but toasts and other PORTALLED layers
+  mount OUTSIDE it, so a "Retry" raised from inside the sheet can end up visible and
+  unfocusable. Anything portalled that a modal surface can raise must render inside
+  that surface's focus scope, or be dismissed with it.
 - Playwright currently runs desktop-chromium only. `TODO(owner)`: add a mobile-viewport
   Playwright project for `/portal/*` and decide the official browser-support statement
   (suggested: evergreen Chrome/Edge/Firefox/Safari, last 2).

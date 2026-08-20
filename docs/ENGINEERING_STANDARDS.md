@@ -82,6 +82,15 @@ Exemplars: `src/app/api/uploads/route.ts`, `src/app/api/admin/partners/route.ts`
   notes in the WP. Drizzle schema and SQL migrations must not drift (`db:generate`
   produces nothing new).
 - Soft-delete (`deleted_at`) is filtered in every read path (DM-09).
+- **DM-11a — a new predicate against an append-only table ships with its index.** Tables
+  that only ever grow and are never pruned (`audit_log` above all — SET-07's retention
+  sweep deliberately does not touch it) have no natural ceiling, so a query shape that
+  is instant on a demo tenant is a sequential scan at year three. A PR introducing a new
+  WHERE shape against one either adds the covering index in the SAME PR (the standing
+  "schema change = migration + index" rule, applied to the read side) or names a
+  follow-up WP in the PR body — never neither. Adding the read and "watching it" is not
+  an option: the regression arrives as a slow page months later, with nothing pointing
+  back at the commit that caused it.
 - Multi-write flows run in one transaction; advisory locks (`pg_advisory_xact_lock`)
   are taken first and in consistent order. Pooler constraints hold: `prepare: false`,
   xact-scoped locks only.
@@ -109,6 +118,16 @@ Exemplars: `src/app/api/uploads/route.ts`, `src/app/api/admin/partners/route.ts`
 - Security headers are shipped (SEC-08): CSP, HSTS, `frame-ancestors`,
   `Referrer-Policy` and friends are defined centrally in
   `src/lib/security-headers.ts` and wired via `next.config.ts`.
+- **AUTHZ-08 — audit_log content rides `ops.admin`.** Any surface that derives what it
+  shows from `audit_log` rows is gated on `ops.admin` (ADMIN_LOCKED, ADR-0049 §11.3),
+  or carries a recorded exception naming the DERIVED SUBSET and why it is safe. The
+  human surface for the trail (`/api/activity`) already requires it, so a feature that
+  re-derives the same rows behind a cheaper capability (`leads.read`, `ai.use`) becomes
+  a bypass of the screen that refuses them — the AIS-11/C-45b lesson
+  (`src/modules/ai/tools.ts`), re-learned by N5-14's "Details updated" timeline entry
+  (`src/modules/leads/queries.ts`). Derivation is not exemption: a summary of a
+  forbidden row is a read of it. Where the derived slice is genuinely thinner, gate
+  conservatively and log the widening as an owner decision rather than assuming it.
 
 ## 7. Email & files (SEC-02/03/05/06/07)
 
@@ -136,6 +155,15 @@ Exemplars: `src/app/api/uploads/route.ts`, `src/app/api/admin/partners/route.ts`
   later `keepPreviousData`-style smoothing puts one record's PII under another's title.
   Fixtures must therefore give each record DISTINCT values in those fields — a shared fixture
   value cannot tell "the new record's data" from "the old record's data, still rendered".
+- **A write path whose correctness depends on browser focus semantics carries one
+  Playwright case.** jsdom is provably insufficient for the class: it does not fire a
+  blur when the focused element is removed, so any "commit on blur + unmount on commit"
+  primitive behaves identically there with and without its double-fire guard — a green
+  unit suite says nothing about the bug. `InlineField`'s `settled` latch is the worked
+  example (`tests/e2e/admin-inline-edit.spec.ts` counts the PATCHes; the unit file names
+  what it cannot see). The same applies to focus restoration, focus traps, and anything
+  keyed on `document.activeElement` after an unmount. Assert the REQUEST count, not the
+  rendered result — a duplicate write usually paints identically.
 - The MLS corpus (`tests/fixtures/mls-corpus*`) grows BEFORE MLS logic changes
   (PRN-04); the golden (`tests/fixtures/investorfuse-week-golden.json`) is a semantic
   diff pinned to a rules hash — re-pins must be explained in the WP.

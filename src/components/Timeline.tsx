@@ -12,7 +12,18 @@ import { FilterPill } from "./FilterPill";
 // lead dialog and the portal lead dialog (the server already scopes `activity` per
 // caller — PRN-08 — this component only renders what it is given, never invents data).
 
-export type TimelineEntryKind = "imported" | "routed" | "assigned" | "status" | "note" | "task_created" | "task_completed";
+// Mirrors LeadActivityKind (modules/leads/timeline) per the queries.ts:494 convention — the
+// client re-declares the read-model's shape, so a kind added there is added here too.
+export type TimelineEntryKind =
+  | "imported"
+  | "routed"
+  | "assigned"
+  | "status"
+  | "note"
+  | "task_created"
+  | "task_completed"
+  /** N5-14 — "Details updated: phone, email". Admin feed only; the portal never emits it. */
+  | "details_updated";
 
 export interface TimelineEntry {
   kind: TimelineEntryKind;
@@ -36,6 +47,9 @@ const DOT: Record<TimelineEntryKind, string> = {
   note: "bg-prev",
   task_created: "bg-success",
   task_completed: "bg-success",
+  // Shares `assigned`'s dot: both are "a person changed this record" facts, told apart by
+  // their label text, never by color (PRN-14) — the same call task_created/task_completed made.
+  details_updated: "bg-prev",
 };
 
 type TimelineFilter = "all" | "tasks" | "notes" | "status";
@@ -48,7 +62,13 @@ const FILTERS: { value: TimelineFilter; label: string }[] = [
 ];
 
 /** TSK-06: system events (imported/routed/assigned) show under "All" only — they have
- *  no chip of their own. Exported so its mapping is unit-testable without a DOM. */
+ *  no chip of their own. Exported so its mapping is unit-testable without a DOM.
+ *
+ *  N5-14: `details_updated` joins them there rather than gaining a chip. The three chips are
+ *  the three STREAMS a reader filters by (their tasks, their notes, the status trail); a field
+ *  correction is none of them, and it is not a status change — putting it under Status would
+ *  make "No status changes yet" and the C-12 empty copy lie. A "Changes" chip is a candidate,
+ *  not a thing to invent inside this WP. */
 export function matchesTimelineFilter(kind: TimelineEntryKind, filter: TimelineFilter): boolean {
   if (filter === "all") return true;
   if (filter === "tasks") return kind === "task_created" || kind === "task_completed";

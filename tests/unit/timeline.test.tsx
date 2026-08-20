@@ -10,7 +10,7 @@ import { Timeline, matchesTimelineFilter, type TimelineEntry } from "@/component
 
 describe("TSK-06: matchesTimelineFilter — system events show under All only", () => {
   it("'all' matches every kind", () => {
-    for (const k of ["imported", "routed", "assigned", "status", "note", "task_created", "task_completed"] as const) {
+    for (const k of ["imported", "routed", "assigned", "status", "note", "task_created", "task_completed", "details_updated"] as const) {
       expect(matchesTimelineFilter(k, "all")).toBe(true);
     }
   });
@@ -27,6 +27,12 @@ describe("TSK-06: matchesTimelineFilter — system events show under All only", 
   it("'status' matches status only", () => {
     expect(matchesTimelineFilter("status", "status")).toBe(true);
     expect(matchesTimelineFilter("note", "status")).toBe(false);
+  });
+  it("N5-14: details_updated is an All-only entry — never Status (it is not a status change)", () => {
+    expect(matchesTimelineFilter("details_updated", "all")).toBe(true);
+    expect(matchesTimelineFilter("details_updated", "status")).toBe(false);
+    expect(matchesTimelineFilter("details_updated", "notes")).toBe(false);
+    expect(matchesTimelineFilter("details_updated", "tasks")).toBe(false);
   });
   it("system events (imported/routed/assigned) never match a specific chip — All only", () => {
     for (const k of ["imported", "routed", "assigned"] as const) {

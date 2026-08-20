@@ -78,6 +78,7 @@ import {
   type MyTask,
   Timeline,
   type TimelineEntry,
+  InlineField,
 } from "@/components";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ApiError } from "@/lib/api";
@@ -737,10 +738,20 @@ function Gallery() {
                 <Button variant="secondary" onClick={() => setModalOpen(true)}>Open confirm dialog</Button>
                 <Button variant="secondary" onClick={() => toast("Export started — you’ll be notified")}>Show toast</Button>
                 <Button variant="secondary" onClick={() => toast("Status saved — visible to your admin", "success")}>Success toast</Button>
+                <Button
+                  variant="secondary"
+                  onClick={() => toast("Couldn't save Phone", "danger", { label: "Retry", onClick: () => toast("Retried", "success") })}
+                >
+                  Toast with a Retry action
+                </Button>
               </div>
               <p className="text-step-1 text-text-3">
                 Toasts auto-dismiss after {"~"}2.6s, but the countdown pauses while you hover or keyboard-focus
-                the stack and each carries a ✕ to dismiss on demand (WCAG 2.2.1 Timing Adjustable).
+                the stack and each carries a ✕ to dismiss on demand (WCAG 2.2.1 Timing Adjustable). A toast
+                carrying an action (N5-11) gets a longer window and dismisses itself when the action is taken.
+                An action is only ever as alive as the thing that raised it, so a raiser that can go away
+                first tags its toasts with a <code>scope</code> and calls <code>dismissScope</code> on unmount —
+                a live-looking button wired to an unmounted component is worse than no button.
               </p>
             </CardBody>
           </Card>
@@ -1047,6 +1058,7 @@ function Gallery() {
                 <div className="max-w-xs">
                   <Select label="Disabled" value="new" onValueChange={() => {}} disabled options={[{ value: "new", label: "New" }]} />
                 </div>
+                <PartnerSelectDemo />
               </CardBody>
             </Card>
 
@@ -1173,6 +1185,19 @@ function Gallery() {
                   <Button variant="secondary" size="sm" onClick={() => setPagerPanelOpen(true)}>Open with header pager</Button>
                   <Button variant="secondary" size="sm" onClick={() => setDirtyPanelOpen(true)}>Open dirty-guard SidePanel</Button>
                 </div>
+              </CardBody>
+            </Card>
+
+            <Card>
+              <CardHeader><CardTitle>InlineField (N5-10)</CardTitle></CardHeader>
+              <CardBody className="flex flex-col gap-4">
+                <p className="text-sm text-text-2">
+                  A labelled value that edits where it sits — commit-on-blur, no save button. Hover or tab to
+                  a field for the tint + pencil, click or press Enter to open it (the value arrives
+                  pre-selected), Enter or clicking away commits, Esc reverts. The caller owns the request, the
+                  optimistic paint and the rollback; the field owns only the interaction.
+                </p>
+                <InlineFieldDemo />
               </CardBody>
             </Card>
 
@@ -1622,6 +1647,58 @@ function Gallery() {
           territory to Unmatched until reassigned. High-impact deletes require typing the reference ID (FRM-03).
         </p>
       </Modal>
+    </div>
+  );
+}
+
+/** `renderValue` (N5-06): the trigger paints the SELECTED value as something richer than the
+ *  option's text — here the partner swatch + name + JV ref (PRN-14: the color never travels
+ *  alone). The option LIST stays plain text, which is what Radix's typeahead reads.
+ *
+ *  ⚠️ `ariaLabel` REPLACES the accessible name Radix builds from the selected item, so a
+ *  control using `renderValue` composes the current value INTO its label — otherwise the
+ *  trigger announces its purpose and never its value (WCAG 4.1.2). */
+function PartnerSelectDemo() {
+  const PARTNERS = [
+    { id: "p1", name: "Bluebird Home Buyers", refId: "PR-26-014" },
+    { id: "p2", name: "Josh Ax", refId: "PR-003" },
+  ];
+  const [partnerId, setPartnerId] = React.useState("p1");
+  const current = PARTNERS.find((p) => p.id === partnerId)!;
+  return (
+    <div className="flex max-w-xs flex-col gap-1.5">
+      <p className="text-step-1 text-text-3">
+        <code>renderValue</code> — the trigger paints the partner swatch; the accessible name
+        carries the same name + ref.
+      </p>
+      <Select
+        // No visible `label` here on purpose: this is the lead record's control (N5-06),
+        // where the swatch IS the label and the name has to be composed by hand.
+        ariaLabel={`Assigned partner: ${current.name} (${current.refId})`}
+        value={partnerId}
+        onValueChange={setPartnerId}
+        renderValue={() => <PartnerTag size="sm" name={current.name} color={colorOf(current.name)} refId={current.refId} />}
+        options={PARTNERS.map((p) => ({ value: p.id, label: `${p.name} (${p.refId})` }))}
+      />
+    </div>
+  );
+}
+
+/** The InlineField state matrix, live (§6.17): a real editable field, a field mid-save, a
+ *  disabled one, a never-editable one, and the boxed multiline variant. */
+function InlineFieldDemo() {
+  const [phone, setPhone] = React.useState("(918) 555-0164");
+  const [state, setState] = React.useState("OK");
+  const [notes, setNotes] = React.useState("Roof replaced 2019. Tenant in place through October.");
+  return (
+    <div className="grid grid-cols-2 gap-x-5 gap-y-4 rounded-lg border border-border-soft p-4 sm:grid-cols-3">
+      <InlineField label="Phone" value={phone} onCommit={setPhone} hint />
+      <InlineField label="State" value={state} onCommit={setState} mask={(raw) => raw.toUpperCase().replace(/[^A-Z]/g, "").slice(0, 2)} />
+      <InlineField label="Email" value="m.ellery@example.test" onCommit={() => {}} saving />
+      <InlineField label="ZIP" value="74105" onCommit={() => {}} disabled />
+      <InlineField label="Received" value="Aug 18, 2:12 PM" onCommit={() => {}} editable={false} />
+      <InlineField label="Time to sell" value="" onCommit={() => {}} />
+      <InlineField label="Source notes" value={notes} onCommit={setNotes} multiline className="col-span-2 sm:col-span-3" />
     </div>
   );
 }
