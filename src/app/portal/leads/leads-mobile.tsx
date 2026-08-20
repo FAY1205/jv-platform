@@ -25,7 +25,7 @@ import { PORTAL_STATUS_FILTERS, PORTAL_LEADS_DEFAULT_PAGE_SIZE, portalLeadsParam
  * be a wasted request on every desktop first paint, so the gate holds the query until the
  * viewport is genuinely known to be mobile.
  */
-export function LeadsMobile({ onOpen, enabled = true }: { onOpen: (refId: string) => void; enabled?: boolean }) {
+export function LeadsMobile({ onOpen, openRef = null, enabled = true }: { onOpen: (refId: string) => void; openRef?: string | null; enabled?: boolean }) {
   const [page, setPage] = React.useState(1);
   const [qInput, setQInput] = React.useState("");
   const qCommitted = useDebouncedValue(qInput.trim());
@@ -117,11 +117,36 @@ export function LeadsMobile({ onOpen, enabled = true }: { onOpen: (refId: string
         <>
           <div className="flex flex-col gap-3">
             {leads.map((l) => (
+              // N5-20: between 768px and `lg` this card list sits beside a NON-modal record
+              // panel, so the card it is showing says so — `aria-current` for AT, the tint
+              // alongside it (PRN-14). Below 768px the panel is a full-bleed sheet and the
+              // mark is simply not on screen.
               <button
                 key={l.refId}
                 type="button"
-                onClick={() => onOpen(l.refId)}
-                className="block w-full rounded-xl border border-border bg-surface p-4 text-left shadow-sm transition-[background-color,border-color,transform] hover:border-text-3 hover:bg-surface-2 focus-visible:border-brand-ink focus-visible:outline-none active:scale-[.99]"
+                aria-current={l.refId === openRef ? "true" : undefined}
+                // N5-30: focus the card BEFORE opening. SidePanel captures its return-focus
+                // target by sampling `document.activeElement` on the open transition, and
+                // whether a mouse-down on a button leaves it focused is browser-dependent
+                // (Safari/Firefox historically do not on macOS). Without this, a click-opened
+                // sheet on those browsers closes to focus on <body> — the reader is dumped at
+                // the top of the page instead of back on the card they came from.
+                onClick={(e) => { e.currentTarget.focus(); onOpen(l.refId); }}
+                className={
+                  // The background lives entirely in the branch: two `bg-*` utilities on one
+                  // element resolve by stylesheet order, not by the order they are written here.
+                  //
+                  // N5-20 (SC 2.4.7): the focus indicator is a RING, not a border swap. The open
+                  // card's resting border is already `border-brand-ink`, and focus returns to
+                  // exactly that card when the sheet closes — a `focus-visible:border-brand-ink`
+                  // would have been a no-op on the one card focus lands on most. The ring is
+                  // additive and independent of the border (RowOpenButton's mechanism), and
+                  // `ring-offset-bg` is explicit because these cards sit on the page background,
+                  // not on a surface — Tailwind's un-set offset color is white, which is a white
+                  // halo in dark mode.
+                  "block w-full rounded-xl border p-4 text-left shadow-sm transition-[background-color,border-color,transform] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-ink focus-visible:ring-offset-2 focus-visible:ring-offset-bg active:scale-[.99] " +
+                  (l.refId === openRef ? "border-brand-ink bg-brand-soft" : "border-border bg-surface hover:border-text-3 hover:bg-surface-2")
+                }
               >
                 <div className="flex items-center gap-2">
                   <span className="num text-step-1 text-text-3">{l.refId}</span>

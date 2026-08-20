@@ -43,14 +43,23 @@ export function portalLeadDetailFromRow(row: PartnerLeadRow): PortalLeadDetail {
 /**
  * Find `refId` in ANY cached page of the portal leads list and reshape it.
  *
- * Scans every `["portal-leads", …]` entry (C-41a made that ONE canonical key shape shared by
- * the mobile list, the desktop table and the dashboard preview) because the dialog does not
- * know which page or filter the row was opened from — including from the dashboard, where a
- * partner can now open a lead straight off the preview. A deep link (`?open=<ref>`) with no
- * list cached returns undefined and the dialog falls back to its full skeleton.
+ * Scans every PAGE entry (C-41a made that ONE canonical key shape — `["portal-leads", params]`
+ * — shared by the mobile list, the desktop table and the dashboard preview) because the dialog
+ * does not know which page or filter the row was opened from, including from the dashboard,
+ * where a partner can now open a lead straight off the preview. A deep link (`?open=<ref>`)
+ * with no list cached returns undefined and the dialog falls back to its full skeleton.
+ *
+ * A predicate, not a `queryKey` prefix: a prefix filter is element-wise, so `["portal-leads"]`
+ * also matches PortalShell's nav-badge entry `["portal-leads", "count"]`, whose value is
+ * `{ count }` and carries no rows at all. The optional chaining below happens to survive that
+ * today, which is exactly the problem — the scan is one loosened chain away from reading
+ * `.leads` off the wrong shape. The params object is what makes an entry a page.
  */
 export function portalLeadPlaceholder(qc: QueryClient, refId: string): PortalLeadDetail | undefined {
-  for (const [, page] of qc.getQueriesData<PartnerLeadPage>({ queryKey: ["portal-leads"] })) {
+  const pages = qc.getQueriesData<PartnerLeadPage>({
+    predicate: (q) => q.queryKey[0] === "portal-leads" && typeof q.queryKey[1] === "object" && q.queryKey[1] !== null,
+  });
+  for (const [, page] of pages) {
     const row = page?.leads?.find((l) => l.refId === refId);
     if (row) return portalLeadDetailFromRow(row);
   }

@@ -146,6 +146,15 @@ Exemplars: `src/app/api/uploads/route.ts`, `src/app/api/admin/partners/route.ts`
 - Integration suites self-skip cleanly without env; skip conditions live in
   `beforeAll`/gates, never in `describe`-body construction (the `export-storage`
   lesson). Cloud-pooler runs use `--no-file-parallelism`; CI's ephemeral Postgres runs parallel.
+- A surface that switches records WITHOUT unmounting (a non-modal side panel whose subject
+  changes in place, a master/detail pane, a carousel over records) ships a test asserting the
+  PREVIOUS record's detail-only fields are ABSENT after the switch — not merely that the new
+  record's fields are present. "The new lead is on screen" is satisfied by a surface still
+  carrying the old seller's phone number beside it (PRN-08/PRN-13). Assert the absence on the
+  frame the identity changes, not only after the new detail settles: the transient is where a
+  later `keepPreviousData`-style smoothing puts one record's PII under another's title.
+  Fixtures must therefore give each record DISTINCT values in those fields — a shared fixture
+  value cannot tell "the new record's data" from "the old record's data, still rendered".
 - **A write path whose correctness depends on browser focus semantics carries one
   Playwright case.** jsdom is provably insufficient for the class: it does not fire a
   blur when the focused element is removed, so any "commit on blur + unmount on commit"

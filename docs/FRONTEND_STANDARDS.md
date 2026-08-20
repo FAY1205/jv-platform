@@ -12,6 +12,16 @@ Canonicalizes the frontend patterns this codebase follows. Authority order:
   **adjust-state-during-render** pattern (`data !== seededFrom` guard), never
   `setState`-in-`useEffect` (`react-hooks/set-state-in-effect` is an error).
 - Client state is minimal UI preference state; no new global stores.
+- A record reference that arrives from the **URL** (`?open=<ref>`, a route param handed to a
+  client island) and then becomes part of a client-side **request path** is validated twice:
+  shape-checked at the SEEDING boundary — the component that turns the URL value into state —
+  and `encodeURIComponent`-escaped where it is interpolated into the fetch. The shape check is
+  deliberately loose (a bounded character class, not a second copy of the ref-ID grammar,
+  which would drift); its job is to exclude `../`, `?` and `#`, not to re-derive the format.
+  A server-side gate on the mis-targeted route is a backstop, never the primary control: it
+  lives in a different file, protects a different route, and is one refactor away from no
+  longer being the thing that saved us. `portal-leads-view.tsx` / `portal-lead-dialog.tsx` are
+  the reference pair.
 - Polling is a last resort; the ceiling is the NotificationBell 30s poll, which
   pauses when the tab is hidden and refetches on focus (visibility-aware by design).
 

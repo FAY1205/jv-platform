@@ -28,7 +28,7 @@ const DEFAULT_DIR: Record<PortalLeadSort, "asc" | "desc"> = {
   ref: "asc",
 };
 
-export function LeadsDesktop({ onOpen }: { onOpen: (refId: string) => void }) {
+export function LeadsDesktop({ onOpen, openRef = null }: { onOpen: (refId: string) => void; openRef?: string | null }) {
   const [sort, setSort] = React.useState<PortalLeadSort>("received");
   const [dir, setDir] = React.useState<"asc" | "desc">("desc");
   const [statuses, setStatuses] = React.useState<string[]>([]);
@@ -142,10 +142,23 @@ export function LeadsDesktop({ onOpen }: { onOpen: (refId: string) => void }) {
             </THead>
             <TBody>
               {data!.leads.map((l) => (
-                <Tr key={l.refId} className="hover:bg-surface-2">
+                // N5-20: the record panel is non-modal at this width, so the row it is showing
+                // has to be findable in the table beside it. `aria-current` carries that to AT
+                // and the ref in the panel header names the same lead — the tint is never the
+                // only signal (PRN-14).
+                <Tr
+                  key={l.refId}
+                  aria-current={l.refId === openRef ? "true" : undefined}
+                  className={l.refId === openRef ? "bg-brand-soft" : "hover:bg-surface-2"}
+                >
                   <Td fit>
                     <span className="inline-flex items-center gap-1.5">
-                      <RowOpenButton onClick={() => onOpen(l.refId)}>{l.refId}</RowOpenButton>
+                      {/* N5-30: focus the button BEFORE opening — SidePanel captures its
+                          return-focus target by sampling `document.activeElement` on the open
+                          transition, and whether a mouse-down leaves a button focused is
+                          browser-dependent. Applied here rather than inside RowOpenButton:
+                          that primitive is shared with the admin tables (PR B territory). */}
+                      <RowOpenButton onClick={(e) => { e.currentTarget.focus(); onOpen(l.refId); }}>{l.refId}</RowOpenButton>
                       {l.scoreGroup === "hot" && l.scoreTotal !== null && <HotLeadMark score={l.scoreTotal} />}
                     </span>
                   </Td>
