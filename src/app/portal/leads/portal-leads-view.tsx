@@ -12,6 +12,20 @@ import { LeadsMobile } from "./leads-mobile";
 // the admin leads view). Code-split like the admin LeadDialog (F-56).
 const PortalLeadDialog = dynamic(() => import("./portal-lead-dialog").then((m) => m.PortalLeadDialog), { ssr: false });
 
+/**
+ * The shape a lead reference may have before it is allowed to become a REQUEST PATH SEGMENT.
+ *
+ * `?open=` is attacker-controllable (it arrives in a link) and the ref it carries is
+ * interpolated straight into `/api/portal/leads/<ref>` by the dialog below. Today the
+ * mis-targeted route is gated server-side, so this is defence in depth rather than the
+ * control — but the seeding boundary is the right place to say what a ref IS, because a
+ * server gate somewhere else is one refactor away from not being the thing that saved us.
+ * Deliberately loose (alphanumerics and hyphens, bounded): it has to accept `JV-…` and every
+ * future ref scheme, and its job is to exclude `../`, `?`, `#` and friends — not to be a
+ * second copy of the ref-ID grammar that would drift from the real one.
+ */
+const OPEN_REF_SHAPE = /^[A-Za-z0-9-]{1,32}$/;
+
 export function PortalLeadsView({ initialOpenRef = null }: { initialOpenRef?: string | null }) {
   // C-41a: three-state, not a boolean. The server and the hydration render both say
   // "unresolved", which renders the SAME mobile markup as before (no hydration mismatch) —
@@ -19,7 +33,9 @@ export function PortalLeadsView({ initialOpenRef = null }: { initialOpenRef?: st
   // leads it is about to throw away. The moment the viewport resolves, exactly one list
   // fetches exactly once.
   const viewport = useDesktopState();
-  const [openRef, setOpenRef] = React.useState<string | null>(initialOpenRef);
+  const [openRef, setOpenRef] = React.useState<string | null>(
+    initialOpenRef && OPEN_REF_SHAPE.test(initialOpenRef) ? initialOpenRef : null,
+  );
 
   return (
     <>

@@ -153,7 +153,12 @@ export function LeadsDesktop({ onOpen, openRef = null }: { onOpen: (refId: strin
                 >
                   <Td fit>
                     <span className="inline-flex items-center gap-1.5">
-                      <RowOpenButton onClick={() => onOpen(l.refId)}>{l.refId}</RowOpenButton>
+                      {/* N5-30: focus the button BEFORE opening — SidePanel captures its
+                          return-focus target by sampling `document.activeElement` on the open
+                          transition, and whether a mouse-down leaves a button focused is
+                          browser-dependent. Applied here rather than inside RowOpenButton:
+                          that primitive is shared with the admin tables (PR B territory). */}
+                      <RowOpenButton onClick={(e) => { e.currentTarget.focus(); onOpen(l.refId); }}>{l.refId}</RowOpenButton>
                       {l.scoreGroup === "hot" && l.scoreTotal !== null && <HotLeadMark score={l.scoreTotal} />}
                     </span>
                   </Td>

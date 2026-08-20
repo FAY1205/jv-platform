@@ -82,7 +82,11 @@ export function PortalLeadDialog({ refId, onClose }: { refId: string; onClose: (
 
   const { data, isPending, isPlaceholderData, error, refetch } = useQuery({
     queryKey: ["portal-lead", refId],
-    queryFn: () => apiGet<PortalLeadDetail>(`/api/portal/leads/${refId}`),
+    // `encodeURIComponent`, always: a ref reaches this component from `?open=` as well as from
+    // a row, and an unescaped one is a path segment an attacker helped write. The seeding
+    // boundary (portal-leads-view) shape-checks it too — this is the second half of that pair,
+    // at the point where the string stops being data and becomes a URL.
+    queryFn: () => apiGet<PortalLeadDetail>(`/api/portal/leads/${encodeURIComponent(refId)}`),
     // C-41b: paint the identity the tapped row already carries instead of five skeleton
     // bars. placeholderData, never initialData — see portal-lead-placeholder.
     placeholderData: () => portalLeadPlaceholder(qc, refId),
