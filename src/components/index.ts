@@ -36,7 +36,7 @@ export {
   DropdownMenuLabel,
 } from "./DropdownMenu";
 export { StatusFilterMenu, type StatusFilterMenuProps } from "./StatusFilterMenu";
-export { Pagination, type PaginationProps, PAGE_SIZES, DEFAULT_PAGE_SIZE } from "./Pagination";
+export { Pagination, type PaginationProps, PAGE_SIZES, DEFAULT_PAGE_SIZE, ARROW_BUTTON_CLASS } from "./Pagination";
 export { RowOpenButton, type RowOpenButtonProps } from "./RowOpenButton";
 export { ChartContainer, type ChartContainerProps, ChartTooltip } from "./ChartContainer";
 export { LineChart, type LineChartProps, type LineSeries } from "./LineChart";
@@ -57,6 +57,7 @@ export { ScrollHintFade, useScrollHint } from "./ScrollHint";
 export { Tabs, type TabItem, type TabsProps } from "./Tabs";
 export { Modal, type ModalProps } from "./Modal";
 export { Dialog, type DialogProps } from "./Dialog";
+export { SidePanel, type SidePanelProps } from "./SidePanel";
 export { Tooltip, type TooltipProps } from "./Tooltip";
 export { ToastProvider, useToast } from "./Toast";
 export { Skeleton } from "./Skeleton";

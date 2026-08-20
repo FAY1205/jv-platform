@@ -20,7 +20,14 @@ export interface PaginationProps {
   className?: string;
 }
 
-const arrowBtn = cn(
+/**
+ * The square arrow-button recipe: 32px (comfortably past the WCAG 2.5.8 24px floor on every
+ * pointer), hairline border, brand-ink focus ring, and a real `disabled` treatment for the
+ * data boundaries at the ends of a range. Exported because the N5-04 lead pager is the second
+ * user (FRONTEND_STANDARDS §2 — the second copy becomes the shared recipe); both consumers
+ * render a plain `<button>`, so this is a class string rather than a component.
+ */
+export const ARROW_BUTTON_CLASS = cn(
   "grid h-8 w-8 place-items-center rounded-md border border-border bg-surface text-text-2 outline-none transition-colors",
   "hover:bg-surface-2 focus-visible:ring-1 focus-visible:ring-brand-ink",
   "disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-surface",
@@ -51,7 +58,7 @@ export function Pagination({ page, pageSize, total, onPageChange, onPageSizeChan
           {first}–{last} of {total}
         </span>
         <div className="flex items-center gap-1.5">
-          <button type="button" className={arrowBtn} onClick={() => onPageChange(current - 1)} disabled={current <= 1} aria-label="Previous page">
+          <button type="button" className={ARROW_BUTTON_CLASS} onClick={() => onPageChange(current - 1)} disabled={current <= 1} aria-label="Previous page">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
               <path d="m15 18-6-6 6-6" />
             </svg>
@@ -59,7 +66,7 @@ export function Pagination({ page, pageSize, total, onPageChange, onPageSizeChan
           <span className="num text-sm text-text-2">
             {current} / {totalPages}
           </span>
-          <button type="button" className={arrowBtn} onClick={() => onPageChange(current + 1)} disabled={current >= totalPages} aria-label="Next page">
+          <button type="button" className={ARROW_BUTTON_CLASS} onClick={() => onPageChange(current + 1)} disabled={current >= totalPages} aria-label="Next page">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
               <path d="m9 18 6-6-6-6" />
             </svg>
