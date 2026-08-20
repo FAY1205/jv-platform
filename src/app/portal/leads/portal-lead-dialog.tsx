@@ -5,7 +5,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiGet } from "@/lib/api";
 import { fmtDateTime } from "@/lib/dates";
 import {
-  Dialog,
+  SidePanel,
   Skeleton,
   QueryErrorState,
   NotesPanel,
@@ -20,11 +20,18 @@ import {
 import { googleSearchUrl } from "@/lib/search-links";
 import { portalLeadPlaceholder } from "./portal-lead-placeholder";
 
-// VP-4: the partner-facing lead dialog (mirrors the admin LeadDialog pattern, portal-scoped).
+// VP-4: the partner-facing lead record (mirrors the admin LeadDialog pattern, portal-scoped).
 // Replaces the retired /portal/leads/[ref] PAGE — same data + every feature it had (status
 // change, listing check, status history, your notes) in the grouped layout. Shows ONLY what a
 // partner may see (no routing internals, no other-partner data — PRN-08). "Motivation" is
 // dropped: for Lead Source 1 it is never populated; reason-for-selling carries the content.
+//
+// N5-20: the shell is the non-modal SidePanel, not the centered Dialog — the same primitive the
+// admin record adopted, read-scoped. Content is UNCHANGED (fields stay plain text: no inline
+// editing here, and no pager — the portal list is its own working set). What the shell changes:
+// below 768px the panel is a full-bleed MODAL sheet, which is the portal's primary reality, and
+// at ≥768px it is non-modal, so the list behind stays clickable and a tap on another row
+// SWITCHES this record in place instead of closing and reopening (see `resetKey`/`key` below).
 
 // Exported for C-41b: portal-lead-placeholder.ts builds the partial the dialog paints while
 // the real detail loads (type-only import there, so no runtime cycle).
@@ -59,9 +66,27 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 
 export function PortalLeadDialog({ refId, onClose }: { refId: string; onClose: () => void }) {
   const qc = useQueryClient();
+  // N5-20 / N5-30 (A11Y-03): the panel switches records without unmounting and deliberately
+  // does NOT move focus on the switch (that is what keeps clicking a row behind it usable), so
+  // the change is otherwise silent to a screen reader. Starts EMPTY and is only filled on a
+  // switch: the panel's live region is mounted for its whole life, and a region that mounts
+  // with text already in it announces nothing — on the first open the dialog role and its
+  // title (the ref) already say which lead this is. Adjusting state during render, the
+  // `seeded` idiom used across this app.
+  const [prevRef, setPrevRef] = React.useState(refId);
+  const [announcement, setAnnouncement] = React.useState("");
+  if (prevRef !== refId) {
+    setPrevRef(refId);
+    setAnnouncement(`Now showing lead ${refId}`);
+  }
+
   const { data, isPending, isPlaceholderData, error, refetch } = useQuery({
     queryKey: ["portal-lead", refId],
-    queryFn: () => apiGet<PortalLeadDetail>(`/api/portal/leads/${refId}`),
+    // `encodeURIComponent`, always: a ref reaches this component from `?open=` as well as from
+    // a row, and an unescaped one is a path segment an attacker helped write. The seeding
+    // boundary (portal-leads-view) shape-checks it too — this is the second half of that pair,
+    // at the point where the string stops being data and becomes a URL.
+    queryFn: () => apiGet<PortalLeadDetail>(`/api/portal/leads/${encodeURIComponent(refId)}`),
     // C-41b: paint the identity the tapped row already carries instead of five skeleton
     // bars. placeholderData, never initialData — see portal-lead-placeholder.
     placeholderData: () => portalLeadPlaceholder(qc, refId),
@@ -73,7 +98,15 @@ export function PortalLeadDialog({ refId, onClose }: { refId: string; onClose: (
   const onTaskChanged = () => qc.invalidateQueries({ queryKey: ["portal-lead", refId] });
 
   return (
-    <Dialog open onClose={onClose} size="lg" title={<span className="num">{refId}</span>}>
+    <SidePanel
+      open
+      onClose={onClose}
+      // N5-20: the panel switches records in place, so its per-open state (the captured opener
+      // it returns focus to) has to reset on the REF — `open` never flips here.
+      resetKey={refId}
+      statusMessage={announcement}
+      title={<span className="num">{refId}</span>}
+    >
       {isPending ? (
         <div className="flex flex-col gap-3">
           {Array.from({ length: 5 }).map((_, i) => (
@@ -83,7 +116,11 @@ export function PortalLeadDialog({ refId, onClose }: { refId: string; onClose: (
       ) : error || !data ? (
         <QueryErrorState title="Couldn't load this lead" error={error} description={(error as Error)?.message ?? "Not found."} onRetry={() => refetch()} />
       ) : (
-        <div className="flex flex-col gap-5">
+        // N5-20: keyed on the ref because the panel no longer unmounts between records. The
+        // sections below hold their own per-record DRAFT state (NotesPanel's composer,
+        // TasksPanel's add/edit forms) that a plain prop change would carry across a switch —
+        // a note typed against one lead must never be sitting in the composer of the next.
+        <div key={refId} className="flex flex-col gap-5">
           {/* Status — the partner's primary action, up top and editable inline. */}
           <div className="flex items-center gap-3 rounded-lg border border-border-soft bg-surface-2 px-4 py-3">
             <span className="text-step-1 font-semibold uppercase tracking-wide text-text-3">Lead status</span>
@@ -172,6 +209,6 @@ export function PortalLeadDialog({ refId, onClose }: { refId: string; onClose: (
           </div>
         </div>
       )}
-    </Dialog>
+    </SidePanel>
   );
 }

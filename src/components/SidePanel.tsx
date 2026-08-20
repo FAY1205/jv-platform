@@ -121,7 +121,18 @@ export function SidePanel({
   // C-65: the same bottom edge-fade recipe the Dialog body uses — one implementation.
   const { ref: bodyRef, more: moreBelow } = useScrollHint<HTMLDivElement>(true, "y");
 
-  const sheet = useMediaQuery(SHEET_QUERY);
+  // MODALITY IS FROZEN FOR THE LIFE OF ONE OPEN. Radix picks DialogContentModal vs
+  // DialogContentNonModal off `modal` — two different component TYPES at one JSX position — so
+  // a `modal` change while the panel is open REMOUNTS Content: new DOM node, focus yanked back
+  // to the opener by the outgoing content's close-autofocus, scroll position and every draft in
+  // the body gone. A phone rotating across 768px with the record open does exactly that, and
+  // the portal is phone-first. So the query is only re-read while CLOSED (the same
+  // adjust-during-render idiom as `resetKey`/`opener` above). The cost is deliberate and
+  // small: a rotation mid-open keeps the modality it opened with until it closes, while the
+  // LAYOUT (Tailwind's md: breakpoint) follows the viewport as it always did.
+  const sheetNow = useMediaQuery(SHEET_QUERY);
+  const [sheet, setSheet] = React.useState(sheetNow);
+  if (!open && sheet !== sheetNow) setSheet(sheetNow);
 
   return (
     <RadixDialog.Root open={open} modal={sheet} onOpenChange={(next) => { if (!next) requestClose(); }}>
