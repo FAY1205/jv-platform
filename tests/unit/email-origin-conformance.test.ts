@@ -78,18 +78,23 @@ describe("C-101: emailed links are built from env.APP_URL, never the request Hos
     expect(emailRoutes.length).toBeGreaterThan(12);
   });
 
-  it("C-101: the detector still fires on the exact expressions this fix removed", () => {
+  it("C-101: the detector still fires on the shipped shapes, and on the ones the second regex exists for", () => {
     // The guard is only as good as its patterns, and a pattern that matches nothing fails silently
-    // forever. These are the literal lines that shipped the vulnerability — verbatim from the
-    // pre-fix routes — so a regex edit that stops catching them turns this test red, not quiet.
-    const historical = [
-      'const origin = new URL(request.url).origin;', // auth/reset/request, auth/signup, auth/signup/resend
+    // forever. A regex edit that stops catching any of these turns this test red, not quiet.
+
+    // SHIPPED: the literal lines that carried the vulnerability, verbatim from the pre-fix routes.
+    const shipped = [
+      'const origin = new URL(request.url).origin;', // auth/reset/request, auth/signup, auth/signup/resend, both team-invite routes
       'const origin = new URL(req.url).origin;', // uploads
       'const origin = new URL(request.url).origin;\n  await notifyInvite(partner.email, `${origin}/portal/login`);', // partners invite
-      'const proto = request.headers.get("x-forwarded-proto");', // the proxy-reconstruction shape
-      'const host = headers().get("host");', // the raw Host shape
     ];
-    for (const line of historical) {
+    // PROSPECTIVE: never present in this codebase — these are the Host-header shapes the second
+    // regex exists to pre-empt, i.e. the other way the same origin is reconstructed behind a proxy.
+    const prospective = [
+      'const proto = request.headers.get("x-forwarded-proto");',
+      'const host = headers().get("host");',
+    ];
+    for (const line of [...shipped, ...prospective]) {
       expect(derivesRequestOrigin(line), `detector no longer flags: ${line}`).toBe(true);
     }
 
@@ -115,18 +120,52 @@ describe("C-101: emailed links are built from env.APP_URL, never the request Hos
     }
   });
 
-  it("C-101: the digest/reminder entrypoints pass env.APP_URL as the link base", () => {
-    // The uploads route's links reach email one hop away (route → runUpload → enqueueRunDigests),
-    // so the whole-file rule above would not see a base URL smuggled through that hop. These are
-    // the only two producers of a `*BaseUrl` argument; both must name env.APP_URL, which also
-    // keeps upload-time digests identical to the release cron's.
-    const sources = ["src/modules/run/run-upload.ts", "src/app/api/cron/drain-outbox/route.ts"];
-    for (const rel of sources) {
-      const text = readFileSync(join(__dirname, "..", "..", ...rel.split("/")), "utf8");
-      const bases = [...text.matchAll(/\b(?:portalBaseUrl|appBaseUrl):\s*([^,}\n]+)/g)].map((m) => m[1].trim());
-      expect(bases.length, `${rel}: expected a *BaseUrl argument`).toBeGreaterThan(0);
-      for (const base of bases) expect(base, `${rel} passes a non-canonical link base`).toBe("env.APP_URL");
+  it("C-101: every *BaseUrl argument anywhere in src is env.APP_URL or a traced pass-through", () => {
+    // Some links reach email one hop away from the request — uploads is `route → runUpload →
+    // enqueueRunDigests`, and the cron's `releaseDueImports` / `remindDueTasks` never match
+    // EMAIL_BUILDER at all — so the whole-file rule above cannot see a base URL smuggled through
+    // that hop. This leg DISCOVERS the producers instead of listing them (audit-security F-2): a
+    // future `sendWeeklyRollup(db, { appBaseUrl: … })` is covered the day it is written.
+    //
+    // Two kinds of value are legal, and only two:
+    //   • `env.APP_URL` — a TERMINAL producer, the canonical origin.
+    //   • a PASS-THROUGH that forwards its own function's identically-named option
+    //     (`opts.portalBaseUrl`, `input.appBaseUrl`, `opts.baseUrl`, …). It decides nothing; the
+    //     base is chosen by whoever called it, and that caller is itself checked by this same scan.
+    //   • `unsubBase`, one named local in outbox.ts, asserted below to be exactly env.APP_URL.
+    const TERMINAL = "env.APP_URL";
+    const PASS_THROUGH = /^(?:opts|input|args|params)\.(?:portalBaseUrl|appBaseUrl|baseUrl)$/;
+    const SRC = join(__dirname, "..", "..", "src");
+
+    const producers: { where: string; value: string }[] = [];
+    for (const file of walkSrc(SRC)) {
+      const text = readFileSync(file, "utf8");
+      for (const m of text.matchAll(/\b(?:portalBaseUrl|appBaseUrl|baseUrl):\s*([^,;}\n]+)/g)) {
+        const value = m[1].trim();
+        // Skip TYPE positions (`portalBaseUrl: string`, interface fields, inline option shapes) —
+        // a declaration names no origin. Only value positions can smuggle one.
+        if (/^(?:string|readonly string|URL)\b/.test(value)) continue;
+        producers.push({ where: `${relative(SRC, file)}: ${value}`, value });
+      }
     }
+
+    const offenders = producers
+      .filter((p) => p.value !== TERMINAL && !PASS_THROUGH.test(p.value) && p.value !== "unsubBase")
+      .map((p) => p.where);
+    expect(
+      offenders,
+      "A link base that is neither env.APP_URL nor a traced pass-through. Emailed links must be " +
+        `built from the canonical origin (C-101):\n${offenders.join("\n")}`,
+    ).toEqual([]);
+
+    // Non-vacuous: the scan must actually be finding link-base arguments (12 today).
+    expect(producers.length).toBeGreaterThan(8);
+    // …and at least one must be a terminal producer, or every one is a pass-through from nowhere.
+    expect(producers.some((p) => p.value === TERMINAL)).toBe(true);
+
+    // Close the one named-local loop the allowance above opens.
+    const outbox = readFileSync(join(SRC, "modules", "notify", "outbox.ts"), "utf8");
+    expect(outbox, "outbox.ts's unsubBase must be env.APP_URL").toMatch(/const unsubBase = env\.APP_URL;/);
   });
 
   it("C-101: runUpload takes no caller-supplied origin", () => {

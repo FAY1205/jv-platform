@@ -58,6 +58,9 @@ it reaches partners) — hence this ADR.
   (which would silently stop digest emails) is detected — this is NOT covered by the `/api/health`
   uptime alert. **`APP_URL` must be set in production** (release-cron email links); the app refuses
   to boot in production if it is left at the localhost default.
+  _Superseded in part by C-101:_ `APP_URL` is no longer only the release cron's concern — **every**
+  emailed link (reset, signup verify, both invite kinds, digest CTAs) is now built from it, and it
+  must be a bare origin (no trailing slash, path, or query).
 - **Trade-off:** ~10–15 min delay before partners are notified (negligible for real estate).
 - **Reopened by:** changing the window length, or a per-lead delete path (explicitly dropped here).
 - **Follow-up (deferred WP candidates):** centralize the hold gate inside the `scope.ts` builders

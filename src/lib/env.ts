@@ -32,7 +32,25 @@ const EnvSchema = z.object({
   // live request (C-101, CWE-644: the request Host is attacker-controlled input, and an emailed
   // link is not a response the forger receives, so no same-request check would defend it).
   // Set this to the production URL at go-live; the refine below refuses to boot production without it.
-  APP_URL: z.url().default("http://localhost:3000"),
+  //
+  // Normalized to a BARE ORIGIN, in this order (audit-security F-1):
+  //   1. strip trailing slashes FIRST — every consumer concatenates `${env.APP_URL}/path`, so a
+  //      pasted "https://app.example.com/" would mint "//reset?token=…" (a protocol-relative URL
+  //      that resolves to the host "reset"), and "http://localhost:3000/" would ALSO slip past the
+  //      production guard below, which is an exact string comparison. One transform closes both.
+  //   2. then refuse anything that is not a bare origin. A path/query/fragment here would be
+  //      silently duplicated into every emailed link; failing at boot is the loud alternative.
+  APP_URL: z
+    .url()
+    .default("http://localhost:3000")
+    .transform((v) => v.replace(/\/+$/, ""))
+    .refine(
+      (v) => {
+        const u = new URL(v);
+        return u.pathname === "/" && u.search === "" && u.hash === "";
+      },
+      { message: "APP_URL must be a bare origin (scheme + host [+ port]) — no path, query, or fragment." },
+    ),
   DATABASE_URL: optionalString,
   SUPABASE_URL: optionalString.pipe(z.url().optional()),
   SUPABASE_ANON_KEY: optionalString,
