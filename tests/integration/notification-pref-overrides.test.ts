@@ -7,7 +7,7 @@ import type { ScopeContext } from "@/lib/scope";
 import type * as ScopeContextModule from "@/lib/scope-context";
 import { jsonRequest, scopeContextMock, setRouteScope } from "./_route-harness";
 import { enqueueRunDigests, notifyStatusChange, notifyLeadAssigned } from "@/modules/notify/outbox";
-import { DEFAULT_NOTIFICATION_PREFS, NOTIFICATION_EVENTS, mergeNotificationPrefs } from "@/modules/notify/prefs";
+import { NOTIFICATION_EVENTS } from "@/modules/notify/prefs";
 import {
   ensureSubjectToken,
   loadOverridesFor,
@@ -101,7 +101,6 @@ suite("WP-NF2 PR A: per-subject prefs + tokenized unsubscribe", () => {
       portalBaseUrl: "https://app.test",
       adminEmails: ["admin@nf2.test", "ops-mailbox@nf2.test"],
       adminUserId: id.admin,
-      prefs: DEFAULT_NOTIFICATION_PREFS,
     });
 
   beforeAll(async () => {
@@ -317,24 +316,23 @@ suite("WP-NF2 PR A: per-subject prefs + tokenized unsubscribe", () => {
   });
 
   it("NTF-10/NTF-14: notifyStatusChange emails PER SEAT, each with its own token", async () => {
-    await db
-      .insert(schema.settings)
-      .values({ tenantId: id.tenantA, key: "notification_prefs", value: mergeNotificationPrefs({ admin: { status_change: { email: true, inApp: true } } }) });
-    try {
-      await notifyStatusChange(db, adminScope(), { leadRef: "LD-26-90001", status: "contacted" });
-      const rows = (await outboxRows()).filter((r) => r.kind === "status_change");
-      expect(rows.map((r) => r.toAddress).sort()).toEqual(["admin2@nf2.test", "admin@nf2.test"]);
-      const tokens = await db.select().from(overrides).where(eq(overrides.tenantId, id.tenantA));
-      for (const userId of [id.admin, id.admin2]) {
-        const row = rows.find((r) => r.toAddress === (userId === id.admin ? "admin@nf2.test" : "admin2@nf2.test"))!;
-        expect(row.html).toContain(tokens.find((t) => t.userId === userId)!.tokenId);
-      }
-    } finally {
-      await db.delete(schema.settings).where(eq(schema.settings.tenantId, id.tenantA));
+    // WP-NF2b: status_change email defaults OFF and there is no workspace matrix to switch it
+    // on, so BOTH seats opt themselves in — which is also the stronger setup: two independent
+    // overlays proving the emit resolved each recipient separately.
+    for (const userId of [id.admin, id.admin2]) {
+      await saveSubjectOverride(db, id.tenantA, { userId }, { events: { status_change: { email: true, inApp: true } } });
+    }
+    await notifyStatusChange(db, adminScope(), { leadRef: "LD-26-90001", status: "contacted" });
+    const rows = (await outboxRows()).filter((r) => r.kind === "status_change");
+    expect(rows.map((r) => r.toAddress).sort()).toEqual(["admin2@nf2.test", "admin@nf2.test"]);
+    const tokens = await db.select().from(overrides).where(eq(overrides.tenantId, id.tenantA));
+    for (const userId of [id.admin, id.admin2]) {
+      const row = rows.find((r) => r.toAddress === (userId === id.admin ? "admin@nf2.test" : "admin2@nf2.test"))!;
+      expect(row.html).toContain(tokens.find((t) => t.userId === userId)!.tokenId);
     }
   });
 
-  it("NTF-10: a partner seat can OPT IN to an email the tenant default has off", async () => {
+  it("NTF-10: a partner seat can OPT IN to an email the shipped default has off", async () => {
     // assigned_lead defaults { email: false, inApp: true }.
     await notifyLeadAssigned(db, adminScope(), { leadRef: "LD-26-90001", partnerId: id.partner });
     expect((await outboxRows()).filter((r) => r.kind === "assigned_lead")).toHaveLength(0);

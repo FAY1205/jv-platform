@@ -12,12 +12,17 @@ import { NotificationsPage } from "@/components/NotificationsPage";
 //
 // `reading` width: a single-column list that is READ, not scanned — the same budget /tasks takes.
 // The whole page body is the shared NotificationsPage, identical to the portal's.
+//
+// WP-NF2b: `preferencesHref` makes the Preferences affordance a LINK to Settings → Notifications
+// (which is now the personal preferences page, reachable by every admin-stream seat) instead of
+// an inline card. Two editors for one setting is one too many; the portal keeps its inline card
+// because a partner cannot enter admin Settings at all.
 
 function NotificationsBody() {
   usePageHeader({ title: "Notifications" });
   return (
     <PageContainer size="reading">
-      <NotificationsPage />
+      <NotificationsPage preferencesHref="/settings/notifications" />
     </PageContainer>
   );
 }

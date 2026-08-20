@@ -6,6 +6,11 @@ import { NotificationsPage } from "@/components/NotificationsPage";
 // (nothing on it is role-aware), inside the portal chrome that PortalShell wraps every
 // /portal/* route with.
 //
+// WP-NF2b: no `preferencesHref`, deliberately — the preferences card stays INLINE here. The
+// admin page links its readers to Settings → Notifications instead, and a partner cannot enter
+// admin Settings, so this page is their whole self-serve surface (plus the tokenized
+// unsubscribe link in every notification email).
+//
 // The `md:hidden` <h1> mirrors the other mobile portal pages (portal/tasks "Your tasks",
 // ActivityMobile "Your activity"): the mobile top bar carries no page title, so the page
 // supplies one. At md+ the desktop rail top bar shows "Notifications" (portal-nav.ts), so the

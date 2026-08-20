@@ -743,9 +743,10 @@ export const emailOutbox = pgTable(
 // row — a USER seat (user_id) or a PARTNER ORG (partner_id, which gates the org-addressed
 // partners.email digests/alerts) — enforced by the migration 0057 CHECK
 // num_nonnulls(user_id, partner_id) = 1 plus the two partial unique indexes there.
-// `value` is the NTF-10 overlay applied FIELD-WISE over the tenant-level
-// settings.notification_prefs row; `allEmailsOff` is the email kill switch and never
-// touches in-app. `token_id`/`token_secret` are the split unsubscribe capability
+// `value` is the NTF-10 overlay applied FIELD-WISE over the CODE DEFAULTS
+// (DEFAULT_NOTIFICATION_PREFS — WP-NF2b retired the tenant settings.notification_prefs layer
+// that used to sit between them, so this row is the only stored preference there is);
+// `allEmailsOff` is the email kill switch and never touches in-app. `token_id`/`token_secret` are the split unsubscribe capability
 // (NTF-13) — the secret half is compared with timingSafeEqual, never `===`.
 // Server-managed (service role); deny-by-default RLS, the email_outbox 0008 pattern.
 export const notificationPrefOverrides = pgTable(

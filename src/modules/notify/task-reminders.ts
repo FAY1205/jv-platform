@@ -8,7 +8,7 @@ import { taskVisibleTo } from "../tasks/tasks";
 import { enqueueEmail } from "./outbox";
 import { createNotification } from "./notifications";
 import { buildTaskDueReminder } from "./digests";
-import { loadNotificationPrefs, resolvePref, streamPrefRole } from "./prefs";
+import { streamPrefRole } from "./prefs";
 import { ensureSubjectToken, loadOverridesFor, loadTokensFor, resolveEffectiveChannel } from "./pref-overrides";
 import { buildUnsubscribeLinks } from "./unsubscribe";
 import type { UnsubscribeLinks } from "./email-template";
@@ -89,23 +89,22 @@ export async function remindDueTasks(db: DB, opts: RemindDueTasksOptions): Promi
   // whose own sweep runs long. The remainder is picked up next tick.
   if (opts.deadlineMs !== undefined && clockMs() >= opts.deadlineMs) return { reminded: 0, retired: 0 };
 
-  // Prefs are per tenant (NTF-05) — one load for the whole sweep. userId is unused by the
-  // settings read; releaseDueImports builds the same system scope.
-  const systemScope: ScopeContext = { tenantId: opts.tenantId, role: "admin", userId: opts.tenantId };
-  const prefs = await loadNotificationPrefs(db, systemScope);
-
-  // NTF-09 (WP-NF1 D5): a fully-muted tenant costs ONE prefs read per tick, not a due select
-  // plus two visibility queries per task. Since a muted task is no longer consumed (see the
-  // per-task skip below), the candidate set no longer drains itself, so without this early-out
-  // a tenant that switched task_due off entirely would be re-probed at full cost forever.
-  // Both STREAMS must be off: the admin bucket serves admin/member/viewer (streamPrefRole).
-  const adminCh = resolvePref(prefs, "admin", "task_due");
-  const partnerCh = resolvePref(prefs, "partner", "task_due");
-  const muted = !adminCh.inApp && !adminCh.email && !partnerCh.inApp && !partnerCh.email;
-  // Orphan retirement (C-14) also pauses while muted — deliberate: the retirement heads-up
-  // exists to get an undeliverable nudge re-assigned, and there is no nudge to deliver.
-  if (muted) return { reminded: 0, retired: 0 };
-
+  // WP-NF2b (owner decision 2026-08-20): the NTF-09 TENANT-LEVEL EARLY-OUT IS GONE, because the
+  // thing it read is gone. There is no workspace mute any more — a tenant cannot switch task_due
+  // off for everyone — so there is nothing this sweep could learn from one cheap read that would
+  // let it skip the tenant. Muting is per SEAT now, and a seat's overlay is only knowable once
+  // the candidate set is resolved.
+  //
+  // This DISSOLVES the deliberate asymmetry the old comment flagged (deferred-for-owner item 8):
+  // the tenant row used to be the ONE ceiling a user overlay could not widen, so a seat that
+  // opted INTO task-due email in a fully-muted tenant was silently ignored here while every
+  // other emit honoured the same opt-in. Now every leg resolves the same way everywhere:
+  // shipped default ⊕ that recipient's own overlay.
+  //
+  // Cost: a tenant whose every seat has muted task_due pays the due select + the recipient
+  // resolution per tick instead of one settings read. Bounded and acceptable — the due select is
+  // indexed and `limit`ed, and the two batch loads below (overlays + tokens) are still ONE query
+  // each for the whole tick, so the per-task work stays in memory.
   const due = await db
     .select({
       id: schema.leadTasks.id,
@@ -189,23 +188,19 @@ export async function remindDueTasks(db: DB, opts: RemindDueTasksOptions): Promi
         logError("task_reminder_no_visible_recipient", { tenantId: opts.tenantId, taskId: task.id });
         continue;
       }
-      // NTF-10: the recipient's own overlay, over the tenant default. The tenant-level early-out
-      // above stays (NTF-09): a tenant that muted task_due on BOTH legs for BOTH streams mutes
-      // the sweep entirely — a cron that pays per tenant per tick cannot afford to load a whole
-      // candidate set just to discover a seat has opted back in. That ceiling is the ONE place
-      // an overlay cannot widen a leg, and it is deliberate.
+      // WP-NF2b: the recipient's OWN overlay over the shipped default, and nothing else — this
+      // is now the only gate on the nudge, for every recipient, with no ceiling above it.
       const recipientRole = streamPrefRole(recipient.role);
-      const channel = resolveEffectiveChannel(prefs, overrides.get(recipient.id) ?? null, recipientRole, "task_due");
+      const channel = resolveEffectiveChannel(overrides.get(recipient.id) ?? null, recipientRole, "task_due");
       // NTF-09 (WP-NF1 D5) — owner-directed 2026-08-19, INVERTING the earlier pr-reviewer F-2
       // decision recorded here ("consume it anyway; the nudge decision was made and spent").
       // With every channel off there is no nudge to spend: burning the one-shot means that a
-      // tenant who turns task_due back on the next day never hears about the tasks that came
+      // recipient who turns task_due back on the next day never hears about the tasks that came
       // due while it was off — silently, and unrecoverably, since reminded_at is terminal.
       // So: SKIP WITHOUT CLAIMING. No reminded_at stamp, no reminder_attempts increment (this
       // is not an orphan — the recipient resolved fine, so retiring it would mis-fire the
       // admin heads-up), not counted as reminded. The task stays eligible and the one-shot
-      // fires on the first tick after a channel is switched back on. The tenant-level early-out
-      // above keeps the fully-muted case from paying for that eligibility every tick.
+      // fires on the first tick after that seat switches a channel back on.
       if (!channel.inApp && !channel.email) continue;
 
       // NTF-14: resolve the recipient's unsubscribe links BEFORE opening the claim transaction.

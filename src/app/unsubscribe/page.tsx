@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { Card, CardBody, AuthCardHeader } from "@/components";
 import { APP_NAME } from "@/lib/app";
 import { NOTIFICATION_EVENTS } from "@/modules/notify/prefs";
@@ -67,6 +68,28 @@ export default async function UnsubscribePage({
               }
             />
           )}
+          {/* WP-NF2b: the way BACK. This card can only turn one thing off; the full per-event
+              controls live in the app, and a reader who wanted "email me less", not "email me
+              nothing", needs somewhere to go from here.
+
+              Destination is `/notifications` (the page that owns the preferences entry point for
+              both streams). Signed out, the proxy redirects to /login with `?next=/notifications`
+              and `safeNextPath` returns the reader there after sign-in — the destination is
+              preserved, which is why this is not just a link to the app root.
+
+              KNOWN GAP (candidate, recorded in the WP notes): the proxy picks the login SCREEN by
+              path prefix, so a PARTNER who is signed out lands on the admin password screen
+              rather than the portal OTP one, and a signed-IN partner is bounced by the (admin)
+              layout to /portal/dashboard (their bell's "View all" reaches the portal page from
+              there). Their in-mail control — the button above — is unaffected either way. */}
+          <p className="mt-5 border-t border-border-soft pt-4 text-step-1 text-text-3">
+            <Link
+              href="/notifications"
+              className="rounded-sm underline underline-offset-2 outline-none transition-colors hover:text-text-2 focus-visible:ring-1 focus-visible:ring-brand-ink"
+            >
+              Manage all notification preferences
+            </Link>
+          </p>
         </CardBody>
       </Card>
     </main>

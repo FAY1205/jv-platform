@@ -6,7 +6,7 @@ import { randomUUID } from "node:crypto";
 import * as schema from "@/db/schema";
 import { enqueueRunDigests, notifyStatusChange } from "@/modules/notify/outbox";
 import { listNotifications, unreadCount, markRead } from "@/modules/notify/notifications";
-import { DEFAULT_NOTIFICATION_PREFS, mergeNotificationPrefs } from "@/modules/notify/prefs";
+import { saveSubjectOverride } from "@/modules/notify/pref-overrides";
 import { redactLeadCommunications } from "@/modules/retention/redact-lead-comms";
 import { REDACTED_NOTIFICATION_TITLE } from "@/modules/retention/purge";
 import type { ScopeContext } from "@/lib/scope";
@@ -27,7 +27,7 @@ suite("WP-029: notification center + prefs (NTF-04/05)", () => {
     const t = await db.select({ id: schema.tenants.id }).from(schema.tenants).where(eq(schema.tenants.slug, SLUG));
     const tids = t.map((x) => x.id);
     if (tids.length === 0) return;
-    for (const tbl of [schema.notifications, schema.emailOutbox, schema.settings, schema.leads, schema.uploads, schema.users, schema.partners]) {
+    for (const tbl of [schema.notifications, schema.emailOutbox, schema.notificationPrefOverrides, schema.settings, schema.leads, schema.uploads, schema.users, schema.partners]) {
       await db.delete(tbl).where(inArray(tbl.tenantId, tids));
     }
     await db.delete(schema.tenants).where(inArray(schema.tenants.id, tids));
@@ -67,7 +67,6 @@ suite("WP-029: notification center + prefs (NTF-04/05)", () => {
       portalBaseUrl: "https://app.test",
       adminEmails: ["admin@t.test"],
       adminUserId: adminScope.userId,
-      prefs: DEFAULT_NOTIFICATION_PREFS,
     });
 
     const partnerNotifs = (await listNotifications(partnerScope)).notifications;
@@ -85,16 +84,19 @@ suite("WP-029: notification center + prefs (NTF-04/05)", () => {
     expect(await unreadCount(partnerScope)).toBe(0);
   });
 
-  it("NTF-05: with the partner's in-app channel off, no partner notification is created", async () => {
+  it("NTF-05: with the partner SEAT's in-app channel off, no partner notification is created", async () => {
+    // WP-NF2b: the channel is a per-SEAT overlay now (there is no workspace matrix to pass in),
+    // so the seat itself switches its bell off for this event and keeps its email leg.
     await db.delete(schema.notifications).where(eq(schema.notifications.tenantId, partnerScope.tenantId));
-    const prefs = mergeNotificationPrefs({ partner: { new_leads: { email: true, inApp: false } } });
+    await saveSubjectOverride(db, partnerScope.tenantId, { userId: partnerScope.userId }, {
+      events: { new_leads: { email: true, inApp: false } },
+    });
     await enqueueRunDigests(db, adminScope, {
       uploadRef: "IM-26-020",
       summary,
       portalBaseUrl: "https://app.test",
       adminEmails: [],
       adminUserId: adminScope.userId,
-      prefs,
     });
     expect((await listNotifications(partnerScope)).notifications).toHaveLength(0);
   });

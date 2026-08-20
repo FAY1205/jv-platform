@@ -407,6 +407,13 @@
       "when": 1787154796243,
       "tag": "0057_fair_starjammers",
       "breakpoints": true
+    },
+    {
+      "idx": 58,
+      "version": "7",
+      "when": 1787241196243,
+      "tag": "0058_retire_notification_prefs_setting",
+      "breakpoints": true
     }
   ]
 }

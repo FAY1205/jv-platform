@@ -70,6 +70,30 @@ describe("SettingsNav", () => {
     }
   });
 
+  it("WP-NF2b: Notifications stays visible with EVERY capability denied — Team is the only hidden item", () => {
+    // Load-bearing, and easy to break by accident. /settings/notifications is now the PERSONAL
+    // notification-preferences page (ADR-0053): it edits only the caller's own overlay through
+    // the un-gated /api/me/notification-prefs, so every admin-stream seat — member and viewer
+    // included — must be able to reach it. Nothing in the page or the route enforces that; it
+    // holds because the hub gates on the PRN-13 STREAM (the `(admin)` route group) rather than
+    // on tier, and because this nav item carries no `requires`.
+    //
+    // So: with `canDo` denying everything — the viewer floor — the item must still render in
+    // BOTH nav renders, while Team (the §6 whole-route exception, which genuinely requires
+    // team.manage) must not. Adding `requires:` to the Notifications item would strand every
+    // member/viewer seat with no way to turn off their own email; this fails if someone does.
+    canDo.mockReturnValue(false);
+    try {
+      render(<SettingsNav />);
+      const items = screen.getAllByRole("link", { name: "Notifications" });
+      expect(items).toHaveLength(2); // pill strip + grouped sidebar
+      for (const link of items) expect(link).toHaveAttribute("href", "/settings/notifications");
+      expect(screen.queryByRole("link", { name: "Team" })).toBeNull();
+    } finally {
+      canDo.mockReturnValue(true);
+    }
+  });
+
   it("UX5-01b: the platform-owner Invitations item reaches both renders", () => {
     const { container } = render(<SettingsNav isPlatformOwner />);
     expect(screen.getAllByRole("link", { name: "Invitations" })).toHaveLength(2);

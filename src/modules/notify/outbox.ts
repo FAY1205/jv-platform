@@ -11,7 +11,7 @@ import { resolveEmailTransport } from "./transport";
 import { renderEmailDocument, escapeHtml, EMAIL_COLORS, EMAIL_FONTS, type UnsubscribeLinks } from "./email-template";
 import { buildPartnerDigest, buildAdminRunSummary, buildPartnerHotAlert, buildAdminHotAlert, type PartnerDigestLead, type HotAlertLead } from "./digests";
 import { createNotification } from "./notifications";
-import { resolvePref, loadNotificationPrefs, DEFAULT_NOTIFICATION_PREFS, type NotificationPrefs, type NotifEvent } from "./prefs";
+import { resolvePref, type NotifEvent } from "./prefs";
 import {
   loadOverridesFor,
   loadPartnerOverridesFor,
@@ -229,9 +229,6 @@ export interface EnqueueRunDigestsInput {
   adminEmails?: string[];
   /** The acting admin's user id — target for their in-app run notification (NTF-04). */
   adminUserId?: string;
-  /** Gates email vs in-app per role/event (NTF-05). Absent = the shared DEFAULT_NOTIFICATION_PREFS
-   *  for BOTH channels (WP-NF1 D8) — the old asymmetric "email all, in-app never" fallback is gone. */
-  prefs?: NotificationPrefs;
   /** Which recipients to notify: "all" (default), "admin" only (at import), "partner" only (at release). */
   audience?: "all" | "admin" | "partner";
 }
@@ -239,8 +236,9 @@ export interface EnqueueRunDigestsInput {
 /**
  * Fan out a run's notifications (NTF-01/02/04/05). Per-partner digests go ONLY to
  * partners who received new leads in this run (newly-inserted leads carry this
- * upload_id). Email is gated by prefs (email on by default); in-app notifications
- * are created for the partner's / admin's user when the in-app channel is on.
+ * upload_id). Email is gated by the shipped defaults ⊕ each recipient's own overlay
+ * (WP-NF2b); in-app notifications are created for the partner's / admin's user when the
+ * in-app channel is on.
  * Returns the number of emails enqueued.
  */
 export async function enqueueRunDigests(
@@ -249,16 +247,10 @@ export async function enqueueRunDigests(
   input: EnqueueRunDigestsInput,
 ): Promise<number> {
   const audience = input.audience ?? "all";
-  // WP-NF1 D8: SYMMETRIC no-prefs fallback. Both channels resolve against the shared defaults
-  // instead of hardcoding email=true / inApp=false. Email behavior is unchanged (every event this
-  // path serves defaults email-on, which is what the old `!input.prefs ||` meant); the in-app
-  // channel is no longer hard-false when a caller omits prefs. Belt-and-braces: every live call
-  // site (enqueueRunDigests from run-upload / releaseDueImports) passes prefs today.
-  const prefs = input.prefs ?? DEFAULT_NOTIFICATION_PREFS;
-  // The tenant-only email gate. It survives NTF-10 for exactly one case: an env-allowlist
+  // The DEFAULTS-only email gate. It survives NTF-10/NF2b for exactly one case: an env-allowlist
   // address that resolves to no seat, and therefore has no overlay to consult (§10.3). Every
-  // other leg in this function now resolves through `resolveEffectiveChannel`.
-  const emailOn = (role: "admin" | "partner", ev: NotifEvent) => resolvePref(prefs, role, ev).email;
+  // other leg in this function resolves through `resolveEffectiveChannel`.
+  const emailOn = (role: "admin" | "partner", ev: NotifEvent) => resolvePref(role, ev).email;
   // NTF-14: unsubscribe footers are minted against the CANONICAL app origin, never against
   // `portalBaseUrl`. Since C-101 every caller passes env.APP_URL for portalBaseUrl too, so today
   // these are the same value — this stays belt-and-braces on purpose: a capability link must
@@ -323,6 +315,17 @@ export async function enqueueRunDigests(
       // NTF-10: TWO overlay loads for the whole run's partner fan-out, not one per recipient.
       // Seat overlays gate the per-user in-app rows; ORG overlays gate the org-addressed
       // `partners.email` sends, which no seat owns.
+      //
+      // ⚠️ WP-NF2b — WHO CONTROLS THE ORG-ADDRESSED EMAIL. `partner_digest` and the partner
+      // hot alert are addressed to `partners.email`, a shared org mailbox behind no login. With
+      // the workspace matrix retired there is no admin-side switch for them at all: they are
+      // governed by the shipped default (`new_leads` / `hot_leads`, both email-ON) ⊕ the
+      // PARTNER-ORG overlay row — and the only way to write that org row is the tokenized
+      // unsubscribe link in the mail itself (NTF-13, PR #150), because the org is not a seat and
+      // has no /api/me. That is deliberate: whoever reads that mailbox holds the off switch,
+      // which is the CAN-SPAM shape, and no admin can silently mute a partner's copy of leads
+      // they were routed. Turning it back on is likewise an org-overlay write — today that means
+      // a support action, not a UI (candidate, see WP-NF2b notes).
       const seatOverrides = await loadOverridesFor(
         db,
         scope.tenantId,
@@ -333,10 +336,10 @@ export async function enqueueRunDigests(
       for (const g of byPartner.values()) {
         if (g.leads.length === 0) continue;
         // NTF-01/NTF-10: email a partner with an address, when the digest email survives BOTH
-        // the tenant default and the org overlay. Resolved before the content is built so the
+        // the shipped default and the ORG overlay. Resolved before the content is built so the
         // token is minted only for a digest that is actually going out (lazy, NTF-13).
         const orgOverlay = orgOverrides.get(g.partnerId) ?? null;
-        const orgEmailOn = Boolean(g.email) && resolveOrgEmail(prefs, orgOverlay, "new_leads");
+        const orgEmailOn = Boolean(g.email) && resolveOrgEmail(orgOverlay, "new_leads");
         const c = buildPartnerDigest({
           appName: APP_NAME,
           partnerName: g.name,
@@ -365,7 +368,7 @@ export async function enqueueRunDigests(
         // when the in-app channel is on. NTF-10: each seat's own overlay decides — one seat
         // muting the bell never mutes their colleague's.
         for (const seat of seatsByPartner.get(g.partnerId) ?? []) {
-          if (!resolveEffectiveChannel(prefs, seatOverrides.get(seat.id) ?? null, "partner", "new_leads").inApp) continue;
+          if (!resolveEffectiveChannel(seatOverrides.get(seat.id) ?? null, "partner", "new_leads").inApp) continue;
           await createNotification(db, {
             tenantId: scope.tenantId,
             userId: seat.id,
@@ -389,9 +392,9 @@ export async function enqueueRunDigests(
         hotByPartner.set(r.partnerId, g);
       }
       for (const [partnerId, g] of hotByPartner) {
-        // NTF-10: same two-layer gate as the digest above — ORG overlay for the org address,
-        // per-SEAT overlay for each bell row.
-        const orgEmailOn = Boolean(g.email) && resolveOrgEmail(prefs, orgOverrides.get(partnerId) ?? null, "hot_leads");
+        // NTF-10: same two-layer gate as the digest above (defaults ⊕ overlay) — the ORG overlay
+        // for the org address, each seat's own overlay for its bell row.
+        const orgEmailOn = Boolean(g.email) && resolveOrgEmail(orgOverrides.get(partnerId) ?? null, "hot_leads");
         const c = buildPartnerHotAlert({
           appName: APP_NAME,
           partnerName: g.name,
@@ -408,7 +411,7 @@ export async function enqueueRunDigests(
           enqueued++;
         }
         for (const seat of seatsByPartner.get(partnerId) ?? []) {
-          if (!resolveEffectiveChannel(prefs, seatOverrides.get(seat.id) ?? null, "partner", "hot_leads").inApp) continue;
+          if (!resolveEffectiveChannel(seatOverrides.get(seat.id) ?? null, "partner", "hot_leads").inApp) continue;
           await createNotification(db, {
             tenantId: scope.tenantId,
             userId: seat.id,
@@ -437,7 +440,7 @@ export async function enqueueRunDigests(
       : new Map<string, PrefOverrideValue>();
   /** The email leg for one resolved-or-unresolved admin address. */
   const adminEmailOn = (r: AdminEmailRecipient, ev: NotifEvent) =>
-    r.userId ? resolveEffectiveChannel(prefs, adminOverrides.get(r.userId) ?? null, "admin", ev).email : emailOn("admin", ev);
+    r.userId ? resolveEffectiveChannel(adminOverrides.get(r.userId) ?? null, "admin", ev).email : emailOn("admin", ev);
 
   // Admin run summary (NTF-02/04) — sent at IMPORT with the acting admin + the true full-run summary
   // (NOT deferred: the admin isn't a partner, and a recompute at release undercounts repeat leads).
@@ -470,7 +473,7 @@ export async function enqueueRunDigests(
       });
       enqueued++;
     }
-    if (input.adminUserId && resolveEffectiveChannel(prefs, adminOverrides.get(input.adminUserId) ?? null, "admin", "run_summary").inApp) {
+    if (input.adminUserId && resolveEffectiveChannel(adminOverrides.get(input.adminUserId) ?? null, "admin", "run_summary").inApp) {
       await createNotification(db, {
         tenantId: scope.tenantId,
         userId: input.adminUserId,
@@ -515,7 +518,7 @@ export async function enqueueRunDigests(
         await enqueueEmail(db, { tenantId: scope.tenantId, to: r.email, subject: withLinks.subject, body: withLinks.body, html: withLinks.html, kind: "hot_leads", meta: { uploadRef: input.uploadRef } });
         enqueued++;
       }
-      if (input.adminUserId && resolveEffectiveChannel(prefs, adminOverrides.get(input.adminUserId) ?? null, "admin", "hot_leads").inApp) {
+      if (input.adminUserId && resolveEffectiveChannel(adminOverrides.get(input.adminUserId) ?? null, "admin", "hot_leads").inApp) {
         await createNotification(db, {
           tenantId: scope.tenantId,
           userId: input.adminUserId,
@@ -583,21 +586,18 @@ async function resolveAdminEmailRecipients(
 
 /**
  * Notify admins that a partner changed a lead's status (NTF-02 alert / SET-03).
- * In-app for every admin user (default on); email only if the admin alert email is
- * on (default off). Best-effort — call sites swallow errors.
+ * In-app for every admin user (default on); email only if that seat has opted the
+ * status-change email IN (the shipped default is off). Best-effort — call sites swallow errors.
+ *
+ * WP-NF2b: there is no early-out to take any more. There is no workspace mute, so the only
+ * thing that could suppress this fan-out is every recipient's own overlay — which can only be
+ * known by reading the recipients. Two small indexed reads, unconditionally.
  */
 export async function notifyStatusChange(
   db: DB,
   scope: ScopeContext,
   input: { leadRef: string; status: string },
 ): Promise<void> {
-  // NTF-10: the tenant-level early-out is GONE from this path. An overlay can widen a leg
-  // (a seat opting IN to an email the tenant default has off is exactly what NTF-15 offers),
-  // so short-circuiting on the tenant row alone would silently ignore that opt-in. The cost is
-  // two small indexed reads on a fully-muted tenant; the cron sweep, which pays this per tick
-  // across every tenant, keeps its early-out (NTF-09, task-reminders.ts).
-  const prefs = await loadNotificationPrefs(db, scope);
-
   // WP-NF2 NTF-11: the shared admin-TIER recipient set (`activeAdminSeats` above) — the same
   // query with the same three predicates (role='admin' tier per audit-tenancy F-8, active
   // seats per F-7, deterministic order for the shared-mailbox dedupe below), stated once so
@@ -613,7 +613,7 @@ export async function notifyStatusChange(
   // first seat's (the query's deterministic order), so the footer belongs to a real recipient.
   const sentTo = new Set<string>();
   for (const a of admins) {
-    const ch = resolveEffectiveChannel(prefs, overrides.get(a.id) ?? null, "admin", "status_change");
+    const ch = resolveEffectiveChannel(overrides.get(a.id) ?? null, "admin", "status_change");
     if (ch.inApp) {
       await createNotification(db, {
         tenantId: scope.tenantId,
@@ -684,16 +684,14 @@ export function notificationEmailHtml(title: string, sentence: string, unsubscri
  * defaults `{ inApp: true, email: false }`, so out of the box this behaves exactly as before.
  *
  * Best-effort — call sites swallow errors. Skipped when the partner has no onboarded, active
- * seat. `scope` is the acting admin's; prefs are per-tenant so this resolves correctly.
+ * seat. `scope` is the acting admin's; the channel gate is the shipped default ⊕ the RECIPIENT
+ * seat's own overlay, so it resolves against the person being told, not the person telling.
  */
 export async function notifyLeadAssigned(
   db: DB,
   scope: ScopeContext,
   input: { leadRef: string; partnerId: string },
 ): Promise<void> {
-  // NTF-10: no tenant-level early-out (same reasoning as notifyStatusChange) — a seat may have
-  // opted IN to the assignment email, which defaults off.
-  const prefs = await loadNotificationPrefs(db, scope);
   const seats = await activePartnerSeats(db, scope, [input.partnerId]);
   if (seats.length === 0) return;
   const overrides = await loadOverridesFor(db, scope.tenantId, seats.map((s) => s.id));
@@ -701,7 +699,7 @@ export async function notifyLeadAssigned(
   const title = `Lead ${input.leadRef} was assigned to you`;
   const sentence = "An admin routed this lead to you.";
   for (const seat of seats) {
-    const ch = resolveEffectiveChannel(prefs, overrides.get(seat.id) ?? null, "partner", "assigned_lead");
+    const ch = resolveEffectiveChannel(overrides.get(seat.id) ?? null, "partner", "assigned_lead");
     if (ch.inApp) {
       await createNotification(db, {
         tenantId: scope.tenantId,
@@ -749,7 +747,6 @@ export async function notifyLeadsBulkAssigned(
 ): Promise<void> {
   if (input.count === 0) return;
   if (input.count === 1) return; // single assign keeps the per-lead deep link path
-  const prefs = await loadNotificationPrefs(db, scope);
   const seats = await activePartnerSeats(db, scope, [input.partnerId]);
   if (seats.length === 0) return;
   const overrides = await loadOverridesFor(db, scope.tenantId, seats.map((s) => s.id));
@@ -757,7 +754,7 @@ export async function notifyLeadsBulkAssigned(
   const title = `${input.count} leads were assigned to you`;
   const sentence = "An admin routed these leads to you.";
   for (const seat of seats) {
-    const ch = resolveEffectiveChannel(prefs, overrides.get(seat.id) ?? null, "partner", "assigned_lead");
+    const ch = resolveEffectiveChannel(overrides.get(seat.id) ?? null, "partner", "assigned_lead");
     if (ch.inApp) {
       await createNotification(db, {
         tenantId: scope.tenantId,
@@ -883,9 +880,8 @@ export async function releaseDueImports(
     .limit(opts.limit ?? 50);
   if (due.length === 0) return { released: 0 };
 
-  // Partner in-app gating needs the per-tenant prefs; userId is unused (prefs are per-tenant).
+  // The system scope the release fan-out runs under; userId is unused by anything it reads.
   const scope: ScopeContext = { tenantId: opts.tenantId, role: "admin", userId: opts.tenantId };
-  const prefs = await loadNotificationPrefs(db, scope);
 
   let released = 0;
   for (const upload of due) {
@@ -902,7 +898,7 @@ export async function releaseDueImports(
           .update(schema.uploads)
           .set({ distributedAt: now })
           .where(and(eq(schema.uploads.id, upload.id), isNull(schema.uploads.voidedAt)));
-        await enqueueRunDigests(tx, scope, { uploadRef: upload.refId, portalBaseUrl: opts.portalBaseUrl, prefs, audience: "partner" });
+        await enqueueRunDigests(tx, scope, { uploadRef: upload.refId, portalBaseUrl: opts.portalBaseUrl, audience: "partner" });
       });
       released++;
     } catch (e) {

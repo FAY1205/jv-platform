@@ -216,7 +216,7 @@ into every run's rules snapshot (DM-08).
 | NTF-02 | Admin run-summary email; optional admin alert on partner status changes (SET-03). |
 | NTF-03 | All email via Resend through an outbox table (`email_outbox`: delivery status, retry with backoff). _Amended by ADR-0020:_ the "consuming `events`" clause is retired with the `events` table (migration 0015). |
 | NTF-04 | In-app notification center for both roles: unread badge, list with deep links, mark-read. |
-| NTF-05 | Per-event preferences (SET-03): each role toggles email vs in-app-only per event type. Transactional auth email always on. |
+| NTF-05 | Per-event preferences (SET-03): each USER toggles email vs in-app-only per event type, within their own role bucket. Resolution is shipped defaults ⊕ that subject's overlay — there is no workspace layer (ADR-0053). Transactional auth email always on. |
 
 ### 6.11 Analytics, dashboard & coverage map (ANA / MAP)
 
@@ -423,7 +423,7 @@ into every run's rules snapshot (DM-08).
 | -- | ------- | ------- |
 | SET-01 | Color-coding in exports + UI (EXP-06) | On |
 | SET-02 | Partner palette (locked colors; contrast-checked changes) | Seeded roster |
-| SET-03 | Notification preferences per event/role; admin alert on status change | Digests on; alerts off |
+| SET-03 | Notification preferences per event, per **USER** (own role bucket); **no workspace-level control** (ADR-0053) | Digests on; alerts off |
 | SET-04 | Status list (SEAM-06) | Seeded 6 |
 | SET-05 | Export column order (SEAM-03); JV Notes mapping (NTS-03) | Fixed contract; blank |
 | SET-06 | Listing check: LinkOnly on/off; automated provider on/off | On; Off |

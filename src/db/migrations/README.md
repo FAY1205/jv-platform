@@ -18,7 +18,8 @@ Missing snapshots (all hand-authored SQL-only migrations):
 | `0046_default_privileges_least_privilege` | `ALTER DEFAULT PRIVILEGES` + `REVOKE` | ″ |
 | `0047_task_note_hold_in_rls` | RLS policy | ″ |
 | `0054_phase_c_roles_policies` | RLS policy + backfill + CHECK/FK (non-structural; the structural half is the GENERATED, snapshotted 0053) | ″ |
-| `0056_search_trgm` | `CREATE EXTENSION` + GIN `gin_trgm_ops` index adds (drizzle models neither an extension nor an operator class; `schema.ts` declares no trgm index) | the next generated migration's `prevId = 0055.id` |
+| `0056_search_trgm` | `CREATE EXTENSION` + GIN `gin_trgm_ops` index adds (drizzle models neither an extension nor an operator class; `schema.ts` declares no trgm index) | `0057.prevId = 0055.id` |
+| `0058_retire_notification_prefs_setting` | **DML only** — a key-scoped `DELETE` from `settings` (WP-NF2b; drizzle models no data statement, and no column changed) | the next generated migration's `prevId = 0057.id` |
 
 ## Why it's safe
 

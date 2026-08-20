@@ -15,7 +15,6 @@ import {
   notifyPartnerActivated,
   notifyTaskAssigned,
 } from "@/modules/notify/events";
-import { saveNotificationPrefs } from "@/modules/notify/prefs";
 import { saveSubjectOverride } from "@/modules/notify/pref-overrides";
 import { jsonRequest, scopeContextMock, setRouteScope } from "./_route-harness";
 
@@ -192,6 +191,12 @@ suite("WP-NF2 NTF-11: four new notification types", () => {
   });
 
   const adminA = (): ScopeContext => ({ tenantId: id.tenant, role: "admin", userId: id.adminA });
+  /** WP-NF2b: email legs default OFF and there is no workspace matrix to flip, so a leg that
+   *  needs to be ON for a test is turned on where it now lives — the RECIPIENT seat's own
+   *  overlay. Naming the recipient explicitly is also the sharper test: it proves the emit
+   *  resolved the person it addressed, not some tenant-wide switch. */
+  const seatEmailOn = (userId: string, event: string) =>
+    saveSubjectOverride(db, id.tenant, { userId }, { events: { [event]: { email: true, inApp: true } } });
   const partnerX = (): ScopeContext => ({ tenantId: id.tenant, role: "partner", userId: id.pxUser, partnerId: id.px });
 
   /** Every notification row in BOTH tenants — so a cross-tenant leak shows up as an extra row
@@ -224,7 +229,7 @@ suite("WP-NF2 NTF-11: four new notification types", () => {
   });
 
   it("NTF-16/SEC-05: the task TITLE never appears in the notification or the email", async () => {
-    await saveNotificationPrefs(db, adminA(), { admin: { task_assigned: { email: true, inApp: true } } });
+    await seatEmailOn(id.adminB, "task_assigned");
     await addLeadTask(adminA(), REF_X, { title: TASK_TITLE, assignedToUserId: id.adminB });
     const [row] = await notificationsOfType("task_assigned");
     const [mail] = await allEmails();
@@ -275,8 +280,8 @@ suite("WP-NF2 NTF-11: four new notification types", () => {
   });
 
   it("NTF-10: an overlay with email off suppresses the email but KEEPS the bell row", async () => {
-    // Tenant default: email on for this event (the owner flipped §10.1's default).
-    await saveNotificationPrefs(db, adminA(), { admin: { task_assigned: { email: true, inApp: true } } });
+    // The recipient has opted their own email leg IN (§10.1's default is email-off).
+    await seatEmailOn(id.adminB, "task_assigned");
     await addLeadTask(adminA(), REF_X, { title: "Emailed", assignedToUserId: id.adminB });
     let mails = await allEmails();
     expect(mails).toHaveLength(1);
@@ -298,7 +303,7 @@ suite("WP-NF2 NTF-11: four new notification types", () => {
   });
 
   it("NTF-10: another seat's overlay never gates this one's (per-subject, not per-tenant)", async () => {
-    await saveNotificationPrefs(db, adminA(), { admin: { task_assigned: { email: true, inApp: true } } });
+    await seatEmailOn(id.adminB, "task_assigned");
     // adminA mutes everything for themselves; the notification is addressed to adminB.
     await saveSubjectOverride(db, id.tenant, { userId: id.adminA }, { allEmailsOff: true });
     await addLeadTask(adminA(), REF_X, { title: "Still sends", assignedToUserId: id.adminB });
@@ -363,7 +368,8 @@ suite("WP-NF2 NTF-11: four new notification types", () => {
   });
 
   it("NTF-16/PRN-13: the note BODY never reaches the notification or the email", async () => {
-    await saveNotificationPrefs(db, adminA(), { admin: { partner_note: { email: true, inApp: true } } });
+    await seatEmailOn(id.adminA, "partner_note");
+    await seatEmailOn(id.adminB, "partner_note");
     await addLeadNote(partnerX(), REF_X, NOTE_BODY);
     // Assert on the FULL payloads: the body must not be in a title, a body, a subject, an
     // html shell, or a meta blob — anywhere a careless refactor might tuck it.

@@ -45,7 +45,10 @@ import { GET as exportGet } from "@/app/api/runs/[ref]/export/route";
 import { GET as rulesGet } from "@/app/api/admin/rules/route";
 import { GET as partnersGet } from "@/app/api/admin/partners/route";
 import { GET as activityGet } from "@/app/api/activity/route";
-import { GET as notifSettingsGet } from "@/app/api/settings/notifications/route";
+// WP-NF2b: the notification-prefs matrix route is retired (there is no workspace-level
+// notification control any more), so the settings.manage leg of this matrix is proved by
+// Data & Export — the same capability, on a route that still exists.
+import { GET as settingsDataGet } from "@/app/api/settings/data/route";
 import { POST as aiFeedbackPost } from "@/app/api/ai/feedback/route";
 
 const url = process.env.DATABASE_URL;
@@ -173,7 +176,7 @@ suite("AUTHZ-09: cluster-A route capability matrix", () => {
       ["rules", await rulesGet()],
       ["partners", await partnersGet()],
       ["activity", await activityGet(new Request("http://localhost:3000/api/activity"))],
-      ["settings", await notifSettingsGet()],
+      ["settings", await settingsDataGet()],
     ] as const) {
       expect(res.status, `member ${name}`).toBe(403);
     }

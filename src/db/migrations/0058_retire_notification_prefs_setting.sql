@@ -1,0 +1,26 @@
+-- WP-NF2b (owner decision 2026-08-20): retire the workspace notification-preferences row.
+--
+-- NOTHING READS THIS KEY ANY MORE. Notification delivery resolves as
+--   DEFAULT_NOTIFICATION_PREFS (src/modules/notify/prefs.ts) ⊕ the subject's own overlay
+--   (notification_pref_overrides),
+-- and the loader/saver/schema that used to sit between them are deleted, along with
+-- GET/PUT /api/settings/notifications. There is no workspace-level notification control.
+--
+-- WHY DELETE RATHER THAN LEAVE IT: an orphaned row that used to be a DELIVERY CONTROL is a
+-- standing invitation to re-wire it. It reads, to anyone opening the settings table, as a live
+-- preference that the app is ignoring by mistake — and the obvious "fix" is to start reading it
+-- again, quietly restoring the very ceiling this WP removed. Data with no reader and a
+-- self-explanatory name is worse than no data.
+--
+-- PROD IMPACT: NONE. Verified live on 2026-08-20 (twice: at WP kickoff and again at review):
+-- ZERO rows exist for this key in production, across all tenants — the workspace matrix UI
+-- shipped but was never saved by anyone. This statement therefore deletes nothing in prod and
+-- only clears strays in dev/test databases where the retired UI was exercised.
+--
+-- DM-08 does not apply: `settings` is not a rules table and this key never produced a rules
+-- snapshot (patterns / coverage / recodes / Source Profiles are the snapshotted set).
+--
+-- Forward-only and idempotent: re-running deletes nothing, and no code path can recreate the
+-- key (the only writer, `saveNotificationPrefs`, no longer exists). Key-scoped on purpose —
+-- every other `settings` key (color coding, retention, AI config …) is untouched.
+DELETE FROM "settings" WHERE "key" = 'notification_prefs';
