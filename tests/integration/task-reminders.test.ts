@@ -25,6 +25,7 @@ const SLUG_MECH = "test-task-reminders-mech";
 // WP-NF2: two tenants with identical data, so an overlay on one proves it does not reach the other.
 const SLUG_OVERLAY_A = "test-task-reminders-overlay-a";
 const SLUG_OVERLAY_B = "test-task-reminders-overlay-b";
+const SLUG_COST = "test-task-reminders-cost";
 
 // The transactionality case (audit-tenancy F-6.5) needs one notification insert to fail INSIDE
 // the claim transaction. The flag is inert (straight passthrough) for every other case in this
@@ -858,4 +859,131 @@ suite("NTF-10/NTF-14: the reminder sweep honours the per-subject overlay", () =>
       .where(eq(schema.notificationPrefOverrides.tenantId, id.tenantA));
     for (const a of aRows) expect(sent.html).not.toContain(a.tokenId);
   }, 45_000);
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// WP-NF2b (audit-tenancy F-6): the SWEEP-COST leg.
+//
+// The retired "a fully-muted tenant early-outs BEFORE the due select" test was, incidentally,
+// the only assertion in this suite that bounded what one tick COSTS. Removing the workspace
+// layer removed that early-out with it — deliberately: there is no tenant-wide mute left to
+// read — so the cost argument that replaces it is no longer "skip the tenant" but "the per-tick
+// work is BATCHED". Whatever K is, the sweep loads its candidate seats ONCE and their overlays
+// and unsubscribe tokens ONCE; only genuinely per-task work scales with K.
+//
+// That is exactly the property WP-NF2 PR A and NTF-14 had to fix (every emailed task used to
+// call `ensureSubjectToken` — a SELECT per task to fetch one of a handful of tokens), and
+// nothing pinned it afterwards. This suite counts the SQL statements the sweep actually sends,
+// via postgres.js's `debug` hook, so it observes the wire rather than our belief about it.
+// ─────────────────────────────────────────────────────────────────────────────
+suite("WP-NF2b: the reminder sweep's per-tick cost stays batched (no N+1)", () => {
+  let client: ReturnType<typeof postgres>;
+  let db: PostgresJsDatabase<typeof schema>;
+  const id: Record<string, string> = {};
+  /** Every statement sent on this connection since the last `capture()`. */
+  let sql: string[] = [];
+  const capture = () => {
+    sql = [];
+  };
+  const matching = (re: RegExp) => sql.filter((s) => re.test(s)).length;
+
+  const sweep = () => remindDueTasks(db, { tenantId: id.tenant, appBaseUrl: APP_URL, today, now });
+
+  /** `count` more overdue tasks on the shared lead, all assigned to the ONE seat. */
+  const addTasks = (count: number, prefix: string) =>
+    db.insert(schema.leadTasks).values(
+      Array.from({ length: count }, (_, i) => ({
+        tenantId: id.tenant,
+        leadId: id.lead,
+        title: `${prefix} ${i}`,
+        authorRole: "admin" as const,
+        authorUserId: id.admin,
+        assignedToUserId: id.admin,
+        dueOn: YESTERDAY,
+      })),
+    );
+
+  beforeAll(async () => {
+    client = postgres(url!, {
+      prepare: false,
+      max: 1,
+      // postgres.js hands this hook every statement it sends on the connection.
+      debug: (_connection: number, query: string) => {
+        sql.push(query);
+      },
+    });
+    db = drizzle(client, { schema });
+    await dropTenants(db, [SLUG_COST]);
+
+    const [t] = await db
+      .insert(schema.tenants)
+      .values({ name: "TR Cost", slug: SLUG_COST })
+      .returning({ id: schema.tenants.id });
+    id.tenant = t.id;
+    const [px] = await db
+      .insert(schema.partners)
+      .values({ tenantId: t.id, refId: "JV-001", name: "PX", color: "#111111", status: "active" })
+      .returning({ id: schema.partners.id });
+    id.admin = randomUUID();
+    await db.insert(schema.users).values({ id: id.admin, tenantId: t.id, email: "admin@tr-cost.test", role: "admin" });
+    const [up] = await db
+      .insert(schema.uploads)
+      .values({ tenantId: t.id, refId: "IM-26-905", filename: "c.xlsx", status: "processed" })
+      .returning({ id: schema.uploads.id });
+    const [lead] = await db
+      .insert(schema.leads)
+      .values({ tenantId: t.id, refId: "LD-26-90501", uploadId: up.id, dedupeKey: "cost|1", rawJson: {}, partnerId: px.id, city: "Tulsa", state: "OK", matchMethod: "zip", mlsStatus: "kept" })
+      .returning({ id: schema.leads.id });
+    id.lead = lead.id;
+    await releaseTenantLeads(db, t.id);
+
+    // Pre-mint the seat's overlay row (and with it its unsubscribe token) so BOTH ticks below
+    // start from the same place — otherwise the first tick pays a one-off lazy mint and the two
+    // measurements would differ for a reason that has nothing to do with K. An empty overlay
+    // value resolves to the shipped defaults, i.e. task_due fully ON, so both legs fire.
+    await saveSubjectOverride(db, t.id, { userId: id.admin }, {});
+  });
+
+  afterAll(async () => {
+    await dropTenants(db, [SLUG_COST]);
+    await client.end();
+  });
+
+  it("WP-NF2b: overlay + token loads are ONE query each per tick, whatever K is", async () => {
+    const OVERRIDES = /notification_pref_overrides/i;
+    const USERS = /from "users"/i;
+
+    // ── Tick 1: K = 2 ────────────────────────────────────────────────────────
+    await addTasks(2, "Cost A");
+    capture();
+    expect((await sweep()).reminded).toBe(2);
+    const small = { total: sql.length, overrides: matching(OVERRIDES), users: matching(USERS) };
+
+    // ── Tick 2: K = 6, same single recipient ─────────────────────────────────
+    await addTasks(6, "Cost B");
+    capture();
+    expect((await sweep()).reminded).toBe(6);
+    const large = { total: sql.length, overrides: matching(OVERRIDES), users: matching(USERS) };
+
+    // THE assertion. `loadOverridesFor` + `loadTokensFor` = exactly two reads of the overlay
+    // table per tick. Three times the tasks must not mean three times the reads: if either load
+    // moves inside the per-task loop — or a lazy `ensureSubjectToken` creeps back in — this
+    // count tracks K, and the failure message says so.
+    expect(
+      large.overrides,
+      `overlay reads scaled with K (${small.overrides} at K=2 → ${large.overrides} at K=6)`,
+    ).toBe(small.overrides);
+    expect(small.overrides).toBe(2);
+
+    // The candidate-seat lookup is likewise ONE batched `inArray` read, not one per task.
+    expect(large.users, `seat lookups scaled with K (${small.users} → ${large.users})`).toBe(small.users);
+    expect(small.users).toBe(1);
+
+    // …and the genuinely per-task work (the visibility checks, the claim transaction, the two
+    // inserts) stays bounded PER TASK rather than growing per task per task. A coarse ceiling on
+    // purpose: its job is to catch a quadratic, not to freeze an exact statement count that
+    // every harmless refactor would break.
+    const perTask = (large.total - small.total) / 4;
+    expect(perTask, `~${perTask} statements per extra task`).toBeLessThanOrEqual(16);
+  }, 60_000);
 });

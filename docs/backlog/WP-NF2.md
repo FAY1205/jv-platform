@@ -302,3 +302,31 @@ person it addressed rather than one tenant-wide switch. The retired workspace Zo
 guard moved onto `PrefOverrideValueSchema`, the remaining place a half-added event would fail to
 persist. The retired "fully-muted tenant early-outs" case is replaced by its opposite: one seat
 muting `task_due` while another, in the same tick, is still nudged.
+
+### Review round (pr-reviewer + audit-tenancy on PR #155)
+
+No isolation regressions — every recipient set verified byte-identical to main. Applied:
+
+- **Migration 0058** (audit-tenancy F-1) — `DELETE FROM settings WHERE key = 'notification_prefs'`.
+  Prod verified **zero rows** (twice: kickoff and review), so it deletes nothing there and clears
+  dev/test strays only. The argument is not cleanup but intent: an orphaned row that used to be a
+  delivery control invites re-wiring. Hand-authored SQL-only (no snapshot — the 0056 precedent,
+  README table updated); journal `when` = **1787241196243**, above 0057's 1787154796243 (the
+  timestamp trap). Guard test `tests/unit/notification-prefs-retirement.test.ts`: a src-wide scan
+  failing the build if source CODE names the key or resurrects the deleted symbols.
+- **Tenant pin on `resolveAdminEmails`** (F-2) — takes the `ScopeContext` and reads the seat
+  through `tenantWhere(users, scope)` AND `eq(users.id, scope.userId)`. An id is not a scope, and
+  the service role means no RLS backstop (ADR-0013).
+- **ADR-0053** (F-3) — the decision, its consequences, and what would reopen it. `SPEC.md` SET-03
+  and NTF-05 amended to say per-USER with no workspace control.
+- **Settings-nav test** (F-4) — the member/viewer reachability of `/settings/notifications` is
+  load-bearing and was unpinned: a test now asserts the item renders with every capability denied
+  (and that Team correctly does not), so adding `requires:` to it fails.
+- **Sweep-cost leg** (F-6) — the deleted early-out test was the only assertion bounding a tick's
+  cost. Its replacement counts SQL on the wire (postgres.js `debug`) across a K=2 and a K=6 tick
+  and asserts the overlay + token loads stay at exactly 2 and the seat lookup at 1 — the NTF-14
+  N+1, pinned at last.
+- **Stale comment** in `pref-overrides.ts` (pr-reviewer F-2) — it cited the deleted
+  `NotificationPrefsSchema` as precedent; rewritten to stand on its own, with a tombstone line.
+- **C-117** minted (the env ops mailbox now has no off switch at all); **C-116** annotated with
+  audit-tenancy F-5's confirmation and its suggested `/preferences` stream-router fix.

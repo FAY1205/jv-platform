@@ -25,8 +25,30 @@ import type { RunSummary } from "@/modules/analytics/run-summary";
 
 const errMsg = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
-async function resolveAdminEmails(db: ReturnType<typeof getDb>, userId: string): Promise<string[]> {
-  const [me] = await db.select({ email: schema.users.email }).from(schema.users).where(eq(schema.users.id, userId));
+/**
+ * The addresses the ADMIN run-summary goes to: the acting admin's own, plus the env ops
+ * allowlist.
+ *
+ * PRN-08 (audit-tenancy F-2, WP-NF2b): the seat read is pinned to the CALLER'S TENANT through
+ * the shared builder, not looked up by `users.id` alone. An id is not a scope — `users.id` is
+ * globally unique, so a bare `eq(users.id, …)` is a cross-tenant read that happens to be
+ * correct because the id came from a session. There is no RLS backstop to catch it if that ever
+ * stops being true: this runs as the service role, so the app layer IS the boundary (ADR-0013).
+ * The pair is stated together (`tenantWhere` AND the id) so the query cannot return a row that
+ * does not belong to the scope that asked for it.
+ *
+ * Takes the whole ScopeContext for that reason — passing a bare `userId` is what made the
+ * unpinned version look reasonable.
+ */
+async function resolveAdminEmails(db: ReturnType<typeof getDb>, scope: ScopeContext): Promise<string[]> {
+  const [me] = await db
+    .select({ email: schema.users.email })
+    .from(schema.users)
+    .where(and(tenantWhere(schema.users, scope), eq(schema.users.id, scope.userId)));
+  // WP-NF2b / C-117: the env allowlist addresses are appended UNCONDITIONALLY — they belong to
+  // no seat, so they have no overlay to gate them and no unsubscribe footer (§10.3). With the
+  // workspace matrix retired there is now no switch for them at all; whether to keep them is an
+  // owner decision (candidate C-117).
   return [...(me?.email ? [me.email] : []), ...adminAllowlist];
 }
 
@@ -79,7 +101,7 @@ export async function runUpload(scope: ScopeContext, input: RunUploadInput): Pro
     try {
       // WP-NF2b: no workspace-prefs read — channel gating is the shipped defaults ⊕ each
       // recipient's own overlay, resolved inside the fan-out against the person being emailed.
-      const adminEmails = await resolveAdminEmails(db, scope.userId);
+      const adminEmails = await resolveAdminEmails(db, scope);
       await enqueueRunDigests(db, scope, { uploadRef: result.uploadRefId, summary: result.summary, portalBaseUrl: input.origin, adminEmails, adminUserId: scope.userId, audience: "admin" });
     } catch (e) {
       logError("admin_summary_enqueue_failed", { message: errMsg(e) });

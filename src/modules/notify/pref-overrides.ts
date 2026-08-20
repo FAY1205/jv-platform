@@ -53,10 +53,16 @@ const isEventKey = (key: string): key is NotifEvent =>
 
 const OverlayChannelSchema = z.object({ email: z.boolean(), inApp: z.boolean() }).partial().strict();
 
-/** The per-event overlay map. Keys are spelled out (not derived) for the same reason
- *  `NotificationPrefsSchema` spells out the tenant shape — an explicit literal is what makes
- *  the inferred type exact. They MUST mirror NOTIFICATION_EVENTS; "NTF-10: the overlay schema
- *  covers exactly the event catalog" fails the build if the two ever drift. */
+/** The per-event overlay map. Keys are spelled out rather than derived from
+ *  `NOTIFICATION_EVENT_KEYS`, because a Zod object built from a runtime array infers
+ *  `Record<string, …>` — the literal is what makes the inferred type EXACT, and the exact type
+ *  is what stops a caller writing a key the resolver can never read. The cost of spelling them
+ *  out is that they can drift from the catalog, so they don't get to: "NTF-10: the overlay
+ *  schema covers exactly the event catalog" compares the two and fails the build.
+ *
+ *  (This note used to cite `NotificationPrefsSchema` as the precedent for the same trade-off.
+ *  WP-NF2b deleted that schema with the workspace layer — this is now the only place the
+ *  catalog is spelled out twice.) */
 const EventOverlaySchema = z
   .object({
     run_summary: OverlayChannelSchema,

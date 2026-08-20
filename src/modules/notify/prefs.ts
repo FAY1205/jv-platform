@@ -2,15 +2,17 @@
 // Notification preferences (NTF-05 / SET-03). Per role, per event type: send email,
 // show in-app, or both. Transactional auth email is separate and always on (never here).
 //
-// WP-NF2b (owner decision 2026-08-20) — THERE IS NO WORKSPACE LAYER. Resolution is
-// exactly two layers:
+// WP-NF2b / ADR-0053 (owner decision 2026-08-20) — THERE IS NO WORKSPACE LAYER. Resolution
+// is exactly two layers:
 //
 //     code defaults (DEFAULT_NOTIFICATION_PREFS)  ⊕  the subject's own overlay
 //
-// The tenant `settings` row keyed `notification_prefs` used to sit between them. It is
-// GONE from every read path: nothing in the codebase writes or reads that key any more,
-// and no migration deletes it because prod never had one (verified 2026-08-20 — zero
-// rows). A stored row, if one ever existed in some environment, is now simply inert data.
+// The tenant `settings` row keyed `notification_prefs` used to sit between them. It is GONE
+// from every read path — nothing in the codebase writes or reads that key any more, and
+// `tests/unit/notification-prefs-retirement.test.ts` fails the build if that changes.
+// Migration 0058 DELETES the row: prod never had one (verified live 2026-08-20 — zero rows,
+// all tenants), so it clears dev/test strays only, and an orphaned row that used to be a
+// delivery control is a standing invitation to re-wire it.
 //
 // So this file is the DEFAULTS source and the catalog, and nothing else: the per-subject
 // layer lives in pref-overrides.ts, and a seat edits its own via /api/me/notification-prefs.
