@@ -376,4 +376,59 @@ suite("TSK-06: unified lead timeline", () => {
 
     await db.delete(schema.leadNotes).where(eq(schema.leadNotes.leadId, leadId));
   });
+
+  it("N5-14: 'Details updated' entries come from lead.edited audit rows — names only, admin feed only, tenant-scoped", async () => {
+    // Written raw so the exact `after` shapes editLead produces are under test, including
+    // the partner-move keys it folds into the SAME row. Values here are what the audit trail
+    // really holds: PII masked to a presence sentinel, routing/property fields raw.
+    const at = (m: number) => new Date(Date.UTC(2026, 5, 1, 12, m, 0));
+    await db.insert(schema.auditLog).values([
+      // (a) a plain field edit
+      { tenantId: id.tenant, actorUserId: id.adminUser, action: "lead.edited", entityType: "lead", entityRef: REF_SF, createdAt: at(1),
+        before: { phone: "absent", email: "absent" }, after: { phone: "present", email: "present" } },
+      // (b) a PARTNER-ONLY move: the `assigned` entry already tells this story
+      { tenantId: id.tenant, actorUserId: id.adminUser, action: "lead.edited", entityType: "lead", entityRef: REF_SF, createdAt: at(2),
+        before: { effectiveOwner: id.px }, after: { effectiveOwner: id.py, partner: { from: id.px, to: id.py, partnerRefId: "JV-002" } } },
+      // (c) BOTH at once — one entry, listing only the field names
+      { tenantId: id.tenant, actorUserId: id.adminUser, action: "lead.edited", entityType: "lead", entityRef: REF_SF, createdAt: at(3),
+        before: { address: "1 Old St", effectiveOwner: id.py }, after: { address: "SECRET-VALUE-ADDRESS", effectiveOwner: id.px, partner: { from: id.py, to: id.px } } },
+      // (d) ANOTHER TENANT's row carrying the same entity_ref — must never cross over
+      { tenantId: id.tenantB, actorUserId: id.adminUserB, action: "lead.edited", entityType: "lead", entityRef: REF_SF, createdAt: at(4),
+        before: {}, after: { campaign: "TENANT-B-CONTENT campaign" } },
+      // (e) a MIS-TENANTED actor: the row is ours, the user is not (R-65 precedent)
+      { tenantId: id.tenant, actorUserId: id.adminUserB, action: "lead.edited", entityType: "lead", entityRef: REF_SF, createdAt: at(5),
+        before: { zip: "1" }, after: { zip: "2" } },
+      // (f) a different action on the same lead — not a field edit, not an entry
+      { tenantId: id.tenant, actorUserId: id.adminUser, action: "lead.recalled", entityType: "lead", entityRef: REF_SF, createdAt: at(6),
+        before: {}, after: { phone: "present" } },
+    ]);
+
+    const activity = (await getAdminLeadDetail(admin(), REF_SF))!.activity;
+    const entries = activity.filter((a) => a.kind === "details_updated");
+
+    // (a), (c) and (e) — never (b), (d) or (f). Newest first, like the rest of the feed.
+    expect(entries.map((e) => e.label)).toEqual([
+      "Details updated: ZIP",
+      "Details updated: address",
+      "Details updated: phone, email",
+    ]);
+    // SEC-05: not one audited VALUE reaches the feed, masked or raw.
+    const serialized = JSON.stringify(entries);
+    expect(serialized).not.toContain("SECRET-VALUE-ADDRESS");
+    expect(serialized).not.toContain("present");
+    expect(serialized).not.toContain(id.py);
+    // PRN-08: neither the other tenant's row nor its actor.
+    expect(serialized).not.toContain("TENANT-B-CONTENT");
+    expect(serialized).not.toContain("admin@timeline-b.test");
+    // The actor join carries its own tenant predicate, so a mis-tenanted actor is withheld.
+    expect(entries.find((e) => e.label === "Details updated: ZIP")!.actor).toBeNull();
+    expect(entries.find((e) => e.label === "Details updated: phone, email")!.actor).toBe("admin@timeline.test");
+
+    // ADMIN FEED ONLY: the partner who owns this lead sees no edit entries at all.
+    const partnerFeed = (await getPartnerLeadDetail(partnerY(), REF_SF))!.activity;
+    expect(partnerFeed.some((a) => a.kind === "details_updated")).toBe(false);
+    expect(JSON.stringify(partnerFeed)).not.toContain("Details updated");
+
+    await purgeAuditLog(db, eq(schema.auditLog.entityRef, REF_SF));
+  });
 });

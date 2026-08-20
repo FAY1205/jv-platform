@@ -7,7 +7,7 @@ import { SEED_LEAD_STATUSES, currentStatus } from "@/modules/portal/statuses";
 import type { ScoreGroup, ScoreStatus, ScoreBreakdown } from "@/modules/pipeline/score";
 import { leadSearchMatch } from "@/modules/search/match";
 import { tagsByLeadRef, type TagView } from "@/modules/tags/tags";
-import { noteAndTaskActivity, sortNewestFirst, type LeadActivity } from "./timeline";
+import { detailsUpdatedActivity, noteAndTaskActivity, sortNewestFirst, type LeadActivity } from "./timeline";
 import { BOARD_COLUMNS, BOARD_PAGE_SIZE } from "./board";
 import type { BoardQuery, LeadsQuery } from "./schema";
 import { can } from "@/lib/authz";
@@ -541,12 +541,12 @@ export async function getAdminLeadDetail(scope: ScopeContext, refId: string): Pr
   const effPartnerId = lead.manualPartnerId ?? lead.partnerId;
   const wantIds = [effPartnerId, lead.partnerId].filter((v): v is string => Boolean(v));
 
-  // Perf: after the lead row, its four dependent reads — the effective/original partner names, the
-  // status history, the manual-assignment actor, and the note/task timeline — depend only on the
-  // lead, not on each other. Run them as ONE Promise.all instead of a four-step sequential waterfall:
-  // against a distant DB each round trip is a full RTT, and this is the most-clicked interaction
-  // (opening a lead). Cuts ~5 sequential round trips to ~2.
-  const [partnerRows, hist, manualActorRows, timelineActivity] = await Promise.all([
+  // Perf: after the lead row, its five dependent reads — the effective/original partner names, the
+  // status history, the manual-assignment actor, the note/task timeline, and the N5-14 edit
+  // entries — depend only on the lead, not on each other. Run them as ONE Promise.all instead of a
+  // sequential waterfall: against a distant DB each round trip is a full RTT, and this is the
+  // most-clicked interaction (opening a lead).
+  const [partnerRows, hist, manualActorRows, timelineActivity, editActivity] = await Promise.all([
     wantIds.length
       ? db
           .select({ id: schema.partners.id, name: schema.partners.name, refId: schema.partners.refId, color: schema.partners.color })
@@ -569,6 +569,8 @@ export async function getAdminLeadDetail(scope: ScopeContext, refId: string): Pr
           .where(and(tenantWhere(schema.users, scope), eq(schema.users.id, lead.manualAssignedBy)))
       : Promise.resolve([] as { email: string }[]),
     noteAndTaskActivity(db, scope, lead.id),
+    // N5-14: keyed on the REF, which is what the audit trail records as `entity_ref`.
+    detailsUpdatedActivity(db, scope, lead.refId),
   ]);
 
   const pMap = new Map(partnerRows.map((p) => [p.id, p]));
@@ -622,6 +624,8 @@ export async function getAdminLeadDetail(scope: ScopeContext, refId: string): Pr
   // noteWhere/taskWhere, so the partner streams stay invisible here (PRN-13). Fetched above in the
   // Promise.all (timelineActivity) so it runs concurrently with the status/partner reads.
   activity.push(...timelineActivity);
+  // N5-14: field corrections, names only. Admin feed only — see detailsUpdatedActivity.
+  activity.push(...editActivity);
   sortNewestFirst(activity);
 
   const modifiedAt = hist.length ? hist[hist.length - 1].at : lead.manualAssignedAt;

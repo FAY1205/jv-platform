@@ -4,20 +4,32 @@ import * as React from "react";
 import { cn } from "@/lib/cn";
 
 type ToastTone = "default" | "success" | "danger";
+
+/** N5-11: an optional single recovery action inside the toast ("Couldn't save Phone — Retry").
+ *  One action only — a toast is a notification, not a dialog. */
+export interface ToastAction {
+  label: string;
+  onClick: () => void;
+}
+
 interface ToastItem {
   id: number;
   message: string;
   tone: ToastTone;
+  action?: ToastAction;
 }
 
 interface ToastApi {
-  toast: (message: string, tone?: ToastTone) => void;
+  toast: (message: string, tone?: ToastTone, action?: ToastAction) => void;
 }
 
 const ToastContext = React.createContext<ToastApi | null>(null);
 
 // Long enough to read a short line; the countdown pauses on hover/focus (WCAG 2.2.1).
 const TOAST_DURATION_MS = 2600;
+/** An actionable toast has to outlive the reading of it — the user must still be able to
+ *  reach the control after deciding to use it. Hover/focus still pause the countdown. */
+const TOAST_ACTION_DURATION_MS = 9000;
 
 /** useToast — surfaces the toast() function (UXQ-03: optimistic UI + toast on failure). */
 export function useToast(): ToastApi {
@@ -43,9 +55,9 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
   const [focused, setFocused] = React.useState(false);
   const paused = hovered || focused;
 
-  const toast = React.useCallback((message: string, tone: ToastTone = "default") => {
+  const toast = React.useCallback((message: string, tone: ToastTone = "default", action?: ToastAction) => {
     const id = nextId.current++;
-    setItems((prev) => [...prev, { id, message, tone }]);
+    setItems((prev) => [...prev, { id, message, tone, action }]);
   }, []);
   const dismiss = React.useCallback((id: number) => {
     setItems((prev) => prev.filter((t) => t.id !== id));
@@ -89,11 +101,12 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
 /** One toast + its own auto-dismiss timer. The timer is cleared while `paused` and a fresh
  *  full-duration countdown starts on resume — the user always gets ample read time. */
 function ToastRow({ item, paused, onDismiss }: { item: ToastItem; paused: boolean; onDismiss: (id: number) => void }) {
+  const duration = item.action ? TOAST_ACTION_DURATION_MS : TOAST_DURATION_MS;
   React.useEffect(() => {
     if (paused) return;
-    const t = setTimeout(() => onDismiss(item.id), TOAST_DURATION_MS);
+    const t = setTimeout(() => onDismiss(item.id), duration);
     return () => clearTimeout(t);
-  }, [paused, item.id, onDismiss]);
+  }, [paused, duration, item.id, onDismiss]);
 
   return (
     <div
@@ -103,6 +116,20 @@ function ToastRow({ item, paused, onDismiss }: { item: ToastItem; paused: boolea
       )}
     >
       <span>{item.message}</span>
+      {item.action && (
+        <button
+          type="button"
+          onClick={() => {
+            // The action dismisses its own toast: the recovery it offers is now on screen
+            // (a reopened field), and a stale "retry" hanging over it invites a double-send.
+            onDismiss(item.id);
+            item.action?.onClick();
+          }}
+          className="shrink-0 rounded-full px-2.5 py-1 text-sm font-semibold text-current underline decoration-current/50 underline-offset-2 outline-none transition-colors hover:decoration-current focus-visible:ring-1 focus-visible:ring-current active:scale-95"
+        >
+          {item.action.label}
+        </button>
+      )}
       <button
         type="button"
         aria-label="Dismiss notification"

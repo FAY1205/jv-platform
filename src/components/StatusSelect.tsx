@@ -21,11 +21,17 @@ export interface StatusSelectProps {
   /** VP-3: "admin" (default) posts to /api/leads and refreshes the admin caches; "portal"
    *  posts to /api/portal/leads and refreshes the partner caches. Same pill UI either way. */
   scope?: "admin" | "portal";
+  /**
+   * N5-06: the statuses this record offers, when the caller already holds the server's list
+   * (the lead detail's `availableStatuses`). Defaults to the seeded set — which is what that
+   * payload carries today, so the two agree by construction rather than by luck.
+   */
+  statuses?: readonly string[];
   /** Currently unconsumed — a forward-looking hook for WS-4/5 rows (unmatched/partner). */
   onChanged?: (status: string) => void;
 }
 
-export function StatusSelect({ refId, status, mlsStatus, scope = "admin", onChanged }: StatusSelectProps) {
+export function StatusSelect({ refId, status, mlsStatus, scope = "admin", statuses = SEED_LEAD_STATUSES, onChanged }: StatusSelectProps) {
   const qc = useQueryClient();
   const toast = useToast();
 
@@ -96,7 +102,7 @@ export function StatusSelect({ refId, status, mlsStatus, scope = "admin", onChan
       <RadixSelect.Portal>
         <RadixSelect.Content position="popper" sideOffset={4} className="anim-pop z-[130] overflow-hidden rounded-md border border-border bg-surface shadow-md">
           <RadixSelect.Viewport className="p-1">
-            {SEED_LEAD_STATUSES.map((s) => (
+            {statuses.map((s) => (
               <RadixSelect.Item key={s} value={s} className="relative flex cursor-pointer select-none items-center rounded px-2 py-1.5 pr-7 text-sm text-text outline-none data-[highlighted]:bg-brand-soft data-[highlighted]:text-brand-ink">
                 <RadixSelect.ItemText>{s}</RadixSelect.ItemText>
                 <RadixSelect.ItemIndicator className="absolute right-2 text-brand-ink">

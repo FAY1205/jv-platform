@@ -68,6 +68,17 @@ export interface SidePanelProps {
    * already in it, which some AT does not announce.
    */
   statusMessage?: string;
+  /**
+   * N5-13 (Esc precedence): while true, Esc does NOT close the panel — something inside it
+   * owns the key first (an active inline edit, which reverts on that press). The next Esc,
+   * with nothing left to consume it, closes as usual.
+   *
+   * It has to be a prop rather than the edit simply calling `stopPropagation`: Radix listens
+   * for Escape on the DOCUMENT in the capture phase, so it has already decided by the time a
+   * keystroke reaches the field. `onEscapeKeyDown` + `preventDefault` is the one seam that
+   * runs early enough, and it lives here.
+   */
+  escapeHeld?: boolean;
 }
 
 export function SidePanel({
@@ -80,6 +91,7 @@ export function SidePanel({
   confirmClose = false,
   resetKey,
   statusMessage = "",
+  escapeHeld = false,
 }: SidePanelProps) {
   const [confirming, setConfirming] = React.useState(false);
   // The element to hand focus back to on close. Captured on the open TRANSITION (during render,
@@ -135,6 +147,10 @@ export function SidePanel({
           // The page behind stays live: a click on the leads table is a click on the leads
           // table, not a dismissal. ✕ and Esc are the only ways out.
           onInteractOutside={(e) => e.preventDefault()}
+          // N5-13: hand the first Esc to whatever inside the panel claims it. Radix skips its
+          // own dismiss when the event comes back defaultPrevented; the keystroke still
+          // reaches the field, which is what performs the revert.
+          onEscapeKeyDown={(e) => { if (escapeHeld) e.preventDefault(); }}
           onCloseAutoFocus={(e) => {
             // Radix's non-modal path aims focus at a Dialog.Trigger; this panel is controlled
             // and has none, so its restoration is a no-op that also blocks the FocusScope

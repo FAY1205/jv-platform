@@ -31,7 +31,9 @@ export type LeadActivityKind =
   | "status"
   | "note"
   | "task_created"
-  | "task_completed";
+  | "task_completed"
+  /** N5-14 — an admin corrected one or more of the lead's fields. ADMIN FEED ONLY. */
+  | "details_updated";
 
 export interface LeadActivity {
   kind: LeadActivityKind;
@@ -61,6 +63,91 @@ export const TIMELINE_STREAM_LIMIT = 100;
 /** The one ordering of a timeline: newest first. Sorts in place and returns the array. */
 export function sortNewestFirst(entries: LeadActivity[]): LeadActivity[] {
   return entries.sort((a, b) => b.at.localeCompare(a.at));
+}
+
+// ── "Details updated" (N5-14) ────────────────────────────────────────────────
+// Inline per-field editing needs a timeline fact, and `lead.edited` audit rows already hold
+// exactly which keys changed. Names only, never values: the audit payload masks consumer PII
+// to a presence sentinel (SEC-05/ADR-0031), and the unmasked half (address, campaign) is no
+// more welcome in a feed. Before→after diffs are N7's job, not this entry's.
+
+/**
+ * Display names for the audited lead columns — and, being an ALLOWLIST, the filter that
+ * decides whether a row produces an entry at all. `editLead` folds a partner move into the
+ * SAME audit row (`effectiveOwner`, `partner`), and those keys are absent here, so a
+ * partner-only row yields no entry (the `assigned` entry already tells that story) and a
+ * mixed row lists only its field names. An unrecognised key can never reach the screen.
+ *
+ * Lower case by design: the label reads mid-sentence ("Details updated: phone, email"). ZIP
+ * keeps its acronym case rather than making a lowercase rule special-case it — the same call
+ * `matchMethodLabel` made for "ZIP match".
+ */
+export const LEAD_FIELD_DISPLAY_NAMES: Record<string, string> = {
+  sellerFirst: "seller first name",
+  sellerLast: "seller last name",
+  phone: "phone",
+  email: "email",
+  address: "address",
+  city: "city",
+  state: "state",
+  zip: "ZIP",
+  campaign: "source",
+  reasonForSelling: "reason for selling",
+  motivation: "motivation",
+  timeToSell: "time to sell",
+  notes: "source notes",
+};
+
+/**
+ * The label one `lead.edited` audit row produces, or null when it produces none. Pure, so
+ * the "no values ever surface" rule is provable without a database. Reads the row's `after`
+ * KEYS only — the values are never touched.
+ */
+export function detailsUpdatedLabel(after: unknown): string | null {
+  if (!after || typeof after !== "object" || Array.isArray(after)) return null;
+  const changed = new Set(Object.keys(after as Record<string, unknown>));
+  const names = Object.keys(LEAD_FIELD_DISPLAY_NAMES)
+    .filter((k) => changed.has(k))
+    .map((k) => LEAD_FIELD_DISPLAY_NAMES[k]);
+  if (names.length === 0) return null;
+  return `Details updated: ${names.join(", ")}`;
+}
+
+/**
+ * The "Details updated" entries of one lead's timeline (N5-14).
+ *
+ * ⚠️ ADMIN FEED ONLY. `audit_log` carries no partner dimension, so the only predicate
+ * available here is the tenant one — which is right for an admin (they own the whole tenant)
+ * and would be a PRN-13 leak in the portal, where a partner must not learn what the previous
+ * owner's record looked like. Widening the portal feed is an owner decision, and would need
+ * a scope builder that does not exist yet. The lead is addressed by `entityRef` (its refId,
+ * what the audit trail records) under the tenant predicate, exactly as the trail is written.
+ */
+export async function detailsUpdatedActivity(db: DB, scope: ScopeContext, leadRefId: string): Promise<LeadActivity[]> {
+  const rows = await db
+    .select({ at: schema.auditLog.createdAt, after: schema.auditLog.after, actor: schema.users.email })
+    .from(schema.auditLog)
+    // R-65 precedent: the actor join carries its own tenant predicate, so a mis-set actor id
+    // resolves to NULL (no actor) rather than surfacing another tenant's email.
+    .leftJoin(schema.users, and(eq(schema.users.id, schema.auditLog.actorUserId), tenantWhere(schema.users, scope)))
+    .where(
+      and(
+        tenantWhere(schema.auditLog, scope),
+        eq(schema.auditLog.entityType, "lead"),
+        eq(schema.auditLog.entityRef, leadRefId),
+        eq(schema.auditLog.action, "lead.edited"),
+      ),
+    )
+    .orderBy(desc(schema.auditLog.createdAt))
+    .limit(TIMELINE_STREAM_LIMIT);
+
+  const entries: LeadActivity[] = [];
+  for (const r of rows) {
+    const label = detailsUpdatedLabel(r.after);
+    if (!label) continue;
+    entries.push({ kind: "details_updated", at: r.at.toISOString(), actor: r.actor, label });
+  }
+  return entries;
 }
 
 /**

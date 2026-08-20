@@ -28,6 +28,13 @@ export interface SelectProps {
   className?: string;
   /** Accessible label when no visible `label` is provided (e.g. rows-per-page). */
   ariaLabel?: string;
+  /**
+   * Paint the trigger's selected content instead of the option's plain text — for a value
+   * that is more than a string (N5-06's partner control shows the swatch + name + ref ID).
+   * The OPTION list is unaffected: its labels stay text, which is what Radix's typeahead and
+   * the accessible name are built from.
+   */
+  renderValue?: (value: string) => React.ReactNode;
   /** Red asterisk / muted "(optional)" tag on the label (#27). */
   required?: boolean;
   optional?: boolean;
@@ -45,6 +52,7 @@ export function Select({
   id,
   className,
   ariaLabel,
+  renderValue,
   required,
   optional,
 }: SelectProps) {
@@ -74,7 +82,8 @@ export function Select({
             className,
           )}
         >
-          <RadixSelect.Value placeholder={placeholder} />
+          {/* Radix falls back to the selected item's text when Value has no children. */}
+          <RadixSelect.Value placeholder={placeholder}>{renderValue ? renderValue(value) : undefined}</RadixSelect.Value>
           <RadixSelect.Icon className="text-text-3">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
               <path d="m6 9 6 6 6-6" />
