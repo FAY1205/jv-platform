@@ -31,6 +31,8 @@ import {
   Modal,
   AuthCardHeader,
   Dialog,
+  SidePanel,
+  ARROW_BUTTON_CLASS,
   Tooltip,
   Select,
   StatusSelect,
@@ -417,6 +419,13 @@ function Gallery() {
   const [dirtyDialogOpen, setDirtyDialogOpen] = React.useState(false);
   const [tallDialogOpen, setTallDialogOpen] = React.useState(false);
   const [dirtyDemoText, setDirtyDemoText] = React.useState("");
+  // N5-01 SidePanel demos: the plain panel, the pager-in-the-leading-slot panel, and the
+  // dirty one whose dismiss raises the shared DiscardGuard.
+  const [panelOpen, setPanelOpen] = React.useState(false);
+  const [pagerPanelOpen, setPagerPanelOpen] = React.useState(false);
+  const [dirtyPanelOpen, setDirtyPanelOpen] = React.useState(false);
+  const [panelDemoText, setPanelDemoText] = React.useState("");
+  const [panelDemoIndex, setPanelDemoIndex] = React.useState(3);
   const [selectVal, setSelectVal] = React.useState("new");
   const [checkA, setCheckA] = React.useState(true);
   const [checkB, setCheckB] = React.useState(false);
@@ -1150,6 +1159,24 @@ function Gallery() {
             </Card>
 
             <Card>
+              <CardHeader><CardTitle>SidePanel (N5-01)</CardTitle></CardHeader>
+              <CardBody className="flex flex-col gap-3">
+                <p className="text-sm text-text-2">
+                  Dialog&apos;s sibling, not a Dialog mode. From 768px it is NON-modal: no scrim, no focus trap,
+                  the page behind stays visible AND clickable, and an outside click does not dismiss — try
+                  clicking these buttons while it is open. Below 768px the same panel is a full-bleed sheet, and
+                  there it IS modal (narrow the window and reopen). Esc and ✕ close either way; focus returns to
+                  whatever opened it.
+                </p>
+                <div className="flex flex-wrap items-center gap-3">
+                  <Button variant="secondary" size="sm" onClick={() => setPanelOpen(true)}>Open SidePanel</Button>
+                  <Button variant="secondary" size="sm" onClick={() => setPagerPanelOpen(true)}>Open with header pager</Button>
+                  <Button variant="secondary" size="sm" onClick={() => setDirtyPanelOpen(true)}>Open dirty-guard SidePanel</Button>
+                </div>
+              </CardBody>
+            </Card>
+
+            <Card>
               <CardHeader><CardTitle>Account menu trigger (WP-PP-6)</CardTitle></CardHeader>
               <CardBody className="flex flex-col gap-3">
                 {/* Shared rail-foot trigger for the admin & portal account menus — normally
@@ -1503,6 +1530,81 @@ function Gallery() {
           ))}
         </div>
       </Dialog>
+
+      {/* N5-01: the plain panel. `statusMessage` is the persistent polite live region every
+          SidePanel carries (A11Y-03) — the panel does not move focus when its record changes,
+          so the announcement is the only thing a screen reader gets. */}
+      <SidePanel
+        open={panelOpen}
+        onClose={() => setPanelOpen(false)}
+        title="LD-26-00404"
+        statusMessage={panelOpen ? "Now showing lead LD-26-00404" : ""}
+      >
+        <p className="text-sm text-text-2">
+          The record content goes here. The table behind is still live — that is the whole point of the primitive.
+        </p>
+      </SidePanel>
+
+      {/* N5-04: the `leading` slot, before the title — where the lead pager lives. The arrows are
+          the shared ARROW_BUTTON_CLASS recipe (Pagination), with a real `disabled` at the ends
+          because that is a DATA boundary, not a permission miss. */}
+      <SidePanel
+        open={pagerPanelOpen}
+        onClose={() => setPagerPanelOpen(false)}
+        title={`LD-26-0040${panelDemoIndex}`}
+        statusMessage={pagerPanelOpen ? `Now showing lead LD-26-0040${panelDemoIndex}` : ""}
+        leading={
+          <div role="group" aria-label="Lead navigation" className="flex shrink-0 items-center gap-1">
+            <button
+              type="button"
+              className={ARROW_BUTTON_CLASS}
+              aria-label="Previous lead"
+              disabled={panelDemoIndex <= 1}
+              onClick={() => setPanelDemoIndex((i) => i - 1)}
+            >
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="m15 18-6-6 6-6" />
+              </svg>
+            </button>
+            <span className="num px-0.5 text-step-1 tabular-nums text-text-3">{panelDemoIndex} of 5</span>
+            <button
+              type="button"
+              className={ARROW_BUTTON_CLASS}
+              aria-label="Next lead"
+              disabled={panelDemoIndex >= 5}
+              onClick={() => setPanelDemoIndex((i) => i + 1)}
+            >
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="m9 18 6-6-6-6" />
+              </svg>
+            </button>
+          </div>
+        }
+      >
+        <p className="text-sm text-text-2">
+          Step the pager: the panel switches record IN PLACE (no close/reopen), and only the live region&apos;s
+          text changes — focus deliberately stays where it is.
+        </p>
+      </SidePanel>
+
+      {/* FRM-02a: the same discard guard Dialog raises, from the shared DiscardGuard. Type
+          something, then press Esc or click ✕. Inside the non-modal panel the guard also holds
+          Tab between Keep/Discard and makes the covered header + body inert — there is no outer
+          focus trap here to fall back on. */}
+      <SidePanel
+        open={dirtyPanelOpen}
+        onClose={() => { setDirtyPanelOpen(false); setPanelDemoText(""); }}
+        confirmClose={panelDemoText.trim().length > 0}
+        title="LD-26-00404 — unsaved edits"
+      >
+        <Input
+          label="Source notes"
+          value={panelDemoText}
+          onChange={(e) => setPanelDemoText(e.target.value)}
+          placeholder="Type here, then press Esc"
+          hint="With text present, Esc/✕ asks before discarding (FRM-02a)."
+        />
+      </SidePanel>
 
       <Modal
         open={modalOpen}

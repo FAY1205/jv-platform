@@ -8,6 +8,7 @@ import { useDirty } from "@/lib/use-dirty";
 import { fmtDateTime } from "@/lib/dates";
 import {
   Dialog,
+  SidePanel,
   Button,
   Badge,
   Input,
@@ -31,11 +32,18 @@ import { routedByLabel } from "@/lib/match-method";
 import { googleSearchUrl } from "@/lib/search-links";
 import { offersUnassign } from "@/lib/unassign";
 import { adminLeadPlaceholder } from "./lead-placeholder";
+import { LeadPager, type LeadNav } from "./lead-pager";
 
-// ADM: the lead dialog — opened from the global Leads table (no page navigation).
+// ADM: the lead record — opened from the global Leads table (no page navigation).
 // Read-only by default; the Edit button unlocks every field (owner decision). The
 // activity timeline + admin notes live here too. Data shapes mirror the server
 // (getAdminLeadDetail) — re-declared client-side per the leads-view convention.
+//
+// N5-02: the shell is now the non-modal SidePanel, not the centered Dialog — the table stays
+// visible and clickable behind it and a row click switches the record IN PLACE (this component
+// stays mounted; only `refId` changes). The file/export keep their names: N5 PR B retires the
+// whole-view EditForm below in favor of inline per-field editing, and renaming twice would
+// churn every call site for nothing.
 
 interface DetailPartner {
   id: string;
@@ -137,17 +145,37 @@ function transferCopy(action: PartnerAction, d: LeadDetail, partners: Partner[])
   }
 }
 
-export function LeadDialog({ refId, onClose }: { refId: string; onClose: () => void }) {
+export function LeadDialog({ refId, onClose, nav = null }: { refId: string; onClose: () => void; /** N5-04: prev/next over the list's working set, or null when the open ref isn't in it. */ nav?: LeadNav | null }) {
   const qc = useQueryClient();
   const toast = useToast();
   const [editing, setEditing] = React.useState(false);
   // R-54 (FRM-02a): while editing, EditForm reports whether its fields are dirty so a dismiss
-  // gesture (Esc/backdrop/✕) on unsaved edits asks before discarding. Reset when leaving edit mode.
+  // gesture (Esc/✕) on unsaved edits asks before discarding. Reset when leaving edit mode.
   const [editDirty, setEditDirty] = React.useState(false);
   const leaveEdit = () => {
     setEditing(false);
     setEditDirty(false);
   };
+
+  // N5-02: the panel now SWITCHES records without unmounting, so edit state has to be reset on
+  // the ref change — EditForm seeds its baseline from `d` on mount, and leaving it open across a
+  // switch would show one lead's draft over another's record. (Adjusting state during render,
+  // the `seeded` idiom used across this page.)
+  //
+  // N5-30 / A11Y-03: the switch also has to be ANNOUNCED. It deliberately does not move focus
+  // (that is what keeps the pager and row-clicking usable), so without this a screen-reader
+  // user presses ↓ and hears nothing at all. It starts EMPTY and is only filled on a switch:
+  // the panel's live region is mounted for the panel's whole life, and a region that mounts
+  // with its text already in it announces nothing — on the first open the dialog role and its
+  // title already say which lead this is.
+  const [prevRef, setPrevRef] = React.useState(refId);
+  const [announcement, setAnnouncement] = React.useState("");
+  if (prevRef !== refId) {
+    setPrevRef(refId);
+    if (editing) setEditing(false);
+    if (editDirty) setEditDirty(false);
+    setAnnouncement(`Now showing lead ${refId}`);
+  }
 
   const detailQ = useQuery({
     queryKey: ["lead", refId],
@@ -166,12 +194,49 @@ export function LeadDialog({ refId, onClose }: { refId: string; onClose: () => v
   // and editing is held (an edit form must never seed from a partial record).
   const partial = detailQ.isPlaceholderData;
 
+  // N5-04: ↑/↓ move to the previous/next lead. The binding lives HERE, not on the pager, for
+  // the two things only the panel knows: whether an edit form is open (arrows must not steal
+  // keys from a form) and whether the panel is on screen at all. Document-level because the
+  // table behind is still focusable — but never over a text control, never over a key another
+  // layer has already claimed (an open Radix Select consumes arrows and preventDefaults them),
+  // and never with a modifier.
+  const navRef = React.useRef(nav);
+  React.useEffect(() => { navRef.current = nav; });
+  React.useEffect(() => {
+    if (editing) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "ArrowUp" && e.key !== "ArrowDown") return;
+      if (e.defaultPrevented || e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
+      const t = e.target as HTMLElement | null;
+      if (t && (t.isContentEditable || /^(input|textarea|select)$/i.test(t.tagName))) return;
+      // A11Y-04, belt-and-braces: an open Radix Select/DropdownMenu owns the arrow keys and
+      // preventDefaults them, so the check above already holds — but that is one library's
+      // behavior standing between a listbox and a record switch. Name the surfaces too.
+      if (t?.closest?.('[role="listbox"],[role="menu"],[data-radix-popper-content-wrapper]')) return;
+      const n = navRef.current;
+      if (!n || n.pending) return;
+      if (e.key === "ArrowUp" ? n.canPrev : n.canNext) {
+        e.preventDefault();
+        if (e.key === "ArrowUp") n.prev(); else n.next();
+      }
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [editing]);
+
   return (
-    <Dialog
+    <SidePanel
       open
       onClose={onClose}
-      size="xl"
       confirmClose={editing && editDirty}
+      ariaLabel={`Lead ${refId}`}
+      // N5-02: the panel switches records in place, so its per-open state (the discard prompt,
+      // the captured opener) has to reset on the REF, not on `open` — which never flips here.
+      resetKey={refId}
+      statusMessage={announcement}
+      // N5-05: no pager at all when the open ref isn't in the current working set — a
+      // deep-linked lead the filters exclude would otherwise be given a lying position.
+      leading={nav ? <LeadPager nav={nav} /> : null}
       title={
         <span className="flex items-center gap-2.5">
           <span className="num">{refId}</span>
@@ -193,6 +258,9 @@ export function LeadDialog({ refId, onClose }: { refId: string; onClose: () => v
         <QueryErrorState title="Couldn't load lead" error={detailQ.error} description={(detailQ.error as Error)?.message ?? "Not found."} onRetry={() => detailQ.refetch()} />
       ) : editing ? (
         <EditForm
+          // Belt-and-braces with the ref reset above: the form's baseline is seeded on mount,
+          // so it must never outlive the record it was seeded from.
+          key={refId}
           d={d}
           partners={roster.data?.partners ?? []}
           onDirtyChange={setEditDirty}
@@ -212,7 +280,7 @@ export function LeadDialog({ refId, onClose }: { refId: string; onClose: () => v
       ) : (
         <ViewMode d={d} partial={partial} onEdit={() => setEditing(true)} />
       )}
-    </Dialog>
+    </SidePanel>
   );
 }
 
@@ -280,13 +348,16 @@ function ViewMode({ d, partial = false, onEdit }: { d: LeadDetail; partial?: boo
 
       {/* The why-routed sentence was removed (owner testing note #3, 2026-07-14) — the
           partner tag + the Assignment fields below already carry how the lead routed. */}
-      <div className="grid grid-cols-2 gap-x-5 gap-y-4 sm:grid-cols-3">
+      {/* N5-01: the grid's breakpoint is the PANEL's width change, not a generic `sm:` — the
+          panel is 560px between 768 and 1100 (two columns read; three do not) and 600px above
+          it. Tailwind breakpoints are viewport-based, so 1100 is the honest switch here. */}
+      <div className="grid grid-cols-2 gap-x-5 gap-y-4 min-[1100px]:grid-cols-3">
         {/* C-41b: Seller / Property / Source / Received / partner / status all come straight
             from the clicked row, so they paint at once; the rest wait as labelled skeletons. */}
         <Field label="Seller">{`${d.seller.first} ${d.seller.last}`.trim() || "—"}</Field>
         {partial ? <PendingField label="Phone" /> : <Field label="Phone">{d.seller.phone || "—"}</Field>}
         {partial ? <PendingField label="Email" /> : <Field label="Email">{d.seller.email || "—"}</Field>}
-        <div className="col-span-2 sm:col-span-3">
+        <div className="col-span-2 min-[1100px]:col-span-3">
           <Field label="Property">
             {property ? (
               <Tooltip content="Search this property on Google">
@@ -332,12 +403,12 @@ function ViewMode({ d, partial = false, onEdit }: { d: LeadDetail; partial?: boo
         {partial ? <PendingField label="Reason for selling" /> : <Field label="Reason for selling">{d.reasonForSelling || "—"}</Field>}
         {partial ? <PendingField label="Time to sell" /> : <Field label="Time to sell">{d.timeToSell || "—"}</Field>}
         {d.mlsStatus === "removed" && (
-          <div className="col-span-2 sm:col-span-3">
+          <div className="col-span-2 min-[1100px]:col-span-3">
             {partial ? <PendingField label="MLS removal reason" /> : <Field label="MLS removal reason">{d.mlsReason || "—"}</Field>}
           </div>
         )}
         {d.notes && (
-          <div className="col-span-2 flex flex-col gap-1 sm:col-span-3">
+          <div className="col-span-2 flex flex-col gap-1 min-[1100px]:col-span-3">
             <span className="text-step-1 font-semibold uppercase tracking-wide text-text-3">Source notes</span>
             {/* VP-4c: boxed so the long note reads as its own block, not another field. */}
             <div className="rounded-lg border border-border-soft bg-surface-2 px-3.5 py-3">
@@ -542,8 +613,8 @@ export function EditForm({
         <Input label="Email" value={f.email} onChange={set("email")} />
       </div>
 
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <div className="col-span-2 sm:col-span-4">
+      <div className="grid grid-cols-2 gap-3 min-[1100px]:grid-cols-4">
+        <div className="col-span-2 min-[1100px]:col-span-4">
           <Input label="Address" value={f.address} onChange={set("address")} />
         </div>
         <Input label="City" value={f.city} onChange={set("city")} />

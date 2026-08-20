@@ -328,12 +328,21 @@ h4 {
   from { transform: translateX(-100%); }
   to { transform: none; }
 }
+/* N5-01: the right-anchored side panel's slide-over. A sibling of drawer-in (which
+   comes from the LEFT for the mobile nav), not a variant of it — the two travel in
+   opposite directions and are never used together. The reduced-motion rule below
+   collapses it to instant, which is the whole point of keeping it a class. */
+@keyframes panel-in {
+  from { opacity: 0; transform: translateX(100%); }
+  to { opacity: 1; transform: none; }
+}
 
 .anim-fade { animation: fade-in var(--t-base) both; }
 .anim-fade-up { animation: fade-in-up var(--t-slow) both; }
 .anim-pop { animation: pop-in 180ms cubic-bezier(0.2, 0.8, 0.2, 1) both; }
 .anim-scrim { animation: scrim-in var(--t-fast) both; }
 .anim-drawer { animation: drawer-in var(--t-base) both; }
+.anim-panel { animation: panel-in var(--t-base) both; }
 
 /* Assistant launcher: a slow ambient pulse (halo grows/shrinks). The global
    reduced-motion rule below collapses this to a static shadow. */

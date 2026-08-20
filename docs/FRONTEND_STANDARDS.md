@@ -93,6 +93,18 @@ Canonicalizes the frontend patterns this codebase follows. Authority order:
   element (SC 2.4.7).
 - Programmatic labels on all fields (the `Input label=` pattern); toasts/status changes
   announced via `aria-live` (SC 4.1.3).
+- **A11Y-03** — a `role="status"` / `aria-live` region is mounted ONCE and persists for its
+  component's lifetime; only its text changes. Never conditionally mount a live region with
+  content already in it: some AT announces only mutations to a region it was already
+  observing, so `{busy && <span role="status">Loading…</span>}` is silent. `ToastProvider`
+  and `NotificationBell` are the reference implementations; `SidePanel` takes the text as a
+  `statusMessage` prop (SC 4.1.3).
+- **A11Y-04** — a DOCUMENT-level keyboard shortcut no-ops when `e.defaultPrevented` is true
+  or when the event target is inside
+  `[role="listbox"], [role="menu"], [role="dialog"], input, textarea, select, [contenteditable]`.
+  A shortcut that skips the check steals keys from whatever layer is already open on top of
+  it. The exclusion list carries a shared regression test — extend that test, not just the
+  handler, when a new surface joins the list (SC 2.1.1).
 - Verification: `pnpm audit:axe` against a served build (`pnpm audit:serve`) — the
   a11y audit agent runs this and maps violations to success criteria.
   `TODO(owner)`: run cadence (suggested: every Tier B checkpoint + pre-gate).

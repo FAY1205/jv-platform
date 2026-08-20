@@ -25,6 +25,36 @@ if (typeof (globalThis as { ResizeObserver?: unknown }).ResizeObserver === "unde
   (globalThis as { ResizeObserver?: unknown }).ResizeObserver = ResizeObserverStub;
 }
 
+// jsdom implements no window.matchMedia either, and it is now reached from a SHIPPED primitive
+// (SidePanel picks its modality from the 768px sheet breakpoint), not just from a handful of
+// viewport-branching views that each stubbed it themselves. Same shape as the stub above: a
+// guarded default that individual suites can still override (they redefine the property in
+// their own beforeAll) to model a specific viewport. The default answers as a 1280px desktop —
+// the admin's own minimum target is 768px, so "desktop unless a suite says otherwise" is the
+// honest default; anything that is not a width query is false (e.g. reduced-motion).
+if (typeof window !== "undefined" && typeof window.matchMedia === "undefined") {
+  const WIDTH = 1280;
+  Object.defineProperty(window, "matchMedia", {
+    writable: true,
+    configurable: true,
+    value: (query: string) => {
+      const min = /\(min-width:\s*([\d.]+)px\)/.exec(query);
+      const max = /\(max-width:\s*([\d.]+)px\)/.exec(query);
+      const matches = min ? WIDTH >= Number(min[1]) : max ? WIDTH <= Number(max[1]) : false;
+      return {
+        matches,
+        media: query,
+        onchange: null,
+        addListener() {},
+        removeListener() {},
+        addEventListener() {},
+        removeEventListener() {},
+        dispatchEvent: () => false,
+      };
+    },
+  });
+}
+
 // Integration tests read DATABASE_URL from .env.local (Node 22 loadEnvFile).
 // Guarded so the unit suite (no DB) and CI (env already set) are unaffected —
 // without this the integration suites self-skip instead of running (audit F-02/F-50).

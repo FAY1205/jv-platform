@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { useQuery, keepPreviousData } from "@tanstack/react-query";
+import { useQuery, keepPreviousData, type UseQueryResult } from "@tanstack/react-query";
 import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import { apiGet } from "@/lib/api";
@@ -20,6 +20,7 @@ import { setPreferences, usePreferences, type LeadsViewPref } from "@/lib/prefer
 import { useLeadNavCounts } from "@/lib/lead-counts";
 import { rowClickGuard, CLICKABLE_ROW_CLASS } from "@/lib/row-click";
 import { useTags, useLeadTagMutations, atTagLimit } from "@/lib/tags-client";
+import { useLeadNav } from "./lead-pager";
 
 const LeadDialog = dynamic(() => import("./lead-dialog").then((m) => m.LeadDialog), { ssr: false });
 // KAN-01: the board is a second view of the SAME page — code-split like the dialog so
@@ -175,6 +176,20 @@ function LeadsBody({ initialQ, initialOpenRef = null, initialHot = false, initia
   // mode is preserved: clearing filters is not a request to change List/Board.
   const clearFilters = React.useCallback(() => applyView({ ...EMPTY, viewMode: view }), [applyView, view]);
 
+  // N5-04: the panel's pager and the table read the SAME list query — one cache entry, one
+  // fetch — so "N of M" can never disagree with the rows on screen. It lives here rather than
+  // in LeadsTable because the panel is this component's child too. Board mode doesn't run it:
+  // the board is its own working set, and a list pager over it would be a different number.
+  const list = view === "list";
+  const leadsQ = useLeadsPage({ filterKey, filters, sort, dir, page, pageSize, enabled: list });
+  const nav = useLeadNav({
+    data: list ? leadsQ.data : undefined,
+    isError: Boolean(leadsQ.error),
+    openRef,
+    onOpen: setOpenRef,
+    onPageChange: setPage,
+  });
+
   return (
     <>
       <div className="mb-3 flex items-center justify-between gap-3">
@@ -218,12 +233,11 @@ function LeadsBody({ initialQ, initialOpenRef = null, initialHot = false, initia
         />
       ) : (
         <LeadsTable
-          filterKey={filterKey}
+          leadsQ={leadsQ}
           filters={filters}
           sort={sort}
           dir={dir}
-          page={page}
-          pageSize={pageSize}
+          openRef={openRef}
           onSort={onSort}
           onOpen={setOpenRef}
           onPageChange={setPage}
@@ -232,7 +246,11 @@ function LeadsBody({ initialQ, initialOpenRef = null, initialHot = false, initia
         />
       )}
 
-      {openRef && <LeadDialog refId={openRef} onClose={closeDialog} />}
+      {/* N5-02: the record lives in a NON-MODAL side panel now, so this stays mounted across a
+          record switch — clicking another row while it is open changes `openRef` and the panel
+          re-keys its queries in place instead of closing and reopening. The `?open=` discipline
+          above is untouched. */}
+      {openRef && <LeadDialog refId={openRef} onClose={closeDialog} nav={nav} />}
     </>
   );
 }
@@ -436,16 +454,14 @@ const LeadsFilterBar = React.memo(function LeadsFilterBar({ seedQ, seedHot = fal
   );
 });
 
-// ── Table (consumes only committed state → no keystroke reconciliation) ──
-function LeadsTable({
-  filterKey, filters, sort, dir, page, pageSize, onSort, onOpen, onPageChange, onPageSizeChange, onClearFilters,
+/** The list query. Lifted out of LeadsTable (N5-04) so the panel's pager subscribes to the SAME
+ *  cache entry the table renders — same key, one fetch, no second source of truth (PRN-15). */
+function useLeadsPage({
+  filterKey, filters, sort, dir, page, pageSize, enabled,
 }: {
-  filterKey: string; filters: Filters; sort: LeadSortField; dir: "asc" | "desc"; page: number; pageSize: number;
-  onSort: (f: LeadSortField) => void; onOpen: (ref: string) => void; onPageChange: (p: number) => void; onPageSizeChange: (n: number) => void;
-  /** C-54: resets the filter bar through the page's single apply channel. */
-  onClearFilters: () => void;
+  filterKey: string; filters: Filters; sort: LeadSortField; dir: "asc" | "desc"; page: number; pageSize: number; enabled: boolean;
 }) {
-  const leadsQ = useQuery({
+  return useQuery({
     queryKey: ["leads", filterKey, page, pageSize],
     queryFn: () => {
       const params = new URLSearchParams({ q: filters.q, sort, dir, page: String(page), pageSize: String(pageSize) });
@@ -463,7 +479,22 @@ function LeadsTable({
     // wiping the table to skeletons on every change (mirrors portal-dashboard). isPending only fires
     // on the very first load; subsequent fetches are background refetches over the kept data.
     placeholderData: keepPreviousData,
+    enabled,
   });
+}
+
+// ── Table (consumes only committed state → no keystroke reconciliation) ──
+function LeadsTable({
+  leadsQ, filters, sort, dir, openRef, onSort, onOpen, onPageChange, onPageSizeChange, onClearFilters,
+}: {
+  leadsQ: UseQueryResult<LeadsPage, Error>;
+  filters: Filters; sort: LeadSortField; dir: "asc" | "desc";
+  /** N5-02: the lead the (non-modal) panel is showing — the table marks it, since both are on screen. */
+  openRef: string | null;
+  onSort: (f: LeadSortField) => void; onOpen: (ref: string) => void; onPageChange: (p: number) => void; onPageSizeChange: (n: number) => void;
+  /** C-54: resets the filter bar through the page's single apply channel. */
+  onClearFilters: () => void;
+}) {
   const data = leadsQ.data;
   // N3C-01/Q3: the workspace total, read from the SAME ["leads","counts"] cache entry the
   // shell's nav badges use (lib/lead-counts) — no second endpoint hit, and the header can
@@ -569,9 +600,13 @@ function LeadsTable({
                 // keyboard/AT path is still the RowOpenButton in the first cell (so no
                 // tabIndex/role here); rowClickGuard defers to inner controls and to an
                 // in-progress text selection (lib/row-click).
+                // N5-02: the panel is non-modal, so the row it is showing has to be findable in
+                // the table beside it. `aria-current` carries that to AT, and the ref in the
+                // panel header names the same lead — the tint is never the only signal (PRN-14).
                 <Tr
                   key={l.refId}
-                  className={"group " + CLICKABLE_ROW_CLASS}
+                  aria-current={l.refId === openRef ? "true" : undefined}
+                  className={"group " + CLICKABLE_ROW_CLASS + (l.refId === openRef ? " bg-brand-soft" : "")}
                   onClick={(e) => { if (rowClickGuard(e.target)) onOpen(l.refId); }}
                 >
                   <Td fit>
