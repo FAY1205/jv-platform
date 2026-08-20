@@ -1700,7 +1700,11 @@ function InlineFieldDemo() {
     <div className="grid grid-cols-2 gap-x-5 gap-y-4 rounded-lg border border-border-soft p-4 sm:grid-cols-3">
       <InlineField label="Phone" value={phone} onCommit={setPhone} hint />
       <InlineField label="State" value={state} onCommit={setState} mask={(raw) => raw.toUpperCase().replace(/[^A-Z]/g, "").slice(0, 2)} />
-      <InlineField label="Email" value="m.ellery@example.test" onCommit={() => {}} saving />
+      {/* N5E-05, demonstrated rather than described: the value that WRAPS. This is the owner's
+          original complaint — a long email ellipsized to "mykelvinlove@gmai…" in the record —
+          so the showcase carries one long enough to break onto a second line in this narrow
+          column. If it ever reads as a single truncated line again, the fix has regressed. */}
+      <InlineField label="Email" value="marguerite.ellery-whitfield@example-realty.test" onCommit={() => {}} saving />
       <InlineField label="ZIP" value="74105" onCommit={() => {}} disabled />
       <InlineField label="Received" value="Aug 18, 2:12 PM" onCommit={() => {}} editable={false} />
       <InlineField label="Time to sell" value="" onCommit={() => {}} />

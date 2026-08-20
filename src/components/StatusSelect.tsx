@@ -127,8 +127,18 @@ export function StatusSelect({ refId, status, mlsStatus, scope = "admin", status
                 // The Select primitive's trigger anatomy, reproduced so the partner control
                 // beside it is a twin rather than a lookalike; RECORD_CONTROL_CLASS is the
                 // half both of them add on top.
-                "inline-flex items-center gap-2 rounded-md border border-border-soft bg-surface px-3 py-2 text-sm font-medium text-text-2 outline-none",
-                "focus-visible:border-brand-ink focus-visible:ring-1 focus-visible:ring-brand-ink",
+                //
+                // Reproduced VERBATIM — `justify-between` (which pushes the caret to the far
+                // edge rather than leaving it wherever the status word ends) and the
+                // border-color transition were both missed by the first hand-copy, and the
+                // two controls sat side by side with a caret in different places and one of
+                // them snapping its focus border. The chrome-parity test in
+                // tests/unit/lead-record-polish.test.tsx now compares the two triggers' FULL
+                // class sets, so the next omission fails rather than ships.
+                // (`w-full` is not repeated here: RECORD_CONTROL_CLASS below carries it, and
+                // that is the half both controls share.)
+                "inline-flex items-center justify-between gap-2 rounded-md border border-border-soft bg-surface px-3 py-2 text-sm font-medium text-text-2",
+                "outline-none transition-[border-color] duration-[120ms] focus-visible:border-brand-ink focus-visible:ring-1 focus-visible:ring-brand-ink",
                 RECORD_CONTROL_CLASS,
               )
             : statusPillClass(
@@ -137,10 +147,23 @@ export function StatusSelect({ refId, status, mlsStatus, scope = "admin", status
               )
         }
       >
-        {/* PRN-14: decorative only — the status word sits immediately beside it. */}
-        {field && <span aria-hidden="true" className={cn("size-[7px] shrink-0 rounded-full", statusDotClass(val))} />}
-        <RadixSelect.Value />
-        <RadixSelect.Icon className={field ? "ms-auto text-text-3" : undefined}>
+        {field ? (
+          // ONE flex child, not two. `justify-between` distributes the free space BETWEEN the
+          // trigger's children, so a bare dot + Value would be pushed apart by it — and PRN-14
+          // is the requirement that the hue never travels without the word right beside it.
+          // Grouping them also makes the trigger a two-child box like the Select primitive's,
+          // which is what the shared `justify-between` was copied for.
+          <span className="flex min-w-0 items-center gap-2">
+            {/* PRN-14: decorative only — the status word sits immediately beside it. */}
+            <span aria-hidden="true" className={cn("size-[7px] shrink-0 rounded-full", statusDotClass(val))} />
+            <RadixSelect.Value />
+          </span>
+        ) : (
+          <RadixSelect.Value />
+        )}
+        {/* No `ms-auto`: `justify-between` on the trigger is what puts the caret at the far
+            edge, exactly as it does on the Select primitive this variant mirrors. */}
+        <RadixSelect.Icon className={field ? "text-text-3" : undefined}>
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6" /></svg>
         </RadixSelect.Icon>
       </RadixSelect.Trigger>

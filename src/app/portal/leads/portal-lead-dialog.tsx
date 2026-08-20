@@ -61,11 +61,22 @@ export interface PortalLeadDetail {
 // anatomy, read-scoped (plain values, no inline editing, no partner control). PRESENTATION
 // only: not one byte of the payload or its scope changes (N5-21).
 function Field({ label, children, className, nowrap = false }: { label: string; children: React.ReactNode; className?: string; nowrap?: boolean }) {
+  // WP-UX-7 (audit 3.2), the admin Field's rule, which this twin has to keep or the portal
+  // record silently regresses the fix: a missing value is DEMOTED to a muted "Not provided"
+  // rather than a bare "—" at full field prominence — a row of dashes at full weight made a
+  // routed lead read as broken. Every empty-able caller here resolves to the "—" sentinel, so
+  // this one place catches them all; JSX children (the address link, ListingBadge, the
+  // partial's Skeleton) pass through untouched.
+  const isEmpty = children === "—" || children === "" || children == null;
   return (
     <div className={cn("flex min-w-0 flex-col gap-0.5", className)}>
       <span className="text-step-1 font-semibold uppercase tracking-wide text-text-3">{label}</span>
-      {/* Values WRAP, never ellipsize (N5E-05) — `nowrap` is the one exception (Received). */}
-      <span className={cn("text-sm text-text-2", nowrap ? "whitespace-nowrap" : "[overflow-wrap:anywhere]")}>{children}</span>
+      {isEmpty ? (
+        <span className="text-sm italic text-text-3">Not provided</span>
+      ) : (
+        /* Values WRAP, never ellipsize (N5E-05) — `nowrap` is the one exception (Received). */
+        <span className={cn("text-sm text-text-2", nowrap ? "whitespace-nowrap" : "[overflow-wrap:anywhere]")}>{children}</span>
+      )}
     </div>
   );
 }
@@ -130,7 +141,8 @@ export function PortalLeadDialog({ refId, onClose }: { refId: string; onClose: (
           {/* N5E-07: ONE six-column span grid, the admin record's — each field takes the width
               its content needs, and the status control is a labelled field in that grid rather
               than a boxed banner above it. Order matches the admin twin exactly. */}
-          <div className="grid grid-cols-6 gap-x-4 gap-y-4">
+          {/* gap-y-3.5 = the mockup's 14px row rhythm, the same as the admin twin's grid. */}
+          <div className="grid grid-cols-6 gap-x-4 gap-y-3.5">
             <Field label="First name" className="col-span-2">{data.seller.first || "—"}</Field>
             <Field label="Last name" className="col-span-2">{data.seller.last || "—"}</Field>
             {/* C-41b: the row gives the name; the phone/email a partner is about to use are

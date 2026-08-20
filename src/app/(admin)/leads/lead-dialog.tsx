@@ -20,6 +20,7 @@ import {
   TasksPanel,
   Timeline,
   Skeleton,
+  Spinner,
   QueryErrorState,
   useToast,
   Tooltip,
@@ -281,9 +282,11 @@ export function LeadDialog({ refId, onClose, nav = null }: { refId: string; onCl
 // ── Read-only view ────────────────────────────────────────────────────────────
 
 /** The uppercase field label every cell in the record grid wears — plain fields, pending
- *  fields, and (N5E-04) the two live controls, which are labelled fields like any other. */
-function FieldLabel({ children }: { children: React.ReactNode }) {
-  return <span className="text-step-1 font-semibold uppercase tracking-wide text-text-3">{children}</span>;
+ *  fields, and (N5E-04) the two live controls, which are labelled fields like any other.
+ *  `id` is for the one caller that needs to POINT at its label: the expanded address editor,
+ *  whose `aria-labelledby` is what gives that group its accessible name (A11Y-05). */
+function FieldLabel({ children, id }: { children: React.ReactNode; id?: string }) {
+  return <span id={id} className="text-step-1 font-semibold uppercase tracking-wide text-text-3">{children}</span>;
 }
 
 function Field({ label, children, className, nowrap = false }: { label: string; children: React.ReactNode; className?: string; nowrap?: boolean }) {
@@ -400,6 +403,7 @@ function AddressGroup({
   parts,
   fieldProps,
   partial,
+  anySaving,
   retry,
   trailing,
   report,
@@ -410,6 +414,14 @@ function AddressGroup({
   fieldProps: (key: EditableField, committed: string) => RecordFieldProps;
   /** C-41b: a row-derived partial paints the LINE but cannot be edited from. */
   partial: boolean;
+  /**
+   * A save on ANY of the four columns is in flight. The expanded editor gets this per-column
+   * through `fieldProps` (each sub-field spins for its own save), but the COLLAPSED line is one
+   * value standing for four — commit a city and click away and the group collapses onto an
+   * optimistic line with nothing to say a write is still out. Same quiet mark InlineField's
+   * rest state uses, for the same reason.
+   */
+  anySaving: boolean;
   /** N5-11: the record's retry state — a retry on an address column re-expands the group. */
   retry: { field: EditableField; text: string; nonce: number } | null;
   trailing: React.ReactNode;
@@ -418,6 +430,11 @@ function AddressGroup({
   className?: string;
 }) {
   const [open, setOpen] = React.useState(false);
+  // A11Y-05: the expanded editor is four separate fields that only mean "an address" together.
+  // Without a name on the group, a screen-reader user tabbing in hears "Street", "City",
+  // "State", "ZIP" as four unrelated record fields and never learns the Address field they
+  // opened is what they are inside. The label is the group's own — one string, one source.
+  const labelId = React.useId();
   const [editingKey, setEditingKey] = React.useState<AddressKey | null>(null);
   // Which sub-field opens, and on what text — handed straight to that InlineField as its
   // `reopen`, which is the primitive's own "open on this text" seam (N5-11). The sub-fields do
@@ -527,7 +544,11 @@ function AddressGroup({
                 an admin reads or copies, so hiding its tail behind a "…" is not an option. */}
             <span className={cn("text-sm [overflow-wrap:anywhere]", line ? "text-text" : "italic text-text-3")}>{shown}</span>
           </button>
-          {!partial && (
+          {/* The collapsed line's "still in flight" mark — InlineField's rest-state treatment
+              verbatim, including its rule that the spinner REPLACES the pencil rather than
+              crowding beside it. */}
+          {anySaving && <Spinner size={12} />}
+          {!partial && !anySaving && (
             <PencilIcon className="shrink-0 text-text-3 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100" />
           )}
           {trailing}
@@ -546,8 +567,18 @@ function AddressGroup({
   });
 
   return (
-    <div ref={groupRef} className={cn("flex min-w-0 flex-col gap-1", className)} onBlur={onFocusOut} onKeyDown={onKeyDown}>
-      <FieldLabel>Address</FieldLabel>
+    <div
+      ref={groupRef}
+      // A11Y-05: four inputs that are one field. The role makes the boundary programmatic
+      // (it is otherwise carried by a border alone), and the name comes from the SAME label
+      // the collapsed line wears — so what a reader sees and what they hear cannot drift.
+      role="group"
+      aria-labelledby={labelId}
+      className={cn("flex min-w-0 flex-col gap-1", className)}
+      onBlur={onFocusOut}
+      onKeyDown={onKeyDown}
+    >
+      <FieldLabel id={labelId}>Address</FieldLabel>
       <div className="grid grid-cols-6 gap-x-4 gap-y-3 rounded-lg border border-border bg-surface p-3">
         <InlineField {...sub("address")} className="col-span-6" />
         <InlineField {...sub("city")} className="col-span-3" />
@@ -705,7 +736,9 @@ function LeadRecord({
         No breakpoint any more: the spans are proportional, so they hold at the panel's 560px
         and 600px alike (the old grid had to switch column count at 1100px to stay readable).
       */}
-      <div className="grid grid-cols-6 gap-x-4 gap-y-4">
+      {/* gap-y-3.5 = the mockup's 14px row rhythm (the fields carry their own -my-1 hit area,
+          so a 16px gap read as too airy against the approved shape). */}
+      <div className="grid grid-cols-6 gap-x-4 gap-y-3.5">
         {/* C-41b: the name, address parts and source come straight from the clicked row, so
             they paint at once; the rest wait as labelled skeletons. */}
         <InlineField {...field("sellerFirst", d.seller.first)} className="col-span-2" />
@@ -723,6 +756,7 @@ function LeadRecord({
           parts={{ address: val("address", d.address), city: val("city", d.city), state: val("state", d.state), zip: val("zip", d.zip) }}
           fieldProps={field}
           partial={partial}
+          anySaving={ADDRESS_KEYS.some((k) => k in inFlight)}
           retry={reopen}
           report={onEditingFieldChange}
           trailing={

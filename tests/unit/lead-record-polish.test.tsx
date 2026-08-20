@@ -110,7 +110,6 @@ function renderPanel({ nav = navStub(), onClose = vi.fn(), seedList = false }: {
 /** The record's field grid. Scoping matters: "Status" is also a Timeline filter word, and
  *  the grid is the surface whose ORDER these tests are about. */
 const fieldGrid = () => document.querySelector(".grid-cols-6") as HTMLElement;
-const addressLineButton = () => screen.getByRole("button", { name: /^Address:/i });
 /** True when `a` comes before `b` in the document. */
 const precedes = (a: Element, b: Element) => Boolean(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
 
@@ -184,19 +183,49 @@ describe("N5E-04: status and assigned partner are labelled fields", () => {
     expect(partner.className).toContain("uppercase");
   });
 
-  it("N5E-04: the two controls share ONE chrome — same classes, not two lookalikes", async () => {
+  it("N5E-04: the two controls share ONE chrome — the FULL class set, not two lookalikes", async () => {
     stubFetch();
     renderPanel();
     const statusControl = await screen.findByRole("combobox", { name: /^Status for/i });
     const partnerControl = screen.getByRole("combobox", { name: /^Assigned partner:/i });
-    // Every class of the shared recipe, on both. A copy-pasted second class list drifts;
-    // this fails the moment either control stops using RECORD_CONTROL_CLASS.
+    // Every class of the shared recipe, on both — this fails the moment either control stops
+    // using RECORD_CONTROL_CLASS.
     for (const cls of RECORD_CONTROL_CLASS.split(" ")) {
       expect(statusControl.className.split(" ")).toContain(cls);
       expect(partnerControl.className.split(" ")).toContain(cls);
     }
+    // …and then the whole thing. RECORD_CONTROL_CLASS membership alone is only HALF the
+    // chrome: the resting anatomy (the box, the caret's position, the border transition) is
+    // the Select primitive's, which StatusSelect's field variant reproduces BY HAND. The
+    // first hand-copy silently dropped `justify-between` and the border-color transition and
+    // the membership check above stayed green — so compare the full normalized sets and let
+    // the next omission fail here instead of on the owner's screen.
+    //
+    // One normalization: `data-[placeholder]:*` is dropped from both. The partner Select can
+    // show a placeholder and carries the rule; a status always HAS a value, so the state does
+    // not exist for it and a dead class copied over to satisfy a test would be worse than the
+    // exception. Nothing else is excused.
+    const chrome = (el: Element) =>
+      [...new Set(el.className.split(/\s+/).filter(Boolean))].filter((c) => !c.startsWith("data-[placeholder]:")).sort();
+    expect(chrome(statusControl)).toEqual(chrome(partnerControl));
     // …and the status control is no longer the colored pill it is in a table row.
     expect(statusControl.className).not.toContain("rounded-full");
+  });
+
+  it("N5E-04/PRN-14: justify-between does not push the status dot away from its word", async () => {
+    stubFetch();
+    renderPanel();
+    const statusControl = await screen.findByRole("combobox", { name: /^Status for/i });
+    // The caret sits at the far edge because the TRIGGER is justify-between — which spreads
+    // its children. The hue and the word are one child, so the free space can never open up
+    // between them (PRN-14: colour never travels alone).
+    expect(statusControl.className.split(" ")).toContain("justify-between");
+    const dot = statusControl.querySelector('[aria-hidden="true"].rounded-full') as HTMLElement;
+    expect(dot).not.toBeNull();
+    // Not a direct child of the spreading trigger…
+    expect(dot.parentElement).not.toBe(statusControl);
+    // …and the group it IS in is the one carrying the status word.
+    expect(dot.parentElement!.textContent).toContain("New");
   });
 
   it("N5E-04/PRN-04: a removed lead still gets the read-only verdict badge, not a control", async () => {
@@ -248,6 +277,49 @@ describe("N5E-06: the address is one line that opens into four columns", () => {
     for (const label of ["City", "State", "ZIP"]) {
       expect(screen.getByRole("button", { name: new RegExp(`^${label}:`, "i") })).toBeInTheDocument();
     }
+  });
+
+  it("N5E-06/A11Y-05: the expanded editor is a NAMED group, not four loose fields", async () => {
+    const user = userEvent.setup();
+    stubFetch();
+    renderPanel();
+    await user.click(await screen.findByRole("button", { name: /^Address:/i }));
+    await screen.findByRole("textbox", { name: "Street" });
+
+    // Sighted readers get the boundary from a border; a screen-reader user tabbing in would
+    // otherwise hear Street/City/State/ZIP as four unrelated record fields and never learn
+    // they are inside the Address field they opened. The name comes from the group's own
+    // visible label, so what is seen and what is heard cannot drift.
+    const group = screen.getByRole("group", { name: "Address" });
+    expect(within(group).getByRole("textbox", { name: "Street" })).toBeInTheDocument();
+    for (const label of ["City", "State", "ZIP"]) {
+      expect(within(group).getByRole("button", { name: new RegExp(`^${label}:`, "i") })).toBeInTheDocument();
+    }
+  });
+
+  it("N5E-06: a save still in flight marks the COLLAPSED line, not just the open sub-field", async () => {
+    const user = userEvent.setup();
+    // The PATCH never settles, so the group collapses onto an optimistic value with the write
+    // still out — the state that shipped with no loading affordance at all.
+    vi.stubGlobal("fetch", vi.fn(() => new Promise(() => {})) as unknown as typeof fetch);
+    renderPanel();
+
+    await user.click(await screen.findByRole("button", { name: /^Address:/i }));
+    await user.keyboard("{Escape}");
+    await user.click(await screen.findByRole("button", { name: /^City:/i }));
+    await user.keyboard("Austin{Enter}");
+    // Leave the group: it collapses back to the one line, carrying the optimistic city.
+    await user.click(await screen.findByRole("button", { name: /^First name:/i }));
+
+    const line = await screen.findByRole("button", { name: /^Address: 8193 Maple St, Austin, TX 75045\. Edit$/ });
+    const row = line.parentElement as HTMLElement;
+    // InlineField's rest-state treatment, verbatim — and there the spinner REPLACES the
+    // pencil rather than crowding beside it. (The pencil is identified by its own path; the
+    // Google-search icon is in this row too and must survive.)
+    const pencil = () => row.querySelector('svg path[d^="M12 20h9"]');
+    await waitFor(() => expect(row.querySelector(".animate-spin")).not.toBeNull());
+    expect(pencil()).toBeNull();
+    expect(screen.getByRole("link", { name: /search this property on google/i })).toBeInTheDocument();
   });
 
   it("N5E-06: Enter on the focused line expands it — the line is a real button", async () => {

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { portalLeadsKey, portalLeadsParams } from "@/modules/portal/leads-contract";
@@ -80,6 +80,50 @@ describe("VP-4: PortalLeadDialog carries every partner feature from the old page
     await screen.findByText("Ana");
     expect(screen.queryByText("Motivation")).toBeNull();
     expect(screen.queryByText("SHOULD NOT APPEAR")).toBeNull();
+  });
+});
+
+// WP-UX-7 (audit 3.2): a missing value is DEMOTED, not shown as a bare "—" at full field
+// prominence. The rule was written for the admin record and the portal's local `Field` is a
+// hand-copied twin — which is exactly how it lost the demotion in the N5E-07 rework. This is
+// the regression test the copy never had.
+describe("WP-UX-7: the portal record demotes an empty value instead of dashing it", () => {
+  afterEach(() => {
+    vi.mocked(apiGet).mockImplementation(defaultApiGet);
+  });
+
+  it("WP-UX-7: empty fields read 'Not provided' in muted italic — no bare em-dash at full weight", async () => {
+    vi.mocked(apiGet).mockImplementation(async (url: string) =>
+      url.includes("/api/me")
+        ? PARTNER_ME
+        : url.includes("/notes")
+          ? { notes: [] }
+          : url.includes("/tasks")
+            ? { tasks: [] }
+            : // The lead a partner actually gets when the source file was thin.
+              { ...LEAD, seller: { ...LEAD.seller, phone: "", email: "" }, reasonForSelling: "", timeToSell: "" },
+    );
+    renderDialog();
+    await screen.findByText("Ana");
+
+    const grid = document.querySelector(".grid-cols-6") as HTMLElement;
+    const valueOf = (label: string) => within(grid).getByText(label).nextElementSibling as HTMLElement;
+    for (const label of ["Phone", "Email", "Reason for selling", "Time to sell"]) {
+      expect(valueOf(label).textContent).toBe("Not provided");
+      expect(valueOf(label).className).toContain("italic");
+      expect(valueOf(label).className).toContain("text-text-3");
+    }
+    // The bare sentinel never reaches the screen — the whole point of the demotion.
+    expect(within(grid).queryByText("—")).toBeNull();
+  });
+
+  it("WP-UX-7: a field that HAS a value is untouched by the demotion", async () => {
+    renderDialog();
+    await screen.findByText("Ana");
+    const grid = document.querySelector(".grid-cols-6") as HTMLElement;
+    const reason = within(grid).getByText("Reason for selling").nextElementSibling as HTMLElement;
+    expect(reason.textContent).toBe("Relocation / moving");
+    expect(reason.className).not.toContain("italic");
   });
 });
 
