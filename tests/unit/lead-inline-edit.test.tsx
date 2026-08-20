@@ -430,7 +430,8 @@ describe("N5-30: the record speaks to a screen reader", () => {
 
   it("N5-06/PRN-14: an unmatched lead's partner control says so by NAME", async () => {
     stubFetch();
-    detail = { ...baseDetail(), partner: null };
+    // `baseDetail` always routes to a partner, so the unmatched case has to widen the type.
+    detail = { ...baseDetail(), partner: null } as unknown as ReturnType<typeof baseDetail>;
     renderPanel();
     expect(await screen.findByRole("combobox", { name: "Assigned partner: Unmatched" })).toBeInTheDocument();
   });
