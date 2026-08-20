@@ -105,10 +105,16 @@ export function useLeadNav({
 }
 
 /** `‹ N of M ›` in the panel header. Ends of the list are a data boundary, so the arrow is
- *  really `disabled` — not aria-disabled, which is reserved for permission misses. */
+ *  really `disabled` — not aria-disabled, which is reserved for permission misses.
+ *
+ *  N5E-02 (owner hands-on round): the trio `‹ [count] ›` is STRICTLY SYMMETRIC — one gap
+ *  value, nothing between the count and either arrow. It used to carry the fixed spinner slot
+ *  and the sr-only live region between the count and `›`, which put ~14px of invisible width
+ *  on one side only: the group read as lopsided and the count looked mis-centred. Both moved
+ *  AFTER the trio, where a reserved width still cannot shift the header's layout. */
 export function LeadPager({ nav }: { nav: LeadNav }) {
   return (
-    <div role="group" aria-label="Lead navigation" className="flex shrink-0 items-center gap-1">
+    <div role="group" aria-label="Lead navigation" className="flex shrink-0 items-center gap-1.5">
       <button
         type="button"
         className={ARROW_BUTTON_CLASS}
@@ -120,16 +126,9 @@ export function LeadPager({ nav }: { nav: LeadNav }) {
           <path d="m15 18-6-6 6-6" />
         </svg>
       </button>
-      <span className="num px-0.5 text-step-1 tabular-nums text-text-3">
+      <span className="num text-step-1 tabular-nums text-text-3">
         {nav.index.toLocaleString()} of {nav.total.toLocaleString()}
       </span>
-      {/* A fixed slot so the pending spinner cannot shift the header's layout. */}
-      <span className="grid w-3.5 place-items-center text-text-3" aria-hidden="true">
-        {nav.pending && <Spinner size={12} />}
-      </span>
-      {/* A11Y-03: mounted for the pager's whole life, only the TEXT changes — a live region
-          that appears with its content already in it is missed by some AT. */}
-      <span className="sr-only" role="status">{nav.pending ? "Loading the next lead…" : ""}</span>
       <button
         type="button"
         className={ARROW_BUTTON_CLASS}
@@ -141,6 +140,14 @@ export function LeadPager({ nav }: { nav: LeadNav }) {
           <path d="m9 18 6-6-6-6" />
         </svg>
       </button>
+      {/* N5E-02: OUTSIDE the symmetric trio. Still a fixed slot, so the pending spinner
+          cannot shift the header's layout — it just no longer pads one side of the count. */}
+      <span className="grid w-3.5 place-items-center text-text-3" aria-hidden="true">
+        {nav.pending && <Spinner size={12} />}
+      </span>
+      {/* A11Y-03: mounted for the pager's whole life, only the TEXT changes — a live region
+          that appears with its content already in it is missed by some AT. */}
+      <span className="sr-only" role="status">{nav.pending ? "Loading the next lead…" : ""}</span>
     </div>
   );
 }

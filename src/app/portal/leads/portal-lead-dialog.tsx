@@ -17,6 +17,8 @@ import {
   Tooltip,
   type TimelineEntry,
 } from "@/components";
+import { addressLine } from "@/lib/address-line";
+import { cn } from "@/lib/cn";
 import { googleSearchUrl } from "@/lib/search-links";
 import { portalLeadPlaceholder } from "./portal-lead-placeholder";
 
@@ -55,11 +57,26 @@ export interface PortalLeadDetail {
   listing: { status: "pending" | "yes" | "no" | "unknown"; link: string | null };
 }
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
+// N5E-07: the partner's record wears the admin record's span grid and field order — same
+// anatomy, read-scoped (plain values, no inline editing, no partner control). PRESENTATION
+// only: not one byte of the payload or its scope changes (N5-21).
+function Field({ label, children, className, nowrap = false }: { label: string; children: React.ReactNode; className?: string; nowrap?: boolean }) {
+  // WP-UX-7 (audit 3.2), the admin Field's rule, which this twin has to keep or the portal
+  // record silently regresses the fix: a missing value is DEMOTED to a muted "Not provided"
+  // rather than a bare "—" at full field prominence — a row of dashes at full weight made a
+  // routed lead read as broken. Every empty-able caller here resolves to the "—" sentinel, so
+  // this one place catches them all; JSX children (the address link, ListingBadge, the
+  // partial's Skeleton) pass through untouched.
+  const isEmpty = children === "—" || children === "" || children == null;
   return (
-    <div className="flex flex-col gap-0.5">
+    <div className={cn("flex min-w-0 flex-col gap-0.5", className)}>
       <span className="text-step-1 font-semibold uppercase tracking-wide text-text-3">{label}</span>
-      <span className="text-sm text-text-2">{children}</span>
+      {isEmpty ? (
+        <span className="text-sm italic text-text-3">Not provided</span>
+      ) : (
+        /* Values WRAP, never ellipsize (N5E-05) — `nowrap` is the one exception (Received). */
+        <span className={cn("text-sm text-text-2", nowrap ? "whitespace-nowrap" : "[overflow-wrap:anywhere]")}>{children}</span>
+      )}
     </div>
   );
 }
@@ -121,72 +138,81 @@ export function PortalLeadDialog({ refId, onClose }: { refId: string; onClose: (
         // TasksPanel's add/edit forms) that a plain prop change would carry across a switch —
         // a note typed against one lead must never be sitting in the composer of the next.
         <div key={refId} className="flex flex-col gap-5">
-          {/* Status — the partner's primary action, up top and editable inline. */}
-          <div className="flex items-center gap-3 rounded-lg border border-border-soft bg-surface-2 px-4 py-3">
-            <span className="text-step-1 font-semibold uppercase tracking-wide text-text-3">Lead status</span>
-            <StatusSelect refId={data.refId} status={data.status} mlsStatus="kept" scope="portal" />
-          </div>
-
-          {/* Contact */}
-          <div className="flex flex-col gap-1">
-            <span className="text-base font-semibold text-text">{`${data.seller.first} ${data.seller.last}`.trim() || "—"}</span>
-            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
-              {/* C-41b: the row gives the name; the phone/email a partner is about to use
-                  are detail-only, so they hold a labelled space instead of appearing late. */}
-              {partial ? <Skeleton className="h-4 w-48" /> : null}
-              {data.seller.phone ? (
-                <a href={`tel:${data.seller.phone.replace(/[^\d+]/g, "")}`} className="text-brand-ink hover:underline">{data.seller.phone}</a>
-              ) : null}
-              {data.seller.email ? (
+          {/* N5E-07: ONE six-column span grid, the admin record's — each field takes the width
+              its content needs, and the status control is a labelled field in that grid rather
+              than a boxed banner above it. Order matches the admin twin exactly. */}
+          {/* gap-y-3.5 = the mockup's 14px row rhythm, the same as the admin twin's grid. */}
+          <div className="grid grid-cols-6 gap-x-4 gap-y-3.5">
+            <Field label="First name" className="col-span-2">{data.seller.first || "—"}</Field>
+            <Field label="Last name" className="col-span-2">{data.seller.last || "—"}</Field>
+            {/* C-41b: the row gives the name; the phone/email a partner is about to use are
+                detail-only, so they hold a labelled space instead of appearing late.
+                C-51 sweep: `Field` renders its children inside a <span>, so these placeholders
+                must be spans too (a <div> in phrasing content is invalid and
+                hydration-mismatches). The tap-to-call / tap-to-mail affordances survive. */}
+            <Field label="Phone" className="col-span-2">
+              {partial ? <Skeleton as="span" className="h-4 w-24" /> : data.seller.phone ? (
+                <a href={`tel:${data.seller.phone.replace(/[^\d+]/g, "")}`} className="num text-brand-ink hover:underline">{data.seller.phone}</a>
+              ) : "—"}
+            </Field>
+            <Field label="Email" className="col-span-6">
+              {partial ? <Skeleton as="span" className="h-4 w-48" /> : data.seller.email ? (
                 <a href={`mailto:${data.seller.email}`} className="text-brand-ink hover:underline">{data.seller.email}</a>
-              ) : null}
-            </div>
-          </div>
+              ) : "—"}
+            </Field>
 
-          {/* Property */}
-          <Field label="Property">
-            {(() => {
-              const property = [data.address, data.city, data.state, data.zip].filter(Boolean).join(", ");
-              return property ? (
-                <Tooltip content="Search this property on Google">
-                  <a
-                    href={googleSearchUrl([data.address, data.city, data.state, data.zip])}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1 text-brand-ink hover:underline"
-                  >
-                    {property}
-                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                      <path d="M15 3h6v6M10 14 21 3M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
-                    </svg>
-                  </a>
-                </Tooltip>
-              ) : "—";
-            })()}
-          </Field>
+            {/* N5E-06: the same one combined line the admin record shows, display-only here —
+                a partner reads and searches the address, they never edit it. */}
+            <Field label="Address" className="col-span-6">
+              {(() => {
+                const parts = [data.address, data.city, data.state, data.zip];
+                const line = addressLine(parts);
+                return line ? (
+                  <Tooltip content="Search this property on Google">
+                    <a
+                      href={googleSearchUrl(parts)}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1 text-brand-ink hover:underline"
+                    >
+                      {line}
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                        <path d="M15 3h6v6M10 14 21 3M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+                      </svg>
+                    </a>
+                  </Tooltip>
+                ) : "—";
+              })()}
+            </Field>
 
-          {/* Details */}
-          <div className="grid grid-cols-2 gap-x-5 gap-y-4">
-            {/* C-51 sweep: `Field` renders its children inside a <span>, so these
-                placeholders must be spans too (a <div> in phrasing content is invalid
-                and hydration-mismatches). */}
-            <Field label="Reason for selling">{partial ? <Skeleton as="span" className="h-4 w-28" /> : data.reasonForSelling || "—"}</Field>
-            <Field label="Time to sell">{partial ? <Skeleton as="span" className="h-4 w-28" /> : data.timeToSell || "—"}</Field>
-            <Field label="Received">{fmtDateTime(data.receivedAt)}</Field>
-            <Field label="Listing check">
+            {/* The portal's two short values share a row, where Source / Routed by / Time to
+                sell share one on the admin side (routing internals are not a partner's — PRN-08). */}
+            <Field label="Time to sell" className="col-span-2">{partial ? <Skeleton as="span" className="h-4 w-28" /> : data.timeToSell || "—"}</Field>
+            <Field label="Listing check" className="col-span-2">
               {/* Not a lead column — a server-side lookup, so it can only come from the detail. */}
               {partial ? <Skeleton as="span" className="h-4 w-24" /> : <ListingBadge status={data.listing.status} link={data.listing.link} />}
             </Field>
-          </div>
 
-          {data.notes && (
-            <div className="flex flex-col gap-1.5">
-              <span className="text-step-1 font-semibold uppercase tracking-wide text-text-3">Source notes</span>
-              <div className="rounded-lg border border-border-soft bg-surface-2 px-3.5 py-3">
-                <ClampedText>{data.notes}</ClampedText>
-              </div>
+            <Field label="Reason for selling" className="col-span-6">{partial ? <Skeleton as="span" className="h-4 w-28" /> : data.reasonForSelling || "—"}</Field>
+            {/* N5E-05: `nowrap`, so the timestamp can never break across two lines. */}
+            <Field label="Received" className="col-span-6" nowrap><span className="num">{fmtDateTime(data.receivedAt)}</span></Field>
+
+            {/* N5E-04: the partner's primary action — still one click, now a labelled field in
+                the same position its admin twin occupies, wearing the same control chrome. */}
+            <div className="col-span-3 flex min-w-0 flex-col gap-1">
+              <span className="text-step-1 font-semibold uppercase tracking-wide text-text-3">Lead status</span>
+              <StatusSelect refId={data.refId} status={data.status} mlsStatus="kept" scope="portal" variant="field" />
             </div>
-          )}
+
+            {data.notes && (
+              <div className="col-span-6 flex flex-col gap-1.5">
+                <span className="text-step-1 font-semibold uppercase tracking-wide text-text-3">Source notes</span>
+                <div className="rounded-lg border border-border-soft bg-surface-2 px-3.5 py-3">
+                  <ClampedText>{data.notes}</ClampedText>
+                </div>
+              </div>
+            )}
+          </div>
 
           {/* Tasks panel sits ABOVE the Timeline per the approved mockup (WP-TSK-4, portal
               parity — same components as the admin dialog, scoped to this org's own stream). */}

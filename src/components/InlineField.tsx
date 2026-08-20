@@ -92,7 +92,12 @@ export function InlineField({
 
   // N5-11 retry. Adjust-during-render (this codebase's seeding idiom) rather than an effect:
   // the field has to be open already in the commit that follows the retry click.
-  const [prevNonce, setPrevNonce] = React.useState(reopen?.nonce);
+  //
+  // The baseline starts UNDEFINED rather than at the incoming nonce, so a field that MOUNTS
+  // with a `reopen` already on it opens too. `reopen` means "open this field on this text",
+  // and N5E-06's address group has no other way to say it: its four sub-fields do not exist
+  // until the group expands, so the seed can only ever reach them at mount.
+  const [prevNonce, setPrevNonce] = React.useState<number | undefined>(undefined);
   if (reopen && reopen.nonce !== prevNonce) {
     setPrevNonce(reopen.nonce);
     setSession((s) => ({ seed: reopen.text, n: (s?.n ?? 0) + 1 }));
@@ -226,7 +231,11 @@ export function InlineField({
           // key handler here to steal Enter from anything already on top (A11Y-04).
           aria-label={`${label}: ${shown}. Edit`}
           className={cn(
-            "min-w-0 flex-1 truncate rounded text-left outline-none focus-visible:ring-1 focus-visible:ring-brand-ink",
+            // N5E-05: WRAPS, never truncates. `truncate` is what put "mykelvinlove@gmai…" on
+            // the owner's screen — and an ellipsized email or street address is precisely the
+            // value they opened the record to read or copy. The span grid gives the long
+            // fields their own rows now, so a wrap is the rare case rather than the norm.
+            "min-w-0 flex-1 rounded text-left [overflow-wrap:anywhere] outline-none focus-visible:ring-1 focus-visible:ring-brand-ink",
             disabled ? "cursor-default opacity-60" : "cursor-text",
           )}
         >
@@ -394,7 +403,10 @@ function Label({ children }: { children: React.ReactNode }) {
   return <span className="text-step-1 font-semibold uppercase tracking-wide text-text-3">{children}</span>;
 }
 
-function PencilIcon({ className }: { className?: string }) {
+/** Exported for N5E-06: the admin record's combined address line is an edit affordance that
+ *  is NOT an InlineField (it opens a group of four), and it has to wear the same mark as
+ *  every other editable value or it reads as a link. */
+export function PencilIcon({ className }: { className?: string }) {
   return (
     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className={className}>
       <path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" />

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { portalLeadsKey, portalLeadsParams } from "@/modules/portal/leads-contract";
@@ -61,7 +61,9 @@ function renderDialog() {
 describe("VP-4: PortalLeadDialog carries every partner feature from the old page", () => {
   it("shows seller, tap-to-call/mail, reason, time to sell, history, your notes, and an editable status", async () => {
     renderDialog();
-    expect(await screen.findByText("Ana Ruiz")).toBeTruthy();
+    // N5E-07: the seller is First name + Last name, two cells of the span grid.
+    expect(await screen.findByText("Ana")).toBeTruthy();
+    expect(screen.getByText("Ruiz")).toBeTruthy();
     expect(screen.getByRole("link", { name: "(859) 938-9128" })).toHaveAttribute("href", "tel:8599389128");
     expect(screen.getByRole("link", { name: "ana@example.test" })).toHaveAttribute("href", "mailto:ana@example.test");
     expect(screen.getByText("Relocation / moving")).toBeTruthy();
@@ -75,9 +77,53 @@ describe("VP-4: PortalLeadDialog carries every partner feature from the old page
 
   it("VP-4c: drops the always-empty Motivation field", async () => {
     renderDialog();
-    await screen.findByText("Ana Ruiz");
+    await screen.findByText("Ana");
     expect(screen.queryByText("Motivation")).toBeNull();
     expect(screen.queryByText("SHOULD NOT APPEAR")).toBeNull();
+  });
+});
+
+// WP-UX-7 (audit 3.2): a missing value is DEMOTED, not shown as a bare "—" at full field
+// prominence. The rule was written for the admin record and the portal's local `Field` is a
+// hand-copied twin — which is exactly how it lost the demotion in the N5E-07 rework. This is
+// the regression test the copy never had.
+describe("WP-UX-7: the portal record demotes an empty value instead of dashing it", () => {
+  afterEach(() => {
+    vi.mocked(apiGet).mockImplementation(defaultApiGet);
+  });
+
+  it("WP-UX-7: empty fields read 'Not provided' in muted italic — no bare em-dash at full weight", async () => {
+    vi.mocked(apiGet).mockImplementation(async (url: string) =>
+      url.includes("/api/me")
+        ? PARTNER_ME
+        : url.includes("/notes")
+          ? { notes: [] }
+          : url.includes("/tasks")
+            ? { tasks: [] }
+            : // The lead a partner actually gets when the source file was thin.
+              { ...LEAD, seller: { ...LEAD.seller, phone: "", email: "" }, reasonForSelling: "", timeToSell: "" },
+    );
+    renderDialog();
+    await screen.findByText("Ana");
+
+    const grid = document.querySelector(".grid-cols-6") as HTMLElement;
+    const valueOf = (label: string) => within(grid).getByText(label).nextElementSibling as HTMLElement;
+    for (const label of ["Phone", "Email", "Reason for selling", "Time to sell"]) {
+      expect(valueOf(label).textContent).toBe("Not provided");
+      expect(valueOf(label).className).toContain("italic");
+      expect(valueOf(label).className).toContain("text-text-3");
+    }
+    // The bare sentinel never reaches the screen — the whole point of the demotion.
+    expect(within(grid).queryByText("—")).toBeNull();
+  });
+
+  it("WP-UX-7: a field that HAS a value is untouched by the demotion", async () => {
+    renderDialog();
+    await screen.findByText("Ana");
+    const grid = document.querySelector(".grid-cols-6") as HTMLElement;
+    const reason = within(grid).getByText("Reason for selling").nextElementSibling as HTMLElement;
+    expect(reason.textContent).toBe("Relocation / moving");
+    expect(reason.className).not.toContain("italic");
   });
 });
 
@@ -118,7 +164,7 @@ describe("C-41b: PortalLeadDialog renders from the list cache while the detail l
     );
 
     // From the cached row, with no detail round trip completed.
-    expect(await screen.findByText("Ana Ruiz")).toBeTruthy();
+    expect(await screen.findByText("Ana")).toBeTruthy();
     expect(screen.getByText(/20 Bluffside Dr/)).toBeTruthy();
     // Detail-only: the phone a partner is about to call is NOT guessed from the row.
     expect(screen.queryByRole("link", { name: "(859) 938-9128" })).toBeNull();
@@ -140,7 +186,7 @@ describe("C-12: the portal lead dialog has no separate Status history panel", ()
 
   it("C-12: the portal lead dialog renders no 'Status history' section", async () => {
     renderDialog();
-    await screen.findByText("Ana Ruiz");
+    await screen.findByText("Ana");
     expect(screen.queryByText("Status history")).toBeNull();
     expect(screen.queryByText(/No changes yet — the current status is the default\./)).toBeNull();
   });
@@ -148,7 +194,7 @@ describe("C-12: the portal lead dialog has no separate Status history panel", ()
   it("C-12/PTL-03: every status change renders as a timestamped Timeline entry under the Status filter", async () => {
     const user = userEvent.setup();
     renderDialog();
-    await screen.findByText("Ana Ruiz");
+    await screen.findByText("Ana");
 
     await user.click(screen.getByRole("button", { name: "Status" }));
     // Both changes survive the filter, newest first, each with its own timestamp…
@@ -170,7 +216,7 @@ describe("C-12: the portal lead dialog has no separate Status history panel", ()
             : { ...LEAD, activity: [{ kind: "imported", at: "2026-08-04T15:33:00.000Z", label: "Lead received", actor: null }] },
     );
     renderDialog();
-    await screen.findByText("Ana Ruiz");
+    await screen.findByText("Ana");
 
     await user.click(screen.getByRole("button", { name: "Status" }));
     // The retired panel's line, inherited by the filter that replaced it — not the
