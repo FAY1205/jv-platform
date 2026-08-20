@@ -133,35 +133,72 @@ export function statusExpr(scope: ScopeContext) {
 function modifiedExpr(scope: ScopeContext) {
   return sql<Date | null>`coalesce(${latestAt(scope)}, ${schema.leads.manualAssignedAt})`;
 }
+/**
+ * The nine filter fields both the leads LIST and every WP-N6 bulk resolver understand. A
+ * structural type, not one of the two Zod outputs: the list's query parser produces
+ * `partnerId: string | null` / `dateFrom: string | undefined` while the strict bulk parser
+ * produces `""` for both, and neither should have to adapt to the other.
+ */
+export interface LeadsFilterInput {
+  q: string;
+  partnerId: string | null | undefined;
+  state: string;
+  source: string;
+  statuses: readonly string[];
+  hot: boolean;
+  tags: readonly string[];
+  dateFrom: string | undefined;
+  dateTo: string | undefined;
+}
+
+/**
+ * N6-03 — THE definition of "which leads match this filter", extracted from `listLeads` so
+ * the list endpoint and every bulk write resolve the identical set (PRN-15: one derivation,
+ * never two). Returns the full conjunct list INCLUDING the tenant pin and the soft-delete
+ * exclusion, so a caller cannot compose it and forget the scope half (PRN-08).
+ *
+ * `sExpr` is a parameter because `listLeads` builds its status expression once and shares it
+ * with the sort column and the select projection (ADR-0013 defence-in-depth, WP-F1); a bulk
+ * caller has no projection and takes the default. Two instances would render identical SQL
+ * either way — passing it keeps "one subquery per call" literally true.
+ */
+export function leadsFilterConds(
+  scope: ScopeContext,
+  f: LeadsFilterInput,
+  sExpr: SQL<string> = statusExpr(scope),
+): SQL[] {
+  const conds: SQL[] = [tenantWhere(schema.leads, scope), isNull(schema.leads.deletedAt) as unknown as SQL];
+  if (f.partnerId === "unmatched") {
+    conds.push(and(eq(schema.leads.mlsStatus, "kept"), isNull(schema.leads.partnerId), isNull(schema.leads.manualPartnerId))!);
+  } else if (f.partnerId) {
+    conds.push(partnerOwnsLead(f.partnerId)); // effective owner
+  }
+  if (f.state) conds.push(eq(schema.leads.state, f.state));
+  if (f.source) conds.push(eq(schema.leads.campaign, f.source));
+  // Hot filter (SCR): kept leads only — an MLS-removed lead is never treated as hot.
+  if (f.hot) conds.push(and(eq(schema.leads.scoreGroup, "hot"), eq(schema.leads.mlsStatus, "kept"))!);
+  // TAG-03: any-of. Combines with every other filter by plain AND — "hot AND (tag A or B)".
+  if (f.tags.length > 0) conds.push(taggedWithAny(scope, f.tags));
+  if (f.dateFrom) conds.push(gte(schema.leads.createdAt, new Date(`${f.dateFrom}T00:00:00Z`)));
+  if (f.dateTo) conds.push(lte(schema.leads.createdAt, new Date(`${f.dateTo}T23:59:59Z`)));
+  if (f.statuses.length > 0) {
+    conds.push(or(...f.statuses.map((s) => sql`${sExpr} = ${s}`))!);
+  }
+  const textMatch = qTextMatch(f.q);
+  if (textMatch) conds.push(textMatch);
+  return conds;
+}
+
 export async function listLeads(scope: ScopeContext, query: LeadsQuery): Promise<GlobalLeadsPage> {
   const db = getDb();
   const offset = (query.page - 1) * query.pageSize;
 
-  const conds: SQL[] = [tenantWhere(schema.leads, scope), isNull(schema.leads.deletedAt) as unknown as SQL];
-  if (query.partnerId === "unmatched") {
-    conds.push(and(eq(schema.leads.mlsStatus, "kept"), isNull(schema.leads.partnerId), isNull(schema.leads.manualPartnerId))!);
-  } else if (query.partnerId) {
-    conds.push(partnerOwnsLead(query.partnerId)); // effective owner
-  }
-  if (query.state) conds.push(eq(schema.leads.state, query.state));
-  if (query.source) conds.push(eq(schema.leads.campaign, query.source));
-  // Hot filter (SCR): kept leads only — an MLS-removed lead is never treated as hot.
-  if (query.hot) conds.push(and(eq(schema.leads.scoreGroup, "hot"), eq(schema.leads.mlsStatus, "kept"))!);
-  // TAG-03: any-of. Combines with every other filter by plain AND — "hot AND (tag A or B)".
-  if (query.tags.length > 0) conds.push(taggedWithAny(scope, query.tags));
-  if (query.dateFrom) conds.push(gte(schema.leads.createdAt, new Date(`${query.dateFrom}T00:00:00Z`)));
-  if (query.dateTo) conds.push(lte(schema.leads.createdAt, new Date(`${query.dateTo}T23:59:59Z`)));
   // Built once per call so the status filter, sort column, and select projection below
   // all share the identical scope-aware subqueries (ADR-0013 defence-in-depth, WP-F1).
   const sExpr = statusExpr(scope);
   const mExpr = modifiedExpr(scope);
 
-  if (query.statuses.length > 0) {
-    conds.push(or(...query.statuses.map((s) => sql`${sExpr} = ${s}`))!);
-  }
-  const textMatch = qTextMatch(query.q);
-  if (textMatch) conds.push(textMatch);
-  const where = and(...conds);
+  const where = and(...leadsFilterConds(scope, query, sExpr));
 
   const sortCol =
     query.sort === "lead" ? schema.leads.refId :
