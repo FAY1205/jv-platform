@@ -636,8 +636,10 @@ function LeadsTable({
           // C-53: up to eight columns. `min-w-[760px]` is the point below which the percentage
           // columns (Seller 16% / Property 32% / Partner 14% / Tags 16%) stop being readable
           // and Status — the row's workflow control — starts falling off; the fade makes that
-          // clipping visible instead of leaving the table looking amputated.
-          <Table className="min-w-[760px]" ariaLabel="Leads" scrollHint>
+          // clipping visible instead of leaving the table looking amputated. N6-52's checkbox
+          // is a `fit` column ~28px wide, so the budget above is unchanged for read-only seats
+          // and only shifts by that much for seats that can act.
+          <Table className={selectable ? "min-w-[788px]" : "min-w-[760px]"} ariaLabel="Leads" scrollHint>
             {/* WP-UX-1 width budget (audit T1): IDs/dates/status take content width
                 (`fit`), Seller/Property/Partner absorb the leftover and ellipsize
                 (`clamp`) — a date never wraps to two lines, a name never wraps while

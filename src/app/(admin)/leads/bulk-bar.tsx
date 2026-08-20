@@ -84,10 +84,12 @@ export function BulkBar({ filters, total, selected, allMatching, onEscalate, onC
 
   const count = allMatching ? total : selected.size;
   // N6-50: escalated mode carries NO id list — the filter travels instead, and the server
-  // re-resolves it through the same predicate the list count came from.
-  const selection: BulkSelection = allMatching
-    ? { mode: "filter", filters: bulkFilterBody(filters) as never }
-    : { mode: "refs", leadRefs: [...selected] };
+  // re-resolves it through the same predicate the list count came from. The cast is the
+  // client/server seam: `bulkFilterBody` produces the wire shape and `BulkSelectionSchema`
+  // is what actually decides whether it is valid, at the boundary (N6-02).
+  const selection = (allMatching
+    ? { mode: "filter", filters: bulkFilterBody(filters) }
+    : { mode: "refs", leadRefs: [...selected] }) as BulkSelection;
 
   const words = describeFilters(filters, {
     partners: new Map((roster.data?.partners ?? []).map((p) => [p.id, `${p.name} (${p.refId})`])),
@@ -105,9 +107,12 @@ export function BulkBar({ filters, total, selected, allMatching, onEscalate, onC
         missed > 0 && res.skippedRefs.length > 0 ? { label: "View skipped", onClick: () => setSkippedRefs(res.skippedRefs) } : undefined,
         TOAST_SCOPE,
       );
+      // Everything a bulk write can have moved: the list + its nav counts (one prefix), the
+      // board, the tag roster's usage counts, and an open record's own panel.
       qc.invalidateQueries({ queryKey: ["leads"] });
       qc.invalidateQueries({ queryKey: ["leads-board"] });
       qc.invalidateQueries({ queryKey: ["tags"] });
+      qc.invalidateQueries({ queryKey: ["lead"] });
       setOpen(null);
       onApplied();
     },
@@ -313,7 +318,8 @@ function AssignDialog({ selection, count, partners, onClose, onDone, onError }: 
               disabled={dry.isPending || Boolean(dry.error) || eligible === 0}
               onClick={() => run.mutate()}
             >
-              {eligible === 1 ? "Assign 1 lead" : `Assign ${eligible.toLocaleString()} leads`}
+              {/* Never name a count the server has not returned yet (N6-05). */}
+              {dry.isPending || dry.error ? "Assign" : eligible === 1 ? "Assign 1 lead" : `Assign ${eligible.toLocaleString()} leads`}
             </Button>
           </>
         )
@@ -377,7 +383,7 @@ function StatusDialog({ selection, count, onClose, onDone, onError }: DialogShar
             disabled={!status || dry.isPending || Boolean(dry.error) || eligible === 0}
             onClick={() => run.mutate()}
           >
-            {eligible === 1 ? "Update 1 lead" : `Update ${eligible.toLocaleString()} leads`}
+            {!status || dry.isPending || dry.error ? "Update" : eligible === 1 ? "Update 1 lead" : `Update ${eligible.toLocaleString()} leads`}
           </Button>
         </>
       }
@@ -430,7 +436,8 @@ function TagsDialog({
             disabled={!tagId || dry.isPending || Boolean(dry.error) || eligible === 0}
             onClick={() => run.mutate()}
           >
-            {op === "add" ? "Add to" : "Remove from"} {eligible.toLocaleString()} {eligible === 1 ? "lead" : "leads"}
+            {op === "add" ? "Add to" : "Remove from"}
+            {!tagId || dry.isPending || dry.error ? "" : ` ${eligible.toLocaleString()} ${eligible === 1 ? "lead" : "leads"}`}
           </Button>
         </>
       }
