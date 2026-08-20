@@ -11,6 +11,15 @@ import { cn } from "@/lib/cn";
 export interface CheckboxProps {
   checked: boolean;
   onCheckedChange: (checked: boolean) => void;
+  /**
+   * N6-52: TRI-STATE. `true` draws the dash and reports `aria-checked="mixed"` — "some of
+   * what this box governs is selected". Takes precedence over `checked` for DISPLAY only;
+   * activating a mixed box still calls `onCheckedChange`, and the caller decides what a
+   * click on a partial selection means (the leads header checkbox selects the rest of the
+   * page). Kept as a separate prop rather than widening `checked` to Radix's
+   * `boolean | "indeterminate"` so the ~30 existing call sites are untouched.
+   */
+  indeterminate?: boolean;
   label?: React.ReactNode;
   /** NATIVE disabled — use for TRANSIENT states (a request in flight). Removes the control
    *  from the tab order, so never use it to express a standing permission: the reason a
@@ -44,6 +53,7 @@ export const CHECKBOX_HIT_AREA = "relative before:absolute before:-inset-1.5 bef
 export function Checkbox({
   checked,
   onCheckedChange,
+  indeterminate = false,
   label,
   disabled,
   ariaDisabled,
@@ -57,7 +67,7 @@ export function Checkbox({
   const box = (
     <RadixCheckbox.Root
       id={boxId}
-      checked={checked}
+      checked={indeterminate ? "indeterminate" : checked}
       // aria-disabled means inert: the control is controlled, so swallowing the change here
       // is the whole block — pointer, Space and Enter all arrive through this one callback.
       onCheckedChange={(v) => {
@@ -78,16 +88,19 @@ export function Checkbox({
         CHECKBOX_HIT_AREA,
         "focus-visible:ring-1 focus-visible:ring-brand-ink",
         "data-[state=checked]:border-brand data-[state=checked]:bg-brand data-[state=checked]:hover:bg-brand-strong",
+        // A mixed box is filled like a checked one — it is a live selection, not an empty
+        // control; the DASH is what distinguishes it (and aria-checked="mixed" for AT).
+        "data-[state=indeterminate]:border-brand data-[state=indeterminate]:bg-brand data-[state=indeterminate]:hover:bg-brand-strong",
         "data-[state=unchecked]:border-border data-[state=unchecked]:bg-surface data-[state=unchecked]:hover:border-text-3",
         "disabled:cursor-not-allowed disabled:opacity-60",
         // Same treatment as native disabled, minus the tab-order removal.
-        ariaDisabled && "cursor-not-allowed opacity-60 data-[state=checked]:hover:bg-brand data-[state=unchecked]:hover:border-border",
+        ariaDisabled && "cursor-not-allowed opacity-60 data-[state=checked]:hover:bg-brand data-[state=indeterminate]:hover:bg-brand data-[state=unchecked]:hover:border-border",
         className,
       )}
     >
       <RadixCheckbox.Indicator className="text-brand-contrast">
         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-          <path d="M20 6 9 17l-5-5" />
+          {indeterminate ? <path d="M5 12h14" /> : <path d="M20 6 9 17l-5-5" />}
         </svg>
       </RadixCheckbox.Indicator>
     </RadixCheckbox.Root>
