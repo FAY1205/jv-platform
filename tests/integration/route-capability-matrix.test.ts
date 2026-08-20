@@ -37,6 +37,9 @@ import { PATCH as savedViewPatch, DELETE as savedViewDelete } from "@/app/api/sa
 import { POST as statusPost } from "@/app/api/leads/[ref]/status/route";
 import { POST as assignPost } from "@/app/api/leads/[ref]/assign/route";
 import { POST as assignBulkPost } from "@/app/api/leads/assign-bulk/route";
+import { POST as bulkAssignPost } from "@/app/api/leads/bulk/assign/route";
+import { POST as bulkStatusPost } from "@/app/api/leads/bulk/status/route";
+import { POST as bulkTagsPost } from "@/app/api/leads/bulk/tags/route";
 import { POST as leadTagPost } from "@/app/api/leads/[ref]/tags/route";
 import { DELETE as leadTagDelete } from "@/app/api/leads/[ref]/tags/[tagId]/route";
 import { GET as runsGet } from "@/app/api/runs/route";
@@ -112,6 +115,11 @@ suite("AUTHZ-09: cluster-A route capability matrix", () => {
     ["lead tag POST", () => leadTagPost(jsonRequest("POST", `/api/leads/${REF}/tags`, { tagId: randomUUID() }), routeParams({ ref: REF }))],
     ["lead tag DELETE", () => leadTagDelete(jsonRequest("DELETE", `/api/leads/${REF}/tags/${randomUUID()}`), routeParams({ ref: REF, tagId: randomUUID() }))],
     ["backfill apply", () => backfillPost(jsonRequest("POST", "/api/leads/unmatched/backfill", {}))],
+    // WP-N6: the three bulk writes. A dry run is enough to prove the GATE — it resolves the
+    // same eligibility and writes nothing, so the matrix stays side-effect free.
+    ["bulk assign", () => bulkAssignPost(jsonRequest("POST", "/api/leads/bulk/assign", { selection: { mode: "refs", leadRefs: [REF] }, partnerId: randomUUID(), dryRun: true }))],
+    ["bulk status", () => bulkStatusPost(jsonRequest("POST", "/api/leads/bulk/status", { selection: { mode: "refs", leadRefs: [REF] }, status: "Contacted", dryRun: true }))],
+    ["bulk tags", () => bulkTagsPost(jsonRequest("POST", "/api/leads/bulk/tags", { selection: { mode: "refs", leadRefs: [REF] }, op: "add", tagId: randomUUID(), dryRun: true }))],
   ];
 
   const RULES_WRITES: [string, () => Promise<Response>][] = [
