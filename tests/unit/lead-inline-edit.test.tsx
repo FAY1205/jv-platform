@@ -103,6 +103,17 @@ async function editField(user: ReturnType<typeof userEvent.setup>, label: string
   await user.keyboard(next);
 }
 
+/**
+ * N5E-06: the four address COLUMNS live behind one combined Address line now. Expanding it
+ * auto-opens Street, so a test after a different sub-field steps out of that session first
+ * (Esc reverts it and leaves the group open — only a focus exit collapses the group).
+ */
+async function expandAddress(user: ReturnType<typeof userEvent.setup>) {
+  await user.click(await screen.findByRole("button", { name: /^Address:/i }));
+  await screen.findByRole("textbox", { name: "Street" });
+  await user.keyboard("{Escape}");
+}
+
 beforeEach(() => {
   detail = baseDetail();
   detailReads = 0;
@@ -243,10 +254,12 @@ describe("N5-11: optimistic paint, rollback, and the retry toast", () => {
     stubFetch(() => ({ ok: false, status: 409, body: { code: "duplicate", message: "Another lead already has this address." } }));
     renderPanel();
 
-    await editField(user, "Address", "1 Same St");
-    await user.keyboard("{Enter}");
+    // N5E-06: expanding the combined line lands straight in Street, which IS the `address`
+    // column — so the 4xx path is unchanged, and the toast names the sub-field that failed.
+    await user.click(await screen.findByRole("button", { name: /^Address:/i }));
+    await user.keyboard("1 Same St{Enter}");
 
-    expect(await toastText(/Couldn't save Address — Another lead already has this address\./)).toBeInTheDocument();
+    expect(await toastText(/Couldn't save Street — Another lead already has this address\./)).toBeInTheDocument();
   });
 
   it("C-17: a 5xx's deliberately static message is NOT echoed — the toast says it once", async () => {
@@ -276,6 +289,7 @@ describe("N5-15: concurrent field saves", () => {
 
     await editField(user, "Phone", "(918) 555-0170");
     await user.keyboard("{Enter}");
+    await expandAddress(user);
     await editField(user, "City", "Austin");
     await user.keyboard("{Enter}");
 
@@ -293,6 +307,7 @@ describe("N5-15: concurrent field saves", () => {
     await editField(user, "Phone", "(918) 555-0170");
     await user.keyboard("{Enter}");
     // Open City and start typing while the phone save + its refetch are still settling.
+    await expandAddress(user);
     await editField(user, "City", "Aust");
 
     // The refetch returns the ORIGINAL record (the mock is stale on purpose) — a re-seed
@@ -367,7 +382,9 @@ describe("N5-02: a record switch drops every per-record draft", () => {
     const composer = await screen.findByPlaceholderText(/note/i);
     await user.type(composer, "half-typed admin note");
     expect(composer).toHaveValue("half-typed admin note");
-    // …and an inline field open with unsaved text.
+    // …and an inline field open with unsaved text (inside the expanded address group, which
+    // has to go back to its collapsed line on the switch as well — N5E-06).
+    await expandAddress(user);
     await editField(user, "City", "Aust");
     expect(screen.getByRole("textbox", { name: "City" })).toHaveValue("Aust");
 
@@ -379,6 +396,12 @@ describe("N5-02: a record switch drops every per-record draft", () => {
     // Neither draft followed the switch onto the next lead.
     expect(screen.getByPlaceholderText(/note/i)).toHaveValue("");
     expect(screen.queryByRole("textbox", { name: "City" })).toBeNull();
+    // N5E-06: and the address is back to its combined line, not left expanded over a lead
+    // whose address the reader never opened.
+    // Synchronous on purpose: the next assertion catches the row-derived PLACEHOLDER frame,
+    // and an `await` here would hand the real detail time to land and replace it.
+    expect(screen.queryByRole("button", { name: /^City:/i })).toBeNull();
+    expect(screen.getByRole("button", { name: /^Address:/i })).toBeInTheDocument();
     await waitFor(() => expect(screen.getByText("Dana")).toBeInTheDocument());
   });
 });
@@ -438,11 +461,19 @@ describe("N5-30: the record speaks to a screen reader", () => {
 });
 
 describe("N5-12: the editable roster is exactly the EditForm's", () => {
-  it("N5-12: the twelve roster fields edit inline and nothing else does", async () => {
+  it("N5-12/N5E-06: the twelve roster fields edit inline and nothing else does", async () => {
+    const user = userEvent.setup();
     stubFetch();
     renderPanel();
-    for (const label of ["First name", "Last name", "Phone", "Email", "Address", "City", "State", "ZIP", "Source", "Reason for selling", "Time to sell"]) {
+    for (const label of ["First name", "Last name", "Phone", "Email", "Address", "Source", "Reason for selling", "Time to sell"]) {
       expect(await screen.findByRole("button", { name: new RegExp(`^${label}:`, "i") })).toBeInTheDocument();
+    }
+    // N5E-06: four of the twelve are the address COLUMNS, reachable through the combined line.
+    // They are still twelve independent single-key writes — only the way in changed.
+    await user.click(screen.getByRole("button", { name: /^Address:/i }));
+    expect(await screen.findByRole("textbox", { name: "Street" })).toBeInTheDocument();
+    for (const label of ["City", "State", "ZIP"]) {
+      expect(screen.getByRole("button", { name: new RegExp(`^${label}:`, "i") })).toBeInTheDocument();
     }
     // The twelfth (Source notes) is the boxed multiline variant, with its own edit control.
     expect(screen.getByRole("button", { name: /^Edit Source notes$/i })).toBeInTheDocument();
@@ -453,7 +484,7 @@ describe("N5-12: the editable roster is exactly the EditForm's", () => {
     expect(screen.queryByText(/motivation/i)).toBeNull();
   });
 
-  it("Q4: the property's Google search survives as the address field's trailing link", async () => {
+  it("Q4: the property's Google search survives as the address line's trailing link", async () => {
     stubFetch();
     renderPanel();
     const link = await screen.findByRole("link", { name: /search this property on google/i });

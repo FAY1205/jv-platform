@@ -37,8 +37,14 @@ export interface SidePanelProps {
   open: boolean;
   onClose: () => void;
   /**
-   * Leading header slot, before the title — the N-of-M pager (N5-04). Kept a slot rather than
+   * Header slot rendered AFTER the title — the N-of-M pager (N5-04). Kept a slot rather than
    * props because the working set that feeds it belongs to the LIST, not to this primitive.
+   *
+   * N5E-01 (owner hands-on round): it used to render BEFORE the title, which put "‹ 1 of 63 ›"
+   * ahead of the record's own identity — the reader met the navigation before the thing being
+   * navigated. The ref leads now and the pager follows it as its navigation. The name stays
+   * `leading` because it still leads the REST of the header (everything before the ✕), and
+   * renaming it would churn the gallery and every call site for nothing.
    */
   leading?: React.ReactNode;
   /** The record's title. A string title labels the panel; otherwise pass `ariaLabel`. */
@@ -181,13 +187,15 @@ export function SidePanel({
           {/* Header/body padding is Dialog's px-5 py-4 / p-5 verbatim — chrome parity is the
               default for a sibling primitive, and the ✕ reach below depends on it. */}
           <div className="flex shrink-0 items-center gap-2.5 border-b border-border-soft px-5 py-4" inert={confirming}>
-            {leading}
             {title ? (
               <RadixDialog.Title className="min-w-0 font-display text-base font-semibold text-text">{title}</RadixDialog.Title>
             ) : (
               // Radix requires a Title for a11y; hide it visually when none is provided.
               <RadixDialog.Title className="sr-only">{ariaLabel ?? "Panel"}</RadixDialog.Title>
             )}
+            {/* N5E-01: the header's own gap-2.5 plus this 2px reads as the mockup's ~12px —
+                the ref and its navigation are two things, not one run-on string. */}
+            {leading != null && <span className="ms-0.5 flex shrink-0 items-center">{leading}</span>}
             <RadixDialog.Close
               aria-label="Close"
               // C-52 (WCAG 2.5.8), the Dialog ✕ recipe verbatim: the glyph stays 18px and

@@ -1069,6 +1069,12 @@ function Gallery() {
                 <StatusSelect refId="LD-26-00405" status="Closed" mlsStatus="kept" />
                 <StatusSelect refId="LD-26-00406" status="New" mlsStatus="removed" />
               </CardBody>
+              {/* N5E-04: the same control as a labelled RECORD FIELD — the lead panel's shape,
+                  where it has to be a twin of the partner Select rather than a pill. */}
+              <CardHeader><CardTitle>StatusSelect (variant=&quot;field&quot;)</CardTitle></CardHeader>
+              <CardBody className="max-w-[240px]">
+                <StatusSelect refId="LD-26-00407" status="New" mlsStatus="kept" variant="field" />
+              </CardBody>
             </Card>
 
             <Card>

@@ -3,6 +3,7 @@
 import * as React from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ApiError, apiGet, apiMutate } from "@/lib/api";
+import { cn } from "@/lib/cn";
 import { fmtDateTime } from "@/lib/dates";
 import {
   Dialog,
@@ -10,10 +11,12 @@ import {
   Button,
   Badge,
   InlineField,
+  PencilIcon,
   Select,
   StatusSelect,
   PartnerTag,
   NotesPanel,
+  RECORD_CONTROL_CLASS,
   TasksPanel,
   Timeline,
   Skeleton,
@@ -25,6 +28,7 @@ import {
   type TimelineEntry,
 } from "@/components";
 import type { ScoreBreakdown, ScoreGroup } from "@/modules/pipeline/score";
+import { addressLine } from "@/lib/address-line";
 import { routedByLabel } from "@/lib/match-method";
 import { googleSearchUrl } from "@/lib/search-links";
 import { offersUnassign } from "@/lib/unassign";
@@ -276,19 +280,28 @@ export function LeadDialog({ refId, onClose, nav = null }: { refId: string; onCl
 
 // ── Read-only view ────────────────────────────────────────────────────────────
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
+/** The uppercase field label every cell in the record grid wears — plain fields, pending
+ *  fields, and (N5E-04) the two live controls, which are labelled fields like any other. */
+function FieldLabel({ children }: { children: React.ReactNode }) {
+  return <span className="text-step-1 font-semibold uppercase tracking-wide text-text-3">{children}</span>;
+}
+
+function Field({ label, children, className, nowrap = false }: { label: string; children: React.ReactNode; className?: string; nowrap?: boolean }) {
   // WP-UX-7 (audit 3.2): a missing value is DEMOTED to a muted "Not provided" rather than
   // a bare "—" at full field prominence — four em-dashes at full weight made a routed lead
   // read as broken. Every empty-able caller resolves to the "—" sentinel, so this one place
   // catches them all; JSX children (Property link, Routed-by tag) pass through unchanged.
   const isEmpty = children === "—" || children === "" || children == null;
   return (
-    <div className="flex flex-col gap-0.5">
-      <span className="text-step-1 font-semibold uppercase tracking-wide text-text-3">{label}</span>
+    <div className={cn("flex min-w-0 flex-col gap-0.5", className)}>
+      <FieldLabel>{label}</FieldLabel>
       {isEmpty ? (
         <span className="text-sm italic text-text-3">Not provided</span>
       ) : (
-        <span className="text-sm text-text">{children}</span>
+        // N5E-05: values WRAP, they never ellipsize — an email or a reason-for-selling the
+        // admin might need to read or copy must not be hidden behind a "…". `nowrap` is the
+        // one deliberate exception (Received: a timestamp that broke across two lines).
+        <span className={cn("text-sm text-text", nowrap ? "whitespace-nowrap" : "[overflow-wrap:anywhere]")}>{children}</span>
       )}
     </div>
   );
@@ -296,11 +309,22 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 
 /** C-41b: a field the clicked list row cannot supply — labelled, so the layout is the final
  *  one and nothing jumps when the detail lands. */
-function PendingField({ label }: { label: string }) {
+function PendingField({ label, className }: { label: string; className?: string }) {
   return (
-    <div className="flex flex-col gap-0.5">
-      <span className="text-step-1 font-semibold uppercase tracking-wide text-text-3">{label}</span>
+    <div className={cn("flex min-w-0 flex-col gap-0.5", className)}>
+      <FieldLabel>{label}</FieldLabel>
       <Skeleton className="h-4 w-28" />
+    </div>
+  );
+}
+
+/** N5E-04: a labelled cell whose VALUE is a live control (status, assigned partner). Same
+ *  label treatment as every field, the control sitting exactly where a value would. */
+function ControlField({ label, children, className }: { label: string; children: React.ReactNode; className?: string }) {
+  return (
+    <div className={cn("flex min-w-0 flex-col gap-1", className)}>
+      <FieldLabel>{label}</FieldLabel>
+      {children}
     </div>
   );
 }
@@ -316,7 +340,10 @@ const FIELD_LABELS = {
   sellerLast: "Last name",
   phone: "Phone",
   email: "Email",
-  address: "Address",
+  // N5E-06: the `address` COLUMN is the street line, and since the four address columns now
+  // live behind one combined "Address" field it has to say which of them it is — in the
+  // editor's label and in the failure toast alike.
+  address: "Street",
   city: "City",
   state: "State",
   zip: "ZIP",
@@ -327,8 +354,209 @@ const FIELD_LABELS = {
 } as const;
 type EditableField = keyof typeof FIELD_LABELS;
 
+/** Everything an InlineField needs that the RECORD, not the primitive, decides — the shape
+ *  `LeadRecord.field()` builds and the address group forwards to its four sub-fields. */
+interface RecordFieldProps {
+  label: string;
+  value: string;
+  saving: boolean;
+  disabled: boolean;
+  hint: boolean;
+  reopen: { field: EditableField; text: string; nonce: number } | null;
+  onEditingChange: (editing: boolean) => void;
+  onCommit: (next: string) => void;
+}
+
 /** N5-12: State stays a two-letter uppercase code, the mask the EditForm carried. */
 const stateMask = (raw: string) => raw.toUpperCase().replace(/[^A-Z]/g, "").slice(0, 2);
+
+// ── Address (N5E-06) ──────────────────────────────────────────────────────────
+
+/** The four columns the combined line is built from, in display order. */
+const ADDRESS_KEYS = ["address", "city", "state", "zip"] as const;
+type AddressKey = (typeof ADDRESS_KEYS)[number];
+const isAddressKey = (k: EditableField): k is AddressKey => (ADDRESS_KEYS as readonly string[]).includes(k);
+/** What the panel is told is "open" while the group is expanded but no sub-field is editing:
+ *  enough to make it hold Esc for the collapse below (SidePanel `escapeHeld`), which Radix's
+ *  capture-phase listener leaves no other seam for. */
+const ADDRESS_GROUP = "address-group";
+
+/**
+ * N5E-06 — the address as ONE line that expands into its four columns.
+ *
+ * The owner's complaint was the shipped shape: ADDRESS / CITY / STATE / ZIP as four separate
+ * cells, which is how the data is STORED but not how an address is read. So the rest state is
+ * the combined line ("20443 Fleetwood Dr, Harper Woods, MI 48225") with the Google-search
+ * affordance trailing it, and clicking the text expands the structured editor — where each
+ * sub-field keeps EXACTLY the per-field commit-on-blur semantics every other field has
+ * (single-key PATCH against its own column, Esc reverts, retry reopens), because the four
+ * columns really are four independent writes (N5-11/N5-15).
+ *
+ * The group closes when it stops being used: focus leaving it with no session active, or Esc
+ * with none open. Neither is inferred from a mouse gesture — both are focus facts, so the
+ * keyboard path and the pointer path collapse for the same reason.
+ */
+function AddressGroup({
+  parts,
+  fieldProps,
+  partial,
+  retry,
+  trailing,
+  report,
+  className,
+}: {
+  /** The values on screen (optimistic while a save is in flight), keyed by column. */
+  parts: Record<AddressKey, string>;
+  fieldProps: (key: EditableField, committed: string) => RecordFieldProps;
+  /** C-41b: a row-derived partial paints the LINE but cannot be edited from. */
+  partial: boolean;
+  /** N5-11: the record's retry state — a retry on an address column re-expands the group. */
+  retry: { field: EditableField; text: string; nonce: number } | null;
+  trailing: React.ReactNode;
+  /** N5-13/N5-30: what the panel gates ↑/↓ and Esc on. */
+  report: (field: string | null) => void;
+  className?: string;
+}) {
+  const [open, setOpen] = React.useState(false);
+  const [editingKey, setEditingKey] = React.useState<AddressKey | null>(null);
+  // Which sub-field opens, and on what text — handed straight to that InlineField as its
+  // `reopen`, which is the primitive's own "open on this text" seam (N5-11). The sub-fields do
+  // not exist until the group expands, so the seed is set in the SAME commit as the expansion
+  // and lands at their mount.
+  const [seed, setSeed] = React.useState<{ key: AddressKey; text: string; nonce: number } | null>(null);
+  const lineRef = React.useRef<HTMLButtonElement>(null);
+  const groupRef = React.useRef<HTMLDivElement>(null);
+  const restoreFocus = React.useRef(false);
+  const collapseTimer = React.useRef<number | null>(null);
+
+  /** Expand (if it isn't already) and put the named sub-field into an editing session. */
+  const expand = (key: AddressKey, text: string) => {
+    // Functional, so a nonce is never reused — retrying the same field twice has to open it
+    // twice, and the same call is legal from the render phase below.
+    setSeed((s) => ({ key, text, nonce: (s?.nonce ?? 0) + 1 }));
+    setOpen(true);
+  };
+
+  // N5-11: "Retry" on a failed address save has to land in the field that failed, even when
+  // the group has since collapsed. Adjust-during-render (this file's seeding idiom, and the
+  // one InlineField itself uses for the same event) rather than an effect: the group has to be
+  // open in the very commit that follows the retry click, not a paint later. Keyed on the
+  // NONCE — the retry object is rebuilt on every render, and reacting to its identity would
+  // reopen the field forever.
+  const retryNonce = retry && isAddressKey(retry.field) ? retry.nonce : null;
+  const [prevRetryNonce, setPrevRetryNonce] = React.useState(retryNonce);
+  if (retryNonce !== null && retryNonce !== prevRetryNonce) {
+    setPrevRetryNonce(retryNonce);
+    if (retry && isAddressKey(retry.field)) expand(retry.field, retry.text);
+  }
+
+  // N5-13/N5-30: one voice to the panel. A sub-field's own key while it is editing (so ↑/↓ and
+  // Esc behave exactly as they do for every other field), and the group itself while it is
+  // merely expanded — which is what lets Esc collapse it instead of closing the panel.
+  React.useEffect(() => {
+    report(editingKey ?? (open ? ADDRESS_GROUP : null));
+  }, [editingKey, open, report]);
+
+  React.useEffect(() => () => { if (collapseTimer.current !== null) window.clearTimeout(collapseTimer.current); }, []);
+
+  // The combined line is what focus returns to on a collapse the USER asked for (Esc). Not on
+  // a focus-out collapse: focus is already somewhere else the reader chose, and yanking it
+  // back would be the worse bug (the same rule InlineField's own restore follows).
+  React.useEffect(() => {
+    if (open || !restoreFocus.current) return;
+    restoreFocus.current = false;
+    lineRef.current?.focus();
+  }, [open]);
+
+  const onFocusOut = () => {
+    if (collapseTimer.current !== null) window.clearTimeout(collapseTimer.current);
+    // DEFERRED a task on purpose. At focusout time `document.activeElement` is still the
+    // element losing focus, and a sub-field committing by blur puts focus BACK on its own rest
+    // control a tick later (InlineField's N5-30 restore) — reading focus synchronously would
+    // collapse the group out from under a commit the reader is still inside.
+    collapseTimer.current = window.setTimeout(() => {
+      collapseTimer.current = null;
+      const g = groupRef.current;
+      if (!g || g.contains(document.activeElement)) return;
+      setOpen(false);
+    }, 0);
+  };
+
+  const onKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key !== "Escape" || editingKey) return;
+    // An open sub-field's Esc never reaches here — its editor consumes it and reverts (N5-13).
+    // With none open the press collapses the group, and the panel is already holding its own
+    // Esc on our behalf, so this cannot also close the record.
+    e.stopPropagation();
+    restoreFocus.current = true;
+    setOpen(false);
+  };
+
+  const line = addressLine([parts.address, parts.city, parts.state, parts.zip]);
+
+  if (!open) {
+    const shown = line || "Not provided";
+    return (
+      // The rest-state recipe is InlineField's, verbatim: this is the same affordance wearing
+      // the same clothes, and DSN-03's matrix is the row's (hover → focus-within → pressed).
+      <div
+        className={cn(
+          "group -mx-1.5 -my-1 flex min-w-0 flex-col gap-0.5 rounded-lg px-1.5 py-1 transition-colors",
+          !partial && "hover:bg-surface-2 focus-within:bg-surface-2 active:bg-surface-3",
+          className,
+        )}
+      >
+        <FieldLabel>Address</FieldLabel>
+        <span className="flex min-w-0 items-center gap-2">
+          <button
+            ref={lineRef}
+            type="button"
+            // C-41b: held while the record is the row-derived partial, exactly as every
+            // InlineField is — a draft seeded from a placeholder would write it back as truth.
+            disabled={partial}
+            onClick={() => expand("address", parts.address)}
+            // Enter opens it — native button activation, so no key handler here can steal
+            // Enter from a layer above (A11Y-04). The name is the InlineField vocabulary.
+            aria-label={`Address: ${shown}. Edit`}
+            className={cn(
+              "min-w-0 flex-1 rounded text-left outline-none focus-visible:ring-1 focus-visible:ring-brand-ink",
+              partial ? "cursor-default opacity-60" : "cursor-text",
+            )}
+          >
+            {/* N5E-05: wraps, never ellipsizes — a full street address is exactly the value
+                an admin reads or copies, so hiding its tail behind a "…" is not an option. */}
+            <span className={cn("text-sm [overflow-wrap:anywhere]", line ? "text-text" : "italic text-text-3")}>{shown}</span>
+          </button>
+          {!partial && (
+            <PencilIcon className="shrink-0 text-text-3 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100" />
+          )}
+          {trailing}
+        </span>
+      </div>
+    );
+  }
+
+  /** One sub-field: the record's own field props, with the group owning `reopen` and the
+   *  editing report (both of which the group has to see before the panel does). */
+  const sub = (key: AddressKey) => ({
+    ...fieldProps(key, parts[key]),
+    reopen: seed && seed.key === key ? seed : null,
+    onEditingChange: (editing: boolean) =>
+      setEditingKey((cur) => (editing ? key : cur === key ? null : cur)),
+  });
+
+  return (
+    <div ref={groupRef} className={cn("flex min-w-0 flex-col gap-1", className)} onBlur={onFocusOut} onKeyDown={onKeyDown}>
+      <FieldLabel>Address</FieldLabel>
+      <div className="grid grid-cols-6 gap-x-4 gap-y-3 rounded-lg border border-border bg-surface p-3">
+        <InlineField {...sub("address")} className="col-span-6" />
+        <InlineField {...sub("city")} className="col-span-3" />
+        <InlineField {...sub("state")} className="col-span-2" mask={stateMask} />
+        <InlineField {...sub("zip")} className="col-span-1" numeric />
+      </div>
+    </div>
+  );
+}
 
 function LeadRecord({
   d,
@@ -436,7 +664,7 @@ function LeadRecord({
   const val = (field: EditableField, committed: string) => inFlight[field] ?? committed;
 
   /** Everything an InlineField needs that this record, not the primitive, decides. */
-  const field = (key: EditableField, committed: string) => ({
+  const field = (key: EditableField, committed: string): RecordFieldProps => ({
     label: FIELD_LABELS[key],
     value: val(key, committed),
     saving: key in inFlight,
@@ -463,39 +691,40 @@ function LeadRecord({
         {saveStatus}
       </span>
 
-      {/* N5-06: status and partner are dedicated, always-visible controls — one click, no
-          edit mode, and each writes through the endpoint that owns it. */}
-      <div className="flex flex-wrap items-center gap-2.5">
-        <StatusSelect
-          refId={d.refId}
-          status={d.status}
-          // `editable: false` is exactly `mlsStatus === "removed"`: StatusSelect renders the
-          // read-only verdict badge instead of a control for those (PRN-04).
-          mlsStatus={d.mlsStatus}
-          statuses={d.availableStatuses.length ? d.availableStatuses : undefined}
-        />
-        <PartnerControl d={d} partners={partners} disabled={partial} />
-      </div>
-
       {/* The why-routed sentence was removed (owner testing note #3, 2026-07-14) — the
           partner control + the Assignment fields below already carry how the lead routed. */}
-      {/* N5-01: the grid's breakpoint is the PANEL's width change, not a generic `sm:` — the
-          panel is 560px between 768 and 1100 (two columns read; three do not) and 600px above
-          it. Tailwind breakpoints are viewport-based, so 1100 is the honest switch here. */}
-      <div className="grid grid-cols-2 gap-x-5 gap-y-4 min-[1100px]:grid-cols-3">
+      {/*
+        N5E-05 — ONE span grid over six columns, replacing the equal-thirds grid (and the
+        floating control row that used to sit above it). The owner's hands-on pass found the
+        defect the old shape guaranteed: every field got the same width whatever it held, so
+        an email ellipsized, a timestamp wrapped mid-value, and a reason-for-selling clipped —
+        while Source, Routed by and Time to sell (all short) had width to spare. Six columns
+        let each field take the width its CONTENT needs, and one grid means the whole record
+        reads top-to-bottom as facts → the two live controls → notes.
+
+        No breakpoint any more: the spans are proportional, so they hold at the panel's 560px
+        and 600px alike (the old grid had to switch column count at 1100px to stay readable).
+      */}
+      <div className="grid grid-cols-6 gap-x-4 gap-y-4">
         {/* C-41b: the name, address parts and source come straight from the clicked row, so
             they paint at once; the rest wait as labelled skeletons. */}
-        <InlineField {...field("sellerFirst", d.seller.first)} />
-        <InlineField {...field("sellerLast", d.seller.last)} />
+        <InlineField {...field("sellerFirst", d.seller.first)} className="col-span-2" />
+        <InlineField {...field("sellerLast", d.seller.last)} className="col-span-2" />
         {/* DSN-02: phone and ZIP are figures, so they wear the ledger's tabular monospace —
             the same treatment the ref, the score and every table number already carry. */}
-        {partial ? <PendingField label="Phone" /> : <InlineField {...field("phone", d.seller.phone)} numeric />}
-        {partial ? <PendingField label="Email" /> : <InlineField {...field("email", d.seller.email)} />}
-        {/* Q4: the property's Google search survives as the trailing icon — the address TEXT
-            is now the edit target, so the two affordances no longer collide (mockup note 4). */}
-        <InlineField
-          {...field("address", d.address)}
-          className="col-span-2 min-[1100px]:col-span-3"
+        {partial ? <PendingField label="Phone" className="col-span-2" /> : <InlineField {...field("phone", d.seller.phone)} numeric className="col-span-2" />}
+        {/* N5E-05: the longest routine value on the record owns a full row and wraps if it
+            must — `mykelvinlove@gmai…` was the owner's example of what must never happen. */}
+        {partial ? <PendingField label="Email" className="col-span-6" /> : <InlineField {...field("email", d.seller.email)} className="col-span-6" />}
+        {/* N5E-06: one combined line that expands into its four columns. Q4: the property's
+            Google search stays as the trailing icon, outside the edit target. */}
+        <AddressGroup
+          className="col-span-6"
+          parts={{ address: val("address", d.address), city: val("city", d.city), state: val("state", d.state), zip: val("zip", d.zip) }}
+          fieldProps={field}
+          partial={partial}
+          retry={reopen}
+          report={onEditingFieldChange}
           trailing={
             property.some(Boolean) ? (
               <Tooltip content="Search this property on Google">
@@ -504,7 +733,10 @@ function LeadRecord({
                   target="_blank"
                   rel="noopener noreferrer"
                   aria-label="Search this property on Google"
-                  className="shrink-0 rounded p-0.5 text-brand-ink outline-none hover:text-brand-strong focus-visible:ring-1 focus-visible:ring-brand-ink"
+                  // C-52 (WCAG 2.5.8), the SidePanel ✕ recipe: the glyph stays 13px and the
+                  // REACH grows past it as an invisible pseudo-element, so the tap target is
+                  // ~30px (44px on a coarse pointer) without the icon shoving the line around.
+                  className="relative shrink-0 rounded p-0.5 text-brand-ink outline-none transition-colors hover:text-brand-strong focus-visible:ring-1 focus-visible:ring-brand-ink before:absolute before:-inset-1.5 before:content-[''] pointer-coarse:before:-inset-3"
                 >
                   <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                     <path d="M15 3h6v6M10 14 21 3M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
@@ -514,14 +746,12 @@ function LeadRecord({
             ) : null
           }
         />
-        <InlineField {...field("city", d.city)} />
-        <InlineField {...field("state", d.state)} mask={stateMask} />
-        <InlineField {...field("zip", d.zip)} numeric />
-        <InlineField {...field("campaign", d.campaign)} />
+        {/* Three short values share the row they can all live in. */}
+        <InlineField {...field("campaign", d.campaign)} className="col-span-2" />
         {partial ? (
-          <PendingField label="Routed by" />
+          <PendingField label="Routed by" className="col-span-2" />
         ) : (
-          <Field label="Routed by">
+          <Field label="Routed by" className="col-span-2">
             {d.assignment.manual ? (
               <Badge variant="neutral">Manual assignment</Badge>
             ) : (
@@ -531,30 +761,52 @@ function LeadRecord({
             )}
           </Field>
         )}
+        {partial ? <PendingField label="Time to sell" className="col-span-2" /> : <InlineField {...field("timeToSell", d.timeToSell)} className="col-span-2" />}
+        {/* "Motivation" dropped (VP-4c): for Lead Source 1 it is never populated —
+            reason-for-selling carries the seller's motivation, and the scorer uses it as such. */}
+        {partial ? <PendingField label="Reason for selling" className="col-span-6" /> : <InlineField {...field("reasonForSelling", d.reasonForSelling)} className="col-span-6" />}
         {/* DSN-02: a timestamp is a figure too — it reads beside the editable numeric fields
-            above, so it wears the same tabular monospace they do. */}
-        <Field label="Received"><span className="num">{fmtDateTime(d.receivedAt)}</span></Field>
+            above, so it wears the same tabular monospace they do. N5E-05: and `nowrap`, so
+            "Aug 5, 2026, 4:50 PM" can never break across two lines again. */}
+        <Field label="Received" className="col-span-6" nowrap><span className="num">{fmtDateTime(d.receivedAt)}</span></Field>
+
+        {/* N5E-04: status and partner are the record's two LIVE controls — one click, no edit
+            mode, each writing through the endpoint that owns it (N5-06, unchanged). What
+            changed is their dress: they used to float above the grid as two chips of different
+            shapes; now they are labelled fields like every other, in one row after Received,
+            sharing one 36px chrome. */}
+        <ControlField label="Status" className="col-span-3">
+          <StatusSelect
+            refId={d.refId}
+            status={d.status}
+            // `editable: false` is exactly `mlsStatus === "removed"`: StatusSelect renders the
+            // read-only verdict badge instead of a control for those (PRN-04).
+            mlsStatus={d.mlsStatus}
+            statuses={d.availableStatuses.length ? d.availableStatuses : undefined}
+            variant="field"
+          />
+        </ControlField>
+        <ControlField label="Assigned partner" className="col-span-3">
+          <PartnerControl d={d} partners={partners} disabled={partial} />
+        </ControlField>
+
         {d.assignment.manual && d.assignment.original && (
-          <Field label="Original routing">
+          <Field label="Original routing" className="col-span-6">
             <PartnerTag size="sm" name={d.assignment.original.name} color={d.assignment.original.color} refId={d.assignment.original.refId} />
           </Field>
         )}
-        {/* "Motivation" dropped (VP-4c): for Lead Source 1 it is never populated —
-            reason-for-selling carries the seller's motivation, and the scorer uses it as such. */}
-        {partial ? <PendingField label="Reason for selling" /> : <InlineField {...field("reasonForSelling", d.reasonForSelling)} />}
-        {partial ? <PendingField label="Time to sell" /> : <InlineField {...field("timeToSell", d.timeToSell)} />}
         {d.mlsStatus === "removed" && (
-          <div className="col-span-2 min-[1100px]:col-span-3">
-            {/* Not editable at all: the MLS verdict is the pipeline's, not an admin's (PRN-04). */}
-            {partial ? <PendingField label="MLS removal reason" /> : <Field label="MLS removal reason">{d.mlsReason || "—"}</Field>}
-          </div>
+          // Not editable at all: the MLS verdict is the pipeline's, not an admin's (PRN-04).
+          partial
+            ? <PendingField label="MLS removal reason" className="col-span-6" />
+            : <Field label="MLS removal reason" className="col-span-6">{d.mlsReason || "—"}</Field>
         )}
         {/* VP-4c: boxed so the long note reads as its own block, not another field. Always
             rendered now — an empty Source notes has to be reachable to be filled in. */}
         {partial ? (
-          <PendingField label="Source notes" />
+          <PendingField label="Source notes" className="col-span-6" />
         ) : (
-          <InlineField {...field("notes", d.notes)} multiline className="col-span-2 min-[1100px]:col-span-3" />
+          <InlineField {...field("notes", d.notes)} multiline className="col-span-6" />
         )}
       </div>
 
@@ -706,7 +958,10 @@ function PartnerControl({ d, partners, disabled = false }: { d: LeadDetail; part
     <>
       <Select
         ariaLabel={`Assigned partner: ${ownerName}`}
-        className="w-auto"
+        // N5E-04: the same chrome the Status control wears — one string, so "identical" is
+        // structural rather than two class lists someone has to keep in step. It was `w-auto`
+        // (shrink-to-fit) while it floated beside a pill; as a labelled field it fills its cell.
+        className={RECORD_CONTROL_CLASS}
         disabled={disabled || move.isPending}
         value={d.partner?.id ?? UNASSIGNED}
         onValueChange={(sel) => {

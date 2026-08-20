@@ -61,7 +61,9 @@ function renderDialog() {
 describe("VP-4: PortalLeadDialog carries every partner feature from the old page", () => {
   it("shows seller, tap-to-call/mail, reason, time to sell, history, your notes, and an editable status", async () => {
     renderDialog();
-    expect(await screen.findByText("Ana Ruiz")).toBeTruthy();
+    // N5E-07: the seller is First name + Last name, two cells of the span grid.
+    expect(await screen.findByText("Ana")).toBeTruthy();
+    expect(screen.getByText("Ruiz")).toBeTruthy();
     expect(screen.getByRole("link", { name: "(859) 938-9128" })).toHaveAttribute("href", "tel:8599389128");
     expect(screen.getByRole("link", { name: "ana@example.test" })).toHaveAttribute("href", "mailto:ana@example.test");
     expect(screen.getByText("Relocation / moving")).toBeTruthy();
@@ -75,7 +77,7 @@ describe("VP-4: PortalLeadDialog carries every partner feature from the old page
 
   it("VP-4c: drops the always-empty Motivation field", async () => {
     renderDialog();
-    await screen.findByText("Ana Ruiz");
+    await screen.findByText("Ana");
     expect(screen.queryByText("Motivation")).toBeNull();
     expect(screen.queryByText("SHOULD NOT APPEAR")).toBeNull();
   });
@@ -118,7 +120,7 @@ describe("C-41b: PortalLeadDialog renders from the list cache while the detail l
     );
 
     // From the cached row, with no detail round trip completed.
-    expect(await screen.findByText("Ana Ruiz")).toBeTruthy();
+    expect(await screen.findByText("Ana")).toBeTruthy();
     expect(screen.getByText(/20 Bluffside Dr/)).toBeTruthy();
     // Detail-only: the phone a partner is about to call is NOT guessed from the row.
     expect(screen.queryByRole("link", { name: "(859) 938-9128" })).toBeNull();
@@ -140,7 +142,7 @@ describe("C-12: the portal lead dialog has no separate Status history panel", ()
 
   it("C-12: the portal lead dialog renders no 'Status history' section", async () => {
     renderDialog();
-    await screen.findByText("Ana Ruiz");
+    await screen.findByText("Ana");
     expect(screen.queryByText("Status history")).toBeNull();
     expect(screen.queryByText(/No changes yet — the current status is the default\./)).toBeNull();
   });
@@ -148,7 +150,7 @@ describe("C-12: the portal lead dialog has no separate Status history panel", ()
   it("C-12/PTL-03: every status change renders as a timestamped Timeline entry under the Status filter", async () => {
     const user = userEvent.setup();
     renderDialog();
-    await screen.findByText("Ana Ruiz");
+    await screen.findByText("Ana");
 
     await user.click(screen.getByRole("button", { name: "Status" }));
     // Both changes survive the filter, newest first, each with its own timestamp…
@@ -170,7 +172,7 @@ describe("C-12: the portal lead dialog has no separate Status history panel", ()
             : { ...LEAD, activity: [{ kind: "imported", at: "2026-08-04T15:33:00.000Z", label: "Lead received", actor: null }] },
     );
     renderDialog();
-    await screen.findByText("Ana Ruiz");
+    await screen.findByText("Ana");
 
     await user.click(screen.getByRole("button", { name: "Status" }));
     // The retired panel's line, inherited by the filter that replaced it — not the

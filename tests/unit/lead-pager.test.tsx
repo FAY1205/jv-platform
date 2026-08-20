@@ -159,6 +159,36 @@ describe("N5-05: the pager only speaks for leads inside the working set", () => 
     expect(screen.getByTestId("no-pager")).toBeInTheDocument();
   });
 
+  it("N5E-02: the `‹ N of M ›` trio is symmetric — nothing sits between the count and an arrow", () => {
+    render(<Harness start="LD-B" data={pageOf(1)} />);
+    const group = screen.getByRole("group", { name: "Lead navigation" });
+    const kids = [...group.children];
+    // The owner saw the group as lopsided: a fixed 14px spinner slot and an sr-only live
+    // region were wedged between the count and `›`, padding one side of the figure only.
+    expect(kids[0]).toHaveAccessibleName("Previous lead");
+    expect(kids[1]).toHaveTextContent("2 of 5");
+    expect(kids[2]).toHaveAccessibleName("Next lead");
+    // One gap value, applied by the flex container to both sides of the count.
+    expect(group.className).toContain("gap-1.5");
+    expect(kids[1].className).not.toMatch(/\bp[xl]?-/);
+  });
+
+  it("N5E-02: the spinner slot and the live region live AFTER the trio, still reserving width", async () => {
+    const user = userEvent.setup();
+    render(<Harness start="LD-B" data={pageOf(1)} />);
+    await user.click(nextBtn());
+
+    const group = screen.getByRole("group", { name: "Lead navigation" });
+    const after = [...group.children].slice(3);
+    // Both moved out of the trio…
+    expect(after.some((el) => el.getAttribute("role") === "status")).toBe(true);
+    // …and the spinner's slot is still FIXED, so a pending jump cannot shift the header.
+    const slot = after.find((el) => el.className.includes("w-3.5"))!;
+    expect(slot).toBeDefined();
+    expect(slot.querySelector("svg")).not.toBeNull();
+    expect(screen.getByRole("status")).toHaveTextContent(/loading/i);
+  });
+
   it("N5-05/N5-30: the arrows name their action and the figure is tabular", () => {
     render(<Harness start="LD-B" data={pageOf(1)} />);
     expect(prevBtn()).toHaveAccessibleName("Previous lead");

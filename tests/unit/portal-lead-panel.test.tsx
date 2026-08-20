@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import * as React from "react";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
-import { act, render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { portalLeadsKey, portalLeadsParams } from "@/modules/portal/leads-contract";
@@ -140,7 +140,9 @@ describe("N5-20: the portal lead record in the side panel", () => {
   it("N5-20: every section of today's portal record survives the shell swap", async () => {
     render(wrap(<PortalLeadDialog refId="JV-2001" onClose={() => {}} />));
     // Contact + the tap-to-call/mail links.
-    expect(await screen.findByText("Ana Ruiz")).toBeInTheDocument();
+    // N5E-07: the seller is First name + Last name, two cells of the span grid.
+    expect(await screen.findByText("Ana")).toBeInTheDocument();
+    expect(screen.getByText("Ruiz")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "(859) 938-9128" })).toHaveAttribute("href", "tel:8599389128");
     expect(screen.getByRole("link", { name: "ana@example.test" })).toHaveAttribute("href", "mailto:ana@example.test");
     // The property Google link (Q4: it stays, admin AND portal).
@@ -157,9 +159,38 @@ describe("N5-20: the portal lead record in the side panel", () => {
     expect(screen.getByRole("heading", { name: "Your notes" })).toBeInTheDocument();
   });
 
+  it("N5E-07: the portal record wears the admin record's span grid and field order", async () => {
+    render(wrap(<PortalLeadDialog refId="JV-2001" onClose={() => {}} />));
+    await screen.findByText("Ana");
+    const grid = document.querySelector(".grid-cols-6") as HTMLElement;
+    expect(grid).not.toBeNull();
+    const at = (label: string) => within(grid).getByText(label);
+    const precedes = (a: Element, b: Element) => Boolean(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
+    // Same order as the admin twin: name/phone → email → address → short values → reason →
+    // received → the live control.
+    expect(precedes(at("First name"), at("Email"))).toBe(true);
+    expect(precedes(at("Email"), at("Address"))).toBe(true);
+    expect(precedes(at("Address"), at("Time to sell"))).toBe(true);
+    expect(precedes(at("Reason for selling"), at("Received"))).toBe(true);
+    // N5E-04: the status control is a labelled field AFTER Received, not a banner above it.
+    expect(precedes(at("Received"), at("Lead status"))).toBe(true);
+    // N5E-05: the timestamp cannot break across two lines here either.
+    expect((at("Received").nextElementSibling as HTMLElement).className).toContain("whitespace-nowrap");
+  });
+
+  it("N5E-06: the portal address is the same ONE combined line, display-only", async () => {
+    render(wrap(<PortalLeadDialog refId="JV-2001" onClose={() => {}} />));
+    // Street, city, then state + ZIP as a single place designator.
+    const link = await screen.findByRole("link", { name: /^20 Bluffside Dr, Covington, KY 41017/ });
+    expect(link).toHaveAttribute("href", expect.stringContaining("google.com/search"));
+    // Read-scoped: the line is a link out, never an edit affordance (PRN-08).
+    expect(screen.queryByRole("button", { name: /^Address:/i })).toBeNull();
+    expect(screen.queryByRole("textbox", { name: "Street" })).toBeNull();
+  });
+
   it("N5-20: read-scoped — no inline editing and no N-of-M pager come with the shell", async () => {
     render(wrap(<PortalLeadDialog refId="JV-2001" onClose={() => {}} />));
-    await screen.findByText("Ana Ruiz");
+    await screen.findByText("Ana");
     // PR B's editing affordances are admin-only: the seller name is text, not a field.
     expect(screen.queryByRole("button", { name: /^edit$/i })).toBeNull();
     expect(screen.queryByRole("textbox", { name: /seller/i })).toBeNull();
@@ -197,7 +228,7 @@ describe("N5-20: the portal lead record in the side panel", () => {
     const user = userEvent.setup();
     const onClose = vi.fn();
     render(wrap(<Harness refId="JV-2001" onClose={onClose} />));
-    await screen.findByText("Ana Ruiz");
+    await screen.findByText("Ana");
     await user.keyboard("{Escape}");
     expect(onClose).toHaveBeenCalledOnce();
   });
@@ -214,7 +245,7 @@ describe("N5-20: switching records in place", () => {
       </QueryClientProvider>
     );
     const { rerender } = render(ui("JV-2001"));
-    await screen.findByText("Ana Ruiz");
+    await screen.findByText("Ana");
     const panel = screen.getByRole("dialog");
     // The panel's OWN live region — a direct child of the dialog, so it is not confused with
     // the `role="status"` an inner empty state renders.
@@ -238,14 +269,16 @@ describe("N5-20: switching records in place", () => {
     expect(screen.queryByRole("link", { name: "(859) 938-9128" })).toBeNull();
 
     // …and the record on screen is the new one.
-    expect(await screen.findByText("Bo Kim")).toBeInTheDocument();
+    expect(await screen.findByText("Bo")).toBeInTheDocument();
+    expect(screen.getByText("Kim")).toBeInTheDocument();
 
     // PRN-08/N5-21: the panel never unmounted, so "the new lead is present" is only half the
     // claim — the OLD lead's PII has to be GONE. Asserted on the detail-only field a partner
     // acts on (the phone they are about to dial) as well as the name, because a surface that
     // switches records in place is exactly where one stale contact detail sends a call to the
     // wrong seller.
-    expect(screen.queryByText("Ana Ruiz")).toBeNull();
+    expect(screen.queryByText("Ana")).toBeNull();
+    expect(screen.queryByText("Ruiz")).toBeNull();
     expect(screen.queryByText("(859) 938-9128")).toBeNull();
     expect(screen.queryByRole("link", { name: "(859) 938-9128" })).toBeNull();
     expect(screen.getByRole("link", { name: "(214) 555-0117" })).toBeInTheDocument();
@@ -277,7 +310,7 @@ describe("N5-20: switching records in place", () => {
     expect(box).toHaveValue("Called, left voicemail");
 
     rerender(ui("JV-2002"));
-    await screen.findByText("Bo Kim");
+    await screen.findByText("Bo");
     expect(await screen.findByPlaceholderText(/note/i)).toHaveValue("");
   });
 });
