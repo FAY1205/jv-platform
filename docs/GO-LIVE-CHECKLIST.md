@@ -44,7 +44,7 @@ Roughly in dependency order:
 ### Exact env vars to set in Vercel (from `src/lib/env.ts`)
 
 - `APP_ENV=production`
-- `APP_URL` — your production origin, e.g. `https://app.yourdomain.com` (release-cron digest email links; **the app refuses to boot in production if left at the localhost default**)
+- `APP_URL` — your production origin, e.g. `https://app.yourdomain.com`. **Every link that leaves the system in an email is built from this** (C-101): password-reset links, signup-verification links, partner invites, team invites, and digest/hot-alert CTAs — not just the release cron's. Must be a **bare origin**: scheme + host (+ port), **no trailing slash, no path, no query** — the app refuses to boot otherwise, and also refuses if it is left at the localhost default. ✅ **After deploying, click through one real email** (send yourself a password reset) and confirm the link points at your production domain.
 - `DATABASE_URL` — prod Supabase pooler connection string
 - `NEXT_PUBLIC_SUPABASE_URL`
 - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
@@ -59,6 +59,17 @@ Roughly in dependency order:
   `openssl rand -base64 32 | tr '+/' '-_' | tr -d '='`
 - `SENTRY_DSN` — from item 7 (only does something after code item A ships)
 - `NEXT_PUBLIC_APP_NAME` — optional; product name
+
+### Preview environments (`APP_ENV=preview`)
+
+Preview deployments get a fresh origin per branch, which `APP_URL` cannot know. Left unset,
+preview emails carry **localhost** links. That is **harmless in itself** — all non-production mail
+is intercepted to the SEC-07 sink (`/dev/emails`), so no real person ever receives one — but it
+means a link clicked out of the preview mailbox goes nowhere.
+
+**If you want to test a full email flow on a preview URL** (reset → set a new password, invite →
+accept a seat), set `APP_URL` on that preview deployment to its own origin. Otherwise leave it;
+the sink still shows you that the email was produced and what it said.
 
 ---
 

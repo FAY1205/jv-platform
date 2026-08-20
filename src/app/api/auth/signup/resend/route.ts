@@ -3,6 +3,7 @@ import { sql } from "drizzle-orm";
 import { z } from "zod";
 import { getDb } from "@/db";
 import * as schema from "@/db/schema";
+import { env } from "@/lib/env";
 import { jsonError } from "@/lib/http";
 import { assertCsrf } from "@/lib/auth/guard";
 import { withUniformTiming } from "@/lib/auth/enumeration";
@@ -42,7 +43,6 @@ export async function POST(request: Request) {
   const email = parsed.data.email.toLowerCase();
   const ip = clientIp(request);
   const now = Date.now();
-  const origin = new URL(request.url).origin;
   const db = getDb();
   const attempts = new AuthAttemptsStore(db);
 
@@ -85,7 +85,11 @@ export async function POST(request: Request) {
         // expired row for the abandoned-signup sweep to purge out from under a live pending signup.
         const { token, record } = issueSignupToken(row.id, now);
         await new SignupStore(db).rotate(record);
-        await notifySignupVerify(row.email, `${origin}/signup/verify?token=${token}`);
+        // C-101 (CWE-644): links that leave the system travel on env.APP_URL (the canonical
+        // origin, prod-guarded in lib/env), never on the request Host. Resend is UNAUTHENTICATED
+        // and takes the recipient's address from the body, so a forged Host here mails a stranger's
+        // verification token to an attacker origin on demand.
+        await notifySignupVerify(row.email, `${env.APP_URL}/signup/verify?token=${token}`);
       } catch (e) {
         // WP-SU-19 (SEC-05/ADR-0032): withUniformTiming swallows a throw into the floor, so an infra
         // fault here would otherwise vanish with no log. Capture (message scrubbed by the seam), then
