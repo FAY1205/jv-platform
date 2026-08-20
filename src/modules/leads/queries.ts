@@ -569,19 +569,24 @@ export async function getAdminLeadDetail(scope: ScopeContext, refId: string): Pr
           .where(and(tenantWhere(schema.users, scope), eq(schema.users.id, lead.manualAssignedBy)))
       : Promise.resolve([] as { email: string }[]),
     noteAndTaskActivity(db, scope, lead.id),
-    // N5-14, keyed on the REF (what the audit trail records as `entity_ref`) — and gated on
-    // `ops.admin`, the band the audit trail sits in everywhere else.
+    // N5-14, keyed on the REF (what the audit trail records as `entity_ref`). Ungated across
+    // the admin stream: every tier that can open this record (admin/member/viewer, all of whom
+    // hold `leads.read`) gets these entries.
     //
-    // AIS-11/C-45b precedent (modules/ai/tools.ts): the human surface for audit_log content
-    // is /api/activity, which requires ops.admin — an ADMIN_LOCKED capability (ADR-0049
-    // §11.3) — while this detail route rides `leads.read`, which member AND viewer hold by
-    // default. Deriving a timeline entry from audit rows for a viewer would let the record
-    // panel serve, in summary, what the Activity screen refuses them outright.
+    // PR B shipped this behind `can(scope, "ops.admin")` as a conservative default, on the
+    // AIS-11/C-45b reading that a derivation of audit_log content inherits audit_log's band
+    // (AUTHZ-08). The owner reversed it on 2026-08-20: names-only edit facts on the lead's own
+    // record — WHICH fields changed, by WHOM, WHEN, and never a value — are LEAD-WORK data,
+    // not audit data. A viewer who is told a teammate corrected the phone number learns
+    // something about the lead they are already reading, not something about the tenant's
+    // audit trail; /api/activity's tenant-wide, all-entity, before/after feed stays behind
+    // `ops.admin` untouched. This is the named exception recorded against AUTHZ-08 in
+    // docs/ENGINEERING_STANDARDS.md §6 — the rule holds, and this is its one carve-out.
     //
-    // Names-only is a genuinely thinner slice than the Activity screen's, so this is the
-    // CONSERVATIVE default rather than a settled verdict: it is reversible in one line if the
-    // owner decides the whole admin stream should see who corrected a field (AUTHZ-08).
-    can(scope, "ops.admin") ? detailsUpdatedActivity(db, scope, lead.refId) : Promise.resolve([] as LeadActivity[]),
+    // The PARTNER stream is unaffected: detailsUpdatedActivity still THROWS on a partner
+    // scope (audit_log has no partner predicate — PRN-13/R-22), and getPartnerLeadDetail
+    // never calls it.
+    detailsUpdatedActivity(db, scope, lead.refId),
   ]);
 
   const pMap = new Map(partnerRows.map((p) => [p.id, p]));

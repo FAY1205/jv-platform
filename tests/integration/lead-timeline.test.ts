@@ -129,7 +129,7 @@ suite("TSK-06: unified lead timeline", () => {
   const partnerX = (): ScopeContext => ({ tenantId: id.tenant, role: "partner", userId: id.pxUser, partnerId: id.px });
   const partnerY = (): ScopeContext => ({ tenantId: id.tenant, role: "partner", userId: id.pyUser, partnerId: id.py });
   const adminB = (): ScopeContext => ({ tenantId: id.tenantB, role: "admin", userId: id.adminUserB });
-  /** ADR-0049 tiers: admin-STREAM, but without `ops.admin` (ADMIN_LOCKED) — see N5-14/AUTHZ-08. */
+  /** ADR-0049 tiers: admin-STREAM, but without `ops.admin` (ADMIN_LOCKED) — see the N5-14/AUTHZ-08 exception. */
   const viewer = (): ScopeContext => ({ tenantId: id.tenant, role: "viewer", userId: id.adminUser });
 
   const leadIdOf = async (ref: string, tenantId: string) => {
@@ -434,25 +434,32 @@ suite("TSK-06: unified lead timeline", () => {
     await purgeAuditLog(db, eq(schema.auditLog.entityRef, REF_SF));
   });
 
-  it("N5-14/AUTHZ-08: viewer tier does not receive Details updated entries (ops.admin band, owner-pending default)", async () => {
+  it("N5-14/AUTHZ-08 exception: viewer tier receives Details updated entries (owner decision 2026-08-20)", async () => {
     await db.insert(schema.auditLog).values({
       tenantId: id.tenant, actorUserId: id.adminUser, action: "lead.edited", entityType: "lead", entityRef: REF_SF,
       createdAt: new Date(Date.UTC(2026, 5, 2, 12, 0, 0)),
       before: { phone: "absent" }, after: { phone: "present" },
     });
 
-    // The band, not the stream: a viewer is admin-STREAM and holds `leads.read`, so the rest
-    // of the record is theirs — but `audit_log` content sits behind `ops.admin` everywhere
-    // else it surfaces (/api/activity, the AIS-11 assistant tool), and this entry is derived
-    // from it. Non-vacuous by construction: the SAME lead, the SAME row, read twice.
+    // PR B gated this on `ops.admin` (the band audit_log content rides everywhere else) as a
+    // conservative default. The owner reversed it: names-only edit facts on the lead's own
+    // record are LEAD-WORK data, so every admin-stream tier that holds `leads.read` gets them.
+    // Non-vacuous by construction: the SAME lead, the SAME row, read twice — the admin leg
+    // proves the row is derivable at all, so the viewer leg cannot pass on an empty feed.
     const asAdmin = (await getAdminLeadDetail(admin(), REF_SF))!.activity;
     expect(asAdmin.some((a) => a.kind === "details_updated")).toBe(true);
 
     const asViewer = (await getAdminLeadDetail(viewer(), REF_SF))!.activity;
-    expect(asViewer.some((a) => a.kind === "details_updated")).toBe(false);
-    expect(JSON.stringify(asViewer)).not.toContain("Details updated");
-    // Everything else the viewer is entitled to is still there — the gate is on the ONE kind,
-    // not on the feed (a blanked timeline would pass the assertion above for the wrong reason).
+    expect(asViewer.some((a) => a.kind === "details_updated")).toBe(true);
+    // …and it is the SAME entry the admin got, label and actor included — "a viewer sees
+    // something" is not the claim; "a viewer sees what the admin sees" is.
+    const viewerEntry = asViewer.find((a) => a.kind === "details_updated")!;
+    expect(viewerEntry.label).toBe("Details updated: phone");
+    expect(viewerEntry.actor).toBe("admin@timeline.test");
+    // SEC-05 still holds at the widened band: names only, never the audited VALUE.
+    expect(JSON.stringify(asViewer)).not.toContain("present");
+    // The exception is scoped to this ONE kind on the lead record — the rest of the feed the
+    // viewer was already entitled to is untouched.
     expect(asViewer.some((a) => a.kind === "imported")).toBe(true);
 
     await purgeAuditLog(db, eq(schema.auditLog.entityRef, REF_SF));

@@ -706,7 +706,16 @@ export const auditLog = pgTable(
     traceId: text("trace_id"),
     createdAt: createdAt(),
   },
-  (t) => [index("audit_tenant_created_idx").on(t.tenantId, t.createdAt)],
+  (t) => [
+    index("audit_tenant_created_idx").on(t.tenantId, t.createdAt),
+    // WP-N5 PR D (#132 precedent): the "Details updated" timeline derivation
+    // (modules/leads/timeline.ts, detailsUpdatedActivity) reads
+    // tenant_id + entity_type + entity_ref + action ORDER BY created_at DESC LIMIT 100.
+    // audit_tenant_created_idx above leads on tenant alone, so that read degrades into a
+    // scan of the tenant's whole trail as the log grows. The composite carries the sort
+    // column, making it a bounded backwards index scan of one lead's edits.
+    index("audit_tenant_entity_idx").on(t.tenantId, t.entityType, t.entityRef, t.createdAt.desc()),
+  ],
 );
 
 // Outbound email outbox (NTF-03). Every digest/notification is enqueued here, then

@@ -1,0 +1,27 @@
+-- WP-N5 PR D (owner decision 2026-08-20, #132 precedent): cover the "Details updated"
+-- timeline derivation's read of `audit_log`.
+--
+-- detailsUpdatedActivity (src/modules/leads/timeline.ts:126) filters
+--   tenant_id = $1 AND entity_type = 'lead' AND entity_ref = $2 AND action = 'lead.edited'
+--   ORDER BY created_at DESC LIMIT 100
+-- and the table's ONLY index was `audit_tenant_created_idx` (tenant_id, created_at), which
+-- leads on tenant alone. Under that index the planner walks the tenant's ENTIRE trail newest-
+-- first and discards every row that is not this one lead's edits — a read whose cost grows
+-- with the audit log rather than with the lead. `audit_log` is append-only and never pruned
+-- (retention is a separate WP), so it is the one table guaranteed to grow without bound.
+--
+-- The composite leads on the three equality predicates and carries the sort column, so the
+-- query becomes a bounded backwards index scan of exactly one lead's edit history. `action`
+-- is deliberately NOT in the key: a lead's audit rows are few once entity_ref is pinned, and
+-- leaving it out keeps this index reusable by any other per-entity trail read (e.g. a future
+-- "history" panel keyed on a different action).
+--
+-- DM-13: plain (non-CONCURRENTLY) CREATE INDEX, so it runs inside the migrate transaction.
+-- Safe here for the same reason as 0051/0052/0055 (C-36): `audit_log` is small in prod today,
+-- so the ShareLock is sub-millisecond — placed now, while it is small, precisely so it is
+-- already in place before end-user volume arrives. If this table is ever large at migrate
+-- time, the deferred out-of-transaction CONCURRENTLY path is the alternative.
+--
+-- No DROP: `audit_tenant_created_idx` still serves /api/activity's tenant-wide feed, which
+-- has no entity predicate at all and cannot use this index's leading columns.
+CREATE INDEX IF NOT EXISTS "audit_tenant_entity_idx" ON "audit_log" USING btree ("tenant_id","entity_type","entity_ref","created_at" DESC NULLS LAST);

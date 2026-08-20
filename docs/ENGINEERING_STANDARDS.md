@@ -124,10 +124,26 @@ Exemplars: `src/app/api/uploads/route.ts`, `src/app/api/admin/partners/route.ts`
   human surface for the trail (`/api/activity`) already requires it, so a feature that
   re-derives the same rows behind a cheaper capability (`leads.read`, `ai.use`) becomes
   a bypass of the screen that refuses them — the AIS-11/C-45b lesson
-  (`src/modules/ai/tools.ts`), re-learned by N5-14's "Details updated" timeline entry
-  (`src/modules/leads/queries.ts`). Derivation is not exemption: a summary of a
-  forbidden row is a read of it. Where the derived slice is genuinely thinner, gate
+  (`src/modules/ai/tools.ts`). Derivation is not exemption: a summary of a forbidden
+  row is a read of it. Where the derived slice is genuinely thinner, gate
   conservatively and log the widening as an owner decision rather than assuming it.
+  - **Recorded exception — names-only derived edit facts on the lead record timeline
+    (owner decision 2026-08-20, WP-N5 PR D).** The `details_updated` entries in
+    `getAdminLeadDetail` (`src/modules/leads/queries.ts` →
+    `detailsUpdatedActivity`, `src/modules/leads/timeline.ts`) are LEAD-WORK data,
+    not audit data, and ride `leads.read` — so every admin-stream tier
+    (admin/member/viewer) receives them. The derived subset is **field NAMES, the
+    actor, and the timestamp; never a value, before or after** (SEC-05), scoped to
+    the ONE lead the caller already has open. That is what makes it safe: it tells a
+    reader something about the lead they are entitled to read, not something about
+    the tenant's trail. The exception does **not** widen `/api/activity`, the AIS-11
+    assistant tool, or any tenant-wide / cross-entity / before-after surface — those
+    stay on `ops.admin`. It does not extend to the PARTNER stream either:
+    `detailsUpdatedActivity` throws on a partner scope, because `audit_log` has no
+    partner predicate (PRN-13/R-22). Pinned by
+    `tests/integration/lead-timeline.test.ts` ("N5-14/AUTHZ-08 exception"). Any new
+    audit-derived surface starts gated and needs its own owner decision — this
+    exception is not a precedent to reason from by analogy.
 
 ## 7. Email & files (SEC-02/03/05/06/07)
 
