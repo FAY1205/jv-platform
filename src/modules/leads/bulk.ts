@@ -87,6 +87,10 @@ function totalSkipped(skips: BulkSkips): number {
  * scope predicate and the soft-delete exclusion — a caller cannot compose this and lose the
  * scope half, because the scope half is not separable (PRN-08).
  *
+ * Exported for the selection EXPORT (N6-40), which is a read rather than a write but must
+ * resolve the identical set: "export what I selected" and "assign what I selected" disagreeing
+ * about membership would be the same class of bug in a quieter place.
+ *
  * `leadWhere`, not a bare `tenantWhere` (audit-tenancy F-1): for every ADMIN-STREAM tier the
  * two render byte-identical SQL, and all three bulk routes are capability-gated to the admin
  * stream — but ADR-0013's rule is that the BUILDER is the boundary, not the gate. A partner
@@ -94,7 +98,7 @@ function totalSkipped(skips: BulkSkips): number {
  * to its own leads by construction rather than by the route above it having been written
  * correctly.
  */
-function selectionConds(scope: ScopeContext, selection: BulkSelection): SQL[] {
+export function selectionConds(scope: ScopeContext, selection: BulkSelection): SQL[] {
   if (selection.mode === "filter") return leadsFilterConds(scope, canonicalBulkFilters(selection.filters));
   return [
     leadWhere(scope),

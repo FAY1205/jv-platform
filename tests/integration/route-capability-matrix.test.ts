@@ -40,6 +40,7 @@ import { POST as assignBulkPost } from "@/app/api/leads/assign-bulk/route";
 import { POST as bulkAssignPost } from "@/app/api/leads/bulk/assign/route";
 import { POST as bulkStatusPost } from "@/app/api/leads/bulk/status/route";
 import { POST as bulkTagsPost } from "@/app/api/leads/bulk/tags/route";
+import { POST as leadsExportPost } from "@/app/api/leads/export/route";
 import { POST as leadTagPost } from "@/app/api/leads/[ref]/tags/route";
 import { DELETE as leadTagDelete } from "@/app/api/leads/[ref]/tags/[tagId]/route";
 import { GET as runsGet } from "@/app/api/runs/route";
@@ -116,6 +117,13 @@ suite("AUTHZ-09: cluster-A route capability matrix", () => {
     ["bulk tags", () => bulkTagsPost(jsonRequest("POST", "/api/leads/bulk/tags", { selection: { mode: "refs", leadRefs: [REF] }, op: "add", tagId: randomUUID(), dryRun: true }))],
   ];
 
+  // WP-N6 PR B: export-selected is a READ over the same selection contract, gated on
+  // `data.export` rather than `leads.write` — so it belongs to the cluster B–G group below,
+  // NOT to LEAD_WRITES. On the unseeded tenant nothing resolves, so a passing gate answers
+  // 400 `empty_selection`; the assertion everywhere is "not 403".
+  const exportSelected = () =>
+    leadsExportPost(jsonRequest("POST", "/api/leads/export", { selection: { mode: "refs", leadRefs: [REF] } }));
+
   const LEAD_WRITES: [string, () => Promise<Response>][] = [
     ["lead PATCH", () => leadPatch(jsonRequest("PATCH", `/api/leads/${REF}`, { address: "1 Main St" }), routeParams({ ref: REF }))],
     ["status POST", () => statusPost(jsonRequest("POST", `/api/leads/${REF}/status`, { status: "Contacted" }), routeParams({ ref: REF }))],
@@ -186,6 +194,8 @@ suite("AUTHZ-09: cluster-A route capability matrix", () => {
     for (const [name, res] of [
       ["void", await voidPost(jsonRequest("POST", "/api/runs/IM-26-001/void", { reason: "capability probe" }), routeParams({ ref: "IM-26-001" }))],
       ["export", await exportGet(new Request("http://localhost:3000/api/runs/IM-26-001/export"), routeParams({ ref: "IM-26-001" }))],
+      // WP-N6: the same `data.export` capability, on the leads-selection surface.
+      ["export selected", await exportSelected()],
       ["rules", await rulesGet()],
       ["partners", await partnersGet()],
       ["activity", await activityGet(new Request("http://localhost:3000/api/activity"))],
@@ -197,10 +207,12 @@ suite("AUTHZ-09: cluster-A route capability matrix", () => {
     setRouteScope(staff("viewer"));
     expect((await runsGet(new Request("http://localhost:3000/api/runs"))).status, "viewer runs").toBe(403);
     expect((await aiFeedbackPost(jsonRequest("POST", "/api/ai/feedback", { rating: "up" }))).status, "viewer ai").toBe(403);
+    expect((await exportSelected()).status, "viewer export-selected").toBe(403);
     // Admin: unchanged.
     setRouteScope(staff("admin"));
     expect((await runsGet(new Request("http://localhost:3000/api/runs"))).status, "admin runs").toBe(200);
     expect((await rulesGet()).status, "admin rules").toBe(200);
+    expect((await exportSelected()).status, "admin export-selected gate").not.toBe(403);
   });
 
   it("AUTHZ-09 (WP-N6): a PARTNER scope is refused by every bulk write — the gate is the boundary", async () => {
@@ -209,7 +221,10 @@ suite("AUTHZ-09: cluster-A route capability matrix", () => {
     // route must refuse them before any of that matters. Proved at the HTTP layer rather than
     // asserted from the matrix, because that is where the refusal actually lives.
     setRouteScope({ tenantId, role: "partner", userId: randomUUID(), partnerId: randomUUID() });
-    for (const [name, call] of BULK_WRITES) {
+    // WP-N6 PR B: export-selected joins them. It is the sharpest case of the rule — a partner
+    // reaching an ADMIN-STREAM export would egress the whole tenant's seller PII, and the
+    // capability gate is what stops it before any scope predicate is consulted.
+    for (const [name, call] of [...BULK_WRITES, ["export selected", exportSelected] as const]) {
       const res = await call();
       expect(res.status, `partner bulk write: ${name}`).toBe(403);
       expect(await res.json()).toMatchObject({ code: "forbidden" });

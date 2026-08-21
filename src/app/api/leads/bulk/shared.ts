@@ -39,7 +39,17 @@ export function bulkInputError(error: z.ZodError): NextResponse {
   // second tab). Zod's "Too small: expected array to have >=1 items" is not something to show
   // a human, and it is not the same message as a malformed ref (audit-ux-flows F-5).
   if (path[0] === "selection" && path[1] === "leadRefs" && issue?.code === "too_small") {
-    return jsonError("empty_selection", "Your selection is no longer available — close this and reselect.", 400);
+    return emptySelectionError();
   }
   return jsonError("invalid_input", issue?.message ?? "Invalid input.", 400);
+}
+
+/**
+ * The one spelling of "there is nothing here to act on". Raised by the Zod boundary above when
+ * a refs list arrives empty, and by the EXPORT route when a selection resolves to zero rows
+ * (N6-40) — the same cause (the selection moved out from under the dialog) and the same
+ * remedy, so the same code and the same sentence.
+ */
+export function emptySelectionError(): NextResponse {
+  return jsonError("empty_selection", "Your selection is no longer available — close this and reselect.", 400);
 }
