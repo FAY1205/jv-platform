@@ -353,6 +353,41 @@ describe("N6-60/61: update the applied view", () => {
     expect(screen.getByText("Modified")).toBeInTheDocument();
   });
 
+  it("N6-61: a view deleted UNDER the dialog fails honestly and clears itself out", async () => {
+    const user = userEvent.setup();
+    wrap();
+    await openMenu(user);
+    await user.click(await screen.findByRole("menuitem", { name: "Hot in AZ" }));
+    await user.click(screen.getByRole("button", { name: /edit filters/i }));
+    await openMenu(user);
+    await user.click(await screen.findByRole("menuitem", { name: /^↻ Update/ }));
+
+    // Another tab deleted it between the menu opening and the confirm. The server's CODE is
+    // what the client branches on (the `duplicate_view` precedent) — never the message text.
+    apiMutate.mockRejectedValue(
+      Object.assign(new Error("Saved view v1 not found."), { code: "not_found" }),
+    );
+    apiGet.mockResolvedValue({ views: VIEWS.filter((v) => v.id !== "v1") });
+    const reads = apiGet.mock.calls.length;
+
+    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: /update view/i }));
+
+    // Reported, not swallowed — and nothing silently succeeded.
+    // Asserted SYNCHRONOUSLY and inside the toast stack: the message is up the moment the
+    // rejection lands, it auto-dismisses at TOAST_DURATION_MS, and it also appears in the
+    // sr-only live region — an awaited, unscoped findByText would race the timer and match two
+    // nodes. The envelope's own message is what surfaces, not a generic failure.
+    expect(within(screen.getByTestId("toast-stack")).getByText(/not found/i)).toBeInTheDocument();
+    // The question that can no longer be answered goes away, the roster is re-read, and the
+    // trigger stops naming a view that isn't there — otherwise Update stays pressable forever.
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    await waitFor(() => expect(apiGet.mock.calls.length).toBeGreaterThan(reads));
+    expect(await screen.findByRole("button", { name: "Saved views" })).toBeInTheDocument();
+
+    await openMenu(user);
+    expect(screen.queryByRole("menuitem", { name: "Hot in AZ" })).toBeNull();
+  });
+
   it("N6-61: the save-as-new flow is untouched — Update never asks for a name", async () => {
     const user = userEvent.setup();
     wrap();

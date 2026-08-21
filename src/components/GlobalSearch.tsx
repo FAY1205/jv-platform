@@ -18,6 +18,7 @@ import {
   requestLeadsClearFilters,
   requestLeadsOpenColumns,
 } from "@/lib/leads-actions";
+import { usePreferences } from "@/lib/preferences";
 import { useSavedViews } from "@/lib/saved-views-client";
 import { statusPillClass } from "@/lib/status-pill";
 import {
@@ -202,6 +203,27 @@ export function GlobalSearchOverlay() {
     };
     const onKey = (e: KeyboardEvent) => {
       if (!isGlobalSearchHotkey(e)) return;
+      // A11Y-04 (pr-review, HIGH): never open OVER a layer that has the user's attention. The
+      // palette became a place you can act from in N6-70, so layering it on top of an open
+      // confirm — a bulk assign's "Assign 641 leads", a Save/Update/Delete dialog — would let
+      // "Clear filters" reset the page state behind a modal that is still asking a question.
+      // Same rule (and same closest() shape) as the lead panel's ↑/↓ binding: yield to a key
+      // another layer has already claimed, and to the surfaces that own their own keyboard.
+      //
+      // Plain inputs are deliberately NOT excluded, unlike that binding: this is a modified
+      // chord, so it can never be mistaken for typing, and Ctrl-K out of the leads search box
+      // is a path operators actually use. An input INSIDE a dialog is already covered below.
+      //
+      // The re-entrant case is checked FIRST: the palette is itself a dialog, and it must keep
+      // swallowing its own hotkey (the browser's address bar must not win) rather than fall
+      // into the guard below.
+      if (open) {
+        e.preventDefault();
+        return;
+      }
+      if (e.defaultPrevented) return;
+      const t = e.target as HTMLElement | null;
+      if (t?.closest?.('[role="dialog"],[role="alertdialog"],[role="menu"],[role="listbox"],[data-radix-popper-content-wrapper]')) return;
       e.preventDefault(); // the browser's own Ctrl-K (address bar) must not win
       openFresh();
     };
@@ -227,9 +249,9 @@ export function GlobalSearchOverlay() {
 
   // ── N6-71: the palette's actions ───────────────────────────────────────────────────────
   // The saved-view roster is fetched when the palette OPENS, not on every admin page load.
-  // `views.own` — every seat has it, so there is nothing to gate. A failed read degrades to no
-  // Actions group rather than an error state: the search half still works, and the same views
-  // are one click away on the leads page.
+  // `views.own` — every seat has it, so there is nothing to gate. A failed read leaves the
+  // search half working and says so in an inline retry row (below) rather than silently
+  // showing an empty Actions group, which reads identically to "you have no views".
   const viewsQ = useSavedViews(open);
   const savedViews = viewsQ.data?.views;
 
@@ -239,6 +261,11 @@ export function GlobalSearchOverlay() {
   // works everywhere: off /leads it navigates instead of dispatching.
   const pathname = usePathname() ?? "";
   const onLeads = pathname === "/leads";
+  // …and the same rule one level down (audit-ux-flows): the board has no Columns menu, so in
+  // board mode that row would be a dead click. The preference store is the same one the leads
+  // page reads, so the palette and the page can never disagree about which view is up.
+  // "Clear filters" stays unconditional — the board honours the whole filter set.
+  const leadsListMode = usePreferences().leadsView === "list";
 
   const actionItems: SearchItem[] = React.useMemo(() => {
     const out: SearchItem[] = [];
@@ -255,10 +282,12 @@ export function GlobalSearchOverlay() {
     }
     if (onLeads) {
       out.push({ kind: "action", key: "leads:clear", label: "Clear filters", hint: "this page", run: requestLeadsClearFilters });
-      out.push({ kind: "action", key: "leads:columns", label: "Open Columns", hint: "this page", run: requestLeadsOpenColumns });
+      if (leadsListMode) {
+        out.push({ kind: "action", key: "leads:columns", label: "Open Columns", hint: "this page", run: requestLeadsOpenColumns });
+      }
     }
     return out;
-  }, [savedViews, onLeads, router]);
+  }, [savedViews, onLeads, leadsListMode, router]);
 
   /** N6-71: the "Go to" destinations — the SHELL's own nav constant, not a second copy that
    *  would drift the first time a page is added. Not capability-filtered, exactly like the
@@ -326,10 +355,16 @@ export function GlobalSearchOverlay() {
   const resultCount = data ? data.leads.rows.length + data.partners.rows.length : 0;
 
   // Reset the cursor when the list changes — adjusting state during render (the
-  // React-recommended alternative to an effect; the `seeded` pattern used elsewhere). Keyed on
-  // BOTH texts: the committed term (results) and the live one (actions re-filter per keystroke).
-  // Opening is covered separately by `openFresh`, which zeroes it synchronously.
-  const cursorKey = `${filterText}|${term}`;
+  // React-recommended alternative to an effect; the `seeded` pattern used elsewhere). Opening is
+  // covered separately by `openFresh`, which zeroes it synchronously.
+  //
+  // The key names every input that can RESHAPE the list, not just the two texts (pr-review +
+  // audit-ux-flows, HIGH): the saved-view roster resolves after the palette opens and PREPENDS
+  // "Apply view" rows above everything, and search results splice whole groups in. Either one
+  // shifts rows under a cursor the operator has already moved — and ↵ would then fire the row
+  // that slid into place. Clamping alone can't see that: the index stays valid, it just means
+  // something else now.
+  const cursorKey = `${filterText}|${term}|${savedViews ? savedViews.length : "pending"}|${data ? "results" : "none"}`;
   const [syncedKey, setSyncedKey] = React.useState(cursorKey);
   if (syncedKey !== cursorKey) {
     setSyncedKey(cursorKey);
@@ -401,6 +436,24 @@ export function GlobalSearchOverlay() {
       </div>
 
       <div className="max-h-[52vh] overflow-auto px-2 py-2">
+        {/* N6-71 (audit-ux-flows): a failed roster read used to be indistinguishable from
+            "you have no saved views" — and off /leads this palette is the ONLY place a view can
+            be applied, so silence there is a dead end with no way back. Reported inline, with a
+            retry, in the same shape the views menu uses. Not a listbox option: it is not a
+            destination, and the arrow keys must keep walking rows that go somewhere. */}
+        {viewsQ.isError && (
+          <div className="mx-1 mb-1 flex items-center gap-2 rounded-lg bg-surface-2 px-3 py-2 text-step-1 text-text-3">
+            <span className="flex-1">Couldn&apos;t load your saved views.</span>
+            <button
+              type="button"
+              onMouseDown={(e) => e.preventDefault()} // keep focus in the input
+              onClick={() => void viewsQ.refetch()}
+              className="shrink-0 rounded text-step-1 font-semibold text-brand-ink underline-offset-2 hover:underline focus-visible:underline"
+            >
+              Retry
+            </button>
+          </div>
+        )}
         {items.length > 0 && (
           <ul role="listbox" id={listboxId} aria-label="Results and actions" className="space-y-0.5">
             {items.map((item, i) => {
@@ -518,8 +571,11 @@ function ActionRow({ label, hint }: { label: string; hint?: string }) {
         <path d="M20 11a8 8 0 0 0-13.7-5.2L3.5 8.5M20 5v4h-4" />
         <path d="M4 13a8 8 0 0 0 13.7 5.2l2.8-2.7M4 19v-4h4" />
       </svg>
+      {/* The separator is part of the TEXT, not a border: this row's accessible name is its
+          text content, and "Open Columnsthis page" is what a screen reader read out before it
+          (pr-review). */}
       <span className="flex-1">{label}</span>
-      {hint && <span className="shrink-0 text-step-0 text-text-3">{hint}</span>}
+      {hint && <span className="shrink-0 text-step-0 text-text-3">· {hint}</span>}
     </>
   );
 }

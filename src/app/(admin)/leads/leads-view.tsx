@@ -13,7 +13,7 @@ import {
   AppShell, Card, Table, THead, TBody, Th, Tr, Td, PartnerTag, EmptyState, ClearFiltersButton, QueryErrorState, Skeleton,
   Input, Checkbox, Combobox, DateRangePicker, Pagination, RowOpenButton, StatusSelect, SegmentedControl,
   DEFAULT_PAGE_SIZE, usePageHeader, FilterPill, Tooltip, HotLeadIcon, StatusFilterMenu,
-  LeadTags, TagChip, TagPicker, SavedViewsMenu, ColumnsMenu, type ColumnDef, type LeadTagView,
+  LeadTags, TagChip, TagPicker, SavedViewsMenu, ColumnsMenu, useToast, type ColumnDef, type LeadTagView,
 } from "@/components";
 import { useCurrentUser } from "@/lib/use-current-user";
 import { BulkBar } from "./bulk-bar";
@@ -123,6 +123,8 @@ export function LeadsView({ initialQ, initialOpenRef = null, initialHot = false,
 // title lives in the topbar (WP-E shell pattern), so no in-body <h1>.
 function LeadsBody({ initialQ, initialOpenRef = null, initialHot = false, initialTags = [], initialPartnerId = "", initialViewId = null }: LeadsViewProps) {
   usePageHeader({ title: "Leads" });
+  // Only used by the `?view=` seed below, to say when a deep link could not be honoured.
+  const { toast } = useToast();
 
   const [filters, setFilters] = React.useState<Filters>({ ...EMPTY, q: initialQ, hot: initialHot, tags: [...initialTags], partnerId: initialPartnerId });
   const [sort, setSort] = React.useState<LeadSortField>("received");
@@ -244,17 +246,32 @@ function LeadsBody({ initialQ, initialOpenRef = null, initialHot = false, initia
   const seededViewRef = React.useRef<string | null>(null);
   React.useEffect(() => {
     if (!initialViewId || seededViewRef.current === initialViewId) return;
+    // audit-ux-flows: BOTH failure paths used to be indistinguishable from "the link worked and
+    // that view happens to look like the default". A deep link that quietly does nothing is the
+    // worst of the three outcomes, so each one says what happened. (Draft spec rule UXQ-09: a
+    // deep-link parameter that cannot be honoured must say so.)
+    if (savedViewsQ.isError) {
+      // Marked seeded so a retry storm can't re-toast; the roster is still retryable from the
+      // views menu, which is the surface that owns it.
+      seededViewRef.current = initialViewId;
+      toast("Couldn't load your saved views, so this link couldn't open one.", "danger");
+      return;
+    }
     const rows = savedViewsQ.data?.views;
     if (!rows) return; // the roster hasn't landed yet — try again when it does
     seededViewRef.current = initialViewId;
     const match = rows.find((v) => v.id === initialViewId);
+    if (!match) {
+      toast("That saved view no longer exists — showing the default view.");
+      return;
+    }
     // The apply MUST go through this one channel (it writes the view-mode preference as well as
     // the filter nonce), and it cannot run during render because the roster it depends on
     // arrives from a server response. The rule's "cascading render" concern doesn't bite here:
     // the ref above makes this fire at most once per URL param, never in a loop.
     // eslint-disable-next-line react-hooks/set-state-in-effect -- one-shot deep-link seed; the guard ref bounds it
-    if (match) applyView(match.filters);
-  }, [initialViewId, savedViewsQ.data, applyView]);
+    applyView(match.filters);
+  }, [initialViewId, savedViewsQ.data, savedViewsQ.isError, toast, applyView]);
 
   // N5-04: the panel's pager and the table read the SAME list query — one cache entry, one
   // fetch — so "N of M" can never disagree with the rows on screen. It lives here rather than

@@ -218,7 +218,19 @@ export function SavedViewsMenu({ filters, onApply, className }: SavedViewsMenuPr
           setUpdating(null);
           toast("View updated.", "success");
         },
-        onError: (e) => toast(e.message || "Couldn't update the view.", "danger"),
+        onError: (e) => {
+          toast(e.message || "Couldn't update the view.", "danger");
+          // The view was deleted under us (another tab, another device). Branch on the server's
+          // CODE — the stable contract, never the message text — and do what `submitSave` does
+          // with its 409: close the question that can no longer be answered and re-read the
+          // roster, so the menu stops listing a row that isn't there. Without this the operator
+          // can press Update forever on a ghost.
+          if (e.code === "not_found") {
+            setUpdating(null);
+            setActive(null); // it is no longer the applied view; the filters stay as they are
+            void viewsQ.refetch();
+          }
+        },
       },
     );
   };
@@ -232,7 +244,17 @@ export function SavedViewsMenu({ filters, onApply, className }: SavedViewsMenuPr
         setConfirmDelete(null);
         toast("View deleted.", "success");
       },
-      onError: (e) => toast(e.message || "Couldn't delete the view.", "danger"),
+      onError: (e) => {
+        toast(e.message || "Couldn't delete the view.", "danger");
+        // Already gone (deleted elsewhere) — the ask is satisfied, even though this request
+        // failed. Same recovery as the update path: close the dialog and re-read the roster
+        // rather than leaving a ghost row with a live-looking Delete.
+        if (e.code === "not_found") {
+          if (active?.id === confirmDelete.id) setActive(null);
+          setConfirmDelete(null);
+          void viewsQ.refetch();
+        }
+      },
     });
   };
 

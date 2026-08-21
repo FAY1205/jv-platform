@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import * as React from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
@@ -25,11 +25,16 @@ let payload: Payload;
 let failWith: Error | null = null;
 /** The caller's saved views (N6-71's "Apply view: …" actions). */
 let views: { id: string; name: string; filters: unknown; updatedAt: string }[] = [];
+/** Held open by the cursor-drift test to make the roster resolve AFTER the palette opens. */
+let viewsGate: Promise<void> | null = null;
 
 const apiGet = vi.fn(async (url: string) => {
   // Deliberately BEFORE the failure switch: `failWith` targets the search endpoint, which is
   // what the error-state tests are about.
-  if (url.startsWith("/api/saved-views")) return { views };
+  if (url.startsWith("/api/saved-views")) {
+    if (viewsGate) await viewsGate;
+    return { views };
+  }
   if (failWith) throw failWith;
   const q = new URL(url, "http://localhost").searchParams.get("q") ?? "";
   return { q, ...payload };
@@ -44,6 +49,7 @@ vi.mock("@/lib/api", () => ({
 }));
 
 import { GlobalSearchOverlay, GlobalSearchTrigger } from "@/components/GlobalSearch";
+import { setPreferences } from "@/lib/preferences";
 import {
   LEADS_APPLY_VIEW_EVENT,
   LEADS_CLEAR_FILTERS_EVENT,
@@ -96,7 +102,10 @@ beforeEach(() => {
   payload = full();
   failWith = null;
   views = [VIEW_HOT, VIEW_PROBATE];
+  viewsGate = null;
   pathname = "/dashboard";
+  window.localStorage.clear();
+  setPreferences({ leadsView: "list" }); // module-level store — reset per test
   fired = [];
   apiGet.mockClear();
   apiMutate.mockClear();
@@ -407,7 +416,7 @@ describe("N6-70..74: Ctrl-K actions", () => {
     expect(await screen.findByText("Clear filters")).toBeInTheDocument();
     expect(screen.getByText("Open Columns")).toBeInTheDocument();
     // The hint says WHERE the action acts — the same row on another page would mean nothing.
-    expect(screen.getAllByText("this page")).toHaveLength(2);
+    expect(screen.getAllByText("· this page")).toHaveLength(2);
   });
 
   it("N6-70: ↵ RUNS an action and closes the palette", async () => {
@@ -418,7 +427,7 @@ describe("N6-70..74: Ctrl-K actions", () => {
 
     // Keyboard only — one cursor walks actions and results alike.
     await user.type(input(), "clear f");
-    await waitFor(() => expect(optionLabels()).toEqual(["Clear filtersthis page"]));
+    await waitFor(() => expect(optionLabels()).toEqual(["Clear filters· this page"]));
     await user.keyboard("{Enter}");
 
     expect(fired.map((e) => e.type)).toEqual([LEADS_CLEAR_FILTERS_EVENT]);
@@ -460,8 +469,8 @@ describe("N6-70..74: Ctrl-K actions", () => {
     // A plain case-insensitive substring over the LABELS — actions first, destinations after.
     await waitFor(() =>
       expect(optionLabels()).toEqual([
-        "Clear filtersthis page",
-        "Open Columnsthis page",
+        "Clear filters· this page",
+        "Open Columns· this page",
         "Unmatched→",
         "Coverage→",
         "Activity→",
@@ -503,16 +512,88 @@ describe("N6-70..74: Ctrl-K actions", () => {
     expect(screen.getByText("↵ open")).toBeInTheDocument();
   });
 
-  it("N6-71: a failed saved-views read degrades to no Actions group, not an error", async () => {
+  it("N6-71: a failed saved-views read is REPORTED with a retry, not silently empty", async () => {
     apiGet.mockImplementationOnce(async () => {
       throw new Error("views are down");
     });
     const { user, trigger } = setup();
     await user.click(trigger);
 
-    expect(await screen.findByText("Go to")).toBeInTheDocument();
+    // An empty Actions group and a failed fetch look identical; off /leads this palette is the
+    // only apply surface, so the difference has to be visible (audit-ux-flows).
+    expect(await screen.findByText(/couldn't load your saved views/i)).toBeInTheDocument();
     expect(screen.queryByText(/apply view/i)).toBeNull();
-    expect(screen.queryByText(/couldn't/i)).toBeNull();
+    // The search half keeps working underneath.
+    expect(screen.getByText("Go to")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Retry" }));
+    expect(await screen.findByText("Apply view: Hot in AZ")).toBeInTheDocument();
+    expect(screen.queryByText(/couldn't load your saved views/i)).toBeNull();
+  });
+
+  it("N6-71: 'Open Columns' is ABSENT in board mode — the board has no columns menu", async () => {
+    pathname = "/leads";
+    setPreferences({ leadsView: "board" });
+    const { user, trigger } = setup();
+    await user.click(trigger);
+
+    // "Clear filters" stays: the board honours the whole filter set.
+    expect(await screen.findByText("Clear filters")).toBeInTheDocument();
+    expect(screen.queryByText("Open Columns")).toBeNull();
+  });
+
+  it("N6-70: a late roster RESETS the cursor — ↵ can't fire a row that just shifted", async () => {
+    pathname = "/leads";
+    let openTheGate = () => {};
+    viewsGate = new Promise<void>((resolve) => {
+      openTheGate = resolve;
+    });
+    const { user, trigger } = setup();
+    await user.click(trigger);
+
+    // Only the local rows exist while the roster is in flight. Move the cursor off row 0.
+    await screen.findByText("Clear filters");
+    expect(screen.queryByText(/apply view/i)).toBeNull();
+    await user.keyboard("{ArrowDown}");
+    expect(selected()).toHaveTextContent("Open Columns");
+
+    // …now the roster lands and PREPENDS two rows above everything.
+    await act(async () => {
+      openTheGate();
+      await Promise.resolve();
+    });
+    expect(await screen.findByText("Apply view: Hot in AZ")).toBeInTheDocument();
+
+    // The cursor is back at the top rather than pointing at whatever slid under it.
+    await waitFor(() => expect(selected()).toHaveTextContent("Apply view: Hot in AZ"));
+    await user.keyboard("{Enter}");
+    expect(fired.map((e) => e.type)).toEqual([LEADS_APPLY_VIEW_EVENT]);
+  });
+
+  it("A11Y-04: Ctrl-K does NOT open over a dialog that is still asking a question", async () => {
+    const { user } = setup();
+    // Stand in for PR A's bulk confirm / the save-view dialog: a focused control inside a
+    // [role=dialog]. Opening the palette on top would let "Clear filters" reset the page
+    // behind a modal the operator hasn't answered.
+    render(
+      <div role="dialog" aria-label="Assign 641 leads">
+        <button type="button">Assign</button>
+      </div>,
+    );
+    const inDialog = screen.getByRole("button", { name: "Assign" });
+    inDialog.focus();
+
+    await user.keyboard("{Control>}k{/Control}");
+    expect(screen.queryByRole("combobox", { name: /search name, phone, address/i })).toBeNull();
+  });
+
+  it("A11Y-04: …but a plain text field is NOT excluded — Ctrl-K is a chord, not typing", async () => {
+    const { user } = setup();
+    render(<input aria-label="Search leads" />);
+    screen.getByRole("textbox", { name: "Search leads" }).focus();
+
+    await user.keyboard("{Control>}k{/Control}");
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
   });
 
   // ── The owner's pin: navigate + views ONLY ──────────────────────────────────────────────
@@ -531,8 +612,8 @@ describe("N6-70..74: Ctrl-K actions", () => {
     expect(actionRows).toEqual([
       "Apply view: Hot in AZ",
       "Apply view: Probate list",
-      "Clear filtersthis page",
-      "Open Columnsthis page",
+      "Clear filters· this page",
+      "Open Columns· this page",
     ]);
     // Every label is an APPLY/CLEAR/OPEN — no verb in the registry changes a lead. A new action
     // that did would have to be added to this list by hand, which is the point.

@@ -166,20 +166,44 @@ describe("N6-72: ?view= seeding", () => {
     expect(screen.getByRole("textbox", { name: /search leads/i })).toHaveValue("cactus");
   });
 
-  it("N6-72: an id outside the caller's OWN roster is a silent no-op", async () => {
+  it("N6-72: an id outside the caller's OWN roster opens the default AND says so", async () => {
     renderLeads({ initialViewId: OTHER_ID });
 
     // The roster is the user's own (server-scoped), so a foreign or deleted id matches nothing.
     await waitFor(() => expect(apiGet).toHaveBeenCalledWith("/api/saved-views"));
     await waitFor(() => expect(leadsCalls().length).toBeGreaterThan(0));
-    // The page opens at its DEFAULT — no filters, and no error surface.
+    // The page opens at its DEFAULT…
     const p = lastParams();
     expect(p.get("q")).toBe("");
     expect(p.get("state")).toBeNull();
     expect(p.get("hot")).toBeNull();
-    expect(screen.queryByText(/couldn't/i)).toBeNull();
     // …and the id never reached a query: the only place it appears is the roster match.
     expect(leadsCalls().every((u) => !u.includes(OTHER_ID))).toBe(true);
+    // audit-ux-flows: NOT silent. A link that quietly does nothing is indistinguishable from
+    // one that worked on a view which happens to look like the default (draft UXQ-09).
+    await waitFor(() =>
+      expect(screen.getByTestId("toast-stack")).toHaveTextContent(/that saved view no longer exists/i),
+    );
+  });
+
+  it("N6-72: a roster read that FAILS says the link couldn't be honoured", async () => {
+    apiGet.mockImplementation(async (url: string) => {
+      if (url.startsWith("/api/saved-views")) throw new Error("views are down");
+      if (url.startsWith("/api/tags")) return { tags: [], total: 0, limit: 50 };
+      if (url.includes("/api/admin/partners")) return { partners: [] };
+      if (url.includes("/api/leads/sources")) return { sources: [] };
+      if (url.includes("/api/leads/counts")) return { total: 0, unmatched: 0 };
+      if (url.startsWith("/api/leads?")) return { leads: [], page: 1, pageSize: 25, total: 0 };
+      return { email: "admin@dev.test", role: "admin", workspace: { name: "W" }, notifications: [], unread: 0 };
+    });
+    renderLeads({ initialViewId: VIEW_ID });
+
+    await waitFor(() =>
+      expect(screen.getByTestId("toast-stack")).toHaveTextContent(/couldn't load your saved views/i),
+    );
+    // The page is still usable at its default — the failure is reported, not fatal.
+    await waitFor(() => expect(leadsCalls().length).toBeGreaterThan(0));
+    expect(lastParams().get("q")).toBe("");
   });
 
   it("N6-72: a hand edit after the seed is not undone by a re-render", async () => {
