@@ -14,7 +14,7 @@ import { purgeAuditLog } from "../helpers/audit";
 //
 // The tenant leg is LOAD-BEARING here, not decorative (TST-01d): a SECOND tenant carries a
 // lead that every filter in this suite would otherwise match, plus a ref the refs-mode tests
-// name explicitly. Drop `tenantWhere` from `leadsFilterConds`/`selectionConds` and the
+// name explicitly. Drop the scope conjunct from `leadsFilterConds`/`selectionConds` and the
 // "never touched" assertions fail — which is the whole point of asserting them.
 // ─────────────────────────────────────────────────────────────────────────────
 vi.mock("@/lib/scope-context", async (orig) => scopeContextMock(await orig<typeof ScopeContextModule>()));
@@ -45,6 +45,7 @@ suite("WP-N6: bulk assign / status / tags", () => {
   let partnerA: string;
   let partnerB: string;
   let revoked: string;
+  let otherPartnerId: string;
   let tagX: string;
   let otherTagId: string;
   let refs: Record<string, string>;
@@ -96,6 +97,7 @@ suite("WP-N6: bulk assign / status / tags", () => {
     partnerA = await mkPartner(tenantId, "JV-001", "Alpha", "active");
     partnerB = await mkPartner(tenantId, "JV-002", "Bravo", "active");
     revoked = await mkPartner(tenantId, "JV-003", "Gone", "revoked");
+    otherPartnerId = await mkPartner(otherTenantId, "JV-004", "Foreign", "active");
 
     tagX = (await db.insert(schema.tags).values({ tenantId, name: "Probate", color: "amber" }).returning({ id: schema.tags.id }))[0].id;
     otherTagId = (await db.insert(schema.tags).values({ tenantId: otherTenantId, name: "Foreign", color: "amber" }).returning({ id: schema.tags.id }))[0].id;
@@ -226,6 +228,26 @@ suite("WP-N6: bulk assign / status / tags", () => {
     expect(rows.map((r) => r.entityRef).sort()).toEqual([refs.free, refs.routed].sort());
   });
 
+  it("N6-13: the audit `before` names the owner the lead moved AWAY from, not null", async () => {
+    // pr-reviewer F-1. The unmatched-only precedents hardcoded `partnerId: null` because it
+    // was true for them; on a TRANSFER a null would assert "this lead had no owner" about a
+    // lead that plainly did — the trail would misreport the one fact it exists to record.
+    await post(assignPost, "/api/leads/bulk/assign", {
+      selection: { mode: "refs", leadRefs: [refs.atA, refs.routed, refs.free] },
+      partnerId: partnerB,
+    });
+    const rows = await db
+      .select()
+      .from(schema.auditLog)
+      .where(and(eq(schema.auditLog.tenantId, tenantId), eq(schema.auditLog.action, "lead.manually_assigned")));
+    const before = new Map(rows.map((r) => [r.entityRef, r.before as Record<string, unknown>]));
+    expect(before.get(refs.atA)?.effectiveOwner).toBe(partnerA); // manual overlay was A
+    expect(before.get(refs.routed)?.effectiveOwner).toBe(partnerA); // pipeline snapshot was A
+    expect(before.get(refs.free)?.effectiveOwner).toBeNull(); // genuinely had no owner
+    const after = new Map(rows.map((r) => [r.entityRef, r.after as Record<string, unknown>]));
+    expect(after.get(refs.atA)).toMatchObject({ effectiveOwner: partnerB, partnerRefId: "JV-002", bulk: true });
+  });
+
   it("N6-11: a revoked partner is never a valid destination, and nothing is written", async () => {
     const { status, body } = await post(assignPost, "/api/leads/bulk/assign", {
       selection: { mode: "refs", leadRefs: [refs.free] },
@@ -337,6 +359,28 @@ suite("WP-N6: bulk assign / status / tags", () => {
     expect(await countRows(schema.leadTags)).toBe(0);
   });
 
+  it("N6-31: a tag op FILTERED by tag composes two sibling lead_tags subqueries in one statement", async () => {
+    // audit-tenancy F-2: `carries` (the tagged/not-tagged verdict) and `taggedWithAny` (the
+    // `?tags=` filter predicate) are BOTH unaliased `lead_tags` EXISTS subqueries, and this is
+    // the only shape that puts them in the same statement. They are siblings, each with its
+    // own scope, so neither shadows the other — but that is a claim about how Postgres
+    // resolves the names, so it gets pinned against a live database rather than reasoned about.
+    await post(tagsPost, "/api/leads/bulk/tags", {
+      selection: { mode: "refs", leadRefs: [refs.free, refs.routed] },
+      op: "add",
+      tagId: tagX,
+    });
+    const { status, body } = await post(tagsPost, "/api/leads/bulk/tags", {
+      selection: { mode: "filter", filters: { tags: [tagX], statuses: [] } },
+      op: "remove",
+      tagId: tagX,
+    });
+    expect(status).toBe(200);
+    expect(body.total).toBe(2); // exactly the two leads the tag filter matched
+    expect(body.applied).toBe(2);
+    expect(await countRows(schema.leadTags)).toBe(0);
+  });
+
   it("N6-32: a bulk tag run writes ONE summary audit row, not one per lead", async () => {
     await post(tagsPost, "/api/leads/bulk/tags", { selection: ALL_FILTER, op: "add", tagId: tagX });
     const rows = await db
@@ -371,6 +415,35 @@ suite("WP-N6: bulk assign / status / tags", () => {
     expect((body.skippedRefs ?? []).every((s) => s.reason === "notFound")).toBe(true);
     const [foreign] = await leadRow(otherTenantId, otherRef);
     expect(foreign.manualPartnerId).toBeNull();
+  });
+
+  it("T-1: a FILTER naming another tenant's tag or partner matches nothing — 200 with total 0, never an error", async () => {
+    // audit-tenancy F-3. Two things are being pinned at once. (1) The filter arm resolves
+    // through the same tenant-scoped predicate as the list, so a foreign id simply matches no
+    // rows. (2) It must not 404/400: a distinct error for "that id exists somewhere" would be
+    // an existence oracle across tenants. "Valid request, empty result" is the only safe answer.
+    const before = await countRows(schema.leadStatusHistory);
+    for (const filters of [{ tags: [otherTagId], statuses: [] }, { partnerId: otherPartnerId, statuses: [] }]) {
+      const { status, body } = await post(statusPost, "/api/leads/bulk/status", {
+        selection: { mode: "filter", filters },
+        status: "Dead",
+      });
+      expect(status, JSON.stringify(filters)).toBe(200);
+      expect(body.total, JSON.stringify(filters)).toBe(0);
+      expect(body.applied, JSON.stringify(filters)).toBe(0);
+      expect(body.skipped).toEqual({});
+    }
+    expect(await countRows(schema.leadStatusHistory)).toBe(before);
+  });
+
+  it("T-1: an escalated tag add never reaches another tenant's lead row", async () => {
+    // audit-tenancy F-3: the `countRows` legs elsewhere are tenant-FILTERED, so they can only
+    // prove arithmetic. This one addresses the foreign lead DIRECTLY — the only shape of
+    // assertion that can catch a junction row written across the boundary.
+    await post(tagsPost, "/api/leads/bulk/tags", { selection: ALL_FILTER, op: "add", tagId: tagX });
+    const [foreign] = await leadRow(otherTenantId, otherRef);
+    const junction = await db.select().from(schema.leadTags).where(eq(schema.leadTags.leadId, foreign.id));
+    expect(junction).toEqual([]);
   });
 
   it("N6-05/T-5: dryRun writes nothing — no rows, no audit — and its split equals the execute's", async () => {
@@ -421,6 +494,18 @@ suite("WP-N6: bulk assign / status / tags", () => {
       expect(body, JSON.stringify(filters)).toMatchObject({ code: "invalid_filters" });
     }
     expect(await countRows(schema.leadStatusHistory)).toBe(before);
+  });
+
+  it("N6-05: an explicit `dryRun: false` executes — the flag is a boolean, not a tripwire", async () => {
+    // audit-tenancy F-6: `z.literal(true)` would 400 here, turning the obvious way to say
+    // "actually run it" into a client error on the SAFE side of the flag.
+    const { status, body } = await post(statusPost, "/api/leads/bulk/status", {
+      selection: { mode: "refs", leadRefs: [refs.free] },
+      status: "Contacted",
+      dryRun: false,
+    });
+    expect(status).toBe(200);
+    expect(body.applied).toBe(1);
   });
 
   it("N6-01: the refs arm is bounded at 200 and rejects a malformed ref", async () => {

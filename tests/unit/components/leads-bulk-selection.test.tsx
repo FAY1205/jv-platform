@@ -111,8 +111,13 @@ function renderLeads(props: { initialHot?: boolean } = {}) {
 /** Async: the rows arrive with the list query, so every test starts by awaiting one. */
 const rowBox = (refId: string) => screen.findByLabelText(`Select ${refId}`);
 const headerBox = () => screen.getByLabelText("Select all leads on this page");
-/** The bar's own live paragraph — the count is TEXT, never carried by the tint alone. */
-const barText = () => screen.getByText(/selected/).closest("div")!.textContent!.replace(/\s+/g, " ");
+/** The VISIBLE bar. Addressed by its group name rather than by matching text, because the
+ *  permanently-mounted sr-only live region (A11Y-03) deliberately mirrors the same sentence —
+ *  a text query would match both. The count is TEXT in each, never carried by the tint alone. */
+const bar = () => screen.getByRole("group", { name: "Selection actions" });
+const barText = () => bar().textContent!.replace(/\s+/g, " ");
+/** What a screen reader is told, which must survive the bar being absent at zero. */
+const announced = () => screen.getByRole("status", { name: "Selection status" }).textContent!.replace(/\s+/g, " ");
 
 describe("N6-52..56: leads bulk selection", () => {
   it("N6-52: a seat without leads.write gets no checkbox column at all", async () => {
@@ -146,10 +151,10 @@ describe("N6-52..56: leads bulk selection", () => {
     renderLeads({ initialHot: true });
     await user.click(await rowBox("LD-26-70001"));
     await user.click(screen.getByRole("button", { name: /Select all 641 matching this filter/ }));
-    const bar = screen.getByText(/selected/).closest("div")!;
-    expect(bar.className).toContain("bg-brand-soft");
-    expect(bar.textContent).toContain("Hot only");
-    expect(bar.textContent).toContain("641");
+    expect(bar().className).toContain("bg-brand-soft");
+    expect(barText()).toContain("Hot only");
+    expect(barText()).toContain("641");
+    expect(announced()).toContain("Hot only");
   });
 
   it("N6-51: touching a checkbox while escalated drops back to page mode, keeping the rest of the page", async () => {
@@ -174,7 +179,10 @@ describe("N6-52..56: leads bulk selection", () => {
 
     await user.click(screen.getByRole("button", { name: /Hot/ })); // any filter change
     await screen.findByText("Seller LD-26-70001");
-    expect(screen.queryByText(/selected on this page/)).toBeNull();
+    expect(screen.queryByRole("group", { name: "Selection actions" })).toBeNull();
+    // A11Y-03: the live region OUTLIVES the bar — it is what announces the next 0→1 — and
+    // goes quiet rather than unmounting.
+    expect(announced()).toBe("");
   });
 
   it("N6-54: a selected row carries the brand-soft wash, distinct from the open record's ring", async () => {

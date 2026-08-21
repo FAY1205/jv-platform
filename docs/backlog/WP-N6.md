@@ -58,8 +58,13 @@ tags column in exports · board-view selection (list only, v1) · virtualization
   The confirm dialogs render dry-run numbers — the dialog's count is the server's count, both
   modes (the mockup's honesty rule).
 - **N6-06** Execute responses return the true split:
-  `{ applied: n, skipped: { reason: count }, skippedRefs: string[] }` with `skippedRefs`
-  bounded (first `BULK_SKIPPED_REFS_MAX = 500`, plus exact counts) — nothing silent.
+  `{ total, applied: n, skipped: { reason: count }, skippedRefs: { ref: string; reason:
+  BulkSkipReason }[] }` with `skippedRefs` bounded (first `BULK_SKIPPED_REFS_MAX = 500`, plus
+  exact counts) — nothing silent. *(Amended during PR A review: the element carries its REASON,
+  not a bare ref. N6-55 requires the skipped dialog to group by reason, and a flat `string[]`
+  cannot be grouped client-side without a second round trip. The field name, the bound and the
+  "counts are always exact" contract are unchanged; the per-reason counts remain the
+  authoritative tally when the cap bites.)*
 
 ## 2. Bulk assign (PR A)
 

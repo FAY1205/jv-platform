@@ -161,13 +161,20 @@ export interface LeadsFilterInput {
  * with the sort column and the select projection (ADR-0013 defence-in-depth, WP-F1); a bulk
  * caller has no projection and takes the default. Two instances would render identical SQL
  * either way — passing it keeps "one subquery per call" literally true.
+ *
+ * The scope conjunct is `leadWhere`, not a bare `tenantWhere` (audit-tenancy F-1). Every
+ * caller today is admin-stream, for which the two render byte-identical SQL — but this builder
+ * now feeds WRITE paths as well as the list, and ADR-0013's position is that the builder is
+ * the boundary rather than the route gate above it. A partner scope reaching here is bounded
+ * to its own leads by construction instead of by every present and future caller having been
+ * gated correctly.
  */
 export function leadsFilterConds(
   scope: ScopeContext,
   f: LeadsFilterInput,
   sExpr: SQL<string> = statusExpr(scope),
 ): SQL[] {
-  const conds: SQL[] = [tenantWhere(schema.leads, scope), isNull(schema.leads.deletedAt) as unknown as SQL];
+  const conds: SQL[] = [leadWhere(scope), isNull(schema.leads.deletedAt) as unknown as SQL];
   if (f.partnerId === "unmatched") {
     conds.push(and(eq(schema.leads.mlsStatus, "kept"), isNull(schema.leads.partnerId), isNull(schema.leads.manualPartnerId))!);
   } else if (f.partnerId) {

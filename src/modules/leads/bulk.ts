@@ -2,7 +2,7 @@ import { and, eq, inArray, isNull, ne, sql, type SQL } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import { getDb } from "@/db";
 import * as schema from "@/db/schema";
-import { tenantWhere, type ScopeContext } from "@/lib/scope";
+import { leadWhere, tenantWhere, type ScopeContext } from "@/lib/scope";
 import { TagNotFoundError, tagWhere } from "@/modules/tags/tags";
 import { InvalidAssignTargetError } from "./commands";
 import { leadsFilterConds, statusExpr } from "./queries";
@@ -84,13 +84,20 @@ function totalSkipped(skips: BulkSkips): number {
 
 /**
  * The WHERE conjuncts that define "the selected leads", for either mode. Always includes the
- * tenant pin and the soft-delete exclusion — a caller cannot compose this and lose the scope
- * half, because the scope half is not separable (PRN-08).
+ * scope predicate and the soft-delete exclusion — a caller cannot compose this and lose the
+ * scope half, because the scope half is not separable (PRN-08).
+ *
+ * `leadWhere`, not a bare `tenantWhere` (audit-tenancy F-1): for every ADMIN-STREAM tier the
+ * two render byte-identical SQL, and all three bulk routes are capability-gated to the admin
+ * stream — but ADR-0013's rule is that the BUILDER is the boundary, not the gate. A partner
+ * scope that ever reaches a resolver (a future shared code path, a mis-wired route) is bounded
+ * to its own leads by construction rather than by the route above it having been written
+ * correctly.
  */
 function selectionConds(scope: ScopeContext, selection: BulkSelection): SQL[] {
   if (selection.mode === "filter") return leadsFilterConds(scope, canonicalBulkFilters(selection.filters));
   return [
-    tenantWhere(schema.leads, scope),
+    leadWhere(scope),
     isNull(schema.leads.deletedAt) as unknown as SQL,
     inArray(schema.leads.refId, dedupeRefs(selection)),
   ];
@@ -186,6 +193,26 @@ function dryRunOf(c: Census): BulkDryRun {
   return { dryRun: true, total: c.total, eligible: c.eligible, skipped: c.skipped };
 }
 
+/**
+ * Assemble the executed split, and hold the invariant `applied + Σ skipped === total`
+ * (audit-tenancy F-5). It needs holding because the census and the write take SEPARATE
+ * snapshots: the transaction runs at READ COMMITTED, so a concurrent writer between the two
+ * statements can make the write touch rows the census counted as skipped — leaving `applied`
+ * larger than the census's `eligible` and the arithmetic short. Reporting a `total` below
+ * `applied + Σ skipped` would be a response that contradicts itself; widening `total` to the
+ * larger of the two is the honest reading (the census is a floor, the write is fact).
+ * ONE definition, used by all three arms.
+ */
+function settle(census: Census, applied: number, skipped: BulkSkips): BulkApplied {
+  return {
+    dryRun: false,
+    total: Math.max(census.total, applied + totalSkipped(skipped)),
+    applied,
+    skipped,
+    skippedRefs: census.skippedRefs,
+  };
+}
+
 // ── Bulk assign (N6-10..15) ───────────────────────────────────────────────────
 
 export interface BulkAssignArgs {
@@ -244,56 +271,75 @@ export async function bulkAssign(scope: ScopeContext, args: BulkAssignArgs): Pro
     if (args.dryRun) return { outcome: dryRunOf(census), ...identity, appliedRef: null };
 
     if (census.eligible === 0) {
-      return {
-        outcome: { dryRun: false as const, total: census.total, applied: 0, skipped: census.skipped, skippedRefs: census.skippedRefs },
-        ...identity,
-        appliedRef: null,
-      };
+      return { outcome: settle(census, 0, census.skipped), ...identity, appliedRef: null };
     }
 
     // N6-12: set-based, with RETURNING. The eligibility predicate is re-stated here rather
     // than derived from the census rows — that is what keeps the filter mode free of a
     // client-side id list, and it doubles as the race guard (a lead someone else just moved
     // simply falls out of the UPDATE).
-    const assigned = await tx
-      .update(schema.leads)
-      .set({ manualPartnerId: partner.id, manualAssignedAt: new Date(), manualAssignedBy: scope.userId })
-      .where(
-        and(
-          ...base,
-          eq(schema.leads.mlsStatus, "kept"),
-          sql`${effectiveOwner} is distinct from ${partner.id}::uuid`,
-        ),
+    //
+    // Why a CTE rather than `update().returning()`: this is a TRANSFER, so the audit row's
+    // `before` has to name the owner the lead is moving AWAY from — and Postgres RETURNING
+    // yields the NEW row, by which point the previous overlay is gone (there is no OLD.* to
+    // read before PG18). `prior` captures `coalesce(manual_partner_id, partner_id)` in the
+    // same statement — hence the same snapshot — and the final SELECT joins it back to the
+    // rows the UPDATE actually touched. Still one set-based write with no id list in JS.
+    // ALIAS TRAP: the scope fragments in `base` render the `leads` TABLE name, so the source
+    // table inside `prior` must stay UNALIASED.
+    const assigned = (await tx.execute(sql`
+      with prior as (
+        select ${schema.leads.id} as id,
+               ${schema.leads.refId} as ref_id,
+               ${schema.leads.state} as state,
+               ${schema.leads.zip} as zip,
+               ${effectiveOwner} as prev_owner
+        from leads
+        where ${and(...base, eq(schema.leads.mlsStatus, "kept"), sql`${effectiveOwner} is distinct from ${partner.id}::uuid`)}
+      ),
+      moved as (
+        update leads
+           set manual_partner_id = ${partner.id}::uuid,
+               manual_assigned_at = now(),
+               manual_assigned_by = ${scope.userId}::uuid
+          from prior
+         where leads.id = prior.id
+        returning leads.id as id
       )
-      .returning({ refId: schema.leads.refId, state: schema.leads.state, zip: schema.leads.zip });
+      select p.ref_id, p.state, p.zip, p.prev_owner
+        from prior p join moved m on m.id = p.id
+       order by p.ref_id
+    `)) as unknown as { ref_id: string; state: string | null; zip: string | null; prev_owner: string | null }[];
 
     if (assigned.length > 0) {
-      // N6-13: the EXISTING per-lead audit shape, unchanged — same no-free-text payload as
-      // the single and legacy-bulk assigns (owner decision 2026-07-15), flagged `bulk`.
+      // N6-13: the per-lead audit shape — the no-free-text payload the single and legacy-bulk
+      // assigns use (owner decision 2026-07-15), flagged `bulk`.
+      //
+      // `before.effectiveOwner` is this WP's one departure from those precedents, and it is a
+      // correction rather than an extension: both of them only ever ran on UNMATCHED leads, so
+      // a hardcoded `partnerId: null` was true for them. N6-10 is a full transfer, so a null
+      // there would assert "this lead had no owner" about every re-routed lead — the audit
+      // trail would misreport exactly the fact it exists to record. The key mirrors
+      // `editLead`'s vocabulary (commands.ts: `before.effectiveOwner` / `after.effectiveOwner`)
+      // so the single-lead and bulk transfers read identically in the trail.
       await tx.insert(schema.auditLog).values(
         assigned.map((l) => ({
           tenantId: scope.tenantId,
           actorUserId: scope.userId,
           action: "lead.manually_assigned",
           entityType: "lead",
-          entityRef: l.refId,
-          before: { partnerId: null, state: l.state, zip: l.zip },
-          after: { manualPartnerId: partner.id, partnerRefId: partner.refId, bulk: true },
+          entityRef: l.ref_id,
+          before: { effectiveOwner: l.prev_owner, state: l.state, zip: l.zip },
+          after: { manualPartnerId: partner.id, partnerRefId: partner.refId, effectiveOwner: partner.id, bulk: true },
           traceId: globalThis.crypto.randomUUID(),
         })),
       );
     }
 
     return {
-      outcome: {
-        dryRun: false as const,
-        total: census.total,
-        applied: assigned.length,
-        skipped: census.skipped,
-        skippedRefs: census.skippedRefs,
-      },
+      outcome: settle(census, assigned.length, census.skipped),
       ...identity,
-      appliedRef: assigned.length === 1 ? assigned[0].refId : null,
+      appliedRef: assigned.length === 1 ? assigned[0].ref_id : null,
     };
   });
 }
@@ -330,28 +376,27 @@ export async function bulkStatus(scope: ScopeContext, args: BulkStatusArgs): Pro
 
     const census = await censusOf(tx, args.selection, base, reason, !args.dryRun);
     if (args.dryRun) return dryRunOf(census);
-    if (census.eligible === 0) {
-      return { dryRun: false, total: census.total, applied: 0, skipped: census.skipped, skippedRefs: census.skippedRefs };
-    }
+    if (census.eligible === 0) return settle(census, 0, census.skipped);
 
     // One INSERT … SELECT over the eligible set — no id list crosses into JS before the
     // write. Raw SQL because drizzle's insert builder has no INSERT…SELECT form; the scope
     // fragments render the `leads` TABLE name, so the source table must stay UNALIASED.
+    //
+    // `tenant_id` comes from the SCOPE, not from the joined `leads` row (audit-tenancy F-4).
+    // Sourcing it from the row makes the write self-pinning on data the query just read: if
+    // the selection predicate were ever weakened, a foreign row would carry its OWN tenant id
+    // into the new history row and the child would be correctly-tenanted evidence of a
+    // cross-tenant write. Taking it from the caller's scope means such a row would instead
+    // violate the RLS WITH CHECK and abort the transaction.
     const inserted = (await tx.execute(sql`
       insert into lead_status_history (tenant_id, lead_id, status, changed_by_user_id)
-      select ${schema.leads.tenantId}, ${schema.leads.id}, ${args.status}, ${scope.userId}::uuid
+      select ${scope.tenantId}::uuid, ${schema.leads.id}, ${args.status}, ${scope.userId}::uuid
       from leads
       where ${and(...base, eq(schema.leads.mlsStatus, "kept"), sql`${current} <> ${args.status}`)}
       returning id
     `)) as unknown as { id: string }[];
 
-    return {
-      dryRun: false,
-      total: census.total,
-      applied: inserted.length,
-      skipped: census.skipped,
-      skippedRefs: census.skippedRefs,
-    };
+    return settle(census, inserted.length, census.skipped);
   });
 }
 
@@ -388,14 +433,19 @@ export async function bulkTags(scope: ScopeContext, args: BulkTagsArgs): Promise
     if (!tag) throw new TagNotFoundError(args.tagId);
 
     const base = selectionConds(scope, args.selection);
-    // Aliased (`lt`) and written in raw column names: the outer query already carries an
-    // UNALIASED `lead_tags` subquery when the selection filters by tag (`taggedWithAny`), and
-    // two unaliased copies in one statement would be needlessly hard to read.
+    // UNALIASED, with drizzle column refs and a COMPOSED `tenantWhere` — the `taggedWithAny`
+    // recipe (queries.ts), for its reason (R-24): a hand-rolled `lt.tenant_id = $1` is a
+    // private copy of the tenant predicate that a future change to tenant filtering would
+    // silently miss. Unaliased is what keeps the drizzle refs in scope, since they render the
+    // TABLE name (`"lead_tags"."tenant_id"`). When the selection ALSO filters by tag, `base`
+    // contributes a second unaliased `lead_tags` EXISTS — they are SIBLING subqueries, each
+    // with its own scope, so neither shadows the other (verified against a live DB by
+    // tests/integration/leads-bulk.test.ts, which runs both arms in filter mode).
     const carries = sql`exists (
-      select 1 from lead_tags lt
-      where lt.lead_id = ${schema.leads.id}
-        and lt.tag_id = ${tag.id}::uuid
-        and lt.tenant_id = ${scope.tenantId}::uuid
+      select 1 from lead_tags
+      where ${schema.leadTags.leadId} = ${schema.leads.id}
+        and ${schema.leadTags.tagId} = ${tag.id}::uuid
+        and ${tenantWhere(schema.leadTags, scope)}
     )`;
     const reason =
       args.op === "add"
@@ -407,9 +457,12 @@ export async function bulkTags(scope: ScopeContext, args: BulkTagsArgs): Promise
 
     const rows =
       args.op === "add"
+        // `tenant_id` from the SCOPE, not the joined row — see the note on the status
+        // INSERT…SELECT above (audit-tenancy F-4: a self-pinning write hides a widened
+        // predicate instead of letting RLS abort it).
         ? ((await tx.execute(sql`
             insert into lead_tags (tenant_id, lead_id, tag_id, added_by_user_id)
-            select ${schema.leads.tenantId}, ${schema.leads.id}, ${tag.id}::uuid, ${scope.userId}::uuid
+            select ${scope.tenantId}::uuid, ${schema.leads.id}, ${tag.id}::uuid, ${scope.userId}::uuid
             from leads
             where ${and(...base)}
             on conflict (lead_id, tag_id) do nothing
@@ -428,10 +481,15 @@ export async function bulkTags(scope: ScopeContext, args: BulkTagsArgs): Promise
     // arithmetic rather than by two queries happening to agree. `notFound` is a property of
     // the SELECTION rather than of the write, so it carries over from the census verbatim and
     // the remainder is the one write-side reason this op can have.
+    //
+    // The remainder is taken against `settle`'s widened total, not the raw census one: under
+    // READ COMMITTED (see `settle`) a concurrent insert could make `applied` exceed what the
+    // census saw, and a negative remainder would silently vanish here and leave `applied` >
+    // `total` with an empty skip map.
     const skipped: BulkSkips = {};
     const notFound = census.skipped.notFound ?? 0;
     if (notFound > 0) skipped.notFound = notFound;
-    const missed = census.total - applied - notFound;
+    const missed = Math.max(census.total, applied + notFound) - applied - notFound;
     if (missed > 0) skipped[args.op === "add" ? "alreadyTagged" : "notTagged"] = missed;
 
     if (applied > 0) {
@@ -454,9 +512,6 @@ export async function bulkTags(scope: ScopeContext, args: BulkTagsArgs): Promise
       });
     }
 
-    return {
-      outcome: { dryRun: false, total: census.total, applied, skipped, skippedRefs: census.skippedRefs },
-      tagName: tag.name,
-    };
+    return { outcome: settle(census, applied, skipped), tagName: tag.name };
   });
 }

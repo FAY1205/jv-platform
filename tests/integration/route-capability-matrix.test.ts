@@ -107,6 +107,15 @@ suite("AUTHZ-09: cluster-A route capability matrix", () => {
     ["lead tags", () => leadTagsGet(new Request(`http://localhost:3000/api/leads/${REF}/tags`), routeParams({ ref: REF }))],
   ];
 
+  // WP-N6: the three bulk writes. A dry run is enough to prove the GATE — it resolves the
+  // same eligibility and writes nothing, so the matrix stays side-effect free. Named
+  // separately so the partner-scope leg below can reuse exactly this list.
+  const BULK_WRITES: [string, () => Promise<Response>][] = [
+    ["bulk assign", () => bulkAssignPost(jsonRequest("POST", "/api/leads/bulk/assign", { selection: { mode: "refs", leadRefs: [REF] }, partnerId: randomUUID(), dryRun: true }))],
+    ["bulk status", () => bulkStatusPost(jsonRequest("POST", "/api/leads/bulk/status", { selection: { mode: "refs", leadRefs: [REF] }, status: "Contacted", dryRun: true }))],
+    ["bulk tags", () => bulkTagsPost(jsonRequest("POST", "/api/leads/bulk/tags", { selection: { mode: "refs", leadRefs: [REF] }, op: "add", tagId: randomUUID(), dryRun: true }))],
+  ];
+
   const LEAD_WRITES: [string, () => Promise<Response>][] = [
     ["lead PATCH", () => leadPatch(jsonRequest("PATCH", `/api/leads/${REF}`, { address: "1 Main St" }), routeParams({ ref: REF }))],
     ["status POST", () => statusPost(jsonRequest("POST", `/api/leads/${REF}/status`, { status: "Contacted" }), routeParams({ ref: REF }))],
@@ -115,11 +124,7 @@ suite("AUTHZ-09: cluster-A route capability matrix", () => {
     ["lead tag POST", () => leadTagPost(jsonRequest("POST", `/api/leads/${REF}/tags`, { tagId: randomUUID() }), routeParams({ ref: REF }))],
     ["lead tag DELETE", () => leadTagDelete(jsonRequest("DELETE", `/api/leads/${REF}/tags/${randomUUID()}`), routeParams({ ref: REF, tagId: randomUUID() }))],
     ["backfill apply", () => backfillPost(jsonRequest("POST", "/api/leads/unmatched/backfill", {}))],
-    // WP-N6: the three bulk writes. A dry run is enough to prove the GATE — it resolves the
-    // same eligibility and writes nothing, so the matrix stays side-effect free.
-    ["bulk assign", () => bulkAssignPost(jsonRequest("POST", "/api/leads/bulk/assign", { selection: { mode: "refs", leadRefs: [REF] }, partnerId: randomUUID(), dryRun: true }))],
-    ["bulk status", () => bulkStatusPost(jsonRequest("POST", "/api/leads/bulk/status", { selection: { mode: "refs", leadRefs: [REF] }, status: "Contacted", dryRun: true }))],
-    ["bulk tags", () => bulkTagsPost(jsonRequest("POST", "/api/leads/bulk/tags", { selection: { mode: "refs", leadRefs: [REF] }, op: "add", tagId: randomUUID(), dryRun: true }))],
+    ...BULK_WRITES,
   ];
 
   const RULES_WRITES: [string, () => Promise<Response>][] = [
@@ -196,6 +201,19 @@ suite("AUTHZ-09: cluster-A route capability matrix", () => {
     setRouteScope(staff("admin"));
     expect((await runsGet(new Request("http://localhost:3000/api/runs"))).status, "admin runs").toBe(200);
     expect((await rulesGet()).status, "admin rules").toBe(200);
+  });
+
+  it("AUTHZ-09 (WP-N6): a PARTNER scope is refused by every bulk write — the gate is the boundary", async () => {
+    // audit-tenancy F-3: the bulk resolvers compose `leadWhere`, which would bound a partner
+    // to their own leads — but partners hold NO capability by construction (ADR-0047), so the
+    // route must refuse them before any of that matters. Proved at the HTTP layer rather than
+    // asserted from the matrix, because that is where the refusal actually lives.
+    setRouteScope({ tenantId, role: "partner", userId: randomUUID(), partnerId: randomUUID() });
+    for (const [name, call] of BULK_WRITES) {
+      const res = await call();
+      expect(res.status, `partner bulk write: ${name}`).toBe(403);
+      expect(await res.json()).toMatchObject({ code: "forbidden" });
+    }
   });
 
   it("AUTHZ-09: admin passes everything (byte-identical to pre-migration)", async () => {

@@ -87,6 +87,10 @@ export function Checkbox({
         // hit area inside a larger one — no double-padding, no shift.
         CHECKBOX_HIT_AREA,
         "focus-visible:ring-1 focus-visible:ring-brand-ink",
+        // DSN-03: pointer-down feedback, the last missing state on this control. Same
+        // vocabulary as Radio (`group-active:scale-95`) and Button (`active:scale-[.98]`) —
+        // a checkbox that never moves under the finger reads as unresponsive on touch.
+        "active:scale-95 enabled:active:scale-95",
         "data-[state=checked]:border-brand data-[state=checked]:bg-brand data-[state=checked]:hover:bg-brand-strong",
         // A mixed box is filled like a checked one — it is a live selection, not an empty
         // control; the DASH is what distinguishes it (and aria-checked="mixed" for AT).

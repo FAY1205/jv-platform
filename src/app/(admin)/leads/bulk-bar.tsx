@@ -1,14 +1,14 @@
 "use client";
 
 import * as React from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
 import { ApiError, apiGet, apiMutate } from "@/lib/api";
 import { cn } from "@/lib/cn";
 import { useTags } from "@/lib/tags-client";
 import { useCurrentUser } from "@/lib/use-current-user";
 import { describeFilters } from "@/modules/leads/filter-describe";
 import { bulkFilterBody, type LeadsFilterState } from "@/modules/leads/filter-wire";
-import type { BulkSelection } from "@/modules/leads/schema";
+import { BULK_SKIPPED_REFS_MAX, type BulkSelection } from "@/modules/leads/schema";
 import { SEED_LEAD_STATUSES } from "@/modules/portal/statuses";
 import {
   Button, Combobox, Dialog, RadioGroup, RadioGroupItem, SegmentedControl, Skeleton, TagChip, useToast,
@@ -70,10 +70,22 @@ export interface BulkBarProps {
   onApplied: () => void;
 }
 
+type BulkAction = "assign" | "status" | "tags";
+
+/** What a dialog is acting on, FROZEN at the moment it opened (audit-ux-flows F-5). Reading
+ *  the live selection while a dialog is up means a background refetch, a row un-ticked behind
+ *  the scrim, or a filter change can silently retarget a confirmed action — the operator would
+ *  approve "596 leads" and something else would run. */
+interface PendingAction {
+  action: BulkAction;
+  selection: BulkSelection;
+  count: number;
+}
+
 export function BulkBar({ filters, total, selected, allMatching, onEscalate, onClear, onApplied }: BulkBarProps) {
   const { canDo } = useCurrentUser();
-  const [open, setOpen] = React.useState<null | "assign" | "status" | "tags">(null);
-  const [skippedRefs, setSkippedRefs] = React.useState<BulkApplied["skippedRefs"] | null>(null);
+  const [pending, setPending] = React.useState<PendingAction | null>(null);
+  const [skippedView, setSkippedView] = React.useState<{ skipped: Record<string, number>; refs: BulkApplied["skippedRefs"] } | null>(null);
   const { toast, dismissScope } = useToast();
   const qc = useQueryClient();
 
@@ -83,18 +95,24 @@ export function BulkBar({ filters, total, selected, allMatching, onEscalate, onC
   React.useEffect(() => () => dismissScope(TOAST_SCOPE), [dismissScope]);
 
   const count = allMatching ? total : selected.size;
-  // N6-50: escalated mode carries NO id list — the filter travels instead, and the server
-  // re-resolves it through the same predicate the list count came from. The cast is the
-  // client/server seam: `bulkFilterBody` produces the wire shape and `BulkSelectionSchema`
-  // is what actually decides whether it is valid, at the boundary (N6-02).
-  const selection = (allMatching
-    ? { mode: "filter", filters: bulkFilterBody(filters) }
-    : { mode: "refs", leadRefs: [...selected] }) as BulkSelection;
 
   const words = describeFilters(filters, {
     partners: new Map((roster.data?.partners ?? []).map((p) => [p.id, `${p.name} (${p.refId})`])),
     tags: new Map((tagsQ.data?.tags ?? []).map((t) => [t.id, t.name])),
   });
+
+  const openAction = (action: BulkAction) =>
+    setPending({
+      action,
+      count,
+      // N6-50: escalated mode carries NO id list — the filter travels instead, and the server
+      // re-resolves it through the same predicate the list count came from. The cast is the
+      // client/server seam: `bulkFilterBody` produces the wire shape and `BulkSelectionSchema`
+      // is what actually decides whether it is valid, at the boundary (N6-02).
+      selection: (allMatching
+        ? { mode: "filter", filters: bulkFilterBody(filters) }
+        : { mode: "refs", leadRefs: [...selected] }) as BulkSelection,
+    });
 
   /** N6-55: one place that turns a completed run into the toast + the refresh. */
   const report = React.useCallback(
@@ -104,7 +122,9 @@ export function BulkBar({ filters, total, selected, allMatching, onEscalate, onC
       toast(
         message,
         "success",
-        missed > 0 && res.skippedRefs.length > 0 ? { label: "View skipped", onClick: () => setSkippedRefs(res.skippedRefs) } : undefined,
+        missed > 0 && res.skippedRefs.length > 0
+          ? { label: "View skipped", onClick: () => setSkippedView({ skipped: res.skipped, refs: res.skippedRefs }) }
+          : undefined,
         TOAST_SCOPE,
       );
       // Everything a bulk write can have moved: the list + its nav counts (one prefix), the
@@ -113,7 +133,7 @@ export function BulkBar({ filters, total, selected, allMatching, onEscalate, onC
       qc.invalidateQueries({ queryKey: ["leads-board"] });
       qc.invalidateQueries({ queryKey: ["tags"] });
       qc.invalidateQueries({ queryKey: ["lead"] });
-      setOpen(null);
+      setPending(null);
       onApplied();
     },
     [toast, qc, onApplied],
@@ -136,10 +156,31 @@ export function BulkBar({ filters, total, selected, allMatching, onEscalate, onC
   // clears the selection, and if that unmounted the subtree it would take the result toast
   // (scoped here) and the "View skipped" dialog with it — the two things the operator needs
   // precisely BECAUSE the run finished.
+  // A11Y-03: the live region is PERMANENTLY mounted, outside the conditional bar. A region
+  // that appears at the same moment as its first message is not announced by most screen
+  // readers — the 0→1 transition, the one that tells a keyboard user their tick registered,
+  // was silent. The visible bar therefore carries no aria-live of its own; this is the
+  // announcement, and it is text-only (PRN-14 — never the tint).
+  const announcement =
+    count === 0
+      ? ""
+      : allMatching
+        ? `${total.toLocaleString()} ${total === 1 ? "lead" : "leads"} selected — everything matching ${words || "the current view"}`
+        : `${selected.size.toLocaleString()} selected on this page`;
+
   return (
     <>
+      {/* Named, because the app already has a second `role="status"` region (the toast
+          announcer) — an unnamed one leaves AT users, and anything querying by role, unable to
+          tell which is speaking. */}
+      <p className="sr-only" role="status" aria-live="polite" aria-label="Selection status">{announcement}</p>
       {count > 0 && (
       <div
+        // A named group: the bar appears and disappears with the selection, so AT users
+        // arriving at these controls get told what they belong to rather than meeting three
+        // unexplained buttons between the count row and the table.
+        role="group"
+        aria-label="Selection actions"
         className={cn(
           "mb-3 flex flex-wrap items-center justify-between gap-x-3 gap-y-2 rounded-xl border px-3 py-2",
           // Escalated selections re-tint: the bar is the only thing on screen that knows the
@@ -148,8 +189,9 @@ export function BulkBar({ filters, total, selected, allMatching, onEscalate, onC
         )}
       >
         {/* PRN-14: the count is TEXT. The row wash and the bar tint are reinforcement — never
-            the only carrier of "how much is selected". */}
-        <p className="text-sm text-text" aria-live="polite">
+            the only carrier of "how much is selected". Announced by the sr-only region above,
+            not from here (see A11Y-03 note). */}
+        <p className="text-sm text-text">
           {allMatching ? (
             <>
               <span className="num font-semibold">{total.toLocaleString()}</span>{" "}
@@ -177,9 +219,9 @@ export function BulkBar({ filters, total, selected, allMatching, onEscalate, onC
         <div className="flex flex-wrap items-center gap-2">
           {canWrite && (
             <>
-              <Button size="sm" onClick={() => setOpen("status")}>Status…</Button>
-              <Button size="sm" onClick={() => setOpen("tags")}>Tags…</Button>
-              <Button size="sm" variant="primary" onClick={() => setOpen("assign")}>Assign…</Button>
+              <Button size="sm" onClick={() => openAction("status")}>Status…</Button>
+              <Button size="sm" onClick={() => openAction("tags")}>Tags…</Button>
+              <Button size="sm" variant="primary" onClick={() => openAction("assign")}>Assign…</Button>
               <span className="mx-0.5 h-4 w-px bg-border" aria-hidden="true" />
             </>
           )}
@@ -188,31 +230,36 @@ export function BulkBar({ filters, total, selected, allMatching, onEscalate, onC
       </div>
       )}
 
-      {open === "assign" && (
+      {pending?.action === "assign" && (
         <AssignDialog
-          selection={selection}
-          count={count}
-          partners={roster.data?.partners ?? []}
-          onClose={() => setOpen(null)}
+          selection={pending.selection}
+          count={pending.count}
+          roster={roster}
+          onClose={() => setPending(null)}
           onDone={(res) => report("Assigned", res)}
           onError={fail}
         />
       )}
-      {open === "status" && (
-        <StatusDialog selection={selection} count={count} onClose={() => setOpen(null)} onDone={(res) => report("Updated", res)} onError={fail} />
+      {pending?.action === "status" && (
+        <StatusDialog
+          selection={pending.selection}
+          count={pending.count}
+          onClose={() => setPending(null)}
+          onDone={(res) => report("Updated", res)}
+          onError={fail}
+        />
       )}
-      {open === "tags" && (
+      {pending?.action === "tags" && (
         <TagsDialog
-          selection={selection}
-          count={count}
-          tags={tagsQ.data?.tags ?? []}
-          loading={tagsQ.isPending}
-          onClose={() => setOpen(null)}
+          selection={pending.selection}
+          count={pending.count}
+          tagsQ={tagsQ}
+          onClose={() => setPending(null)}
           onDone={(res) => report("Tagged", res)}
           onError={fail}
         />
       )}
-      {skippedRefs && <SkippedDialog rows={skippedRefs} onClose={() => setSkippedRefs(null)} />}
+      {skippedView && <SkippedDialog rows={skippedView.refs} counts={skippedView.skipped} onClose={() => setSkippedView(null)} />}
     </>
   );
 }
@@ -238,14 +285,27 @@ function useDryRun(url: string, body: Record<string, unknown> | null) {
   });
 }
 
+/** A failed async read inside a dialog, with the one action that can recover it. The dialogs
+ *  are modal, so a dead end here is a dead end for the whole flow (audit-ux-flows F-1/F-6). */
+function InlineRetry({ message, onRetry, busy }: { message: string; onRetry: () => void; busy?: boolean }) {
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-danger bg-surface-2 px-3 py-2.5">
+      <p className="text-sm text-danger">{message}</p>
+      <Button size="sm" onClick={onRetry} loading={busy}>Retry</Button>
+    </div>
+  );
+}
+
 /** The split, rendered. One component so the three dialogs cannot describe it differently. */
 function SplitSummary({ query, noun }: { query: ReturnType<typeof useDryRun>; noun: string }) {
   if (query.isPending) return <Skeleton className="h-16 w-full" />;
   if (query.error) {
     return (
-      <p className="text-sm text-danger">
-        {query.error instanceof ApiError ? query.error.message : "Couldn't work out what this would change."}
-      </p>
+      <InlineRetry
+        message={query.error instanceof ApiError ? query.error.message : "Couldn't work out what this would change."}
+        onRetry={() => query.refetch()}
+        busy={query.isFetching}
+      />
     );
   }
   const d = query.data!;
@@ -278,13 +338,25 @@ interface DialogShared {
   onError: (e: unknown) => void;
 }
 
-/** The eligible count a confirm button may name — 0 until the server has answered, so the
- *  button never promises a number the client invented. */
+/**
+ * The confirm button's label. `eligible` is 0 both before the server has answered AND when the
+ * server says nothing qualifies — either way the bare verb is the honest label, because
+ * "Assign 0 leads" names an action the disabled button will never perform
+ * (audit-ux-flows F-7). Only a resolved, non-zero count earns a number.
+ */
+function confirmLabel(q: ReturnType<typeof useDryRun>, verb: string, noun = "lead"): string {
+  const n = q.data?.eligible ?? 0;
+  if (q.isPending || q.error || n === 0) return verb;
+  return `${verb} ${n.toLocaleString()} ${n === 1 ? noun : `${noun}s`}`;
+}
+
 const eligibleOf = (q: ReturnType<typeof useDryRun>) => q.data?.eligible ?? 0;
 
 // ── Assign (N6-14): destination → server-resolved confirm ─────────────────────
 
-function AssignDialog({ selection, count, partners, onClose, onDone, onError }: DialogShared & { partners: Partner[] }) {
+function AssignDialog({
+  selection, count, roster, onClose, onDone, onError,
+}: DialogShared & { roster: UseQueryResult<{ partners: Partner[] }, Error> }) {
   const [partnerId, setPartnerId] = React.useState("");
   const [step, setStep] = React.useState<"pick" | "confirm">("pick");
   const body = step === "confirm" && partnerId ? { selection, partnerId } : null;
@@ -294,6 +366,7 @@ function AssignDialog({ selection, count, partners, onClose, onDone, onError }: 
     onSuccess: onDone,
     onError,
   });
+  const partners = roster.data?.partners ?? [];
   const dest = partners.find((p) => p.id === partnerId);
   const eligible = eligibleOf(dry);
 
@@ -302,6 +375,10 @@ function AssignDialog({ selection, count, partners, onClose, onDone, onError }: 
       open
       onClose={onClose}
       size="sm"
+      // audit-ux-flows F-3: while the write is in flight, Esc and a backdrop click raise the
+      // discard guard instead of closing. Dismissing mid-run wouldn't cancel anything — the
+      // request is already with the server — it would just hide the outcome.
+      confirmClose={run.isPending}
       title={step === "pick" ? "Assign selected leads" : "Reassign these leads?"}
       footer={
         step === "pick" ? (
@@ -318,8 +395,7 @@ function AssignDialog({ selection, count, partners, onClose, onDone, onError }: 
               disabled={dry.isPending || Boolean(dry.error) || eligible === 0}
               onClick={() => run.mutate()}
             >
-              {/* Never name a count the server has not returned yet (N6-05). */}
-              {dry.isPending || dry.error ? "Assign" : eligible === 1 ? "Assign 1 lead" : `Assign ${eligible.toLocaleString()} leads`}
+              {confirmLabel(dry, "Assign")}
             </Button>
           </>
         )
@@ -330,14 +406,22 @@ function AssignDialog({ selection, count, partners, onClose, onDone, onError }: 
           <p className="text-sm text-text-2">
             <span className="num font-semibold">{count.toLocaleString()}</span> {count === 1 ? "lead is" : "leads are"} selected. Choose where they should go.
           </p>
-          {/* PRN-14: name AND reference id, never a colour alone. */}
-          <Combobox
-            ariaLabel="Assign to partner"
-            placeholder="Choose a partner…"
-            value={partnerId}
-            onValueChange={setPartnerId}
-            options={partners.map((p) => ({ value: p.id, label: `${p.name} (${p.refId})` }))}
-          />
+          {/* audit-ux-flows F-1: the roster has three states, and a failed fetch used to render
+              as an empty picker — "there are no partners" is a different, wrong claim. */}
+          {roster.isPending ? (
+            <Skeleton className="h-9 w-full" />
+          ) : roster.error ? (
+            <InlineRetry message="Couldn't load the partner list." onRetry={() => roster.refetch()} busy={roster.isFetching} />
+          ) : (
+            /* PRN-14: name AND reference id, never a colour alone. */
+            <Combobox
+              ariaLabel="Assign to partner"
+              placeholder="Choose a partner…"
+              value={partnerId}
+              onValueChange={setPartnerId}
+              options={partners.map((p) => ({ value: p.id, label: `${p.name} (${p.refId})` }))}
+            />
+          )}
         </div>
       ) : (
         <div className="flex flex-col gap-3">
@@ -373,6 +457,7 @@ function StatusDialog({ selection, count, onClose, onDone, onError }: DialogShar
       open
       onClose={onClose}
       size="sm"
+      confirmClose={run.isPending}
       title="Set status"
       footer={
         <>
@@ -383,7 +468,7 @@ function StatusDialog({ selection, count, onClose, onDone, onError }: DialogShar
             disabled={!status || dry.isPending || Boolean(dry.error) || eligible === 0}
             onClick={() => run.mutate()}
           >
-            {!status || dry.isPending || dry.error ? "Update" : eligible === 1 ? "Update 1 lead" : `Update ${eligible.toLocaleString()} leads`}
+            {status ? confirmLabel(dry, "Update") : "Update"}
           </Button>
         </>
       }
@@ -408,8 +493,9 @@ function StatusDialog({ selection, count, onClose, onDone, onError }: DialogShar
 // ── Tags (N6-30..33) ──────────────────────────────────────────────────────────
 
 function TagsDialog({
-  selection, count, tags, loading, onClose, onDone, onError,
-}: DialogShared & { tags: { id: string; name: string; color: string }[]; loading: boolean }) {
+  selection, count, tagsQ, onClose, onDone, onError,
+}: DialogShared & { tagsQ: UseQueryResult<{ tags: { id: string; name: string; color: string }[] }, Error> }) {
+  const tags = tagsQ.data?.tags ?? [];
   const [op, setOp] = React.useState<"add" | "remove">("add");
   const [tagId, setTagId] = React.useState("");
   const body = tagId ? { selection, op, tagId } : null;
@@ -426,6 +512,7 @@ function TagsDialog({
       open
       onClose={onClose}
       size="sm"
+      confirmClose={run.isPending}
       title="Tags"
       footer={
         <>
@@ -436,8 +523,7 @@ function TagsDialog({
             disabled={!tagId || dry.isPending || Boolean(dry.error) || eligible === 0}
             onClick={() => run.mutate()}
           >
-            {op === "add" ? "Add to" : "Remove from"}
-            {!tagId || dry.isPending || dry.error ? "" : ` ${eligible.toLocaleString()} ${eligible === 1 ? "lead" : "leads"}`}
+            {tagId ? confirmLabel(dry, op === "add" ? "Add to" : "Remove from") : op === "add" ? "Add to" : "Remove from"}
           </Button>
         </>
       }
@@ -454,18 +540,29 @@ function TagsDialog({
         </p>
         {/* TAG-05's "Hot" is absent on purpose: it is derived from the score, not a stored tag,
             so there is nothing to attach. Creating a tag stays in the picker / Settings. */}
-        {loading ? (
+        {tagsQ.isPending ? (
           <Skeleton className="h-9 w-full" />
+        ) : tagsQ.error ? (
+          /* audit-ux-flows F-1: a failed roster fetch is NOT "no tags yet" — that copy sends
+             the operator to Settings to create a tag they may already have. */
+          <InlineRetry message="Couldn't load the tag list." onRetry={() => tagsQ.refetch()} busy={tagsQ.isFetching} />
         ) : tags.length === 0 ? (
           <p className="text-sm text-text-3">No tags yet — create one in Settings → Tags.</p>
         ) : (
-          <div role="radiogroup" aria-label="Tag" className="flex flex-wrap gap-1.5">
+          /* Honest semantics over an aspirational contract (pr-reviewer F-3 / design F-5):
+             this WAS role="radiogroup" + role="radio", which promises the APG radio keyboard
+             model — one tab stop, arrow keys to move between options. It has neither. Rather
+             than hand-roll roving tabindex in a leaf picker, the chips are what they actually
+             are: a group of individually-tabbable toggle buttons reporting `aria-pressed`.
+             Every option stays keyboard-reachable and correctly announced, and nothing claims
+             behaviour the component does not implement. Promoting RadioGroupItem to accept
+             custom content (which would give the real radio model here) is a CANDIDATE. */
+          <div role="group" aria-label="Tag" className="flex flex-wrap gap-1.5">
             {tags.map((t) => (
               <button
                 key={t.id}
                 type="button"
-                role="radio"
-                aria-checked={tagId === t.id}
+                aria-pressed={tagId === t.id}
                 onClick={() => setTagId(t.id)}
                 className={cn(
                   "rounded-full outline-none transition-[opacity,box-shadow] focus-visible:ring-1 focus-visible:ring-brand-ink active:scale-[.98]",
@@ -485,28 +582,52 @@ function TagsDialog({
 
 // ── "View skipped" (N6-55) ────────────────────────────────────────────────────
 
-function SkippedDialog({ rows, onClose }: { rows: BulkApplied["skippedRefs"]; onClose: () => void }) {
+/**
+ * `rows` is BOUNDED at `BULK_SKIPPED_REFS_MAX` server-side; `counts` is the exact per-reason
+ * tally (N6-06). Rendering only the refs would UNDER-REPORT a large run — a group header
+ * reading "45" when 4,500 were skipped is a wrong number, not a truncated list
+ * (audit-ux-flows F-2). So the header names the true count, and says how many of it are
+ * enumerated whenever the two differ.
+ */
+function SkippedDialog({
+  rows, counts, onClose,
+}: { rows: BulkApplied["skippedRefs"]; counts: Record<string, number>; onClose: () => void }) {
   const groups = new Map<string, string[]>();
+  // Seed from the authoritative counts so a reason whose refs were ALL cut off by the cap
+  // still gets a row — otherwise it would vanish from the report entirely.
+  for (const reason of Object.keys(counts)) if (counts[reason] > 0) groups.set(reason, []);
   for (const r of rows) {
     const list = groups.get(r.reason);
     if (list) list.push(r.ref);
     else groups.set(r.reason, [r.ref]);
   }
+  const capped = rows.length < sumSkipped(counts);
   return (
     <Dialog open onClose={onClose} size="sm" title="Leads that were skipped" footer={<Button variant="ghost" onClick={onClose}>Close</Button>}>
       <div className="flex flex-col gap-4">
-        {[...groups].map(([reason, refs]) => (
-          <div key={reason}>
-            <p className="mb-1 text-step-1 font-semibold text-text-2">
-              {SKIP_LABELS[reason] ?? reason} · <span className="num">{refs.length}</span>
-            </p>
-            {/* Selectable text rather than a copy button: the operator usually wants a subset,
-                and a scrollable block keeps a long list from swallowing the dialog. */}
-            <p className="num max-h-40 select-text overflow-auto rounded-lg border border-border-soft bg-surface-2 px-2.5 py-2 text-xs leading-relaxed text-text-3">
-              {refs.join(", ")}
-            </p>
-          </div>
-        ))}
+        {[...groups].map(([reason, refs]) => {
+          const trueCount = counts[reason] ?? refs.length;
+          return (
+            <div key={reason}>
+              <p className="mb-1 text-step-1 font-semibold text-text-2">
+                {SKIP_LABELS[reason] ?? reason} ·{" "}
+                <span className="num">
+                  {refs.length < trueCount ? `${refs.length.toLocaleString()} of ${trueCount.toLocaleString()}` : trueCount.toLocaleString()}
+                </span>
+              </p>
+              {/* Selectable text rather than a copy button: the operator usually wants a subset,
+                  and a scrollable block keeps a long list from swallowing the dialog. */}
+              <p className="num max-h-40 select-text overflow-auto rounded-lg border border-border-soft bg-surface-2 px-2.5 py-2 text-xs leading-relaxed text-text-3">
+                {refs.length > 0 ? refs.join(", ") : "—"}
+              </p>
+            </div>
+          );
+        })}
+        {capped && (
+          <p className="text-step-1 text-text-3">
+            Showing the first <span className="num">{BULK_SKIPPED_REFS_MAX.toLocaleString()}</span> skipped leads. The counts above are exact.
+          </p>
+        )}
       </div>
     </Dialog>
   );

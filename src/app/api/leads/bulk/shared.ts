@@ -8,11 +8,18 @@ import { BulkSelectionSchema } from "@/modules/leads/schema";
 // read the route file, and a reader deciding "is this endpoint protected" should not have to
 // follow an import. What IS shared is the input contract and how a bad one is reported.
 
-/** Every bulk body carries the selection and may ask for a zero-write resolution (N6-05).
- *  Strict: an unknown key on a WRITE body is a client bug, not a field to ignore. */
+/**
+ * Every bulk body carries the selection and may ask for a zero-write resolution (N6-05).
+ * Strict: an unknown key on a WRITE body is a client bug, not a field to ignore.
+ *
+ * `z.boolean()`, not `z.literal(true)` (audit-tenancy F-6): a literal makes an explicit
+ * `dryRun: false` — the obvious way for a client to say "actually execute this" — a 400,
+ * which is a foot-gun on the SAFE side of the flag. The resolvers branch on truthiness, so
+ * `false` and absent mean the same thing.
+ */
 export const BulkBodyBase = {
   selection: BulkSelectionSchema,
-  dryRun: z.literal(true).optional(),
+  dryRun: z.boolean().optional(),
 };
 
 /**
@@ -26,6 +33,13 @@ export function bulkInputError(error: z.ZodError): NextResponse {
   const path = issue?.path ?? [];
   if (path[0] === "selection" && path[1] === "filters") {
     return jsonError("invalid_filters", "That filter isn't valid, so the selection couldn't be resolved.", 400);
+  }
+  // An EMPTY ref list is the one input failure with a real-world cause rather than a client
+  // bug: the operator's selection was cleared underneath the open dialog (a filter change, a
+  // second tab). Zod's "Too small: expected array to have >=1 items" is not something to show
+  // a human, and it is not the same message as a malformed ref (audit-ux-flows F-5).
+  if (path[0] === "selection" && path[1] === "leadRefs" && issue?.code === "too_small") {
+    return jsonError("empty_selection", "Your selection is no longer available — close this and reselect.", 400);
   }
   return jsonError("invalid_input", issue?.message ?? "Invalid input.", 400);
 }
