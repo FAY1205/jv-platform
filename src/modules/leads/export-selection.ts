@@ -1,7 +1,8 @@
-import { and, eq, inArray } from "drizzle-orm";
+import { and, inArray } from "drizzle-orm";
 import { getDb } from "@/db";
 import * as schema from "@/db/schema";
-import { tenantWhere, type ScopeContext } from "@/lib/scope";
+import { ownerWhere, tenantWhere, type ScopeContext } from "@/lib/scope";
+import { tagWhere } from "@/modules/tags/tags";
 import { toExportLead, type ExportLead, type PartnerInfo } from "../export/render";
 import { selectionConds } from "./bulk";
 import { canonicalBulkFilters, type BulkSelection } from "./schema";
@@ -48,8 +49,31 @@ export async function getSelectionExportData(
     // grouping is stable, but row order WITHIN a partner would otherwise be whatever the
     // planner returned (TST-05 determinism is a property of this query too, not just the
     // renderer).
+    // Projected explicitly, not `select()`: a bare star drags `raw_json` (the ENTIRE source
+    // row, kept forever per DM-02), `score_breakdown` and `mls_match_span` through memory for
+    // a set with no ceiling (owner A4) — none of which the workbook can use. Exactly the
+    // `toExportLead` inputs, plus the manual overlay the effective owner needs.
     db
-      .select()
+      .select({
+        refId: schema.leads.refId,
+        campaign: schema.leads.campaign,
+        dateCreated: schema.leads.dateCreated,
+        notes: schema.leads.notes,
+        address: schema.leads.address,
+        city: schema.leads.city,
+        state: schema.leads.state,
+        zip: schema.leads.zip,
+        sellerFirst: schema.leads.sellerFirst,
+        sellerLast: schema.leads.sellerLast,
+        phone: schema.leads.phone,
+        email: schema.leads.email,
+        reasonForSelling: schema.leads.reasonForSelling,
+        motivation: schema.leads.motivation,
+        timeToSell: schema.leads.timeToSell,
+        possibleMlsListing: schema.leads.possibleMlsListing,
+        partnerId: schema.leads.partnerId,
+        manualPartnerId: schema.leads.manualPartnerId,
+      })
       .from(schema.leads)
       .where(and(...selectionConds(scope, selection)))
       .orderBy(schema.leads.refId),
@@ -57,16 +81,19 @@ export async function getSelectionExportData(
       .select({ id: schema.partners.id, name: schema.partners.name, refId: schema.partners.refId, color: schema.partners.color })
       .from(schema.partners)
       .where(tenantWhere(schema.partners, scope)),
-    db
-      .select({ email: schema.users.email })
-      .from(schema.users)
-      .where(and(tenantWhere(schema.users, scope), eq(schema.users.id, scope.userId))),
+    // `ownerWhere`, not a hand-rolled tenant + id pair: it is the ONE builder for "this row
+    // belongs to the calling seat", and the per-USER axis is the one a cross-tenant isolation
+    // test cannot catch — two seats inside one tenant both pass a tenant-only predicate.
+    // Identical SQL today; what this buys is that the read moves with the guard.
+    db.select({ email: schema.users.email }).from(schema.users).where(ownerWhere(schema.users, schema.users.id, scope)),
     filterTags.length === 0
       ? Promise.resolve([] as { id: string; name: string }[])
       : db
           .select({ id: schema.tags.id, name: schema.tags.name })
           .from(schema.tags)
-          .where(and(tenantWhere(schema.tags, scope), inArray(schema.tags.id, filterTags))),
+          // `tagWhere` (modules/tags) rather than a raw `tenantWhere` on the same table — the
+          // named builder is what tag visibility means, and every other tag read composes it.
+          .where(and(tagWhere(scope), inArray(schema.tags.id, filterTags))),
   ]);
 
   return {

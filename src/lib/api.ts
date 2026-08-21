@@ -88,8 +88,11 @@ export async function apiDownload(url: string, body: unknown, fallbackName: stri
     a.click();
     a.remove();
   } finally {
-    // Revoking synchronously is safe: the click has already handed the blob to the download
-    // manager. Leaving it un-revoked would pin the whole workbook in memory for the tab's life.
-    URL.revokeObjectURL(href);
+    // Revoked on the NEXT task, not synchronously. `click()` returns before the browser has
+    // finished handing the blob to its download manager, and on a large workbook revoking in
+    // the same tick is the documented cross-browser race that truncates or cancels the file.
+    // A macrotask is late enough for every engine and still bounded — leaving it un-revoked
+    // would pin the whole workbook in memory for the tab's lifetime.
+    setTimeout(() => URL.revokeObjectURL(href), 0);
   }
 }

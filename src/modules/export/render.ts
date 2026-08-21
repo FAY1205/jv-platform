@@ -147,7 +147,14 @@ export function contrastText(hex: string): "FF000000" | "FFFFFFFF" {
   return contrastRatio("#000000", hex) >= contrastRatio("#FFFFFF", hex) ? "FF000000" : "FFFFFFFF";
 }
 
-function partnerLabel(partnerId: string | null, partners: ReadonlyMap<string, PartnerInfo>): string {
+/**
+ * "Name (PR-###)" for a partner id, "Unmatched" for null (PRN-14: the name and the reference
+ * always travel with the colour). Exported (api-contract F-1) so the export ROUTE's
+ * filter-description name map is built from this rather than a second `${name} (${refId})`
+ * template — two spellings of a partner's display name is exactly how the sheet and the
+ * sentence above it end up disagreeing.
+ */
+export function partnerLabel(partnerId: string | null, partners: ReadonlyMap<string, PartnerInfo>): string {
   if (partnerId === null) return "Unmatched";
   const p = partners.get(partnerId);
   return p ? `${p.name} (${p.refId})` : partnerId;
@@ -306,6 +313,16 @@ export async function renderExport(
  * Every field here is user-originated or user-adjacent and is sanitised at the write site
  * (SEC-06); the route sanitises nothing, so there is exactly one place this rule is applied.
  */
+/**
+ * The one sentence that tells a reader which KIND of workbook they are holding (tenancy F-6).
+ * A selection export is visually identical to the partner deliverable admins forward — same
+ * Leads sheet, same legend, same colours — but it carries `Campaign` (the lead source, which
+ * is admin-only, PRN-08) and it can carry MLS-removed leads, neither of which belongs in a
+ * partner's copy. Stating it inside the file is the only marking that survives the file being
+ * renamed, re-saved or emailed onward.
+ */
+export const SELECTION_EXPORT_SCOPE_NOTE = "Internal — includes lead source and MLS-removed leads";
+
 export interface SelectionMeta {
   /** The filter named in words (`describeFilters`), or "N selected by hand" for refs mode. */
   selection: string;
@@ -336,6 +353,8 @@ export async function renderSelectionExport(
 
   const sheet = wb.addWorksheet("Selection_Summary");
   sheet.addRow(["Metric", "Value"]).eachCell((c) => (c.font = { bold: true }));
+  // First row, deliberately: what this file IS, before what is in it.
+  sheet.addRow(["Scope", SELECTION_EXPORT_SCOPE_NOTE]).getCell(1).font = { bold: true };
   // SEC-06: the search term and any tag names ride inside `selection`, and `exportedBy` is an
   // address a seat typed — all three are user-originated text reaching a spreadsheet cell.
   sheet.addRow(["Selection", sanitizeCell(meta.selection)]);

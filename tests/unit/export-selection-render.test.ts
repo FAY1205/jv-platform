@@ -3,6 +3,7 @@ import ExcelJS from "exceljs";
 import {
   EXPORT_COLUMNS,
   renderSelectionExport,
+  SELECTION_EXPORT_SCOPE_NOTE,
   sanitizeCell,
   type ExportLead,
   type PartnerInfo,
@@ -103,6 +104,9 @@ describe("N6-41/N6-42: renderSelectionExport", () => {
     expect(wb.getWorksheet("JV_Color_Legend")).toBeDefined();
 
     const summary = summaryOf(wb);
+    // tenancy F-6: the first row says what KIND of workbook this is. The file is otherwise
+    // indistinguishable from the partner deliverable admins forward.
+    expect(summary.get("Scope")).toBe(SELECTION_EXPORT_SCOPE_NOTE);
     expect(summary.get("Selection")).toBe("Hot only");
     expect(summary.get("Total exported")).toBe("4");
     expect(summary.get("Exported by")).toBe("ops@example.test");

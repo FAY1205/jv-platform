@@ -1,13 +1,14 @@
 import { describe, it, expect, beforeAll, beforeEach, afterAll, vi } from "vitest";
-import { eq, inArray } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import ExcelJS from "exceljs";
 import { getDb } from "@/db";
 import * as schema from "@/db/schema";
 import type { ScopeContext } from "@/lib/scope";
 import type * as ScopeContextModule from "@/lib/scope-context";
-import { EXPORT_COLUMNS } from "@/modules/export/render";
+import { EXPORT_COLUMNS, SELECTION_EXPORT_SCOPE_NOTE } from "@/modules/export/render";
 import { jsonRequest, scopeContextMock, setRouteScope } from "./_route-harness";
+import { purgeAuditLog } from "../helpers/audit";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // WP-N6 PR B — POST /api/leads/export driven over HTTP, so the CSRF check, the `data.export`
@@ -50,6 +51,9 @@ suite("WP-N6: export selected leads", () => {
       .where(inArray(schema.tenants.slug, [SLUG, OTHER_SLUG]));
     const tids = t.map((x) => x.id);
     if (tids.length === 0) return;
+    // The route now writes a `leads.exported` row per successful export, and audit_log carries
+    // an FK to tenants — without the purge hatch the tenant DELETE below fails.
+    await purgeAuditLog(db, inArray(schema.auditLog.tenantId, tids));
     for (const tbl of [schema.leadTags, schema.tags, schema.leads, schema.uploads, schema.partners, schema.settings, schema.users]) {
       await db.delete(tbl).where(inArray(tbl.tenantId, tids));
     }
@@ -284,6 +288,55 @@ suite("WP-N6: export selected leads", () => {
     const partner = await post({ selection: ALL_FILTER });
     expect(partner.status).toBe(403);
     expect(await partner.json()).toMatchObject({ code: "forbidden" });
+  });
+
+  it("F-04/LGL-01: a self-serve seat that has not accepted the current ToS is refused", async () => {
+    // Tenants seed with `self_serve = false` (owner-provisioned) and are exempt, so this line
+    // of the route never executed in any test until now (tenancy F-5). Flipping the flag with
+    // no acceptance row on file is exactly the post-version-bump state the gate exists for.
+    // No restore needed: `beforeEach` rebuilds the fixture.
+    await db.update(schema.tenants).set({ selfServe: true }).where(eq(schema.tenants.id, tenantId));
+    const res = await post({ selection: ALL_FILTER });
+    expect(res.status).toBe(403);
+    expect(await res.json()).toMatchObject({ code: "tos_required" });
+    expect(res.headers.get("content-disposition")).toBeNull();
+  });
+
+  it("AUTHZ-09: a VIEWER whose tenant granted `data.export` gets the workbook", async () => {
+    // The positive leg, and the seat the `selectable` widening exists for: a read-only tier
+    // that cannot mutate a lead but may take the data out. Capabilities are tenant-CONFIGURED
+    // for member/viewer (ADR-0049), so proving the 403 alone would leave the grant path
+    // unexercised — a gate that refused everyone would pass that half of the matrix.
+    setRouteScope({ tenantId, role: "viewer", userId, capabilities: new Set(["data.export"]) });
+    const res = await post({ selection: ALL_FILTER });
+    expect(res.status).toBe(200);
+    expect(allCells(await workbookOf(res))).toContain(refs.unmatched);
+  });
+
+  it("audit: one `leads.exported` row records who/what/how-many — and no lead refs or PII", async () => {
+    const res = await post({ selection: { mode: "filter", filters: { state: "TX", statuses: [] } } });
+    expect(res.status).toBe(200);
+    const rows = await db
+      .select()
+      .from(schema.auditLog)
+      .where(and(eq(schema.auditLog.tenantId, tenantId), eq(schema.auditLog.action, "leads.exported")));
+    expect(rows.length).toBe(1);
+    expect(rows[0].actorUserId).toBe(userId);
+    expect(rows[0].entityRef).toBeNull(); // a selection is not one entity
+    expect(rows[0].after).toEqual({ mode: "filter", selection: "TX", count: 4 });
+    // SEC-05: the trail describes the act, it does not become a second copy of the data. No
+    // ref id and no seller field may appear anywhere in the payload.
+    const payload = JSON.stringify(rows[0].after);
+    for (const leaked of [...Object.values(refs), "Reyes", "dana@example.test", "602-555-0100"]) {
+      expect(payload, `audit payload leaked ${leaked}`).not.toContain(leaked);
+    }
+  });
+
+  it("tenancy F-6: the workbook states it is the INTERNAL copy, not the partner deliverable", async () => {
+    // The file is visually identical to what admins forward to partners, but carries the lead
+    // source and can carry MLS-removed leads. The marking has to be inside the file.
+    const summary = summaryOf(await workbookOf(await post({ selection: ALL_FILTER })));
+    expect(summary.get("Scope")).toBe(SELECTION_EXPORT_SCOPE_NOTE);
   });
 
   it("N6-40: a request without the CSRF pair is refused before anything is read", async () => {
