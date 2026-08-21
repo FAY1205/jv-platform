@@ -119,8 +119,15 @@ export interface RenderOptions {
 
 const UNMATCHED = "__unmatched__";
 
-/** SEC-06: neutralise a cell that Excel would treat as a formula. */
-function sanitizeCell(value: string): string {
+/**
+ * SEC-06: neutralise a cell that Excel would treat as a formula.
+ *
+ * Exported (N6-42): the `Selection_Summary` sheet carries user-originated text the LEAD rows
+ * never see — the operator's search term, tag names inside the filter sentence, a seat's email
+ * — and it is assembled in the route, not here. A second private copy of this rule in the
+ * caller is how one of the two ends up with a narrower character class.
+ */
+export function sanitizeCell(value: string): string {
   return /^[=+\-@\t\r]/.test(value) ? `'${value}` : value;
 }
 
@@ -184,14 +191,21 @@ function orderedGroupKeys(
   return groups.has(UNMATCHED) ? [...partnerKeys, UNMATCHED] : partnerKeys;
 }
 
-export async function renderExport(
+/**
+ * The two sheets EVERY export shares: the fixed 18-column `Leads` sheet grouped by partner,
+ * and `JV_Color_Legend`. Returns the grouping so the caller's own summary sheet counts the
+ * SAME buckets the workbook rendered — a per-partner tally derived a second way is a tally
+ * that can disagree with the sheet it summarises.
+ *
+ * N6-41: the selection export and the run/portal exports go through here together, so the
+ * EXP-02 contract cannot drift between them (R-11, one serializer chain).
+ */
+function addLeadSheets(
+  wb: ExcelJS.Workbook,
   leads: readonly ExportLead[],
   partners: ReadonlyMap<string, PartnerInfo>,
-  summary: RunSummary,
   options: RenderOptions,
-): Promise<Uint8Array> {
-  const wb = new ExcelJS.Workbook();
-
+): Map<string, ExportLead[]> {
   // ── Leads sheet (grouped by partner) ──
   const ws = wb.addWorksheet("Leads");
   const header = ws.addRow([...EXPORT_COLUMNS]);
@@ -246,6 +260,24 @@ export async function renderExport(
     colorCell.font = { color: { argb: contrastText(p.color) } }; // PRN-14: hex text stays AA on its fill
   }
 
+  return groups;
+}
+
+// exceljs types writeBuffer() against its own `Buffer`; return the raw bytes as a
+// Uint8Array (a Buffer IS one at runtime) so callers avoid the @types/node Buffer clash.
+async function writeWorkbook(wb: ExcelJS.Workbook): Promise<Uint8Array> {
+  return (await wb.xlsx.writeBuffer()) as unknown as Uint8Array;
+}
+
+export async function renderExport(
+  leads: readonly ExportLead[],
+  partners: ReadonlyMap<string, PartnerInfo>,
+  summary: RunSummary,
+  options: RenderOptions,
+): Promise<Uint8Array> {
+  const wb = new ExcelJS.Workbook();
+  addLeadSheets(wb, leads, partners, options);
+
   // ── Run_Summary sheet (EXP-04; numbers from analytics, PRN-15) ──
   const sum = wb.addWorksheet("Run_Summary");
   sum.addRow(["Metric", "Value"]).eachCell((c) => (c.font = { bold: true }));
@@ -260,7 +292,61 @@ export async function renderExport(
     sum.addRow([sanitizeCell(p ? `${p.name} (${p.refId})` : pp.partnerId), pp.count]); // SEC-06: partner name (F-26)
   }
 
-  // exceljs types writeBuffer() against its own `Buffer`; return the raw bytes as a
-  // Uint8Array (a Buffer IS one at runtime) so callers avoid the @types/node Buffer clash.
-  return (await wb.xlsx.writeBuffer()) as unknown as Uint8Array;
+  return writeWorkbook(wb);
+}
+
+// ── Selection export (WP-N6, N6-40..44) ───────────────────────────────────────
+
+/**
+ * N6-42 — what the route knows and the renderer must not go looking for. The module stays
+ * PURE (PRN-01): no `Date.now()`, no DB, no filter vocabulary lookups. `exportedAt` arrives
+ * already formatted and `selection` already worded, so the same three strings render the same
+ * workbook every time — which is what makes the TST-05 determinism check meaningful.
+ *
+ * Every field here is user-originated or user-adjacent and is sanitised at the write site
+ * (SEC-06); the route sanitises nothing, so there is exactly one place this rule is applied.
+ */
+export interface SelectionMeta {
+  /** The filter named in words (`describeFilters`), or "N selected by hand" for refs mode. */
+  selection: string;
+  /** The exporting seat's email. */
+  exportedBy: string;
+  /** A formatted timestamp — computed route-side. */
+  exportedAt: string;
+}
+
+/**
+ * N6-40/N6-41 — the operator's SELECTION as the fixed EXP-02 workbook. Identical Leads and
+ * legend sheets to `renderExport` (same helper, same serializer chain); `Selection_Summary`
+ * replaces `Run_Summary` because a selection has no run to summarise — the honest questions
+ * are "which leads did this ask for", "how many", "who pulled it, and when".
+ *
+ * The per-partner tally is derived from the SAME grouping the Leads sheet rendered rather than
+ * recomputed, so the summary can never disagree with the rows above it (PRN-15's instinct at
+ * workbook scale).
+ */
+export async function renderSelectionExport(
+  leads: readonly ExportLead[],
+  partners: ReadonlyMap<string, PartnerInfo>,
+  meta: SelectionMeta,
+  options: RenderOptions,
+): Promise<Uint8Array> {
+  const wb = new ExcelJS.Workbook();
+  const groups = addLeadSheets(wb, leads, partners, options);
+
+  const sheet = wb.addWorksheet("Selection_Summary");
+  sheet.addRow(["Metric", "Value"]).eachCell((c) => (c.font = { bold: true }));
+  // SEC-06: the search term and any tag names ride inside `selection`, and `exportedBy` is an
+  // address a seat typed — all three are user-originated text reaching a spreadsheet cell.
+  sheet.addRow(["Selection", sanitizeCell(meta.selection)]);
+  sheet.addRow(["Total exported", leads.length]);
+  sheet.addRow(["Exported by", sanitizeCell(meta.exportedBy)]);
+  sheet.addRow(["Exported at", sanitizeCell(meta.exportedAt)]);
+  sheet.addRow([]);
+  sheet.addRow(["Partner", "Leads"]).eachCell((c) => (c.font = { bold: true }));
+  for (const key of orderedGroupKeys(groups, partners)) {
+    sheet.addRow([sanitizeCell(partnerLabel(key === UNMATCHED ? null : key, partners)), groups.get(key)!.length]);
+  }
+
+  return writeWorkbook(wb);
 }

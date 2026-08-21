@@ -51,3 +51,45 @@ export async function apiMutate<T>(
   }
   return json as T;
 }
+
+/** `filename="…"` out of a Content-Disposition, else null. The SERVER names the file (it is
+ *  the one that knows the date the export was taken); this only reads what it said. */
+function filenameFrom(disposition: string | null): string | null {
+  const match = /filename="([^"]+)"/.exec(disposition ?? "");
+  return match ? match[1] : null;
+}
+
+/**
+ * A POST whose success is a FILE rather than JSON (WP-N6 export-selected). Same CSRF header
+ * and same `ApiError` envelope handling as `apiMutate` — the failure path is the one that
+ * matters, since an export that 403s must reach the operator as the server's sentence, not as
+ * a browser downloading an error page.
+ *
+ * The blob is handed to a synthetic anchor: a POST cannot be a plain `<a href>`, and this is
+ * the only shape that lets the response body reach the disk without a second round trip
+ * through Storage (N6-43: nothing is stored).
+ */
+export async function apiDownload(url: string, body: unknown, fallbackName: string): Promise<void> {
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...csrfHeaders() },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const envelope = (await res.json().catch(() => null)) as ErrorEnvelope | null;
+    throw new ApiError(envelope?.message ?? `Request failed (${res.status})`, envelope?.code, envelope?.traceId, res.status);
+  }
+  const href = URL.createObjectURL(await res.blob());
+  try {
+    const a = document.createElement("a");
+    a.href = href;
+    a.download = filenameFrom(res.headers.get("content-disposition")) ?? fallbackName;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  } finally {
+    // Revoking synchronously is safe: the click has already handed the blob to the download
+    // manager. Leaving it un-revoked would pin the whole workbook in memory for the tab's life.
+    URL.revokeObjectURL(href);
+  }
+}

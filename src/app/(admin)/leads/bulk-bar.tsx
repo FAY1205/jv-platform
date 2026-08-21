@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
-import { ApiError, apiGet, apiMutate } from "@/lib/api";
+import { ApiError, apiDownload, apiGet, apiMutate } from "@/lib/api";
 import { cn } from "@/lib/cn";
 import { useTags } from "@/lib/tags-client";
 import { useCurrentUser } from "@/lib/use-current-user";
@@ -70,7 +70,7 @@ export interface BulkBarProps {
   onApplied: () => void;
 }
 
-type BulkAction = "assign" | "status" | "tags";
+type BulkAction = "assign" | "status" | "tags" | "export";
 
 /** What a dialog is acting on, FROZEN at the moment it opened (audit-ux-flows F-5). Reading
  *  the live selection while a dialog is up means a background refetch, a row un-ticked behind
@@ -149,8 +149,11 @@ export function BulkBar({ filters, total, selected, allMatching, onEscalate, onC
   );
 
   // N6-53: per-action capability gating. An action the seat lacks is ABSENT, not disabled —
-  // a disabled control advertises a capability the seat will never have.
+  // a disabled control advertises a capability the seat will never have. The two gates are
+  // INDEPENDENT: `data.export` is an egress capability and `leads.write` a mutation one, and a
+  // seat can hold either without the other (a read-only analyst exports; a member edits).
   const canWrite = canDo("leads.write");
+  const canExport = canDo("data.export");
 
   // N6-55: an empty selection hides the BAR, never this whole component. A successful run
   // clears the selection, and if that unmounted the subtree it would take the result toast
@@ -222,9 +225,10 @@ export function BulkBar({ filters, total, selected, allMatching, onEscalate, onC
               <Button size="sm" onClick={() => openAction("status")}>Status…</Button>
               <Button size="sm" onClick={() => openAction("tags")}>Tags…</Button>
               <Button size="sm" variant="primary" onClick={() => openAction("assign")}>Assign…</Button>
-              <span className="mx-0.5 h-4 w-px bg-border" aria-hidden="true" />
             </>
           )}
+          {canExport && <Button size="sm" onClick={() => openAction("export")}>Export…</Button>}
+          {(canWrite || canExport) && <span className="mx-0.5 h-4 w-px bg-border" aria-hidden="true" />}
           <Button size="sm" variant="ghost" onClick={onClear}>Clear</Button>
         </div>
       </div>
@@ -256,6 +260,22 @@ export function BulkBar({ filters, total, selected, allMatching, onEscalate, onC
           tagsQ={tagsQ}
           onClose={() => setPending(null)}
           onDone={(res) => report("Tagged", res)}
+          onError={fail}
+        />
+      )}
+      {pending?.action === "export" && (
+        <ExportDialog
+          selection={pending.selection}
+          count={pending.count}
+          onClose={() => setPending(null)}
+          onDone={() => {
+            // N6-55's "selection clears on success" is a MUTATION rule: it exists because the
+            // rows the operator selected are no longer in the state they selected them in. An
+            // export changes nothing, and "export, then assign the same set" is the obvious
+            // next gesture — so the selection stays.
+            toast("Export downloaded", "success", undefined, TOAST_SCOPE);
+            setPending(null);
+          }}
           onError={fail}
         />
       )}
@@ -575,6 +595,71 @@ function TagsDialog({
           </div>
         )}
         {tagId && <SplitSummary query={dry} noun={op === "add" ? "be tagged" : "be untagged"} />}
+      </div>
+    </Dialog>
+  );
+}
+
+// ── Export (N6-40..44) ────────────────────────────────────────────────────────
+
+/**
+ * The one action in the bar that is a READ. No dry run: there is no eligibility to resolve —
+ * every selected lead is exportable — so the count shown is the one the bar already holds,
+ * which in escalated mode IS the server's (the list query's `total`) and in page mode is the
+ * operator's own ticks. A second round trip to re-count a set nothing will change would buy
+ * nothing the operator can act on.
+ *
+ * The dialog exists because the gesture is an EGRESS of seller PII, so it states what leaves,
+ * in what shape, and that it is not retained — not because the action needs confirming twice.
+ */
+function ExportDialog({
+  selection, count, onClose, onDone, onError,
+}: {
+  selection: BulkSelection;
+  count: number;
+  onClose: () => void;
+  onDone: () => void;
+  onError: (e: unknown) => void;
+}) {
+  const run = useMutation({
+    mutationFn: () => apiDownload("/api/leads/export", { selection }, "leads-selection.xlsx"),
+    onSuccess: onDone,
+    onError,
+  });
+
+  return (
+    <Dialog
+      open
+      onClose={onClose}
+      size="sm"
+      confirmClose={run.isPending}
+      title="Export selected leads"
+      footer={
+        <>
+          <Button variant="ghost" onClick={onClose}>Cancel</Button>
+          <Button variant="primary" loading={run.isPending} onClick={() => run.mutate()}>Download</Button>
+        </>
+      }
+    >
+      <div className="flex flex-col gap-3">
+        <p className="text-sm text-text-2">
+          <span className="num font-semibold">{count.toLocaleString()}</span> {count === 1 ? "lead" : "leads"} will be exported.
+        </p>
+        <dl className="rounded-lg border border-border-soft bg-surface-2 px-3 py-2.5 text-sm">
+          <div className="flex items-baseline justify-between gap-3">
+            <dt className="text-text-3">Format</dt>
+            <dd className="text-text-2">.xlsx — the fixed 18-column layout</dd>
+          </div>
+          <div className="flex items-baseline justify-between gap-3">
+            <dt className="text-text-3">Sheets</dt>
+            <dd className="text-text-2">Leads (by partner) · Color legend · Selection summary</dd>
+          </div>
+        </dl>
+        {/* SET-01: the toggle lives in Settings → Data and Export and is read server-side —
+            named here so the workbook's appearance is never a surprise. */}
+        <p className="text-step-1 text-text-3">
+          Color coding follows your workspace setting. Downloads immediately; nothing is stored.
+        </p>
       </div>
     </Dialog>
   );

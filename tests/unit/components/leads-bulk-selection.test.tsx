@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import * as React from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen, within } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ToastProvider } from "@/components";
@@ -25,14 +25,17 @@ vi.mock("next/dynamic", () => ({
     },
 }));
 
-const { apiGet, apiMutate } = vi.hoisted(() => ({ apiGet: vi.fn(), apiMutate: vi.fn() }));
+const { apiGet, apiMutate, apiDownload } = vi.hoisted(() => ({ apiGet: vi.fn(), apiMutate: vi.fn(), apiDownload: vi.fn() }));
 vi.mock("@/lib/api", () => ({
   apiGet,
   apiMutate,
+  apiDownload,
   ApiError: class ApiError extends Error {
     constructor(message: string) { super(message); }
   },
 }));
+
+import { ApiError } from "@/lib/api";
 
 if (typeof Element !== "undefined") {
   Element.prototype.hasPointerCapture ??= () => false;
@@ -73,6 +76,10 @@ beforeEach(() => {
   posted.length = 0;
   apiGet.mockReset();
   apiMutate.mockReset();
+  apiDownload.mockReset();
+  apiDownload.mockImplementation(async (url: string, body: Record<string, unknown>) => {
+    posted.push({ url, body });
+  });
   apiGet.mockImplementation(async (url: string) => {
     if (url.includes("/api/admin/partners")) return { partners: [{ id: "p1", refId: "JV-001", name: "Alpha", color: "#f4c95d" }] };
     if (url.includes("/api/leads/sources")) return { sources: [] };
@@ -118,9 +125,22 @@ const bar = () => screen.getByRole("group", { name: "Selection actions" });
 const barText = () => bar().textContent!.replace(/\s+/g, " ");
 /** What a screen reader is told, which must survive the bar being absent at zero. */
 const announced = () => screen.getByRole("status", { name: "Selection status" }).textContent!.replace(/\s+/g, " ");
+/**
+ * The VISIBLE toast rows, as text. Scoped to the stack rather than queried by text, because a
+ * toast with NO action renders its message twice — once in the pill and once in the provider's
+ * sr-only live region (R-56) — and a bare `findByText` matches both, then fails as
+ * "found multiple". (A toast WITH an action escapes that only by accident: the live region
+ * appends ". <action label>", so the two strings differ.) The page mounts its own provider
+ * inside the harness's, hence `getAllByTestId`.
+ */
+const toastText = (expected: string | RegExp) =>
+  waitFor(() => {
+    const text = screen.getAllByTestId("toast-stack").map((s) => s.textContent ?? "").join(" ");
+    expect(text).toMatch(expected);
+  });
 
 describe("N6-52..56: leads bulk selection", () => {
-  it("N6-52: a seat without leads.write gets no checkbox column at all", async () => {
+  it("N6-52: a seat that can neither write nor export gets no checkbox column at all", async () => {
     capabilities = ["leads.read"];
     renderLeads();
     await screen.findByText("Seller LD-26-70001");
@@ -215,6 +235,84 @@ describe("N6-52..56: leads bulk selection", () => {
     const dialog = await screen.findByRole("dialog");
     expect(within(dialog).getByText(/Removed from MLS/)).toBeTruthy();
     expect(within(dialog).getByText(/LD-26-70009/)).toBeTruthy();
+  });
+
+  // ── Export selected (N6-40..44, N6-53) ──────────────────────────────────────
+
+  it("N6-52/N6-53: an EXPORT-only seat gets checkboxes and only the Export action", async () => {
+    // The two capabilities are independent. A read-only analyst who may export still needs the
+    // selection surface; what they must not see is a mutation they cannot perform.
+    capabilities = ["leads.read", "data.export"];
+    const user = userEvent.setup();
+    renderLeads();
+    await user.click(await rowBox("LD-26-70001"));
+    expect(screen.getByRole("button", { name: "Export…" })).toBeTruthy();
+    for (const absent of ["Status…", "Tags…", "Assign…"]) {
+      expect(screen.queryByRole("button", { name: absent })).toBeNull();
+    }
+  });
+
+  it("N6-53: Export is absent for a seat that can write but not export", async () => {
+    // Absence, not disabled state — a disabled control advertises a capability this seat will
+    // never have (the §8 absence-not-presence rule).
+    const user = userEvent.setup();
+    renderLeads(); // default capabilities: leads.read + leads.write
+    await user.click(await rowBox("LD-26-70001"));
+    expect(screen.getByRole("button", { name: "Assign…" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Export…" })).toBeNull();
+  });
+
+  it("N6-40/N6-43: the export dialog states the shape and the retention, then downloads the selection", async () => {
+    capabilities = ["leads.read", "leads.write", "data.export"];
+    const user = userEvent.setup();
+    renderLeads();
+    await user.click(await rowBox("LD-26-70001"));
+    await user.click(await rowBox("LD-26-70002"));
+    await user.click(screen.getByRole("button", { name: "Export…" }));
+
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByText(/2/)).toBeTruthy();
+    expect(within(dialog).getByText(".xlsx — the fixed 18-column layout")).toBeTruthy();
+    expect(within(dialog).getByText("Leads (by partner) · Color legend · Selection summary")).toBeTruthy();
+    expect(within(dialog).getByText(/Color coding follows your workspace setting/)).toBeTruthy();
+    expect(within(dialog).getByText(/nothing is stored/)).toBeTruthy();
+
+    await user.click(within(dialog).getByRole("button", { name: "Download" }));
+    const sent = posted.at(-1)!;
+    expect(sent.url).toBe("/api/leads/export");
+    expect(sent.body.selection).toEqual({ mode: "refs", leadRefs: ["LD-26-70001", "LD-26-70002"] });
+    // N6-05 does not apply: an export resolves no eligibility, so it never dry-runs.
+    expect(posted.some((p) => p.body.dryRun === true)).toBe(false);
+    await toastText("Export downloaded");
+    // Nothing changed, so the selection survives — "export, then assign the same set".
+    expect(barText()).toContain("2 selected on this page");
+  });
+
+  it("N6-40: an escalated export posts the FILTER, and a failure keeps the selection", async () => {
+    capabilities = ["leads.read", "data.export"];
+    // The real envelope the route raises when a selection resolves to nothing (N6-40). Built
+    // with the FULL `ApiError` signature — the module mock only replaces the runtime class, so
+    // the constructor is still type-checked against the real one.
+    apiDownload.mockRejectedValue(
+      new ApiError("Your selection is no longer available — close this and reselect.", "empty_selection", "trace-1", 400),
+    );
+    const user = userEvent.setup();
+    renderLeads({ initialHot: true });
+    await user.click(await rowBox("LD-26-70001"));
+    await user.click(screen.getByRole("button", { name: /Select all 641 matching this filter/ }));
+    await user.click(screen.getByRole("button", { name: "Export…" }));
+    await user.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Download" }));
+
+    const sent = apiDownload.mock.calls.at(-1)!;
+    expect(sent[0]).toBe("/api/leads/export");
+    expect((sent[1] as { selection: { mode: string; filters: Record<string, unknown> } }).selection.mode).toBe("filter");
+    expect((sent[1] as { selection: { filters: Record<string, unknown> } }).selection.filters).toMatchObject({ hot: true });
+    // The uniform envelope's own sentence, and the selection is preserved for the retry.
+    await toastText(/no longer available/);
+    // The dialog stays open so the operator can retry without rebuilding anything; the bar is
+    // only reachable again once it closes (the house Dialog hides the rest of the a11y tree).
+    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Cancel" }));
+    expect(barText()).toContain("641");
   });
 
   it("N6-50: an escalated action posts the FILTER, never an id list", async () => {

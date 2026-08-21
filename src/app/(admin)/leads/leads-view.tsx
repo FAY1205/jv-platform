@@ -522,11 +522,11 @@ function LeadsTable({
 }) {
   const data = leadsQ.data;
   const { canDo } = useCurrentUser();
-  // N6-52: the column exists only for seats that can ACT on a selection. PR B widens this to
-  // `|| canDo("data.export")` when Export joins the bar; until then a checkbox for an
-  // export-only seat would select rows nothing could be done with. Fail-closed while /api/me
-  // is in flight (useCurrentUser's contract), so it appears rather than disappears.
-  const selectable = canDo("leads.write");
+  // N6-52: the column exists only for seats that can ACT on a selection — and exporting IS
+  // acting, so an export-only seat gets checkboxes even with no mutation in the bar. The two
+  // capabilities are independent; the BAR gates each action separately. Fail-closed while
+  // /api/me is in flight (useCurrentUser's contract), so it appears rather than disappears.
+  const selectable = canDo("leads.write") || canDo("data.export");
   const pageRefs = React.useMemo(() => (data?.leads ?? []).map((l) => l.refId), [data]);
   // While escalated every visible row IS selected, so the checkboxes must read that way even
   // though `selected` holds no ids (N6-50: the escalated selection is a filter, not a list).
