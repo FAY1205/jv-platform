@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import * as React from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
@@ -9,9 +9,12 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 // escape-safe highlighting, and the three async states.
 
 const push = vi.fn();
+// N6-71: which page is under the overlay decides whether the page-scoped actions exist, so the
+// suite drives it per test rather than pinning one route.
+let pathname = "/dashboard";
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push, replace: vi.fn(), back: vi.fn(), forward: vi.fn(), refresh: vi.fn() }),
-  usePathname: () => "/dashboard",
+  usePathname: () => pathname,
 }));
 
 type Payload = {
@@ -20,15 +23,39 @@ type Payload = {
 };
 let payload: Payload;
 let failWith: Error | null = null;
+/** The caller's saved views (N6-71's "Apply view: …" actions). */
+let views: { id: string; name: string; filters: unknown; updatedAt: string }[] = [];
+/** Held open by the cursor-drift test to make the roster resolve AFTER the palette opens. */
+let viewsGate: Promise<void> | null = null;
 
 const apiGet = vi.fn(async (url: string) => {
+  // Deliberately BEFORE the failure switch: `failWith` targets the search endpoint, which is
+  // what the error-state tests are about.
+  if (url.startsWith("/api/saved-views")) {
+    if (viewsGate) await viewsGate;
+    return { views };
+  }
   if (failWith) throw failWith;
   const q = new URL(url, "http://localhost").searchParams.get("q") ?? "";
   return { q, ...payload };
 });
-vi.mock("@/lib/api", () => ({ apiGet: (url: string) => apiGet(url) }));
+// N6-72 (owner pin): `apiMutate` is the only way this app writes. It is mocked here so the
+// registry test can assert that running EVERY palette action never reaches it.
+const apiMutate = vi.fn(async () => ({ code: "ok" }));
+vi.mock("@/lib/api", () => ({
+  apiGet: (url: string) => apiGet(url),
+  apiMutate: (...args: unknown[]) => apiMutate(...(args as [])),
+  ApiError: class ApiError extends Error {},
+}));
 
 import { GlobalSearchOverlay, GlobalSearchTrigger } from "@/components/GlobalSearch";
+import { setPreferences } from "@/lib/preferences";
+import {
+  LEADS_APPLY_VIEW_EVENT,
+  LEADS_CLEAR_FILTERS_EVENT,
+  LEADS_OPEN_COLUMNS_EVENT,
+  type LeadsApplyViewDetail,
+} from "@/lib/leads-actions";
 
 const LEAD_MARCUS = {
   refId: "LD-25-01847",
@@ -61,13 +88,36 @@ function none(): Payload {
   return { leads: { total: 0, rows: [] }, partners: { total: 0, rows: [] } };
 }
 
+// Names chosen so they do NOT contain the search terms this suite types ("whitf", "zzzz", "w")
+// — an action row that matched one of them would change the option counts the search tests
+// assert, and hide the thing those tests are actually about.
+const VIEW_HOT = { id: "v1", name: "Hot in AZ", filters: { hot: true, state: "AZ" }, updatedAt: "2026-08-15T10:00:00.000Z" };
+const VIEW_PROBATE = { id: "v2", name: "Probate list", filters: { tags: ["t1"] }, updatedAt: "2026-08-14T10:00:00.000Z" };
+
+/** Every leads-action event the palette fired, in order. */
+let fired: { type: string; detail?: unknown }[] = [];
+const record = (e: Event) => fired.push({ type: e.type, detail: (e as CustomEvent).detail });
+
 beforeEach(() => {
   payload = full();
   failWith = null;
+  views = [VIEW_HOT, VIEW_PROBATE];
+  viewsGate = null;
+  pathname = "/dashboard";
+  window.localStorage.clear();
+  setPreferences({ leadsView: "list" }); // module-level store — reset per test
+  fired = [];
   apiGet.mockClear();
+  apiMutate.mockClear();
   push.mockClear();
+  window.addEventListener(LEADS_APPLY_VIEW_EVENT, record);
+  window.addEventListener(LEADS_CLEAR_FILTERS_EVENT, record);
+  window.addEventListener(LEADS_OPEN_COLUMNS_EVENT, record);
 });
 afterEach(() => {
+  window.removeEventListener(LEADS_APPLY_VIEW_EVENT, record);
+  window.removeEventListener(LEADS_CLEAR_FILTERS_EVENT, record);
+  window.removeEventListener(LEADS_OPEN_COLUMNS_EVENT, record);
   vi.restoreAllMocks();
 });
 
@@ -84,6 +134,9 @@ function setup() {
 }
 
 const input = () => screen.getByRole("combobox", { name: /search name, phone, address/i });
+/** Only the SEARCH endpoint's calls. The palette also reads the saved-view roster when it
+ *  opens (N6-71), which is not what the debounce tests are about. */
+const searchCalls = () => apiGet.mock.calls.map((c) => String(c[0])).filter((u) => u.startsWith("/api/search"));
 const options = () => screen.getAllByRole("option");
 const selected = () => options().find((o) => o.getAttribute("aria-selected") === "true");
 
@@ -108,9 +161,9 @@ describe("SRCH-02: global search overlay", () => {
     await user.type(input(), "whitf");
 
     // Nothing has left for the server yet: the 400ms window is still open.
-    expect(apiGet).not.toHaveBeenCalled();
+    expect(searchCalls()).toHaveLength(0);
 
-    await waitFor(() => expect(apiGet).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(searchCalls()).toHaveLength(1));
     expect(apiGet).toHaveBeenCalledWith("/api/search?q=whitf");
   });
 
@@ -141,10 +194,12 @@ describe("SRCH-02: global search overlay", () => {
   it("SRCH-02: a query below the minimum length never reaches the server", async () => {
     const { user, trigger } = setup();
     await user.click(trigger);
-    await user.type(input(), "w");
+    // "q" also matches no action or destination label, so the hint is what remains (N6-71 gave
+    // the sub-minimum state a local action list; it still says this when nothing matches).
+    await user.type(input(), "q");
     expect(await screen.findByText(/type at least 2 characters/i)).toBeInTheDocument();
     await new Promise((r) => setTimeout(r, 600));
-    expect(apiGet).not.toHaveBeenCalled();
+    expect(searchCalls()).toHaveLength(0);
   });
 
   it("SRCH-02: ↑↓ move the cursor and WRAP; ↵ opens the lead dialog deep-link", async () => {
@@ -311,6 +366,276 @@ describe("SRCH-02: global search overlay", () => {
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     await user.click(trigger);
     expect(input()).toHaveValue("");
-    expect(screen.getByText(/type at least 2 characters/i)).toBeInTheDocument();
+    // N6-71: the empty state is now the ACTION menu (it used to be the "type 2 characters"
+    // hint) — what must not survive the reopen is the previous term's RESULTS.
+    expect(screen.queryByText("LD-25-01847")).toBeNull();
+    expect(screen.getByText("Go to")).toBeInTheDocument();
+  });
+});
+
+// ── N6-70..74: the palette's actions ─────────────────────────────────────────────────────
+// The zero-query state used to be dead until the second keystroke. It is now a menu: the
+// caller's saved views, the two page-scoped leads actions, and the shell's own destinations.
+// Everything in it either navigates or dispatches — nothing writes (owner decision, pinned
+// by the registry test at the end of this block).
+describe("N6-70..74: Ctrl-K actions", () => {
+  const optionLabels = () => options().map((o) => o.textContent ?? "");
+  const groupHeadings = () =>
+    [...screen.getByRole("listbox").children]
+      .filter((el) => el.getAttribute("role") === "presentation")
+      .map((el) => el.textContent ?? "");
+
+  it("N6-71: the zero-query state lists Actions and Go to — not a dead hint", async () => {
+    const { user, trigger } = setup();
+    await user.click(trigger);
+
+    expect(await screen.findByText("Apply view: Hot in AZ")).toBeInTheDocument();
+    expect(screen.getByText("Apply view: Probate list")).toBeInTheDocument();
+    // The shell's destinations, imported rather than re-listed (N6-71).
+    expect(screen.getByText("Dashboard")).toBeInTheDocument();
+    expect(screen.getByText("Settings")).toBeInTheDocument();
+    expect(groupHeadings()).toEqual(["Actions", "Go to"]);
+    expect(screen.queryByText(/type at least 2 characters/i)).toBeNull();
+    // Zero-query means zero server search: the actions are answered locally.
+    expect(apiGet).not.toHaveBeenCalledWith(expect.stringContaining("/api/search"));
+  });
+
+  it("N6-71: the page-scoped actions are ABSENT off /leads", async () => {
+    const { user, trigger } = setup();
+    await user.click(trigger);
+    await screen.findByText("Apply view: Hot in AZ");
+    // Absence, not a disabled row: off /leads there is nothing listening for them (N6-72).
+    expect(screen.queryByText("Clear filters")).toBeNull();
+    expect(screen.queryByText("Open Columns")).toBeNull();
+  });
+
+  it("N6-71: on /leads the page-scoped actions appear, hinted with their scope", async () => {
+    pathname = "/leads";
+    const { user, trigger } = setup();
+    await user.click(trigger);
+    expect(await screen.findByText("Clear filters")).toBeInTheDocument();
+    expect(screen.getByText("Open Columns")).toBeInTheDocument();
+    // The hint says WHERE the action acts — the same row on another page would mean nothing.
+    expect(screen.getAllByText("· this page")).toHaveLength(2);
+  });
+
+  it("N6-70: ↵ RUNS an action and closes the palette", async () => {
+    pathname = "/leads";
+    const { user, trigger } = setup();
+    await user.click(trigger);
+    await screen.findByText("Clear filters");
+
+    // Keyboard only — one cursor walks actions and results alike.
+    await user.type(input(), "clear f");
+    await waitFor(() => expect(optionLabels()).toEqual(["Clear filters· this page"]));
+    await user.keyboard("{Enter}");
+
+    expect(fired.map((e) => e.type)).toEqual([LEADS_CLEAR_FILTERS_EVENT]);
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(push).not.toHaveBeenCalled();
+  });
+
+  it("N6-72: on /leads, Apply view DISPATCHES the view (no navigation)", async () => {
+    pathname = "/leads";
+    const { user, trigger } = setup();
+    await user.click(trigger);
+    await user.click(await screen.findByText("Apply view: Hot in AZ"));
+
+    expect(fired).toHaveLength(1);
+    expect(fired[0].type).toBe(LEADS_APPLY_VIEW_EVENT);
+    const detail = fired[0].detail as LeadsApplyViewDetail;
+    expect(detail.id).toBe("v1");
+    expect(detail.filters).toEqual(VIEW_HOT.filters);
+    expect(push).not.toHaveBeenCalled();
+  });
+
+  it("N6-72: off /leads, Apply view NAVIGATES to /leads?view=<id>", async () => {
+    const { user, trigger } = setup();
+    await user.click(trigger);
+    await user.click(await screen.findByText("Apply view: Probate list"));
+
+    expect(push).toHaveBeenCalledWith("/leads?view=v2");
+    expect(fired).toHaveLength(0); // nothing is listening off the leads page
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  });
+
+  it("N6-71: below the search minimum, typing FILTERS the actions by label", async () => {
+    pathname = "/leads";
+    const { user, trigger } = setup();
+    await user.click(trigger);
+    await screen.findByText("Open Columns");
+
+    await user.type(input(), "c"); // one character — still under SEARCH_MIN_CHARS
+    // A plain case-insensitive substring over the LABELS — actions first, destinations after.
+    await waitFor(() =>
+      expect(optionLabels()).toEqual([
+        "Clear filters· this page",
+        "Open Columns· this page",
+        "Unmatched→",
+        "Coverage→",
+        "Activity→",
+      ]),
+    );
+    // The saved views are gone: neither name contains a "c".
+    expect(screen.queryByText(/apply view/i)).toBeNull();
+    // …and no request was made for a one-character term.
+    await new Promise((r) => setTimeout(r, 600));
+    expect(searchCalls()).toHaveLength(0);
+  });
+
+  it("N6-71: at ≥2 characters matching actions sit ABOVE the untouched search groups", async () => {
+    views = [{ ...VIEW_HOT, id: "v9", name: "Whitfield sweep" }];
+    const { user, trigger } = setup();
+    await user.click(trigger);
+    await user.type(input(), "whitf");
+
+    // Actions first, then today's groups in today's order.
+    await waitFor(() => expect(groupHeadings()).toEqual(["Actions", "Leads · 2", "Partners · 1"]));
+    expect(optionLabels()[0]).toContain("Apply view: Whitfield sweep");
+    // The search half is untouched: both leads and the partner are still there.
+    expect(options()).toHaveLength(4);
+  });
+
+  it("N6-71: a query matching nothing local still shows the search's own empty state", async () => {
+    payload = none();
+    const { user, trigger } = setup();
+    await user.click(trigger);
+    await user.type(input(), "zzzz");
+    expect(await screen.findByText("No matches")).toBeInTheDocument();
+    expect(screen.queryAllByRole("option")).toHaveLength(0);
+  });
+
+  it("N6-74: the footer advertises ↵ run alongside ↵ open", async () => {
+    const { user, trigger } = setup();
+    await user.click(trigger);
+    expect(screen.getByText("↵ run")).toBeInTheDocument();
+    expect(screen.getByText("↵ open")).toBeInTheDocument();
+  });
+
+  it("N6-71: a failed saved-views read is REPORTED with a retry, not silently empty", async () => {
+    apiGet.mockImplementationOnce(async () => {
+      throw new Error("views are down");
+    });
+    const { user, trigger } = setup();
+    await user.click(trigger);
+
+    // An empty Actions group and a failed fetch look identical; off /leads this palette is the
+    // only apply surface, so the difference has to be visible (audit-ux-flows).
+    expect(await screen.findByText(/couldn't load your saved views/i)).toBeInTheDocument();
+    expect(screen.queryByText(/apply view/i)).toBeNull();
+    // The search half keeps working underneath.
+    expect(screen.getByText("Go to")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Retry" }));
+    expect(await screen.findByText("Apply view: Hot in AZ")).toBeInTheDocument();
+    expect(screen.queryByText(/couldn't load your saved views/i)).toBeNull();
+  });
+
+  it("N6-71: 'Open Columns' is ABSENT in board mode — the board has no columns menu", async () => {
+    pathname = "/leads";
+    setPreferences({ leadsView: "board" });
+    const { user, trigger } = setup();
+    await user.click(trigger);
+
+    // "Clear filters" stays: the board honours the whole filter set.
+    expect(await screen.findByText("Clear filters")).toBeInTheDocument();
+    expect(screen.queryByText("Open Columns")).toBeNull();
+  });
+
+  it("N6-70: a late roster RESETS the cursor — ↵ can't fire a row that just shifted", async () => {
+    pathname = "/leads";
+    let openTheGate = () => {};
+    viewsGate = new Promise<void>((resolve) => {
+      openTheGate = resolve;
+    });
+    const { user, trigger } = setup();
+    await user.click(trigger);
+
+    // Only the local rows exist while the roster is in flight. Move the cursor off row 0.
+    await screen.findByText("Clear filters");
+    expect(screen.queryByText(/apply view/i)).toBeNull();
+    await user.keyboard("{ArrowDown}");
+    expect(selected()).toHaveTextContent("Open Columns");
+
+    // …now the roster lands and PREPENDS two rows above everything.
+    await act(async () => {
+      openTheGate();
+      await Promise.resolve();
+    });
+    expect(await screen.findByText("Apply view: Hot in AZ")).toBeInTheDocument();
+
+    // The cursor is back at the top rather than pointing at whatever slid under it.
+    await waitFor(() => expect(selected()).toHaveTextContent("Apply view: Hot in AZ"));
+    await user.keyboard("{Enter}");
+    expect(fired.map((e) => e.type)).toEqual([LEADS_APPLY_VIEW_EVENT]);
+  });
+
+  it("A11Y-04: Ctrl-K does NOT open over a dialog that is still asking a question", async () => {
+    const { user } = setup();
+    // Stand in for PR A's bulk confirm / the save-view dialog: a focused control inside a
+    // [role=dialog]. Opening the palette on top would let "Clear filters" reset the page
+    // behind a modal the operator hasn't answered.
+    render(
+      <div role="dialog" aria-label="Assign 641 leads">
+        <button type="button">Assign</button>
+      </div>,
+    );
+    const inDialog = screen.getByRole("button", { name: "Assign" });
+    inDialog.focus();
+
+    await user.keyboard("{Control>}k{/Control}");
+    expect(screen.queryByRole("combobox", { name: /search name, phone, address/i })).toBeNull();
+  });
+
+  it("A11Y-04: …but a plain text field is NOT excluded — Ctrl-K is a chord, not typing", async () => {
+    const { user } = setup();
+    render(<input aria-label="Search leads" />);
+    screen.getByRole("textbox", { name: "Search leads" }).focus();
+
+    await user.keyboard("{Control>}k{/Control}");
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+  });
+
+  // ── The owner's pin: navigate + views ONLY ──────────────────────────────────────────────
+  // Two independent legs, because either alone is weak. The allowlist would pass a "Delete
+  // view: X" that someone named innocently; the no-write leg would pass an action that mutates
+  // through some future non-apiMutate path. Together they say: these rows, and they don't write.
+  it("N6-72: the action registry contains NO mutating action (owner pin)", async () => {
+    pathname = "/leads";
+    const { user, trigger } = setup();
+    await user.click(trigger);
+    await screen.findByText("Apply view: Hot in AZ");
+
+    const actionRows = options()
+      .slice(0, 4) // the Actions group: two views + the two page actions
+      .map((o) => o.textContent ?? "");
+    expect(actionRows).toEqual([
+      "Apply view: Hot in AZ",
+      "Apply view: Probate list",
+      "Clear filters· this page",
+      "Open Columns· this page",
+    ]);
+    // Every label is an APPLY/CLEAR/OPEN — no verb in the registry changes a lead. A new action
+    // that did would have to be added to this list by hand, which is the point.
+    for (const label of actionRows) {
+      expect(label).toMatch(/^(Apply view: |Clear filters|Open Columns)/);
+    }
+    await user.keyboard("{Escape}");
+
+    // …and running each of them writes nothing.
+    for (const label of ["Apply view: Hot in AZ", "Apply view: Probate list", "Clear filters", "Open Columns"]) {
+      await user.click(trigger);
+      await user.click(await screen.findByText(label));
+      await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    }
+    expect(apiMutate).not.toHaveBeenCalled();
+    // What DID happen: four dispatches to the leads page, and no navigation.
+    expect(fired.map((e) => e.type)).toEqual([
+      LEADS_APPLY_VIEW_EVENT,
+      LEADS_APPLY_VIEW_EVENT,
+      LEADS_CLEAR_FILTERS_EVENT,
+      LEADS_OPEN_COLUMNS_EVENT,
+    ]);
+    expect(push).not.toHaveBeenCalled();
   });
 });

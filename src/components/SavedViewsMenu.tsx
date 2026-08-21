@@ -1,9 +1,13 @@
 "use client";
 
 import * as React from "react";
+import { useQuery } from "@tanstack/react-query";
+import { apiGet } from "@/lib/api";
 import { cn } from "@/lib/cn";
+import { describeFilters } from "@/modules/leads/filter-describe";
 import { savedViewKey, SAVED_VIEW_NAME_MAX, EMPTY_SAVED_VIEW_FILTERS, type SavedViewFilters } from "@/modules/saved-views/schema";
 import { useSavedViews, useSavedViewMutations, type SavedViewRow } from "@/lib/saved-views-client";
+import { useTags } from "@/lib/tags-client";
 import {
   DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem,
   DropdownMenuSeparator, DropdownMenuLabel,
@@ -95,6 +99,14 @@ export function SavedViewsMenu({ filters, onApply, className }: SavedViewsMenuPr
   const [overwriting, setOverwriting] = React.useState<SavedViewRow | null>(null);
   const [saveError, setSaveError] = React.useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = React.useState<SavedViewRow | null>(null);
+  /**
+   * N6-60/61: which view "Update …" is about to overwrite, captured when the item is chosen.
+   * The IDENTITY is frozen (id + name) so the PATCH addresses the view the operator named,
+   * never a name re-resolved at submit time; the FILTERS are read live at submit, because
+   * "keep the filters you're looking at" is exactly what the dialog promises — and with the
+   * dialog up, nothing behind it can change them.
+   */
+  const [updating, setUpdating] = React.useState<{ id: string; name: string } | null>(null);
 
   // The current filters ARE the default (opening) state. When true, we are not looking at any
   // named view — even if one was applied and then edited back down (the leads bar's "Clear all"
@@ -172,6 +184,57 @@ export function SavedViewsMenu({ filters, onApply, className }: SavedViewsMenuPr
     );
   };
 
+  /**
+   * N6-61: the incoming filters, in words. Reuses `describeFilters` — the module PR A wrote for
+   * the bulk bar's escalation copy — rather than a second vocabulary, so "Hot only · tagged
+   * Probate" means the same thing in both confirmations. Partner and tag ids are resolved
+   * through the rosters the leads page already has cached (same query keys, enabled only while
+   * the dialog is up, so this adds no fetch of its own); an id with no name degrades to the id
+   * rather than dropping the clause, which would hide an active filter.
+   */
+  const partnersQ = useQuery({
+    queryKey: ["partners"],
+    queryFn: () => apiGet<{ partners: { id: string; refId: string; name: string }[] }>("/api/admin/partners"),
+    enabled: updating !== null,
+  });
+  const tagsQ = useTags(updating !== null);
+  const words = describeFilters(filters, {
+    partners: new Map((partnersQ.data?.partners ?? []).map((p) => [p.id, `${p.name} (${p.refId})`])),
+    tags: new Map((tagsQ.data?.tags ?? []).map((t) => [t.id, t.name])),
+  });
+
+  const submitUpdate = () => {
+    if (!updating) return;
+    update.mutate(
+      // Addressed by ID — the id of the view that is APPLIED. Never a name lookup: two views
+      // can differ only by case, and the applied one is the only one the operator meant.
+      { id: updating.id, filters },
+      {
+        onSuccess: () => {
+          // Move the applied snapshot forward LOCALLY so "Modified" clears on the same tick the
+          // dialog closes. Waiting for the roster refetch would leave the badge up for a beat
+          // after a successful save, which reads as "it didn't take".
+          setActive({ id: updating.id, name: updating.name, filters });
+          setUpdating(null);
+          toast("View updated.", "success");
+        },
+        onError: (e) => {
+          toast(e.message || "Couldn't update the view.", "danger");
+          // The view was deleted under us (another tab, another device). Branch on the server's
+          // CODE — the stable contract, never the message text — and do what `submitSave` does
+          // with its 409: close the question that can no longer be answered and re-read the
+          // roster, so the menu stops listing a row that isn't there. Without this the operator
+          // can press Update forever on a ghost.
+          if (e.code === "not_found") {
+            setUpdating(null);
+            setActive(null); // it is no longer the applied view; the filters stay as they are
+            void viewsQ.refetch();
+          }
+        },
+      },
+    );
+  };
+
   const submitDelete = () => {
     if (!confirmDelete) return;
     remove.mutate(confirmDelete.id, {
@@ -181,7 +244,17 @@ export function SavedViewsMenu({ filters, onApply, className }: SavedViewsMenuPr
         setConfirmDelete(null);
         toast("View deleted.", "success");
       },
-      onError: (e) => toast(e.message || "Couldn't delete the view.", "danger"),
+      onError: (e) => {
+        toast(e.message || "Couldn't delete the view.", "danger");
+        // Already gone (deleted elsewhere) — the ask is satisfied, even though this request
+        // failed. Same recovery as the update path: close the dialog and re-read the roster
+        // rather than leaving a ghost row with a live-looking Delete.
+        if (e.code === "not_found") {
+          if (active?.id === confirmDelete.id) setActive(null);
+          setConfirmDelete(null);
+          void viewsQ.refetch();
+        }
+      },
     });
   };
 
@@ -276,6 +349,19 @@ export function SavedViewsMenu({ filters, onApply, className }: SavedViewsMenuPr
           )}
 
           <DropdownMenuSeparator />
+          {/* N6-60: "Update" exists ONLY while a view is applied AND the page has diverged from
+              it — the same `savedViewKey` comparison the "Modified" badge reads. With nothing
+              applied there is no view to overwrite, and at parity the write would replace a
+              view's filters with the identical bytes. Absence, not a disabled row: a permanently
+              greyed item teaches nothing about when it becomes available. */}
+          {shownActive && modified && (
+            <DropdownMenuItem
+              className="font-semibold text-brand-ink"
+              onSelect={() => setUpdating({ id: shownActive.id, name: shownActive.name })}
+            >
+              ↻ Update “{shownActive.name}”…
+            </DropdownMenuItem>
+          )}
           <DropdownMenuItem className="font-semibold text-brand-ink" onSelect={openSave}>
             ＋ Save current filters…
           </DropdownMenuItem>
@@ -322,6 +408,38 @@ export function SavedViewsMenu({ filters, onApply, className }: SavedViewsMenuPr
             </p>
           )}
           {saveError && <p className="text-sm text-danger">{saveError}</p>}
+        </div>
+      </Dialog>
+
+      {/* N6-61: overwriting an applied view is confirm-gated, and the confirmation SAYS what the
+          view will keep — a view is a bookmark someone else's muscle memory may depend on, and
+          "Update" with no sentence would be a silent replacement of filters they can't see. */}
+      <Dialog
+        open={updating !== null}
+        onClose={() => !update.isPending && setUpdating(null)}
+        title={updating ? `Update “${updating.name}”?` : ""}
+        size="sm"
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setUpdating(null)} disabled={update.isPending}>
+              Cancel
+            </Button>
+            <Button onClick={submitUpdate} loading={update.isPending}>
+              Update view
+            </Button>
+          </>
+        }
+      >
+        <div className="flex flex-col gap-2">
+          <p className="text-sm text-text-2">
+            The view will now keep the filters you’re looking at — {words || "no filters"}. Its old filters are
+            replaced.
+          </p>
+          {/* The mode rides in the blob (SV-01), so it is replaced too — the same sentence the
+              save box shows, for the same reason. */}
+          <p className="text-xs text-text-3">
+            Includes the {filters.viewMode === "board" ? "board" : "list"} view.
+          </p>
         </div>
       </Dialog>
 
