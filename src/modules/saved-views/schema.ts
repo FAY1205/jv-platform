@@ -31,6 +31,23 @@ export const SAVED_VIEW_NAME_MAX = 60;
 
 export const SavedViewNameSchema = z.string().trim().min(1).max(SAVED_VIEW_NAME_MAX);
 
+// The module-local uuid shape (the house idiom — every module that parses one keeps its own,
+// rather than a shared constant nobody owns).
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * N6-72 — `/leads?view=<id>`, the off-page form of "apply this view" (the Ctrl-K palette
+ * navigates here when the leads page isn't mounted to receive the event). Anything that isn't
+ * uuid-shaped degrades to null, exactly like `?partnerId=` and `?tags=`.
+ *
+ * The parse is defence in depth, not the isolation boundary: the id never reaches a query.
+ * The client selects from the saved-view roster it has already fetched — rows the server
+ * scoped to this user — so an id belonging to somebody else simply matches nothing and the
+ * page opens at its default (`partnerUuidParam`'s reasoning, same shape).
+ */
+export const savedViewIdParam = () =>
+  z.unknown().optional().transform((v) => (typeof v === "string" && UUID_RE.test(v) ? v : null));
+
 /** The leads page's own filter validators, reused verbatim (SV-02). */
 const LeadsFilterState = LeadsQuerySchema.pick({
   q: true,

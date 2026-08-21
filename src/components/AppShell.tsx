@@ -11,7 +11,8 @@ import { PageHeaderProvider, PageHeaderSlot } from "./PageHeader";
 import { ThemeToggle } from "./ThemeToggle";
 import { ToastProvider } from "./Toast";
 import { IconButton } from "./IconButton";
-import { NavIcon, type NavIconName } from "./NavIcon";
+import { NavIcon } from "./NavIcon";
+import { NAV_SECTIONS } from "@/lib/admin-nav";
 import { GlobalSearchTrigger } from "./GlobalSearch";
 import { usePreferences, setPreferences, useApplyTheme } from "@/lib/preferences";
 
@@ -25,33 +26,10 @@ import { usePreferences, setPreferences, useApplyTheme } from "@/lib/preferences
 // /imports/[ref] and /partners/[id] broken. Pages must NOT nest a second provider: it
 // would render a duplicate live region and double-announce.
 
-type IconName = NavIconName;
-
-// Grouped navigation: sections keep the rail scannable and give future pages an
-// obvious home (Leads and Unmatched join the "Leads" section in later phases).
-interface NavItem { href: string; label: string; icon: IconName; badge?: "leads" | "unmatched" }
-// Grouped by the weekly job (audit F-63): Route = today's work, Review = the queue,
-// Network = who/where, Admin = configuration. Exported for the shell nav test.
-export const NAV_SECTIONS: { label: string; items: NavItem[] }[] = [
-  { label: "Route", items: [
-    { href: "/dashboard", label: "Dashboard", icon: "dashboard" },
-    { href: "/leads", label: "Leads", icon: "leads", badge: "leads" },
-    { href: "/tasks", label: "Tasks", icon: "tasks" },
-  ]},
-  { label: "Review", items: [
-    { href: "/unmatched", label: "Unmatched", icon: "unmatched", badge: "unmatched" },
-    { href: "/imports", label: "Imports", icon: "runs" },
-  ]},
-  { label: "Network", items: [
-    { href: "/partners", label: "Partners", icon: "partners" },
-    { href: "/coverage", label: "Coverage", icon: "coverage" },
-  ]},
-  { label: "Admin", items: [
-    { href: "/rules", label: "Rules", icon: "rules" },
-    { href: "/activity", label: "Activity", icon: "activity" },
-    { href: "/settings", label: "Settings", icon: "settings" },
-  ]},
-];
+// N6-71: the destination list moved to lib/admin-nav so the Ctrl-K palette can import it
+// without a module cycle (the palette's trigger is rendered by THIS file). Re-exported here
+// because that is the path the shell-nav test and every reader already know.
+export { NAV_SECTIONS } from "@/lib/admin-nav";
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const path = usePathname() ?? "";

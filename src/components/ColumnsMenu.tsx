@@ -33,14 +33,23 @@ export interface ColumnsMenuProps {
   onToggle: (id: string, visible: boolean) => void;
   onReset: () => void;
   className?: string;
+  /**
+   * N6-73: optional CONTROLLED open state, so a caller outside this component can raise the
+   * menu — the Ctrl-K palette's "Open Columns" action reaches the leads page by event, and the
+   * page has to be able to act on it. Omit both props (the default) and the menu stays
+   * uncontrolled exactly as before: Radix treats `open === undefined` as uncontrolled, so
+   * there is no second code path to keep in step.
+   */
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
 }
 
-export function ColumnsMenu({ columns, hidden, onToggle, onReset, className }: ColumnsMenuProps) {
+export function ColumnsMenu({ columns, hidden, onToggle, onReset, className, open, onOpenChange }: ColumnsMenuProps) {
   const hiddenCount = columns.filter((c) => !c.pinned && hidden.includes(c.id)).length;
   const atDefault = hiddenCount === 0;
 
   return (
-    <DropdownMenu>
+    <DropdownMenu open={open} onOpenChange={onOpenChange}>
       <DropdownMenuTrigger asChild>
         <button
           type="button"

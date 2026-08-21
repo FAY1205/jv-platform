@@ -17,6 +17,11 @@ import {
 } from "@/components";
 import { useCurrentUser } from "@/lib/use-current-user";
 import { BulkBar } from "./bulk-bar";
+import {
+  LEADS_APPLY_VIEW_EVENT, LEADS_CLEAR_FILTERS_EVENT, LEADS_OPEN_COLUMNS_EVENT,
+  type LeadsApplyViewDetail,
+} from "@/lib/leads-actions";
+import { useSavedViews } from "@/lib/saved-views-client";
 import type { SavedViewFilters } from "@/modules/saved-views/schema";
 import { US_STATES } from "@/lib/us-states";
 import { googleSearchUrl } from "@/lib/search-links";
@@ -100,19 +105,23 @@ interface LeadsViewProps {
    *  validated by the SHARED `partnerIdParam()`. "" = no partner filter. Deep-links into a
    *  partner-filtered list (partner detail → "View all in Leads →"). */
   initialPartnerId?: string;
+  /** N6-72: a saved-view id from `?view=` (the Ctrl-K palette's "Apply view", arriving from a
+   *  page where this list wasn't mounted to receive the event). Applied once the roster loads;
+   *  an id that isn't in the user's own roster is a silent no-op. */
+  initialViewId?: string | null;
 }
 
-export function LeadsView({ initialQ, initialOpenRef = null, initialHot = false, initialTags = [], initialPartnerId = "" }: LeadsViewProps) {
+export function LeadsView({ initialQ, initialOpenRef = null, initialHot = false, initialTags = [], initialPartnerId = "", initialViewId = null }: LeadsViewProps) {
   return (
     <AppShell>
-      <LeadsBody initialQ={initialQ} initialOpenRef={initialOpenRef} initialHot={initialHot} initialTags={initialTags} initialPartnerId={initialPartnerId} />
+      <LeadsBody initialQ={initialQ} initialOpenRef={initialOpenRef} initialHot={initialHot} initialTags={initialTags} initialPartnerId={initialPartnerId} initialViewId={initialViewId} />
     </AppShell>
   );
 }
 
 // Rendered inside AppShell's PageHeaderProvider so usePageHeader resolves — the "Leads"
 // title lives in the topbar (WP-E shell pattern), so no in-body <h1>.
-function LeadsBody({ initialQ, initialOpenRef = null, initialHot = false, initialTags = [], initialPartnerId = "" }: LeadsViewProps) {
+function LeadsBody({ initialQ, initialOpenRef = null, initialHot = false, initialTags = [], initialPartnerId = "", initialViewId = null }: LeadsViewProps) {
   usePageHeader({ title: "Leads" });
 
   const [filters, setFilters] = React.useState<Filters>({ ...EMPTY, q: initialQ, hot: initialHot, tags: [...initialTags], partnerId: initialPartnerId });
@@ -197,6 +206,56 @@ function LeadsBody({ initialQ, initialOpenRef = null, initialHot = false, initia
   // mode is preserved: clearing filters is not a request to change List/Board.
   const clearFilters = React.useCallback(() => applyView({ ...EMPTY, viewMode: view }), [applyView, view]);
 
+  // ── N6-72: the Ctrl-K palette's leads actions ────────────────────────────────────────────
+  // The palette is mounted by the (admin) layout, OUTSIDE this tree, so it reaches us by window
+  // event (lib/leads-actions). Each one routes through a channel that already exists — the
+  // SV-04 apply path or the Columns menu's new controlled `open` — so a palette action and the
+  // equivalent click land in exactly the same state. Nothing here writes.
+  const [columnsOpen, setColumnsOpen] = React.useState(false);
+  React.useEffect(() => {
+    const onApply = (e: Event) => {
+      const detail = (e as CustomEvent<LeadsApplyViewDetail>).detail;
+      if (detail?.filters) applyView(detail.filters);
+    };
+    const onClear = () => clearFilters();
+    // Board mode has no columns menu to open, so the request is dropped rather than parked —
+    // otherwise it would spring open later, on a switch back to the list, long after the ask.
+    const onColumns = () => { if (view === "list") setColumnsOpen(true); };
+    window.addEventListener(LEADS_APPLY_VIEW_EVENT, onApply);
+    window.addEventListener(LEADS_CLEAR_FILTERS_EVENT, onClear);
+    window.addEventListener(LEADS_OPEN_COLUMNS_EVENT, onColumns);
+    return () => {
+      window.removeEventListener(LEADS_APPLY_VIEW_EVENT, onApply);
+      window.removeEventListener(LEADS_CLEAR_FILTERS_EVENT, onClear);
+      window.removeEventListener(LEADS_OPEN_COLUMNS_EVENT, onColumns);
+    };
+  }, [applyView, clearFilters, view]);
+
+  // N6-72: `?view=<id>` — the same action arriving from a page where this list wasn't mounted.
+  // The roster read shares SavedViewsMenu's cache entry (one fetch), and the id is matched
+  // against rows the SERVER already scoped to this user: an unknown or someone else's id
+  // simply finds nothing and the page opens at its default. Seeded once per id, so closing or
+  // editing the applied view isn't undone on the next render.
+  const savedViewsQ = useSavedViews(Boolean(initialViewId));
+  // "Which param have I already consumed" is a REF, not state: it renders nothing, and holding
+  // it in state would mean a setState inside this effect — a cascading render for a value no
+  // one displays (the ?open= re-seed above can use the render-time compare instead because it
+  // has no side effect to perform; applying a view writes the view-mode preference).
+  const seededViewRef = React.useRef<string | null>(null);
+  React.useEffect(() => {
+    if (!initialViewId || seededViewRef.current === initialViewId) return;
+    const rows = savedViewsQ.data?.views;
+    if (!rows) return; // the roster hasn't landed yet — try again when it does
+    seededViewRef.current = initialViewId;
+    const match = rows.find((v) => v.id === initialViewId);
+    // The apply MUST go through this one channel (it writes the view-mode preference as well as
+    // the filter nonce), and it cannot run during render because the roster it depends on
+    // arrives from a server response. The rule's "cascading render" concern doesn't bite here:
+    // the ref above makes this fire at most once per URL param, never in a loop.
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- one-shot deep-link seed; the guard ref bounds it
+    if (match) applyView(match.filters);
+  }, [initialViewId, savedViewsQ.data, applyView]);
+
   // N5-04: the panel's pager and the table read the SAME list query — one cache entry, one
   // fetch — so "N of M" can never disagree with the rows on screen. It lives here rather than
   // in LeadsTable because the panel is this component's child too. Board mode doesn't run it:
@@ -269,6 +328,8 @@ function LeadsBody({ initialQ, initialOpenRef = null, initialHot = false, initia
           onEditSelection={editSelection}
           onEscalate={() => setAllMatching(true)}
           onClearSelection={clearSelection}
+          columnsOpen={columnsOpen}
+          onColumnsOpenChange={setColumnsOpen}
         />
       )}
 
@@ -504,7 +565,7 @@ function useLeadsPage({
 // ── Table (consumes only committed state → no keystroke reconciliation) ──
 function LeadsTable({
   leadsQ, filters, sort, dir, openRef, onSort, onOpen, onPageChange, onPageSizeChange, onClearFilters,
-  selected, allMatching, onEditSelection, onEscalate, onClearSelection,
+  selected, allMatching, onEditSelection, onEscalate, onClearSelection, columnsOpen, onColumnsOpenChange,
 }: {
   leadsQ: UseQueryResult<LeadsPage, Error>;
   filters: Filters; sort: LeadSortField; dir: "asc" | "desc";
@@ -519,6 +580,10 @@ function LeadsTable({
   onEditSelection: (edit: (next: Set<string>) => void) => void;
   onEscalate: () => void;
   onClearSelection: () => void;
+  /** N6-73: the Columns menu is CONTROLLED here so the Ctrl-K palette can raise it (the page
+   *  owns the event listener; the menu itself is three levels down). */
+  columnsOpen: boolean;
+  onColumnsOpenChange: (open: boolean) => void;
 }) {
   const data = leadsQ.data;
   const { canDo } = useCurrentUser();
@@ -601,7 +666,14 @@ function LeadsTable({
               </>
             )}
           </p>
-          <ColumnsMenu columns={LEADS_COLUMNS} hidden={hiddenColumns} onToggle={toggleColumn} onReset={resetColumns} />
+          <ColumnsMenu
+            columns={LEADS_COLUMNS}
+            hidden={hiddenColumns}
+            onToggle={toggleColumn}
+            onReset={resetColumns}
+            open={columnsOpen}
+            onOpenChange={onColumnsOpenChange}
+          />
         </div>
       )}
       {/* N6-53: the bar sits BETWEEN the count row and the table — it belongs to the rows it

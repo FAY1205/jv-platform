@@ -267,6 +267,107 @@ describe("SV-03: save current filters", () => {
   });
 });
 
+// ── N6-60/61: update the applied view ────────────────────────────────────────────────────
+// The overwrite path that doesn't ask for a name. It exists in exactly one state — a view is
+// applied AND the page has diverged from it — so most of this suite is about the two states
+// where the item must NOT be there (§8's absence rule).
+describe("N6-60/61: update the applied view", () => {
+  const updateItem = () => screen.queryByRole("menuitem", { name: /^↻ Update/ });
+
+  it("N6-60: ABSENT when no view is applied — there is nothing to overwrite", async () => {
+    const user = userEvent.setup();
+    wrap();
+    // Filters differ from the default, but no view was ever applied.
+    await user.click(await screen.findByRole("button", { name: /edit filters/i }));
+    await openMenu(user);
+    expect(await screen.findByRole("menuitem", { name: /save current filters/i })).toBeInTheDocument();
+    expect(updateItem()).toBeNull();
+  });
+
+  it("N6-60: ABSENT while the applied view is UNMODIFIED — it can't overwrite with itself", async () => {
+    const user = userEvent.setup();
+    wrap();
+    await openMenu(user);
+    await user.click(await screen.findByRole("menuitem", { name: "Hot in AZ" }));
+
+    await openMenu(user);
+    expect(await screen.findByRole("menuitem", { name: /save current filters/i })).toBeInTheDocument();
+    expect(updateItem()).toBeNull();
+  });
+
+  it("N6-60: appears once the applied view diverges — the same oracle as the badge", async () => {
+    const user = userEvent.setup();
+    wrap();
+    await openMenu(user);
+    await user.click(await screen.findByRole("menuitem", { name: "Hot in AZ" }));
+    await user.click(screen.getByRole("button", { name: /edit filters/i }));
+    expect(await screen.findByText("Modified")).toBeInTheDocument();
+
+    await openMenu(user);
+    expect(await screen.findByRole("menuitem", { name: /^↻ Update “Hot in AZ”…$/ })).toBeInTheDocument();
+  });
+
+  it("N6-61: confirming PATCHes the APPLIED id with the current filters, and Modified clears", async () => {
+    const user = userEvent.setup();
+    wrap();
+    await openMenu(user);
+    await user.click(await screen.findByRole("menuitem", { name: "Hot in AZ" }));
+    await user.click(screen.getByRole("button", { name: /edit filters/i }));
+    await openMenu(user);
+    await user.click(await screen.findByRole("menuitem", { name: /^↻ Update/ }));
+
+    // Confirm-gated: the item opens a question, it does not write.
+    expect(apiMutate).not.toHaveBeenCalled();
+    const dialog = await screen.findByRole("dialog");
+    // The copy names the view and describes what it will now keep, in words (N6-61).
+    expect(within(dialog).getByText(/the view will now keep the filters you’re looking at/i)).toBeInTheDocument();
+    expect(within(dialog).getByText(/search “edited” · AZ · Hot only/)).toBeInTheDocument();
+
+    await user.click(within(dialog).getByRole("button", { name: /update view/i }));
+
+    // ONE write, addressed by the APPLIED view's id (v1). The body carries filters only: the
+    // name is not part of this write, so there is nothing for a name lookup to resolve — which
+    // is the whole point of the id path (two views can differ only in case).
+    await waitFor(() =>
+      expect(apiMutate).toHaveBeenCalledExactlyOnceWith("/api/saved-views/v1", "PATCH", {
+        filters: { ...HOT_AZ, q: "edited" },
+      }),
+    );
+
+    // The applied snapshot moved forward locally, so the badge goes at once — no refetch race.
+    await waitFor(() => expect(screen.queryByText("Modified")).toBeNull());
+    expect(screen.getByRole("button", { name: /saved views — hot in az$/i })).toBeInTheDocument();
+  });
+
+  it("N6-61: cancelling writes nothing and leaves the view diverged", async () => {
+    const user = userEvent.setup();
+    wrap();
+    await openMenu(user);
+    await user.click(await screen.findByRole("menuitem", { name: "Hot in AZ" }));
+    await user.click(screen.getByRole("button", { name: /edit filters/i }));
+    await openMenu(user);
+    await user.click(await screen.findByRole("menuitem", { name: /^↻ Update/ }));
+    await user.click(within(await screen.findByRole("dialog")).getByRole("button", { name: /cancel/i }));
+
+    expect(apiMutate).not.toHaveBeenCalled();
+    expect(screen.getByText("Modified")).toBeInTheDocument();
+  });
+
+  it("N6-61: the save-as-new flow is untouched — Update never asks for a name", async () => {
+    const user = userEvent.setup();
+    wrap();
+    await openMenu(user);
+    await user.click(await screen.findByRole("menuitem", { name: "Hot in AZ" }));
+    await user.click(screen.getByRole("button", { name: /edit filters/i }));
+    await openMenu(user);
+    await user.click(await screen.findByRole("menuitem", { name: /^↻ Update/ }));
+
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).queryByRole("textbox", { name: /view name/i })).toBeNull();
+    expect(within(dialog).queryByRole("button", { name: /overwrite view/i })).toBeNull();
+  });
+});
+
 describe("SV-03: delete a view", () => {
   it("SV-03: delete is CONFIRM-gated", async () => {
     const user = userEvent.setup();
