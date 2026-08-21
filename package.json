@@ -38,7 +38,7 @@
     "@supabase/ssr": "^0.12.4",
     "@supabase/supabase-js": "^2.112.3",
     "@tanstack/react-query": "^5.101.4",
-    "ai": "7.0.60",
+    "ai": "7.0.67",
     "drizzle-orm": "^0.45.2",
     "exceljs": "^4.4.0",
     "next": "16.3.0",
