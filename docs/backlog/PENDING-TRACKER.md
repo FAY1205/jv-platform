@@ -1,7 +1,7 @@
 # Pending-work tracker
 
 The single source of truth for what's left, **segregated into slices** so a session can pick one
-coherent slice and work similar things together. Status verified against code 2026-08-17. When an
+coherent slice and work similar things together. Status reconciled against shipped PRs 2026-08-21 (N6 closeout). When an
 item ships, tick it here AND in its home doc (`CANDIDATES.md`, the capability map, or a WP file).
 
 Legend — Status: ☐ not started · ◐ partial · ✅ done · ⏳ owner-gated. Tier: A (prod
@@ -56,7 +56,7 @@ real partner-role portal session. New candidates C-44–C-50 minted; owner-decis
 
 ---
 
-## Build order (N-slices; consolidated from the Twenty adoption report — updated 2026-08-19)
+## Build order (N-slices; consolidated from the Twenty adoption report — updated 2026-08-21)
 
 The canonical execution sequence. Statuses here; per-item detail in CANDIDATES.md / the WP files.
 ★ = owner-gated before build. **Owner-question queue:** the deep-UX audit's 11 deferred questions
@@ -143,13 +143,13 @@ kanban, tags/search/saved-views). Each is its own mockup-first WP.
 
 | Item | What | Status | Tier |
 |------|------|--------|------|
-| Seller 360 | Read-only aggregate of a seller across leads (reuses `dedupe_key`/`phone_norm`) — owner's flagged next-slice candidate | ☐ | M–L |
-| Bulk mass-actions | Extend beyond the existing `assign-bulk` to bulk status/tag/export on the leads grid — owner's flagged candidate | ◐ | M |
-| Deal economics | Offer value / close date / lost reason (Dead-requires-reason) — owner-skipped, revisit | ☐ | M (+decision) |
-| Tabbed lead record (IA) | Full tabbed record; dialog + Timeline already exist | ◐ | M |
-| Configurable/editable stages | Tenant-editable kanban stages (status column already SEAM-06-ready) — deferred polish | ☐ | M |
-| File attachments | On leads/tasks — dropped from slice 1 | ☐ | M |
-| Phase-2 "CAN ADD" set | Light workflow automation (needs event stream) · email logging+templates · custom fields (EAV) · reporting expansion · multi-seat partner orgs+ACL · calendar · partner pause/vacation · richer notes | ☐ | Varies |
+| Seller 360 | Read-only aggregate of a seller across leads (reuses `dedupe_key`/`phone_norm`) — owner's flagged next-slice candidate → **build-order N8** (mockup gate) | ☐ (= N8) | M–L |
+| Bulk mass-actions | ✅ **DONE — WP-N6 (PRs #168 + #170, 2026-08-21):** bulk status/tags/assign (full transfer, two-step confirm) + export selected on the leads grid, page+escalate selection running server-side against the filter. Residuals: C-147 (export audit retro + throttle, owner call), C-148 streaming export. | ✅ | M |
+| Deal economics | Offer value / close date / lost reason (Dead-requires-reason) — **PARKED (owner 2026-08-20: "come back later if needed")** → build-order N9 | ☐ parked | M (+decision) |
+| Tabbed lead record (IA) | ✅ **RESOLVED — WP-N5 (PRs #158–#164, 2026-08-20/21):** owner chose the **side panel** over tabs (non-modal ≥768, inline per-field editing, ‹N of M› pager, details_updated timeline); the tabbed IA is superseded, not pending. Before→after diffs = N7. | ✅ (as side panel) | M |
+| Configurable/editable stages | Tenant-editable kanban stages (status column already SEAM-06-ready) — deferred polish. Note C-142: the N6 bulk-status dialog hardcodes `SEED_LEAD_STATUSES` and becomes a roster fetch here. | ☐ | M |
+| File attachments | On leads/tasks — **PARKED (owner 2026-08-20: "no attachments, later if needed")** → build-order N10 | ☐ parked | M |
+| Phase-2 "CAN ADD" set | Light workflow automation (needs event stream → **build-order N11**, event-seam ADR gate) · email logging+templates · custom fields (EAV) · reporting expansion · multi-seat partner orgs+ACL (fan-out already per-seat since NF1/NF2b) · calendar · partner pause/vacation · richer notes | ☐ | Varies |
 
 _SKIP (out of scope, not pending): quotes/products · IMAP mailbox + marketing · warehouse/Google
 Contacts · round-robin/capacity/shared territories (ASN-02) · full dedup/golden records · AI
@@ -180,7 +180,7 @@ doc-extraction · Stripe (→ Phase D)._
 ## Slice 8 — Owner decisions & hands-on (unblocks the above)
 | Item | What | Status |
 |------|------|--------|
-| Owner hands-on UI pass | Zero owner eyes yet on shipped tasks/timeline/board/tags/search/saved-views | ⏳ |
+| Owner hands-on UI pass | Owner eyes so far: the N5 lead panel only (N5e polish round 2026-08-21 — re-check of the REVISED panel still pending). **Still zero owner eyes on:** tasks/timeline/board/tags/search/saved-views (slices 1–3), N3 consistency pass, Team page (Phase C), /notifications + prefs card + an unsubscribe click (NF2), and the whole **N6 surface** (selection + escalation, four bulk dialogs, Update view, Ctrl-K actions, an export download). | ⏳ |
 | **UX effort 2026-08-18 — owner decisions surfaced (deferred, safe defaults applied):** | (1) leads-table **column resize/reorder** — built show/hide only; resize recommended-against (fights the Table fit/clamp budget), reorder = future additive `order` in the same pref. (2) **Roaming/cross-device prefs** — columns use localStorage now; promote the whole prefs blob to a `user_prefs` endpoint if/when Roles-Team lands. (3) **Score/Campaign as default-off columns** — data is already in the row payload; not listed yet (owner call). (4) **Sort-by-hidden-column** — kept the server-side sort (no visible arrow); owner may prefer auto-revert to Received desc. (5) **AI redesign** — mobile scrim, launcher "Ask" copy + breathe cadence, restored-segment divider duration, drag-to-dismiss (from `ai-redesign-spec.md`). (6) **Dark rim-light shadows** (`--sh-sm/md`) + `--chart-cat-*` ADR + **re-capture portal dark** with a partner session. (7) **"Clear all location"** — interpreted as the leads filter-bar "Clear all" leaving a stale saved-view label; fixed that. If the owner meant a different control, flag it. | ⏳ |
 | **Slice-3/5 closeout 2026-08-18/19 — owner decisions surfaced (safe reversible defaults applied):** | (1) **Tag cap number** — shipped 100/tenant (justified range 75–150; the API returns `limit` so a per-tenant override is additive later). (2) **Assignee display format** — email local-part truncated ~16ch, bare "You" for self, role tooltip-only (no per-row RoleBadge); the full matrix of alternatives is in the C-11 spec. (3) **Map label rule** — every gap state gets a chip (not top-N); legend anchored in the section header (not an in-map plate); "Fewer/More" wording kept; HI chip sits below the island chain. (4) **AI voice register** — flat operator copy everywhere incl. the no-key band (an invitation tone was the flagged alternative); chip wording as specced. (5) **Raw-enum fix approach** — timeline label re-labelled via the shared display map (no schema rename). All five are copy/const-level reversals if the owner prefers otherwise. | ⏳ |
 | ✅ **PR #132 — WP-NF1 D1 bell-read index (migration 0055): GREENLIT + MERGED + PROD-VERIFIED 2026-08-19.** Owner greenlit; merged on green CI; prod verified live via pg_indexes (`notifications_tenant_user_created_idx` + partial `notifications_tenant_user_unread_idx` present with exact definitions, `notifications_user_idx` dropped, tenant + lead_ref indexes intact) and the drizzle ledger (56/56 applied, last = 0055's journal `when` 1787094574008). | ✅ |
@@ -206,7 +206,7 @@ doc-extraction · Stripe (→ Phase D)._
 ## Ongoing — Maintenance / hygiene
 | Item | What | Status |
 |------|------|--------|
-| `/audit full` refresh | Last run 2026-08-05; ~18 PRs stale | ☐ |
+| `/audit full` refresh | Last run 2026-08-05; now **~85 PRs stale** (through #171 / N6). Every slice since has had per-PR reviews + targeted audits, but no whole-app sweep — due. | ☐ |
 | Dependabot holds | Memory notes ~6 held (major bumps); verify current state | ☐ (verify) |
 
 ---
