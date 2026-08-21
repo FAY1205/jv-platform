@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { pageParam, pageSizeParam, dateParam } from "@/lib/query-params";
 import { SEED_LEAD_STATUSES } from "@/modules/portal/statuses";
-import { tagsParam } from "@/modules/tags/schema";
+import { tagsParam, TAG_FILTER_MAX } from "@/modules/tags/schema";
 import { BOARD_MAX_PAGE } from "./board";
 
 // Global leads list query params (ADM). Zod-normalizes everything to canonical
@@ -185,3 +185,104 @@ export const EditLeadSchema = z.object({
 });
 
 export type EditLeadInputShape = z.infer<typeof EditLeadSchema>;
+
+// ── Bulk selection (WP-N6, N6-01/N6-02) — the ONE contract every bulk endpoint takes ──
+//
+// Two modes, and the difference is the whole point. `refs` is the checkbox path: an
+// explicit, bounded id list (the same 1..200 bound the legacy assign-bulk route already
+// carries — a hand-built list is a request payload, so it stays small). `filter` is the
+// escalation path ("Select all N matching this filter"): NO id list travels, the server
+// re-resolves what "matching" means from the same predicate the list endpoint uses
+// (`leadsFilterConds`), so the set the write touches is the set the count promised.
+//
+// N6-02 — the write arm is STRICT, and that is a deliberate divergence from the leads LIST
+// contract at the top of this file. A read filter degrades ("a filter UI should degrade, not
+// 400"): `?state=Arizona` quietly becomes no state filter, and the worst case is a wider
+// list than the operator expected. The SAME degrade on a WRITE silently widens the blast
+// radius of a bulk update — "assign the 12 Arizona leads" would become "assign all 40,000".
+// So: unknown keys and malformed values are a 400 here, never a default. The read-side
+// contract above is untouched.
+
+/** A lead reference id as it appears everywhere in the product (never the UUID). */
+export const LEAD_REF_RE = /^LD-\d{2}-\d{5,}$/;
+
+/** The checkbox path's bound — the existing assign-bulk ceiling, kept (owner A4: the
+ *  escalated FILTER path has no artificial ceiling; the server-resolved confirm count is
+ *  its guard). */
+export const BULK_REFS_MAX = 200;
+
+/** How many skipped refs a bulk response enumerates before it reports counts only (N6-06).
+ *  Nothing is silent either way: the per-reason counts are always exact. */
+export const BULK_SKIPPED_REFS_MAX = 500;
+
+/** Strict YYYY-MM-DD with the same round-trip guard `dateParam` applies — "2026-02-31"
+ *  is rejected here rather than degraded to no-filter. */
+const bulkDate = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}$/)
+  .refine((v) => {
+    const d = new Date(`${v}T00:00:00Z`);
+    return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === v;
+  }, "Not a real date.");
+
+/** "" means "this filter is off" — the leads page's `Filters` state uses empty strings for
+ *  unset controls, so the canonical empty must round-trip. Anything else must be well-formed. */
+const orEmpty = <T extends z.ZodTypeAny>(inner: T) => z.union([z.literal(""), inner]);
+
+/**
+ * N6-02 — the nine filter fields the saved-view blob picks, validated STRICTLY. The field
+ * LIST is the same one `SavedViewFiltersSchema` composes (SV-02); the field VALIDATORS are
+ * not, because those degrade by design. `strictObject` is what rejects an unknown key —
+ * including `page`/`pageSize`/`sort`, which are not filters and must never reach a resolver.
+ */
+export const BulkFilterSchema = z.strictObject({
+  q: z.string().trim().max(120).optional(),
+  // `UUID_RE`, not Zod's `.uuid()`: the filter fields must accept exactly what the READ
+  // validators accept (`partnerIdParam` / `tagsParam` use this same regex). Zod 4's `.uuid()`
+  // additionally enforces the RFC version/variant nibbles, so a stored id it rejects would
+  // make a saved view escalatable on the list but un-escalatable in a bulk write — strictness
+  // about MALFORMED input is the requirement (N6-02), being stricter than the read about
+  // well-formedness is a bug. The ACTION fields (the assign destination, the tag being
+  // attached) keep `.uuid()`, matching the existing single-lead body contracts.
+  partnerId: orEmpty(z.union([z.literal("unmatched"), z.string().regex(UUID_RE)])).optional(),
+  state: orEmpty(z.string().regex(/^[A-Za-z]{2}$/).transform((s) => s.toUpperCase())).optional(),
+  source: z.string().trim().max(80).optional(),
+  statuses: z.array(z.enum(LEAD_STATUS_FILTERS)).max(LEAD_STATUS_FILTERS.length).optional(),
+  hot: z.boolean().optional(),
+  tags: z.array(z.string().regex(UUID_RE)).max(TAG_FILTER_MAX).optional(),
+  dateFrom: orEmpty(bulkDate).optional(),
+  dateTo: orEmpty(bulkDate).optional(),
+});
+
+/** The canonical, fully-populated filter set a resolver consumes — every field present, so
+ *  no resolver branches on undefined. */
+export type BulkFilters = Required<z.infer<typeof BulkFilterSchema>>;
+
+/** Fill a parsed (all-optional) filter set out to the canonical shape. */
+export function canonicalBulkFilters(f: z.infer<typeof BulkFilterSchema>): BulkFilters {
+  return {
+    q: f.q ?? "",
+    partnerId: f.partnerId ?? "",
+    state: f.state ?? "",
+    source: f.source ?? "",
+    statuses: f.statuses ?? [],
+    hot: f.hot ?? false,
+    tags: f.tags ?? [],
+    dateFrom: f.dateFrom ?? "",
+    dateTo: f.dateTo ?? "",
+  };
+}
+
+/** N6-01 — the selection every bulk endpoint accepts. */
+export const BulkSelectionSchema = z.discriminatedUnion("mode", [
+  z.strictObject({
+    mode: z.literal("refs"),
+    leadRefs: z.array(z.string().regex(LEAD_REF_RE)).min(1).max(BULK_REFS_MAX),
+  }),
+  z.strictObject({
+    mode: z.literal("filter"),
+    filters: BulkFilterSchema,
+  }),
+]);
+
+export type BulkSelection = z.infer<typeof BulkSelectionSchema>;

@@ -5,6 +5,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ApiError, apiGet, apiMutate } from "@/lib/api";
 import { cn } from "@/lib/cn";
 import { fmtDateTime } from "@/lib/dates";
+import { NEW_OWNER_CONSEQUENCE } from "./transfer-copy";
 import {
   Dialog,
   SidePanel,
@@ -128,8 +129,8 @@ interface TransferCopy {
   consequence: string;
 }
 // A re-route to another partner (set/revert): the destination partner becomes the new owner.
-const NEW_OWNER_CONSEQUENCE =
-  "The new owner starts with a clean status timeline and cannot see the previous owner's status history or notes; the previous owner loses access to this lead.";
+// The sentence itself lives in ./transfer-copy so the bulk-assign confirm (N6-14) states the
+// identical consequence rather than a hand-copied paraphrase.
 function transferCopy(action: PartnerAction, d: LeadDetail, partners: Partner[]): TransferCopy | null {
   switch (action.action) {
     case "set": {

@@ -1078,10 +1078,17 @@ function Gallery() {
             </Card>
 
             <Card>
-              <CardHeader><CardTitle>Checkbox</CardTitle></CardHeader>
+              <CardHeader>
+                <CardTitle>Checkbox</CardTitle>
+                <span className="text-xs text-text-3">two-state · tri-state · disabled</span>
+              </CardHeader>
               <CardBody className="flex flex-col gap-3">
                 <Checkbox checked={checkA} onCheckedChange={setCheckA} label="Email digest" />
                 <Checkbox checked={checkB} onCheckedChange={setCheckB} label="In-app alerts" />
+                {/* N6-52: the tri-state arm. Filled like a checked box and marked with a DASH,
+                    reporting aria-checked="mixed" — "some of what this governs is selected".
+                    Used by the leads table's select-all-on-this-page header. */}
+                <Checkbox checked={false} indeterminate onCheckedChange={() => {}} label="Indeterminate (some selected)" />
                 <Checkbox checked={false} onCheckedChange={() => {}} label="Disabled" disabled />
               </CardBody>
             </Card>

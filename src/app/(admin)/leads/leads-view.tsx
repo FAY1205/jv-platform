@@ -5,14 +5,18 @@ import { useQuery, keepPreviousData, type UseQueryResult } from "@tanstack/react
 import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import { apiGet } from "@/lib/api";
+import { cn } from "@/lib/cn";
 import { fmtDate } from "@/lib/dates";
 import { LEAD_STATUS_FILTERS, DEFAULT_STATUS_FILTERS, isDefaultStatuses, type LeadSortField } from "@/modules/leads/schema";
+import { leadsQueryParams } from "@/modules/leads/filter-wire";
 import {
   AppShell, Card, Table, THead, TBody, Th, Tr, Td, PartnerTag, EmptyState, ClearFiltersButton, QueryErrorState, Skeleton,
-  Input, Combobox, DateRangePicker, Pagination, RowOpenButton, StatusSelect, SegmentedControl,
+  Input, Checkbox, Combobox, DateRangePicker, Pagination, RowOpenButton, StatusSelect, SegmentedControl,
   DEFAULT_PAGE_SIZE, usePageHeader, FilterPill, Tooltip, HotLeadIcon, StatusFilterMenu,
   LeadTags, TagChip, TagPicker, SavedViewsMenu, ColumnsMenu, type ColumnDef, type LeadTagView,
 } from "@/components";
+import { useCurrentUser } from "@/lib/use-current-user";
+import { BulkBar } from "./bulk-bar";
 import type { SavedViewFilters } from "@/modules/saved-views/schema";
 import { US_STATES } from "@/lib/us-states";
 import { googleSearchUrl } from "@/lib/search-links";
@@ -143,9 +147,26 @@ function LeadsBody({ initialQ, initialOpenRef = null, initialHot = false, initia
     router.replace(`${url.pathname}${url.search}`, { scroll: false });
   }, [router]);
 
+  // N6-50: the selection lives HERE (not in the table) — the panel, the bar and the table are
+  // all this component's children, and the escalated flag has to survive a page change.
+  // `selected` holds REF ids, the identity the rest of the product uses.
+  const [selected, setSelected] = React.useState<ReadonlySet<string>>(new Set());
+  const [allMatching, setAllMatching] = React.useState(false);
+
   const filterKey = `${filters.q}|${filters.partnerId}|${filters.state}|${filters.source}|${filters.statuses.join(",")}|${filters.hot}|${filters.tags.join(",")}|${filters.dateFrom}|${filters.dateTo}|${sort}|${dir}`;
   const [resetKey, setResetKey] = React.useState(filterKey);
-  if (filterKey !== resetKey) { setResetKey(filterKey); setPage(1); }
+  // N6-51 (owner A5): the selection survives PAGING and dies on any filter/sort change — the
+  // same render-time compare that already resets `page` (the Unmatched-page contract). Rows
+  // the operator can no longer see must not stay selected under a bulk action.
+  if (filterKey !== resetKey) { setResetKey(filterKey); setPage(1); setSelected(new Set()); setAllMatching(false); }
+
+  const clearSelection = React.useCallback(() => { setSelected(new Set()); setAllMatching(false); }, []);
+  // Touching any row/page checkbox while escalated drops back to page mode with that gesture
+  // applied — the escalation is a claim about a filter, and a hand edit contradicts it.
+  const editSelection = React.useCallback((edit: (prev: Set<string>) => void) => {
+    setAllMatching(false);
+    setSelected((prev) => { const next = new Set(prev); edit(next); return next; });
+  }, []);
 
   const onSort = (field: LeadSortField) => {
     if (sort === field) setDir((p) => (p === "asc" ? "desc" : "asc"));
@@ -243,6 +264,11 @@ function LeadsBody({ initialQ, initialOpenRef = null, initialHot = false, initia
           onPageChange={setPage}
           onPageSizeChange={(n) => { setPageSize(n); setPage(1); }}
           onClearFilters={clearFilters}
+          selected={selected}
+          allMatching={allMatching}
+          onEditSelection={editSelection}
+          onEscalate={() => setAllMatching(true)}
+          onClearSelection={clearSelection}
         />
       )}
 
@@ -463,18 +489,10 @@ function useLeadsPage({
 }) {
   return useQuery({
     queryKey: ["leads", filterKey, page, pageSize],
-    queryFn: () => {
-      const params = new URLSearchParams({ q: filters.q, sort, dir, page: String(page), pageSize: String(pageSize) });
-      if (filters.partnerId) params.set("partnerId", filters.partnerId);
-      if (filters.state) params.set("state", filters.state);
-      if (filters.source) params.set("source", filters.source);
-      if (filters.statuses.length) params.set("statuses", filters.statuses.join(","));
-      if (filters.hot) params.set("hot", "1");
-      if (filters.tags.length) params.set("tags", filters.tags.join(","));
-      if (filters.dateFrom) params.set("dateFrom", filters.dateFrom);
-      if (filters.dateTo) params.set("dateTo", filters.dateTo);
-      return apiGet<LeadsPage>(`/api/leads?${params.toString()}`);
-    },
+    // N6-50: the SHARED serializer (modules/leads/filter-wire), the same module the bulk
+    // bar's `mode:"filter"` body comes from — so the count this query reports and the set an
+    // escalated write touches are two renderings of one definition.
+    queryFn: () => apiGet<LeadsPage>(`/api/leads?${leadsQueryParams(filters, { sort, dir, page, pageSize })}`),
     // Perf: paging/sorting/filtering keeps the prior page visible (and its "N leads" count) instead of
     // wiping the table to skeletons on every change (mirrors portal-dashboard). isPending only fires
     // on the very first load; subsequent fetches are background refetches over the kept data.
@@ -486,6 +504,7 @@ function useLeadsPage({
 // ── Table (consumes only committed state → no keystroke reconciliation) ──
 function LeadsTable({
   leadsQ, filters, sort, dir, openRef, onSort, onOpen, onPageChange, onPageSizeChange, onClearFilters,
+  selected, allMatching, onEditSelection, onEscalate, onClearSelection,
 }: {
   leadsQ: UseQueryResult<LeadsPage, Error>;
   filters: Filters; sort: LeadSortField; dir: "asc" | "desc";
@@ -494,8 +513,38 @@ function LeadsTable({
   onSort: (f: LeadSortField) => void; onOpen: (ref: string) => void; onPageChange: (p: number) => void; onPageSizeChange: (n: number) => void;
   /** C-54: resets the filter bar through the page's single apply channel. */
   onClearFilters: () => void;
+  /** N6-50: the selection is the page's state; the table only renders and edits it. */
+  selected: ReadonlySet<string>;
+  allMatching: boolean;
+  onEditSelection: (edit: (next: Set<string>) => void) => void;
+  onEscalate: () => void;
+  onClearSelection: () => void;
 }) {
   const data = leadsQ.data;
+  const { canDo } = useCurrentUser();
+  // N6-52: the column exists only for seats that can ACT on a selection. PR B widens this to
+  // `|| canDo("data.export")` when Export joins the bar; until then a checkbox for an
+  // export-only seat would select rows nothing could be done with. Fail-closed while /api/me
+  // is in flight (useCurrentUser's contract), so it appears rather than disappears.
+  const selectable = canDo("leads.write");
+  const pageRefs = React.useMemo(() => (data?.leads ?? []).map((l) => l.refId), [data]);
+  // While escalated every visible row IS selected, so the checkboxes must read that way even
+  // though `selected` holds no ids (N6-50: the escalated selection is a filter, not a list).
+  const selectedOnPage = allMatching ? pageRefs.length : pageRefs.filter((r) => selected.has(r)).length;
+  const allPageSelected = pageRefs.length > 0 && selectedOnPage === pageRefs.length;
+  /**
+   * N6-51: any checkbox gesture drops out of escalated mode. Materializing THIS page first is
+   * what makes the drop-back non-destructive — un-ticking one row of an "all 641" selection
+   * leaves the rest of the page selected, rather than silently clearing everything the
+   * operator could see.
+   */
+  const editRows = (edit: (next: Set<string>) => void) =>
+    onEditSelection((next) => {
+      if (allMatching) for (const r of pageRefs) next.add(r);
+      edit(next);
+    });
+  const togglePage = (on: boolean) =>
+    editRows((next) => { for (const r of pageRefs) { if (on) next.add(r); else next.delete(r); } });
   // N3C-01/Q3: the workspace total, read from the SAME ["leads","counts"] cache entry the
   // shell's nav badges use (lib/lead-counts) — no second endpoint hit, and the header can
   // never disagree with the badge.
@@ -555,6 +604,19 @@ function LeadsTable({
           <ColumnsMenu columns={LEADS_COLUMNS} hidden={hiddenColumns} onToggle={toggleColumn} onReset={resetColumns} />
         </div>
       )}
+      {/* N6-53: the bar sits BETWEEN the count row and the table — it belongs to the rows it
+          acts on, and putting it above the Card keeps it visible while the table scrolls. */}
+      {selectable && data && !leadsQ.error && (
+        <BulkBar
+          filters={filters}
+          total={data.total}
+          selected={selected}
+          allMatching={allMatching}
+          onEscalate={onEscalate}
+          onClear={onClearSelection}
+          onApplied={onClearSelection}
+        />
+      )}
       <Card>
         {leadsQ.isPending ? (
           <div className="flex flex-col gap-3 p-5">{Array.from({ length: 8 }).map((_, i) => <Skeleton key={i} className="h-9 w-full" />)}</div>
@@ -574,14 +636,29 @@ function LeadsTable({
           // C-53: up to eight columns. `min-w-[760px]` is the point below which the percentage
           // columns (Seller 16% / Property 32% / Partner 14% / Tags 16%) stop being readable
           // and Status — the row's workflow control — starts falling off; the fade makes that
-          // clipping visible instead of leaving the table looking amputated.
-          <Table className="min-w-[760px]" ariaLabel="Leads" scrollHint>
+          // clipping visible instead of leaving the table looking amputated. N6-52's checkbox
+          // is a `fit` column ~28px wide, so the budget above is unchanged for read-only seats
+          // and only shifts by that much for seats that can act.
+          <Table className={selectable ? "min-w-[788px]" : "min-w-[760px]"} ariaLabel="Leads" scrollHint>
             {/* WP-UX-1 width budget (audit T1): IDs/dates/status take content width
                 (`fit`), Seller/Property/Partner absorb the leftover and ellipsize
                 (`clamp`) — a date never wraps to two lines, a name never wraps while
                 a neighbor column sits half-empty. Tags stays auto: chips wrap in place. */}
             <THead>
               <Tr>
+                {selectable && (
+                  <Th fit>
+                    {/* N6-52: tri-state. A partly-selected page reads as "mixed" to AT and
+                        draws a dash; activating it completes the page rather than clearing it,
+                        which is the gesture an operator means from a partial state. */}
+                    <Checkbox
+                      checked={allPageSelected}
+                      indeterminate={selectedOnPage > 0 && !allPageSelected}
+                      onCheckedChange={(on) => togglePage(selectedOnPage > 0 && !allPageSelected ? true : on)}
+                      ariaLabel="Select all leads on this page"
+                    />
+                  </Th>
+                )}
                 <Th fit sortable sortDir={sortDir("lead")} onSort={() => onSort("lead")}>Lead</Th>
                 {shown("seller") && <Th sortable sortDir={sortDir("seller")} onSort={() => onSort("seller")} className="w-[16%]">Seller</Th>}
                 {shown("property") && <Th className="w-[32%]">Property</Th>}
@@ -606,9 +683,30 @@ function LeadsTable({
                 <Tr
                   key={l.refId}
                   aria-current={l.refId === openRef ? "true" : undefined}
-                  className={"group " + CLICKABLE_ROW_CLASS + (l.refId === openRef ? " bg-brand-soft" : "")}
+                  aria-selected={selectable ? selected.has(l.refId) || allMatching : undefined}
+                  className={cn(
+                    "group",
+                    CLICKABLE_ROW_CLASS,
+                    // N6-54: the SELECTED wash is brand-soft. The open record now carries a
+                    // ring instead, so the two marks are distinguishable and can coexist on
+                    // one row (both also carry a non-colour signal: aria-current / the count
+                    // in the bar — PRN-14).
+                    (selected.has(l.refId) || allMatching) && "bg-brand-soft",
+                    l.refId === openRef && "ring-1 ring-inset ring-brand",
+                  )}
                   onClick={(e) => { if (rowClickGuard(e.target)) onOpen(l.refId); }}
                 >
+                  {selectable && (
+                    <Td fit>
+                      {/* rowClickGuard already defers to [role=checkbox] (lib/row-click), so
+                          selecting a row never also opens it — nothing to re-implement here. */}
+                      <Checkbox
+                        checked={selected.has(l.refId) || allMatching}
+                        onCheckedChange={(on) => editRows((next) => { if (on) next.add(l.refId); else next.delete(l.refId); })}
+                        ariaLabel={`Select ${l.refId}`}
+                      />
+                    </Td>
+                  )}
                   <Td fit>
                     <span className="inline-flex items-center gap-1.5">
                       <RowOpenButton className="text-xs" onClick={() => onOpen(l.refId)}>{l.refId}</RowOpenButton>
