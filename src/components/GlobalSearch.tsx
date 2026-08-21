@@ -1,8 +1,9 @@
 "use client";
 
 import * as React from "react";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
+import { NAV_SECTIONS } from "@/lib/admin-nav";
 import { apiGet } from "@/lib/api";
 import { cn } from "@/lib/cn";
 import {
@@ -11,6 +12,14 @@ import {
   isGlobalSearchHotkey,
   requestGlobalSearch,
 } from "@/lib/global-search";
+import {
+  leadsViewHref,
+  requestLeadsApplyView,
+  requestLeadsClearFilters,
+  requestLeadsOpenColumns,
+} from "@/lib/leads-actions";
+import { usePreferences } from "@/lib/preferences";
+import { useSavedViews } from "@/lib/saved-views-client";
 import { statusPillClass } from "@/lib/status-pill";
 import {
   SEARCH_MIN_CHARS,
@@ -23,6 +32,7 @@ import {
 import { Dialog } from "./Dialog";
 import { EmptyState } from "./EmptyState";
 import { HotLeadIcon } from "./HotLeadMark";
+import { NavIcon, type NavIconName } from "./NavIcon";
 import { QueryErrorState } from "./QueryErrorState";
 import { Skeleton } from "./Skeleton";
 
@@ -42,10 +52,33 @@ import { Skeleton } from "./Skeleton";
 /** Owner-approved: 400ms between the last keystroke and the request (SRCH-02). */
 export const SEARCH_DEBOUNCE_MS = 400;
 
+/**
+ * One row of the palette. Three of the five arms carry an `href` and are opened by
+ * `router.push`; `nav` joined them for N6-71's "Go to" group. The `action` arm (N6-70) is the
+ * new shape: it carries a `run` closure instead, and `go()` calls it.
+ *
+ * OWNER-PINNED (N6-72): no action in this palette MUTATES anything. Every `run` below either
+ * dispatches one of the leads page's view/filter events or navigates — there is no write, no
+ * `apiMutate`, no confirm-and-commit. A registry test asserts that (`global-search.test.tsx`),
+ * so an action that grew a mutation would fail the suite rather than ship a one-keystroke,
+ * un-undoable change to somebody's leads.
+ */
 type SearchItem =
   | { kind: "lead"; key: string; href: string; row: SearchLeadRow }
   | { kind: "partner"; key: string; href: string; row: SearchPartnerRow }
-  | { kind: "more"; key: string; href: string; label: string };
+  | { kind: "more"; key: string; href: string; label: string }
+  | { kind: "nav"; key: string; href: string; label: string; icon: NavIconName }
+  | { kind: "action"; key: string; label: string; hint?: string; run: () => void };
+
+/** A titled run of rows in the flat list. Headings ride the same `<ul>` so ONE cursor walks
+ *  every group (the pattern the Leads/Partners groups already used, generalized). */
+interface ItemGroup {
+  key: string;
+  label: string;
+  /** Printed beside the heading when the server knows a fuller total than the rows shown. */
+  total?: number;
+  items: SearchItem[];
+}
 
 /** `/leads?open=<ref>` is the house deep-link that opens the admin lead DIALOG
  *  (the same one the status notification and AI citations use). */
@@ -170,6 +203,27 @@ export function GlobalSearchOverlay() {
     };
     const onKey = (e: KeyboardEvent) => {
       if (!isGlobalSearchHotkey(e)) return;
+      // A11Y-04 (pr-review, HIGH): never open OVER a layer that has the user's attention. The
+      // palette became a place you can act from in N6-70, so layering it on top of an open
+      // confirm — a bulk assign's "Assign 641 leads", a Save/Update/Delete dialog — would let
+      // "Clear filters" reset the page state behind a modal that is still asking a question.
+      // Same rule (and same closest() shape) as the lead panel's ↑/↓ binding: yield to a key
+      // another layer has already claimed, and to the surfaces that own their own keyboard.
+      //
+      // Plain inputs are deliberately NOT excluded, unlike that binding: this is a modified
+      // chord, so it can never be mistaken for typing, and Ctrl-K out of the leads search box
+      // is a path operators actually use. An input INSIDE a dialog is already covered below.
+      //
+      // The re-entrant case is checked FIRST: the palette is itself a dialog, and it must keep
+      // swallowing its own hotkey (the browser's address bar must not win) rather than fall
+      // into the guard below.
+      if (open) {
+        e.preventDefault();
+        return;
+      }
+      if (e.defaultPrevented) return;
+      const t = e.target as HTMLElement | null;
+      if (t?.closest?.('[role="dialog"],[role="alertdialog"],[role="menu"],[role="listbox"],[data-radix-popper-content-wrapper]')) return;
       e.preventDefault(); // the browser's own Ctrl-K (address bar) must not win
       openFresh();
     };
@@ -193,29 +247,127 @@ export function GlobalSearchOverlay() {
   // in flight, the previous term's rows must not stay arrow-selectable underneath it.
   const data = query.data?.q === term ? query.data : undefined;
 
-  const items: SearchItem[] = React.useMemo(() => {
-    if (!data) return [];
-    const leads = data.leads.rows.map((row): SearchItem => ({ kind: "lead", key: `lead:${row.refId}`, href: leadHref(row.refId), row }));
-    // UXF-2.2: the "see the rest" row closes the Leads group — a real listbox option, so
-    // ↑↓ and ↵ reach it exactly like a result (SC 2.1.1), not a mouse-only afterthought.
-    const more: SearchItem[] =
-      data.leads.total > data.leads.rows.length
-        ? [{ kind: "more", key: "more:leads", href: overflowHref(data.q), label: `View all ${data.leads.total} in Leads` }]
-        : [];
-    const partners = data.partners.rows.map((row): SearchItem => ({ kind: "partner", key: `partner:${row.id}`, href: `/partners/${row.id}`, row }));
-    return [...leads, ...more, ...partners];
-  }, [data]);
+  // ── N6-71: the palette's actions ───────────────────────────────────────────────────────
+  // The saved-view roster is fetched when the palette OPENS, not on every admin page load.
+  // `views.own` — every seat has it, so there is nothing to gate. A failed read leaves the
+  // search half working and says so in an inline retry row (below) rather than silently
+  // showing an empty Actions group, which reads identically to "you have no views".
+  const viewsQ = useSavedViews(open);
+  const savedViews = viewsQ.data?.views;
 
-  /** Where the Partners group starts. Derived from the list rather than from
-   *  `leads.rows.length`, because the optional overflow row now sits between the groups.
-   *  −1 (no partner rows) simply means the heading never renders. */
-  const partnersStart = items.findIndex((it) => it.kind === "partner");
+  // Which page is underneath. The two page-scoped actions exist ONLY on /leads, where a
+  // `LeadsBody` is mounted and listening (N6-72) — elsewhere they would fire into the void, and
+  // a row that silently does nothing is worse than a row that isn't there. `Apply view` still
+  // works everywhere: off /leads it navigates instead of dispatching.
+  const pathname = usePathname() ?? "";
+  const onLeads = pathname === "/leads";
+  // …and the same rule one level down (audit-ux-flows): the board has no Columns menu, so in
+  // board mode that row would be a dead click. The preference store is the same one the leads
+  // page reads, so the palette and the page can never disagree about which view is up.
+  // "Clear filters" stays unconditional — the board honours the whole filter set.
+  const leadsListMode = usePreferences().leadsView === "list";
 
-  // Reset the cursor when the result set changes — adjusting state during render (the
-  // React-recommended alternative to an effect; the `seeded` pattern used elsewhere).
-  const [syncedKey, setSyncedKey] = React.useState(term);
-  if (syncedKey !== term) {
-    setSyncedKey(term);
+  const actionItems: SearchItem[] = React.useMemo(() => {
+    const out: SearchItem[] = [];
+    for (const v of savedViews ?? []) {
+      out.push({
+        kind: "action",
+        key: `view:${v.id}`,
+        label: `Apply view: ${v.name}`,
+        run: () =>
+          onLeads
+            ? requestLeadsApplyView({ id: v.id, name: v.name, filters: v.filters })
+            : router.push(leadsViewHref(v.id)),
+      });
+    }
+    if (onLeads) {
+      out.push({ kind: "action", key: "leads:clear", label: "Clear filters", hint: "this page", run: requestLeadsClearFilters });
+      if (leadsListMode) {
+        out.push({ kind: "action", key: "leads:columns", label: "Open Columns", hint: "this page", run: requestLeadsOpenColumns });
+      }
+    }
+    return out;
+  }, [savedViews, onLeads, leadsListMode, router]);
+
+  /** N6-71: the "Go to" destinations — the SHELL's own nav constant, not a second copy that
+   *  would drift the first time a page is added. Not capability-filtered, exactly like the
+   *  sidebar it mirrors. */
+  const navItems: SearchItem[] = React.useMemo(
+    () =>
+      NAV_SECTIONS.flatMap((section) =>
+        section.items.map((item): SearchItem => ({ kind: "nav", key: `nav:${item.href}`, href: item.href, label: item.label, icon: item.icon })),
+      ),
+    [],
+  );
+
+  // Actions filter on the LIVE input text, never the debounced/committed term: they are
+  // answered locally, and making them wait out the server debounce would read as a stall.
+  const filterText = q.trim().toLowerCase();
+  const labelMatch = React.useCallback(
+    (label: string) => filterText === "" || label.toLowerCase().includes(filterText),
+    [filterText],
+  );
+
+  /**
+   * The whole list, grouped. Matching Actions sit ABOVE the search groups (N6-71) — they are
+   * the thing the operator asked for by name, where a result is a thing they asked for by
+   * content — and "Go to" closes the list. Below the search minimum the two local groups are
+   * all there is, which is what turns the old dead "type 2 characters" state into a menu.
+   */
+  const groups: ItemGroup[] = React.useMemo(() => {
+    const out: ItemGroup[] = [];
+    const actions = actionItems.filter((it) => it.kind === "action" && labelMatch(it.label));
+    if (actions.length > 0) out.push({ key: "actions", label: "Actions", items: actions });
+
+    if (data) {
+      const leads = data.leads.rows.map((row): SearchItem => ({ kind: "lead", key: `lead:${row.refId}`, href: leadHref(row.refId), row }));
+      // UXF-2.2: the "see the rest" row closes the Leads group — a real listbox option, so
+      // ↑↓ and ↵ reach it exactly like a result (SC 2.1.1), not a mouse-only afterthought.
+      const more: SearchItem[] =
+        data.leads.total > data.leads.rows.length
+          ? [{ kind: "more", key: "more:leads", href: overflowHref(data.q), label: `View all ${data.leads.total} in Leads` }]
+          : [];
+      if (leads.length > 0) out.push({ key: "leads", label: "Leads", total: data.leads.total, items: [...leads, ...more] });
+      const partners = data.partners.rows.map((row): SearchItem => ({ kind: "partner", key: `partner:${row.id}`, href: `/partners/${row.id}`, row }));
+      if (partners.length > 0) out.push({ key: "partners", label: "Partners", total: data.partners.total, items: partners });
+    }
+
+    const nav = navItems.filter((it) => it.kind === "nav" && labelMatch(it.label));
+    if (nav.length > 0) out.push({ key: "nav", label: "Go to", items: nav });
+    return out;
+  }, [data, actionItems, navItems, labelMatch]);
+
+  const items: SearchItem[] = React.useMemo(() => groups.flatMap((g) => g.items), [groups]);
+  /** Each group's heading, keyed by the flat index of its first row — so one `<ul>` carries
+   *  every group and one cursor walks all of them. */
+  const headings = React.useMemo(() => {
+    const at = new Map<number, ItemGroup>();
+    let i = 0;
+    for (const g of groups) {
+      at.set(i, g);
+      i += g.items.length;
+    }
+    return at;
+  }, [groups]);
+
+  /** How many SERVER results are on screen — the empty state speaks for the search only, so
+   *  "No matches" still appears beside an action row that happened to match the same text. */
+  const resultCount = data ? data.leads.rows.length + data.partners.rows.length : 0;
+
+  // Reset the cursor when the list changes — adjusting state during render (the
+  // React-recommended alternative to an effect; the `seeded` pattern used elsewhere). Opening is
+  // covered separately by `openFresh`, which zeroes it synchronously.
+  //
+  // The key names every input that can RESHAPE the list, not just the two texts (pr-review +
+  // audit-ux-flows, HIGH): the saved-view roster resolves after the palette opens and PREPENDS
+  // "Apply view" rows above everything, and search results splice whole groups in. Either one
+  // shifts rows under a cursor the operator has already moved — and ↵ would then fire the row
+  // that slid into place. Clamping alone can't see that: the index stays valid, it just means
+  // something else now.
+  const cursorKey = `${filterText}|${term}|${savedViews ? savedViews.length : "pending"}|${data ? "results" : "none"}`;
+  const [syncedKey, setSyncedKey] = React.useState(cursorKey);
+  if (syncedKey !== cursorKey) {
+    setSyncedKey(cursorKey);
     if (active !== 0) setActive(0);
   }
   const cursor = items.length === 0 ? -1 : Math.min(active, items.length - 1);
@@ -231,9 +383,12 @@ export function GlobalSearchOverlay() {
     }, 0);
   }, []);
 
+  /** N6-70: ↵ (or a click) either navigates or RUNS. The palette closes FIRST either way — an
+   *  action that opens a menu on the page behind it must not be racing a scrim on its way out. */
   const go = (item: SearchItem) => {
     close();
-    router.push(item.href);
+    if (item.kind === "action") item.run();
+    else router.push(item.href);
   };
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -281,58 +436,93 @@ export function GlobalSearchOverlay() {
       </div>
 
       <div className="max-h-[52vh] overflow-auto px-2 py-2">
-        {!ready ? (
+        {/* N6-71 (audit-ux-flows): a failed roster read used to be indistinguishable from
+            "you have no saved views" — and off /leads this palette is the ONLY place a view can
+            be applied, so silence there is a dead end with no way back. Reported inline, with a
+            retry, in the same shape the views menu uses. Not a listbox option: it is not a
+            destination, and the arrow keys must keep walking rows that go somewhere. */}
+        {viewsQ.isError && (
+          <div className="mx-1 mb-1 flex items-center gap-2 rounded-lg bg-surface-2 px-3 py-2 text-step-1 text-text-3">
+            <span className="flex-1">Couldn&apos;t load your saved views.</span>
+            <button
+              type="button"
+              onMouseDown={(e) => e.preventDefault()} // keep focus in the input
+              onClick={() => void viewsQ.refetch()}
+              className="shrink-0 rounded text-step-1 font-semibold text-brand-ink underline-offset-2 hover:underline focus-visible:underline"
+            >
+              Retry
+            </button>
+          </div>
+        )}
+        {items.length > 0 && (
+          <ul role="listbox" id={listboxId} aria-label="Results and actions" className="space-y-0.5">
+            {items.map((item, i) => {
+              // Group headings ride the same flat list, so one cursor walks every group.
+              const heading = headings.get(i);
+              return (
+                <React.Fragment key={item.key}>
+                  {heading && <GroupHeading label={heading.label} total={heading.total} />}
+                  <li
+                    id={optionId(i)}
+                    role="option"
+                    aria-selected={i === cursor}
+                    onMouseDown={(e) => e.preventDefault()} // keep focus in the input
+                    onMouseEnter={() => setActive(i)}
+                    onClick={() => go(item)}
+                    className={cn(
+                      "flex cursor-pointer items-center gap-2.5 rounded-lg px-3 py-2 text-sm",
+                      i === cursor ? "bg-brand-soft text-text" : "text-text hover:bg-surface-2",
+                      item.kind === "more" && "font-semibold text-brand-ink",
+                    )}
+                  >
+                    {item.kind === "lead" ? (
+                      <LeadRow row={item.row} q={term} />
+                    ) : item.kind === "partner" ? (
+                      <PartnerRow row={item.row} q={term} />
+                    ) : item.kind === "nav" ? (
+                      <NavRow label={item.label} icon={item.icon} />
+                    ) : item.kind === "action" ? (
+                      <ActionRow label={item.label} hint={item.hint} />
+                    ) : (
+                      <MoreRow label={item.label} />
+                    )}
+                  </li>
+                </React.Fragment>
+              );
+            })}
+          </ul>
+        )}
+
+        {/* The SEARCH half's three async states. They sit under the list rather than replacing
+            it, because the local Actions / Go to rows are answerable with no server at all —
+            a skeleton over them would hide rows that are already usable. */}
+        {ready ? (
+          query.isError ? (
+            <QueryErrorState compact error={query.error} title="Couldn't run this search" onRetry={() => void query.refetch()} />
+          ) : !data ? (
+            <div className="space-y-2 px-2 py-2" aria-busy="true">
+              <Skeleton className="h-4 w-24" />
+              <Skeleton className="h-8 w-full" />
+              <Skeleton className="h-8 w-full" />
+              <Skeleton className="h-8 w-2/3" />
+            </div>
+          ) : resultCount === 0 ? (
+            <EmptyState compact title="No matches" description="Try a name, a phone number, an address, or a reference ID." />
+          ) : null
+        ) : items.length === 0 ? (
+          // Below the minimum AND nothing local matched: say what would help. With rows on
+          // screen this copy would be contradicted by the list right above it (N6-71).
           <p className="px-3 py-6 text-center text-step-1 text-text-3">
             Type at least {SEARCH_MIN_CHARS} characters to search leads and partners.
           </p>
-        ) : query.isError ? (
-          <QueryErrorState compact error={query.error} title="Couldn't run this search" onRetry={() => void query.refetch()} />
-        ) : !data ? (
-          <div className="space-y-2 px-2 py-2" aria-busy="true">
-            <Skeleton className="h-4 w-24" />
-            <Skeleton className="h-8 w-full" />
-            <Skeleton className="h-8 w-full" />
-            <Skeleton className="h-8 w-2/3" />
-          </div>
-        ) : items.length === 0 ? (
-          <EmptyState compact title="No matches" description="Try a name, a phone number, an address, or a reference ID." />
-        ) : (
-          <ul role="listbox" id={listboxId} aria-label="Search results" className="space-y-0.5">
-            {items.map((item, i) => (
-              <React.Fragment key={item.key}>
-                {/* Group headings ride the same flat list, so one cursor walks both groups. */}
-                {i === 0 && item.kind === "lead" && <GroupHeading label="Leads" total={data.leads.total} />}
-                {i === partnersStart && <GroupHeading label="Partners" total={data.partners.total} />}
-                <li
-                  id={optionId(i)}
-                  role="option"
-                  aria-selected={i === cursor}
-                  onMouseDown={(e) => e.preventDefault()} // keep focus in the input
-                  onMouseEnter={() => setActive(i)}
-                  onClick={() => go(item)}
-                  className={cn(
-                    "flex cursor-pointer items-center gap-2.5 rounded-lg px-3 py-2 text-sm",
-                    i === cursor ? "bg-brand-soft text-text" : "text-text hover:bg-surface-2",
-                    item.kind === "more" && "font-semibold text-brand-ink",
-                  )}
-                >
-                  {item.kind === "lead" ? (
-                    <LeadRow row={item.row} q={term} />
-                  ) : item.kind === "partner" ? (
-                    <PartnerRow row={item.row} q={term} />
-                  ) : (
-                    <MoreRow label={item.label} />
-                  )}
-                </li>
-              </React.Fragment>
-            ))}
-          </ul>
-        )}
+        ) : null}
       </div>
 
       <div className="flex flex-wrap gap-x-4 gap-y-1 border-t border-border px-4 py-2 text-step-0 text-text-3">
         <span>↑↓ navigate</span>
         <span>↵ open</span>
+        {/* N6-74: ↵ no longer only opens — on an action row it runs it, here and in the docs. */}
+        <span>↵ run</span>
         <span>esc close</span>
         <span className="ml-auto">Results respect your workspace scope</span>
       </div>
@@ -340,11 +530,53 @@ export function GlobalSearchOverlay() {
   );
 }
 
-function GroupHeading({ label, total }: { label: string; total: number }) {
+function GroupHeading({ label, total }: { label: string; total?: number }) {
   return (
     <li role="presentation" className="px-3 pb-1 pt-2 text-step-0 font-semibold uppercase tracking-[.08em] text-text-3">
-      {label} · <span className="num">{total}</span>
+      {label}
+      {/* The local groups (Actions / Go to) have no server-side total to print, and a count of
+          the rows already visible would be noise. */}
+      {total !== undefined && (
+        <>
+          {" · "}
+          <span className="num">{total}</span>
+        </>
+      )}
     </li>
+  );
+}
+
+/** N6-71: a "Go to" destination. Same glyph as the sidebar rail (one drawing — NavIcon), so
+ *  the palette's Leads row and the rail's Leads row are visibly the same place. */
+function NavRow({ label, icon }: { label: string; icon: NavIconName }) {
+  return (
+    <>
+      <NavIcon name={icon} className="h-4 w-4 shrink-0 text-text-3" />
+      <span className="flex-1">{label}</span>
+      <span aria-hidden="true" className="shrink-0 text-text-3">
+        →
+      </span>
+    </>
+  );
+}
+
+/** N6-70: an action row. The hint says WHERE it acts ("this page") — the same row on another
+ *  page would mean something else, so the scope is part of the label, not folklore. */
+function ActionRow({ label, hint }: { label: string; hint?: string }) {
+  return (
+    <>
+      {/* An SVG rather than a text glyph: decorative marks that live in the text stream end up
+          in copied text and in every string comparison over the row. */}
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className="shrink-0 text-text-3">
+        <path d="M20 11a8 8 0 0 0-13.7-5.2L3.5 8.5M20 5v4h-4" />
+        <path d="M4 13a8 8 0 0 0 13.7 5.2l2.8-2.7M4 19v-4h4" />
+      </svg>
+      {/* The separator is part of the TEXT, not a border: this row's accessible name is its
+          text content, and "Open Columnsthis page" is what a screen reader read out before it
+          (pr-review). */}
+      <span className="flex-1">{label}</span>
+      {hint && <span className="shrink-0 text-step-0 text-text-3">· {hint}</span>}
+    </>
   );
 }
 

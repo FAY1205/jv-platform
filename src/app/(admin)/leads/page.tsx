@@ -1,6 +1,7 @@
 import { LeadsView } from "./leads-view";
 import { tagsParam } from "@/modules/tags/schema";
 import { partnerIdParam } from "@/modules/leads/schema";
+import { savedViewIdParam } from "@/modules/saved-views/schema";
 
 // Server shell: reads ?q= (the topbar search handoff) and hands it to the client
 // view as a prop. Deliberately NOT a useSearchParams()+Suspense client page —
@@ -17,9 +18,10 @@ export default async function LeadsPage({
     hot?: string | string[];
     tags?: string | string[];
     partnerId?: string | string[];
+    view?: string | string[];
   }>;
 }) {
-  const { q, open, hot, tags, partnerId } = await searchParams;
+  const { q, open, hot, tags, partnerId, view } = await searchParams;
   // ?open=<ref> deep-links a single lead straight into the dialog (P-1: the
   // status-change notification and AI citations land here, not the retired page).
   // ?hot=1 opens the list pre-filtered to hot leads (the hot-lead alert deep link).
@@ -31,6 +33,9 @@ export default async function LeadsPage({
   // detail page's "View all in Leads →"). Parsed by the SAME `partnerIdParam()` the two leads
   // endpoints embed, so the page and the API can never disagree about what `?partnerId=`
   // means — and a crafted value degrades to "no partner filter" rather than erroring.
+  // N6-72: ?view=<saved view id> opens the list with that view applied (the Ctrl-K palette's
+  // "Apply view" from a page other than this one). Shape-parsed here; the id is matched against
+  // the user's OWN saved-view roster client-side, so an unknown or foreign one is a no-op.
   return (
     <LeadsView
       initialQ={typeof q === "string" ? q : ""}
@@ -38,6 +43,7 @@ export default async function LeadsPage({
       initialHot={hot === "1" || hot === "true"}
       initialTags={tagsParam().parse(tags)}
       initialPartnerId={partnerIdParam().parse(partnerId) ?? ""}
+      initialViewId={savedViewIdParam().parse(view)}
     />
   );
 }
